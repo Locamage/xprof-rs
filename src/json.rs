@@ -9,6 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 pub const HOST_PID_STRIDE: u32 = 1000;
 const IEEE_LIMIT: u64 = 1 << 53;
 const INTERN_THRESHOLD: usize = 16;
+const ORDER_CHUNK: usize = 1 << 16;
+const FRAME_CHUNK: usize = 2048;
+const FRAME_OPEN: char = '\u{1}';
+const FRAME_CLOSE: char = '\u{2}';
 const LONG_NAME_LIMIT: usize = 10_000;
 const HASH_MUL: u64 = 0xc6a4a7935bd1e995;
 const HASH_SEED: u64 = 0xc70f6907;
@@ -129,20 +133,21 @@ fn table(views: &[View]) -> Vec<String> {
     sorted_texts(texts)
 }
 
-fn write_frames(out: &mut String, frames: &[String]) {
+fn frames_json(frames: &[String], start: usize) -> String {
+    let mut out = String::new();
     for (index, frame) in frames.iter().enumerate() {
-        write!(out, "{}\"{}\":{{\"name\":", if index > 0 { "," } else { "" }, index + 1).unwrap();
-        push_quoted(out, frame);
+        write!(out, "{}\"{}\":{{\"name\":", if start + index > 0 { "," } else { "" }, start + index + 1).unwrap();
+        push_quoted(&mut out, frame);
         out.push('}');
     }
+    out
 }
 
 pub fn stack_frames(planes: &[Plane], map: &[u8], events: &[Event], long_names: &HashMap<u32, Box<str>>) -> String {
     let mut texts = FxHashMap::<u64, String>::default();
     add_texts(&mut texts, planes, map, events, long_names);
-    let mut out = String::new();
-    write_frames(&mut out, &sorted_texts(texts));
-    out
+    let frames = sorted_texts(texts);
+    frames.par_chunks(FRAME_CHUNK).enumerate().map(|(chunk, part)| frames_json(part, chunk * FRAME_CHUNK)).collect()
 }
 
 fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &mut Vec<String>) -> (Vec<String>, Option<usize>) {
@@ -220,8 +225,16 @@ pub fn ordered(views: &[View]) -> Vec<(u32, u32)> {
         .iter()
         .enumerate()
         .flat_map(|(host, view)| {
-            let mut buckets = vec![Vec::new(); view.trace.tracks];
-            view.events.iter().for_each(|&index| buckets[view.trace.events[index as usize].track as usize].push(index));
+            let parts: Vec<Vec<Vec<u32>>> = view
+                .events
+                .par_chunks(ORDER_CHUNK)
+                .map(|chunk| {
+                    let mut buckets = vec![Vec::new(); view.trace.tracks];
+                    chunk.iter().for_each(|&index| buckets[view.trace.events[index as usize].track as usize].push(index));
+                    buckets
+                })
+                .collect();
+            let mut buckets: Vec<Vec<u32>> = (0..view.trace.tracks).into_par_iter().map(|track| parts.iter().flat_map(|part| part[track].iter().copied()).collect()).collect();
             buckets.retain(|bucket| !bucket.is_empty());
             buckets.sort_by_key(|bucket| {
                 let event = &view.trace.events[bucket[0] as usize];
@@ -259,7 +272,7 @@ pub fn counter_values(plane: &Plane, event: &Event, map: &[u8]) -> (Option<Box<s
     (first, values)
 }
 
-pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, extra: Option<Extra>, forced_entry: Option<u8>) {
+pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, extra: Option<Extra>, forced_entry: Option<u8>, marked: bool) {
     let (entry, category) = (forced_entry.unwrap_or(event.flow_entry), CONTEXT_TYPES.split('|').nth(event.flow_cat as usize).unwrap_or(""));
     out.push_str("{\"pid\":");
     number(out, pid as u64);
@@ -315,7 +328,11 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
         out.push('}');
     }
     if let Some(frame) = frame {
-        write!(out, ",\"sf\":{frame}").unwrap();
+        if marked {
+            write!(out, ",\"sf\":{FRAME_OPEN}{frame}{FRAME_CLOSE}").unwrap();
+        } else {
+            write!(out, ",\"sf\":{frame}").unwrap();
+        }
     }
     if event.serial > 0 {
         out.push_str(",\"z\":");
@@ -324,7 +341,7 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
     out.push('}');
     if event.resource == NONE_RESOURCE && entry == FLOW_MID && forced_entry.is_none() {
         out.push(',');
-        write_event(out, trace, event, pid, None, Some(FLOW_END));
+        write_event(out, trace, event, pid, None, Some(FLOW_END), marked);
     }
 }
 
@@ -396,7 +413,7 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
                 text.push_str("]}");
             }
             text.push_str(if position > 0 { "," } else { "" });
-            write_event(&mut text, view.trace, event, pid, frames.as_deref_mut().map(|frames| (&view.planes[event.plane as usize], view.map, frames)), None);
+            write_event(&mut text, view.trace, event, pid, frames.as_deref_mut().map(|frames| (&view.planes[event.plane as usize], view.map, frames)), None, detail);
         }
         if open.is_some() {
             text.push_str("]}");
@@ -412,25 +429,55 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
         bounds.push(end);
     }
     let pieces: Vec<&[(u32, u32)]> = bounds.windows(2).map(|window| &ordered[window[0]..window[1]]).collect();
-    let chunks: Vec<String> = if detail { vec![write_chunk(&ordered, Some(&mut frames))] } else { pieces.par_iter().map(|chunk| write_chunk(chunk, None)).collect() };
-    out.push_str("\"stackFrames\":{");
-    if reused {
-        out.push_str(&views[0].trace.stack_frames);
+    let chunks: Vec<String> = if detail {
+        let parts: Vec<(String, Vec<String>)> = pieces
+            .par_iter()
+            .map(|chunk| {
+                let mut found = Vec::new();
+                (write_chunk(chunk, Some(&mut found)), found)
+            })
+            .collect();
+        let offsets: Vec<usize> = parts.iter().scan(0, |total, (_, found)| Some(std::mem::replace(total, *total + found.len()))).collect();
+        let renumbered = parts.par_iter().zip(&offsets).map(|((text, _), &offset)| renumber(text, offset)).collect();
+        frames = parts.into_iter().flat_map(|(_, found)| found).collect();
+        renumbered
     } else {
-        write_frames(&mut out, &frames);
-    }
-    out.push_str("},\"traceEvents\":[");
-    out.push_str(&body);
+        pieces.par_iter().map(|chunk| write_chunk(chunk, None)).collect()
+    };
+    out.push_str("\"stackFrames\":{");
+    let listed: Vec<String> = if reused { Vec::new() } else { frames.par_chunks(FRAME_CHUNK).enumerate().map(|(chunk, part)| frames_json(part, chunk * FRAME_CHUNK)).collect() };
+    let middle = format!("}},\"traceEvents\":[{body}");
     let tail = format!("], \"showCounterMessage\": \"\" ,\"totalCounterEvents\":{counters}}}");
     let mut pieces: Vec<&[u8]> = vec![out.as_bytes()];
+    if reused {
+        pieces.push(views[0].trace.stack_frames.as_bytes());
+    }
+    pieces.extend(listed.iter().map(String::as_bytes));
+    pieces.push(middle.as_bytes());
+    let mut first = body.is_empty();
     for chunk in chunks.iter().filter(|chunk| !chunk.is_empty()) {
-        if pieces.len() > 1 || !body.is_empty() {
+        if !first {
             pieces.push(b",");
         }
+        first = false;
         pieces.push(chunk.as_bytes());
     }
     pieces.push(tail.as_bytes());
     concat(&pieces)
+}
+
+fn renumber(text: &str, offset: usize) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut rest = text;
+    while let Some(open) = rest.find(FRAME_OPEN) {
+        let (before, marked) = rest.split_at(open);
+        let close = marked.find(FRAME_CLOSE).unwrap_or(marked.len() - 1);
+        out.push_str(before);
+        out.push_str(&(marked[1..close].parse::<usize>().unwrap_or(0) + offset).to_string());
+        rest = &marked[close + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn concat(pieces: &[&[u8]]) -> Vec<u8> {

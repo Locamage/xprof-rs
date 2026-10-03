@@ -30,7 +30,7 @@ fn event(resource: u32, ts: u64, dur: u64, flow: u64, flow_entry: u8) -> Event {
 
 fn written(trace: &Trace, event: &Event) -> String {
     let mut out = String::new();
-    write_event(&mut out, trace, event, event.device, None, None);
+    write_event(&mut out, trace, event, event.device, None, None, false);
     out
 }
 
@@ -201,7 +201,7 @@ fn write_event_args() {
     let trace = Trace::build(&planes, "localhost", &map);
     let (mut out, mut frames) = (String::new(), Vec::new());
     let args_event = Event { group: 10, serial: 123_456, ..trace.events[0] };
-    write_event(&mut out, &trace, &args_event, 1, Some((&planes[0], &map, &mut frames)), None);
+    write_event(&mut out, &trace, &args_event, 1, Some((&planes[0], &map, &mut frames)), None, false);
     for expected in
         [r#""args":{"#, r#""group_id":10"#, r#""str_arg":"value""#, r#""int_arg":42"#, r#""uint_arg":100"#, r#""double_arg":3.14"#, r#""ref_arg":"ref_value""#, r#""sf":1"#, r#""z":123456"#]
     {
