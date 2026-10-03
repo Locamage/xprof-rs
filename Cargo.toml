@@ -2,7 +2,7 @@
 name = "xprof-rs"
 version = "0.1.0"
 edition = "2024"
-description = "Fast Rust backend for the XProf trace viewer, exact against XProf 2.23.2"
+description = "Fast Rust backend for the XProf trace viewer. Its output is the same as the output of XProf 2.23.2."
 license = "Apache-2.0"
 readme = "README.md"
 keywords = ["profiler", "xprof", "tpu", "jax", "tracing"]

@@ -129,9 +129,9 @@ async fn an_unreadable_store_answers_bad_gateway() {
     let state = state(&settings);
     let (status, _, message) = fetch(&state, "/data/plugin/profile/runs").await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{message}");
-    assert!(message.starts_with(&format!("cannot read file://{}", file.display())), "{message}");
+    assert!(message.starts_with(&format!("Cannot read file://{}", file.display())), "{message}");
     assert_eq!(fetch(&state, "/data/plugin/profile/version").await.0, StatusCode::OK);
-    assert!(arguments(["--logdir".to_string(), "gs://".to_string()]).unwrap_err().starts_with("cannot open gs://: "));
+    assert!(arguments(["--logdir".to_string(), "gs://".to_string()]).unwrap_err().starts_with("Cannot open gs://: "));
     std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     std::fs::remove_dir_all(&bucket).unwrap();
     std::fs::remove_dir_all(&settings.remote.unwrap().mirror).unwrap();

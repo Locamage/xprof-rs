@@ -45,15 +45,15 @@ impl PartialEq for Remote {
 
 impl Remote {
     pub fn open(url: &str) -> Result<Remote, String> {
-        let parsed = url::Url::parse(url).map_err(|error| format!("Log directory '{url}' is not a valid URL: {error}"))?;
-        let (store, root) = object_store::parse_url_opts(&parsed, std::env::vars()).map_err(|error| format!("cannot open {url}: {error}"))?;
+        let parsed = url::Url::parse(url).map_err(|error| format!("The log directory '{url}' is not a valid URL: {error}"))?;
+        let (store, root) = object_store::parse_url_opts(&parsed, std::env::vars()).map_err(|error| format!("Cannot open {url}: {error}"))?;
         Remote::new(url, Arc::from(store), root)
     }
 
     pub fn new(url: &str, store: Arc<dyn ObjectStore>, root: Key) -> Result<Remote, String> {
         let digest: String = Sha256::digest(url.as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect();
         let mirror = std::env::var_os(CACHE_DIR).map_or_else(std::env::temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}"));
-        let mirror = std::fs::create_dir_all(&mirror).and_then(|_| mirror.canonicalize()).map_err(|error| format!("cannot create the mirror {}: {error}", mirror.display()))?;
+        let mirror = std::fs::create_dir_all(&mirror).and_then(|_| mirror.canonicalize()).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
         let budget = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
         Ok(Remote { url: url.to_string(), mirror, budget, used: Mutex::default(), store, root, checked: Mutex::default(), locks: Mutex::default() })
     }
@@ -79,11 +79,11 @@ impl Remote {
         if self.checked.lock().unwrap().get(dir).is_some_and(|at| at.elapsed() < RECHECK) {
             return Ok(());
         }
-        let unreadable = |error: String| format!("cannot read {}: {error}", self.url);
-        let unwritable = |error: std::io::Error| format!("cannot write the mirror of {} in {}: {error}", self.url, self.mirror.display());
+        let unreadable = |error: String| format!("Cannot read {}: {error}", self.url);
+        let unwritable = |error: std::io::Error| format!("Cannot write the mirror of {} in {}: {error}", self.url, self.mirror.display());
         let listing = async |prefix: &Key| match tokio::time::timeout(LIST_TIMEOUT, self.store.list_with_delimiter(Some(prefix))).await {
             Ok(listed) => listed.map_err(|error| unreadable(error.to_string())),
-            Err(_) => Err(unreadable(format!("no answer within {LIST_TIMEOUT:?}"))),
+            Err(_) => Err(unreadable(format!("No answer in {LIST_TIMEOUT:?}"))),
         };
         if dir == self.mirror {
             let mut pending = vec![key];
@@ -157,8 +157,8 @@ impl Remote {
     pub async fn upload(&self, dir: &Path) -> Result<(), String> {
         let Some(key) = self.key(dir) else { return Ok(()) };
         for file in list(dir, |entry| entry.file_type().is_ok_and(|kind| kind.is_file())) {
-            let failed = |error: String| format!("cannot upload {} to {}: {error}", file.display(), self.url);
-            let name = file.file_name().and_then(|name| name.to_str()).ok_or_else(|| failed("not a UTF-8 file name".into()))?;
+            let failed = |error: String| format!("Cannot upload {} to {}: {error}", file.display(), self.url);
+            let name = file.file_name().and_then(|name| name.to_str()).ok_or_else(|| failed("The file name is not UTF-8".into()))?;
             let location = key.clone().join(PathPart::parse(name).map_err(|error| failed(error.to_string()))?);
             let bytes = std::fs::read(&file).map_err(|error| failed(error.to_string()))?;
             self.store.put(&location, PutPayload::from(bytes)).await.map_err(|error| failed(error.to_string()))?;

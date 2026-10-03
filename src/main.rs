@@ -111,7 +111,7 @@ const SWITCHES: [&str; 2] = ["--hide_capture_profile_button", "--enable_tab_name
 const VALUE_FLAGS: [&str; 7] = ["--logdir", "--port", "--host", "--src_prefix", "--grpc_port", "--worker_service_address", "--max_concurrent_worker_requests"];
 const NO_DATA: &str = "No Data";
 const OUTSIDE: &str = "Path outside logdir";
-const USAGE: &str = "usage: xprof-rs [--logdir DIR|URL] [--port PORT] [--host ADDRESS] [--src_prefix PREFIX] [--hide_capture_profile_button] [--enable_tab_name_label]\n       [--grpc_port PORT] [--worker_service_address ADDRESS] [--max_concurrent_worker_requests N]  (the last three are accepted and ignored)";
+const USAGE: &str = "usage: xprof-rs [--logdir DIR|URL] [--port PORT] [--host ADDRESS] [--src_prefix PREFIX] [--hide_capture_profile_button] [--enable_tab_name_label]\n       [--grpc_port PORT] [--worker_service_address ADDRESS] [--max_concurrent_worker_requests N]  (The server accepts the last three flags and does not use them.)";
 const SECURITY_POLICY: &str = "default-src 'self';script-src 'self' 'unsafe-eval' 'unsafe-inline' https://www.gstatic.com;object-src 'none';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com;font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com data:;connect-src 'self' data: www.gstatic.com;img-src 'self' blob: data:;frame-src 'self' https://ui.perfetto.dev;script-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/ https://www.gstatic.com";
 const ALL_HOSTS_ONLY: [&str; 3] = ["overview_page", "pod_viewer", "smart_suggestion"];
 const ALL_HOSTS_ALSO: [&str; 6] = ["input_pipeline_analyzer", "framework_op_stats", "kernel_stats", "overview_page", "pod_viewer", "megascale_stats"];
@@ -183,7 +183,7 @@ impl<T: Clone + Send + Sync + 'static> Memo<T> {
     }
 
     async fn get(self: &Arc<Self>, path: PathBuf, permits: &Arc<Semaphore>, build: fn(&Path) -> T) -> Outcome<T> {
-        let stamp = Stamp::of(&path).ok_or_else(|| Arc::from(format!("cannot read {}", path.display())))?;
+        let stamp = Stamp::of(&path).ok_or_else(|| Arc::from(format!("Cannot read {}", path.display())))?;
         if let Some((cached, outcome)) = self.cache.get(&path).await
             && cached == stamp
         {
