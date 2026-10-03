@@ -443,8 +443,7 @@ impl ToolData for Session {
 fn session_fractions(paths: &[PathBuf]) -> Option<Results> {
     let mut fractions = Results::new();
     for path in paths {
-        crate::counters::valid_space(&crate::read_file(path).ok()?).then_some(())?;
-        let (map, planes) = crate::prepare(path, true);
+        let (map, planes) = crate::prepare_map(crate::read_file(path).ok()?, true, true)?;
         let hostname = crate::xplane::fields(&map).find_map(|(tag, field)| match (tag, field) {
             (4, crate::xplane::Field::Bytes(_, name)) => Some(crate::xplane::lossy(name).into_owned()),
             _ => None,

@@ -548,16 +548,16 @@ impl Kept {
 }
 
 /// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
-pub fn load_kept(map: Vec<u8>, fused: bool) -> (Arc<OpStats>, Kept) {
-    let (map, planes) = crate::prepare_map(map, false);
+pub fn load_kept(map: Vec<u8>, fused: bool) -> Option<(Arc<OpStats>, Kept)> {
+    let (map, planes) = crate::prepare_map(map, false, true)?;
     let (stats, modules) = op_stats(&planes, &map, fused);
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
     let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
-    (Arc::new(stats), Kept { modules, fused, map, planes })
+    Some((Arc::new(stats), Kept { modules, fused, map, planes }))
 }
 
 pub fn load(path: &std::path::Path) -> Option<Arc<OpStats>> {
-    let (stats, kept) = load_kept(crate::read_file(path).unwrap(), true);
+    let (stats, kept) = load_kept(crate::read_file(path).unwrap(), true)?;
     crate::release(kept);
     Some(stats)
 }
