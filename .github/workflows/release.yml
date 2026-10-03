@@ -8,7 +8,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: The tag must match the version in Cargo.toml
         run: test "v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" = "${GITHUB_REF_NAME}"
   binary:
@@ -22,7 +22,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --locked --release
       - name: Make the archive
@@ -42,7 +42,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
