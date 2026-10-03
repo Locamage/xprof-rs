@@ -157,7 +157,7 @@ xprof-rs replaces the backend. It does not replace the complete XProf distributi
 
 - There is no distributed worker mode. There is no worker gRPC service. `/capture_profile` is a client.
 - There is no TLS. There is no authentication. There is no TensorBoard plugin loader.
-- xprof-rs runs on 64-bit Unix. There is no Windows build.
+- xprof-rs runs on 64-bit Unix. CI tests Linux on x86_64 and aarch64. There is no Windows build.
 
 **Tools**
 
