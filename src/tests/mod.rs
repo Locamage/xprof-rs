@@ -47,6 +47,7 @@ mod host_processing_bound_rule;
 mod inference_stats;
 mod inference_stats_grouping;
 mod inference_stats_sampler;
+mod json_parse;
 mod kernel_stats_db;
 mod kernel_stats_utils;
 mod layout;

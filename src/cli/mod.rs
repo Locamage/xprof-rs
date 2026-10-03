@@ -581,6 +581,17 @@ fn emit(error: &Error) -> (i32, Vec<u8>, String) {
     (code, format!("{}\n", payload.dumps()).into_bytes(), format!("{reason}: {message}\n{detail}"))
 }
 
+/// Runs both at once when the client allows it.
+pub fn both<A: Send, B: Send>(client: &dyn Client, first: impl FnOnce(&dyn Client) -> A, second: impl FnOnce(&dyn Client) -> B + Send) -> (A, B) {
+    match client.shared() {
+        Some(shared) => std::thread::scope(|scope| {
+            let second = scope.spawn(move || second(shared));
+            (first(shared), second.join().unwrap())
+        }),
+        None => (first(client), second(client)),
+    }
+}
+
 pub fn invoke(client: &mut Local, command: &str, argv: &[String]) -> Result<(Out, Vec<String>), Error> {
     let Some((_, text, handler)) = COMMANDS.iter().find(|(name, _, _)| *name == command) else {
         return fail(
@@ -606,7 +617,8 @@ pub fn execute(argv: &[String]) -> Option<(i32, Vec<u8>, String)> {
     if let Some((_, text, _)) = COMMANDS.iter().find(|(name, _, _)| name == command).filter(|_| argv.iter().skip(1).any(|argument| argument == "--help" || argument == "-h")) {
         return Some((0, format!("NAME\n    xprof {command}\n\nSYNOPSIS\n    xprof {command} {}\n", usage(&spec(text))).into_bytes(), String::new()));
     }
-    Some(match invoke(&mut Local::default(), command, &argv[1..]) {
+    // The process exits soon after. Dropping the loaded planes would only cost time.
+    Some(match invoke(Box::leak(Box::new(Local { fused: command == "check_host_boundness", ..Local::default() })), command, &argv[1..]) {
         Ok((_, leftover)) if !leftover.is_empty() => emit(&Error::new(Kind::Fire, format!("Could not consume arg: {}", leftover[0]))),
         Ok((out, _)) => {
             let spilled = match &out {
@@ -628,7 +640,8 @@ pub fn run(argv: &[String]) -> Option<i32> {
 }
 
 pub fn read(path: &Path) -> Result<Vec<u8>, Error> {
-    std::fs::read(path).map_err(|error| {
+    let big = std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() > (16 << 20));
+    (if big { crate::read_file(path) } else { std::fs::read(path) }).map_err(|error| {
         Error::new(
             if error.kind() == std::io::ErrorKind::NotFound { Kind::FileNotFound } else { Kind::Os },
             format!("[Errno {}] {}: {}", error.raw_os_error().unwrap_or(0), error.to_string().split(" (os error").next().unwrap_or_default(), json::py_repr(&path.to_string_lossy())),

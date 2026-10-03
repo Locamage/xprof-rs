@@ -2,10 +2,11 @@ use crate::derive::is_tensor_core;
 use crate::framework_op_stats::{is_jax_op_type, is_tf_op_name, is_tf_op_type, parse_tf_op};
 use crate::group::is_sparse_core;
 use crate::input_pipeline_analyzer::{TC_IDLE, tpu_step_details};
-use crate::opstats::{Builder, Db, EventReader, IDLE, Metrics, Template, safe_divide};
+use crate::opstats::{Builder, Db, EventReader, EventStats, IDLE, Metrics, Template, safe_divide};
 use crate::roofline::accumulate;
 use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, fields, slice, stats};
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -169,10 +170,10 @@ struct StepPrograms {
 
 type Scanned<'a> = ([Option<i64>; 9], Option<Cow<'a, str>>);
 type Op = ([Option<i64>; 4], [bool; 2]);
+type TimedEvent = (usize, (u64, u64));
 type Intervals = Vec<(u64, u64)>;
-type TimedEvent<'a> = (&'a Ev, (u64, u64));
 type Tracker = (Intervals, Option<(u64, u64)>);
-type CategoryTimes = (HashMap<(i64, i64), u32>, BTreeMap<String, u64>, u64);
+type CategoryTimes = (FxHashMap<(i64, i64), u32>, BTreeMap<String, u64>, u64);
 
 pub struct Device {
     pub events: StepEvents,
@@ -220,6 +221,7 @@ fn nest<T>(items: impl Iterator<Item = (Span, T)>, mut finish: impl FnMut(T, Spa
 fn step_programs(plane: &Plane, map: &[u8], templates: &[Template]) -> HashMap<i64, StepPrograms> {
     let mut markers: HashMap<i64, Vec<u64>> = HashMap::new();
     let mut ops: HashMap<i64, Vec<TimedEvent>> = HashMap::new();
+    let mut read: Vec<(&Ev, EventStats)> = Vec::new();
     let reader = EventReader::new(plane);
     for line in &plane.lines {
         if line.name == "Steps" {
@@ -232,23 +234,19 @@ fn step_programs(plane: &Plane, map: &[u8], templates: &[Template]) -> HashMap<i
             }
         } else if PROGRAM_LINES.contains(&line.name.as_str()) {
             ops.clear();
-            let events: Vec<(Span, &Ev)> = line
-                .events
-                .par_iter()
-                .filter(|event| event.group != NONE_GROUP)
-                .map(|event| {
-                    let (begin, duration) = reader.span(map, event);
-                    (Span { begin, duration }, event)
-                })
-                .collect();
-            nest(events.into_iter(), |event, span, self_time| ops.entry(event.group).or_default().push((event, (span.duration, self_time))));
+            read = line.events.iter().filter(|event| event.group != NONE_GROUP).map(|event| (event, reader.read(map, event))).collect();
+            let spans = read.iter().enumerate().map(|(index, (event, stats))| {
+                let (begin, duration) = stats.span(event);
+                (Span { begin, duration }, index)
+            });
+            nest(spans, |index, span, self_time| ops.entry(read[index].0.group).or_default().push((index, (span.duration, self_time))));
         }
     }
-    ops.into_par_iter()
+    ops.into_iter()
         .filter_map(|(group, events)| {
             let markers = markers.get(&group)?.clone();
             let mut builder = Builder::new(templates);
-            events.into_iter().for_each(|(event, times)| builder.add(event, &reader.read(map, event), times, false));
+            events.into_iter().for_each(|(index, times)| builder.add(read[index].0, &read[index].1, times, false));
             let (total_op_time_ps, (sums, infeed_outfeed)) = builder.program();
             Some((group, StepPrograms { markers, cores: vec![(total_op_time_ps, sums, infeed_outfeed)] }))
         })
@@ -256,6 +254,13 @@ fn step_programs(plane: &Plane, map: &[u8], templates: &[Template]) -> HashMap<i
 }
 
 pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &[Template], origin: u64, hostname: &str) -> Device {
+    let (programs, mut device) =
+        rayon::join(|| if is_tensor_core(&plane.name) { step_programs(plane, map, templates) } else { HashMap::new() }, || device_lines(plane, raw_plane, map, origin, hostname));
+    device.programs = programs;
+    device
+}
+
+fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostname: &str) -> Device {
     let ids = DEVICE_STATS.map(|name| plane.id(name));
     let (tensor, sparse) = (is_tensor_core(&plane.name), is_sparse_core(&plane.name));
     let step_core = if sparse { SPARSE_CORE_START } else { 0 } + plane.id as u32;
@@ -287,7 +292,7 @@ pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &[Te
         }
         let ops: Vec<Op> = line
             .events
-            .par_iter()
+            .iter()
             .map(|event| {
                 let (own, own_category) = scan(plane, slice(map, event.raw), 4, &ids);
                 let (meta, meta_category) = &metas[event.meta as usize];
@@ -317,7 +322,7 @@ pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &[Te
             }
         } else if op_line {
             let mut result: StepEvents = HashMap::new();
-            let mut dbs: HashMap<i64, CategoryTimes> = HashMap::new();
+            let mut dbs: FxHashMap<i64, CategoryTimes> = FxHashMap::default();
             let nested = grouped.map(|(_, event, [_, offset, duration, all_reduce], group)| {
                 if let Some(unique) = all_reduce {
                     let start = offset.map_or(event.ts.wrapping_add(origin), |value| value as u64);
@@ -361,9 +366,6 @@ pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &[Te
         }
         _ => None,
     });
-    if tensor {
-        device.programs = step_programs(plane, map, templates);
-    }
     device
 }
 
@@ -654,10 +656,11 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Vec<Template>]) -> Extra
         }
     }
     let tpu = extra.hardware == TPU;
-    for (index, (active, total)) in chips.into_values().flatten().enumerate().filter(|_| tpu) {
-        let active_ps = merged_active(active);
+    let trackers: Vec<Tracker> = if tpu { chips.into_values().flatten().collect() } else { Vec::new() };
+    let merged: Vec<(u64, u64)> = trackers.into_par_iter().map(|(active, total)| (merged_active(active), total.map_or(0, |(begin, end)| end - begin))).collect();
+    for (index, (active_ps, total_ps)) in merged.into_iter().enumerate() {
         extra.busy_ps[index % 2] += active_ps;
-        extra.idle_ps[index % 2] += total.map_or(0, |(begin, end)| end - begin).wrapping_sub(active_ps);
+        extra.idle_ps[index % 2] += total_ps.wrapping_sub(active_ps);
     }
     let mut sequence: Vec<(i64, [Metrics; 2])> = programs
         .into_iter()

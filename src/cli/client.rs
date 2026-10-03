@@ -3,8 +3,10 @@ use crate::opstats::{Kept, OpStats, load_kept};
 use crate::xplane::Plane;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
+/// A parameter of the local client only. The table then has the first row only.
+const TOTAL_ONLY: &str = "total_only";
 const KNOWN_TOOLS: [&str; 20] = [
     "overview_page",
     "input_pipeline_analyzer",
@@ -36,6 +38,11 @@ pub trait Client {
     fn run_dir(&self, session: &str) -> Result<PathBuf, Error>;
     fn logdir(&self) -> Option<&Path>;
 
+    /// The client as one that threads can share, when it is one.
+    fn shared(&self) -> Option<&(dyn Client + Sync)> {
+        None
+    }
+
     fn xspace_paths(&self, dir: &Path) -> Result<Vec<PathBuf>, Error> {
         let found = traces(dir);
         if found.is_empty() {
@@ -64,6 +71,11 @@ pub trait Client {
                 .map(|event| event.get("dur").and_then(serde_json::Value::as_f64).unwrap_or(0.0))
                 .collect(),
         )
+    }
+
+    /// The roofline table, of which the overview reads the first row only.
+    fn roofline_total(&self, session: &str) -> Option<String> {
+        self.fetch_text("roofline_model.json", session, &[]).ok()?.or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
     }
 
     fn fetch_text(&self, tool: &str, session: &str, params: &Params) -> Result<Option<String>, Error> {
@@ -111,14 +123,16 @@ fn latest_run(dir: &Path) -> Option<PathBuf> {
 #[derive(Default)]
 pub struct Local {
     pub logdir: Option<PathBuf>,
+    /// Loads traces with the fused children at once, for a command that needs them after other data.
+    pub fused: bool,
     pub loaded: Mutex<HashMap<PathBuf, Option<Arc<OpStats>>>>,
-    pub kept: Mutex<HashMap<PathBuf, Kept>>,
+    pub kept: RwLock<HashMap<PathBuf, Kept>>,
 }
 
 impl Local {
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
     fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> T {
-        if let Some(kept) = self.kept.lock().unwrap().get(path).filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::gpu::PREFIX))) {
+        if let Some(kept) = self.kept.read().unwrap().get(path).filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::gpu::PREFIX))) {
             return read(&kept.planes, &kept.map);
         }
         let (map, planes) = crate::prepare(path, true);
@@ -129,6 +143,14 @@ impl Local {
 impl Client for Local {
     fn logdir(&self) -> Option<&Path> {
         self.logdir.as_deref()
+    }
+
+    fn shared(&self) -> Option<&(dyn Client + Sync)> {
+        Some(self)
+    }
+
+    fn roofline_total(&self, session: &str) -> Option<String> {
+        self.fetch_text("roofline_model.json", session, &[(TOTAL_ONLY, String::new())]).ok()?.or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
     }
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
@@ -174,38 +196,44 @@ impl Client for Local {
         let options: HashMap<String, String> = params.iter().map(|(key, value)| (key.to_string(), flag(key, value))).collect();
         let option = |key: &str| options.get(key).map(String::as_str);
         let dir = paths[0].parent().map(Path::to_path_buf).unwrap_or_default();
-        let stats = || {
+        let stats = |fused: bool| {
             let mut loaded = self.loaded.lock().unwrap();
             if paths.len() > 1 {
                 return None;
             }
-            loaded
-                .entry(paths[0].clone())
-                .or_insert_with(|| {
-                    let map = crate::read_file(&paths[0]).unwrap();
-                    if !crate::counters::valid_space(&map) {
-                        return None;
-                    }
-                    let (stats, kept) = load_kept(map);
-                    self.kept.lock().unwrap().insert(paths[0].clone(), kept);
-                    Some(stats)
-                })
-                .clone()
+            let mut kept = self.kept.write().unwrap();
+            let stats = loaded.entry(paths[0].clone()).or_insert_with(|| {
+                let map = crate::read_file(&paths[0]).unwrap();
+                if !crate::counters::valid_space(&map) {
+                    return None;
+                }
+                let (stats, found) = load_kept(map, fused || self.fused);
+                kept.insert(paths[0].clone(), found);
+                Some(stats)
+            });
+            if let (Some(stats), Some(kept)) = (stats.as_mut(), kept.get_mut(&paths[0]).filter(|kept| fused && !kept.fused)) {
+                kept.fuse(Arc::make_mut(stats));
+            }
+            stats.clone()
         };
         let rendered = match name {
             "memory_profile" if paths.len() != 1 => return fail(Kind::Assertion, ""),
-            "memory_profile" => stats().map(|stats| stats.memory.clone()),
-            "overview_page" => stats().map(|stats| crate::overview_page::json(&stats, &paths)),
-            "input_pipeline_analyzer" => stats().map(|stats| crate::input_pipeline_analyzer::json(&stats)),
-            "framework_op_stats" => stats().map(|stats| crate::framework_op_stats::json(&stats)),
-            "kernel_stats" => stats().map(|stats| crate::gpu::kernel_stats_json(&stats)),
-            "pod_viewer" => stats().map(|stats| crate::pod_viewer::json(&stats)),
-            "op_profile" => stats().map(|stats| crate::op_profile::json(&stats, Some(option("group_by").unwrap_or("program")))),
-            "hlo_stats" => stats().map(|stats| crate::hlo_stats::json(&stats)),
-            "roofline_model" => stats().map(|stats| crate::roofline::json(&stats)),
+            "memory_profile" => stats(false).map(|stats| stats.memory.clone()),
+            "overview_page" => stats(false).map(|stats| crate::overview_page::json(&stats, &paths)),
+            "input_pipeline_analyzer" => stats(false).map(|stats| crate::input_pipeline_analyzer::json(&stats)),
+            "framework_op_stats" => stats(false).map(|stats| crate::framework_op_stats::json(&stats)),
+            "kernel_stats" => stats(false).map(|stats| crate::gpu::kernel_stats_json(&stats)),
+            "pod_viewer" => stats(false).map(|stats| crate::pod_viewer::json(&stats)),
+            "op_profile" => stats(true).map(|stats| crate::op_profile::json_trees(&stats, Some(option("group_by").unwrap_or("program")), false)),
+            "hlo_stats" => stats(true).map(|stats| crate::hlo_stats::json(&stats)),
+            "roofline_model" => stats(false).map(|stats| crate::roofline::json_rows(&stats, option(TOTAL_ONLY).is_some())),
             "memory_viewer" => crate::memory_viewer::serve(&dir, &options).map(|(body, _)| body),
             "graph_viewer" => return crate::graph_viewer::serve(&dir, &options).map(|(body, _)| Some(body)).map_err(|message| Error::new(Kind::Value, message)),
-            "utilization_viewer" | "perf_counters" => crate::counters::serve(name, &paths),
+            "utilization_viewer" | "perf_counters" => {
+                // A trace that the process has read already is not read or checked again.
+                let known = (name == "utilization_viewer" && paths.len() == 1).then(|| self.kept.read().unwrap().get(&paths[0]).map(|kept| crate::counters::utilization_viewer(&kept.map))).flatten();
+                known.or_else(|| crate::counters::serve(name, &paths))
+            }
             "kernel_utilization" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| {
                 let map = crate::read_file(&path).ok().filter(|map| crate::counters::valid_space(map))?;
                 let filter = crate::counters::Filter {

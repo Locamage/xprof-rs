@@ -2712,6 +2712,7 @@ dependencies = [
  "itoa",
  "libc",
  "libmimalloc-sys",
+ "memchr",
  "mimalloc",
  "moka",
  "num-bigint",

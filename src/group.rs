@@ -59,7 +59,7 @@ impl Typing {
     fn new(plane: &Plane, map: &[u8]) -> Typing {
         let kinds = plane
             .meta
-            .iter()
+            .par_iter()
             .map(|meta| match &*meta.full_name(map) {
                 "EagerExecute" => EAGER,
                 "TfOpRun" => TF_OP_RUN,
@@ -163,10 +163,11 @@ fn csr(nodes: usize, edges: &[(u32, u32)], by_child: bool) -> Members {
 fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
     let (plane, line) = (&planes[job.plane], &planes[job.plane].lines[job.line]);
     let (ordinal, mut out, mut stack) = (ordinal(plane, line), Out::default(), Vec::<(u32, u64, u64)>::new());
+    let generic = matches!(job.kind, Kind::Generic);
+    let mut nodes: Vec<(&Ev, u32)> = Vec::with_capacity(line.events.len());
     let mut parent = 0;
     for (index, event) in line.events.iter().enumerate() {
-        let end = event.ts + event.dur;
-        let node = match job.kind {
+        nodes.push(match job.kind {
             Kind::Child(base, grouping) => {
                 let parents = &plane.lines[grouping].events;
                 while parent < parents.len() && parents[parent].ts + parents[parent].dur <= event.ts {
@@ -175,43 +176,47 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
                 if parent == parents.len() {
                     break;
                 }
-                if parents[parent].ts > event.ts || parents[parent].ts + parents[parent].dur < end {
+                if parents[parent].ts > event.ts || parents[parent].ts + parents[parent].dur < event.ts + event.dur {
                     continue;
                 }
-                base + parent as u32
+                (event, base + parent as u32)
             }
-            _ => job.base + index as u32,
-        };
-        let links = plane.links(event.meta, slice(map, event.raw), ordinal);
-        if let Some(level) = links.root.filter(|_| matches!(job.kind, Kind::Generic)) {
+            _ => (event, job.base + index as u32),
+        });
+    }
+    let decoded: Vec<_> = nodes
+        .par_iter()
+        .with_min_len(1024)
+        .map(|&(event, _)| {
+            let kind = generic.then(|| typing.kind(map, event));
+            let value = |wanted: Option<usize>| stats(slice(map, event.raw), 4, |id| Some(id) == wanted).find_map(|stat| stat.value.int());
+            let values = matches!(kind, Some((EXECUTOR | TF_DATA, _))).then(|| (value(typing.step), value(typing.iteration)));
+            (plane.links(event.meta, slice(map, event.raw), ordinal), kind, values)
+        })
+        .collect();
+    for (&(event, node), (links, kind, values)) in nodes.iter().zip(decoded) {
+        if let Some(level) = links.root.filter(|_| generic) {
             out.roots.push((node, level));
         }
-        if matches!(job.kind, Kind::Generic) {
-            match typing.kind(map, event) {
-                (LAUNCH, Some(correlation)) => out.launches.push((correlation, node)),
-                (EXECUTE, correlation) => {
-                    out.executes.extend(correlation.map(|correlation| (correlation, node)));
-                    out.candidates.push(node);
-                }
-                (TF_OP_RUN, _) => out.candidates.push(node),
-                (EAGER, _) => out.eager.push(node),
-                (kind @ (EXECUTOR | TF_DATA), _) => {
-                    let value = |wanted: Option<usize>| stats(slice(map, event.raw), 4, |id| Some(id) == wanted).find_map(|stat| stat.value.int());
-                    match (kind, value(typing.step), value(typing.iteration)) {
-                        (EXECUTOR, Some(step), Some(iteration)) => out.executors.push((node, step, iteration)),
-                        (TF_DATA, Some(step), _) => out.tf_data.push(step),
-                        _ => {}
-                    }
-                }
-                _ => {}
+        match (kind, values) {
+            (Some((LAUNCH, Some(correlation))), _) => out.launches.push((correlation, node)),
+            (Some((EXECUTE, correlation)), _) => {
+                out.executes.extend(correlation.map(|correlation| (correlation, node)));
+                out.candidates.push(node);
             }
+            (Some((TF_OP_RUN, _)), _) => out.candidates.push(node),
+            (Some((EAGER, _)), _) => out.eager.push(node),
+            (Some((EXECUTOR, _)), Some((Some(step), Some(iteration)))) => out.executors.push((node, step, iteration)),
+            (Some((TF_DATA, _)), Some((Some(step), _))) => out.tf_data.push(step),
+            _ => {}
         }
         for (link, producer) in [(links.producer, true), (links.consumer, false)] {
             if let Some((id, kind)) = link {
                 out.contexts.push(((kind, id, links.pid), producer, node));
             }
         }
-        if matches!(job.kind, Kind::Generic) && links.asynchronous.is_none_or(|value| value == 0) {
+        if generic && links.asynchronous.is_none_or(|value| value == 0) {
+            let end = event.ts + event.dur;
             while let Some(&(top, begin, top_end)) = stack.last() {
                 if begin <= event.ts && end <= top_end {
                     out.edges.push((top, node));
@@ -490,7 +495,7 @@ fn align_device_lines(plane: &mut Plane, map: &[u8], names: &HashMap<i64, String
 }
 
 pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
-    if planes.par_iter().any(|plane| plane.meta.iter().any(|meta| LOOPS.contains(&&*meta.full_name(map)))) {
+    if planes.par_iter().any(|plane| plane.meta.par_iter().any(|meta| LOOPS.contains(&&*meta.full_name(map)))) {
         return None;
     }
     let typings: Vec<Typing> = planes.par_iter().map(|plane| Typing::new(plane, map)).collect();

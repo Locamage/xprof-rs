@@ -5,7 +5,10 @@ use crate::counters::{Event, Plane, events, planes, valid_space};
 use crate::obj;
 use crate::xplane::{Field, Value, fields, stats};
 use indexmap::IndexMap;
+use rayon::prelude::*;
 use regex::Regex;
+use rustc_hash::FxHashMap;
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 const MAX_SCANNED: usize = 5_000_000;
@@ -64,31 +67,78 @@ impl Visit<'_> {
     }
 }
 
-fn visit(paths: &[PathBuf], mut each: impl FnMut(&Visit) -> bool) -> Result<(), Error> {
+/// Runs `scan` on every plane of every trace file. The planes run in parallel. The results keep the order of the planes.
+fn scan_planes<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane) -> R + Sync) -> Result<Vec<R>, Error> {
+    let mut results = Vec::new();
     for path in paths {
         let map = super::read(path)?;
         if !valid_space(&map) {
             return fail(Kind::Value, "Failed to parse XSpace protobuf data");
         }
-        for plane in planes(&map, |_| true).iter() {
-            for bytes in &plane.lines {
-                let (mut line, mut timestamp) = (String::new(), 0);
-                for (tag, field) in fields(bytes) {
-                    match (tag, field) {
-                        (2, Field::Bytes(_, name)) => line = crate::xplane::lossy(name).into_owned(),
-                        (3, Field::Num(value)) => timestamp = value as i64,
-                        _ => {}
-                    }
-                }
-                for event in events(bytes) {
-                    if !each(&Visit { plane, line: &line, timestamp, event }) {
-                        return Ok(());
-                    }
-                }
+        results.extend(planes(&map, |_| true).par_iter().map(&scan).collect::<Vec<R>>());
+    }
+    Ok(results)
+}
+
+/// Calls `each` on every event of the plane, until it returns false. The result is false if it stopped.
+fn visit(plane: &Plane, mut each: impl FnMut(&Visit) -> bool) -> bool {
+    for bytes in &plane.lines {
+        let (mut line, mut timestamp) = (String::new(), 0);
+        for (tag, field) in fields(bytes) {
+            match (tag, field) {
+                (2, Field::Bytes(_, name)) => line = crate::xplane::lossy(name).into_owned(),
+                (3, Field::Num(value)) => timestamp = value as i64,
+                _ => {}
+            }
+        }
+        for event in events(bytes) {
+            if !each(&Visit { plane, line: &line, timestamp, event }) {
+                return false;
             }
         }
     }
+    true
+}
+
+/// Calls `each` on every event of every trace file, until it returns false.
+fn visit_all(paths: &[PathBuf], mut each: impl FnMut(&Visit) -> bool) -> Result<(), Error> {
+    for path in paths {
+        let map = super::read(path)?;
+        if !valid_space(&map) {
+            return fail(Kind::Value, "Failed to parse XSpace protobuf data");
+        }
+        if !planes(&map, |_| true).iter().all(|plane| visit(plane, &mut each)) {
+            break;
+        }
+    }
     Ok(())
+}
+
+/// The name of an event and if it matches. Only the events with a number as name need work for each event.
+struct Names<'a> {
+    pattern: &'a Regex,
+    known: FxHashMap<u64, (String, bool, bool)>,
+}
+
+impl<'a> Names<'a> {
+    fn new(pattern: &'a Regex) -> Self {
+        Names { pattern, known: FxHashMap::default() }
+    }
+
+    fn resolve(&mut self, visit: &Visit) -> (Cow<'_, str>, bool) {
+        let pattern = self.pattern;
+        let (name, numeric, matched) = self.known.entry(visit.event.meta).or_insert_with(|| {
+            let name = visit.raw_name();
+            let matched = pattern.is_match(&name);
+            (name.clone(), !name.is_empty() && name.chars().all(char::is_numeric), matched)
+        });
+        if *numeric {
+            let name = visit.name();
+            let matched = pattern.is_match(&name);
+            return (Cow::Owned(name), matched);
+        }
+        (Cow::Borrowed(name.as_str()), *matched)
+    }
 }
 
 fn sources(client: &dyn Client, source: &str) -> Result<Vec<PathBuf>, Error> {
@@ -134,30 +184,40 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
         let (max_events, offset) = (number("max_events", "<=", false)?.unwrap_or(100.0), number("offset", "<", true)?.unwrap_or(0.0));
         let (planes_re, events_re) = (regex(&args.string("plane_regex", ".*"))?, regex(&args.string("event_regex", ".*"))?);
         let keep = plane_filter(&planes_re);
-        let (mut listed, mut matched, mut skipped) = (Vec::new(), 0usize, 0usize);
-        visit(&sources(client, &session)?, |visit| {
-            if !keep(visit.plane) {
-                return true;
+        let wanted = if max_events <= 0.0 { f64::INFINITY } else { offset.max(0.0).ceil() + max_events.ceil() };
+        // Each plane keeps the first matches that can be in the answer. The planes join in order.
+        let parts = scan_planes(&sources(client, &session)?, |plane| {
+            let (mut listed, mut matched, mut names) = (Vec::new(), 0usize, Names::new(&events_re));
+            if keep(plane) {
+                visit(plane, |visit| {
+                    let offset_ps = (visit.start_ns() * 1000.0).trunc();
+                    let duration_ps = (visit.duration_ns() * 1000.0).trunc();
+                    if start.is_some_and(|start| offset_ps < start) || end.is_some_and(|end| offset_ps + duration_ps > end) {
+                        return true;
+                    }
+                    let (name, found) = names.resolve(visit);
+                    if found {
+                        matched += 1;
+                        if (listed.len() as f64) < wanted {
+                            listed.push((visit.line.to_string(), name.into_owned(), offset_ps as i128, duration_ps as i128));
+                        }
+                    }
+                    true
+                });
             }
-            let offset_ps = (visit.start_ns() * 1000.0).trunc();
-            let duration_ps = (visit.duration_ns() * 1000.0).trunc();
-            if start.is_some_and(|start| offset_ps < start) || end.is_some_and(|end| offset_ps + duration_ps > end) {
-                return true;
-            }
-            let name = visit.name();
-            if !events_re.is_match(&name) {
-                return true;
-            }
-            matched += 1;
-            if (skipped as f64) < offset {
-                skipped += 1;
-                return true;
-            }
-            if max_events <= 0.0 || (listed.len() as f64) < max_events {
-                listed.push(obj! {"plane" => visit.plane.name.clone(), "line_id" => visit.line, "event" => name, "offset_ps" => offset_ps as i128, "duration_ps" => duration_ps as i128});
-            }
-            true
+            (plane.name.clone(), listed, matched)
         })?;
+        let (mut listed, mut matched, mut skipped) = (Vec::new(), 0usize, 0usize);
+        for (plane, found, count) in parts {
+            matched += count;
+            for (line, name, offset_ps, duration_ps) in found {
+                if (skipped as f64) < offset {
+                    skipped += 1;
+                } else if max_events <= 0.0 || (listed.len() as f64) < max_events {
+                    listed.push(obj! {"plane" => plane.clone(), "line_id" => line, "event" => name, "offset_ps" => offset_ps, "duration_ps" => duration_ps});
+                }
+            }
+        }
         let returned = listed.len();
         Ok(obj! {"events" => listed, "returned" => returned, "total_matched" => matched, "truncated" => matched as f64 > returned as f64 + offset})
     };
@@ -170,19 +230,50 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
         let (planes_re, events_re) = (regex(&args.string("plane_regex", ".*"))?, regex(&args.string("event_regex", ".*"))?);
         let keep = plane_filter(&planes_re);
         let (mut durations, mut scanned): (IndexMap<String, Vec<i128>>, usize) = (IndexMap::new(), 0);
-        visit(&sources(client, &session)?, |visit| {
-            if !keep(visit.plane) {
-                return true;
+        let paths = sources(client, &session)?;
+        let parts = scan_planes(&paths, |plane| {
+            let (mut found, mut count, mut names) = (IndexMap::<String, Vec<i128>>::new(), 0usize, Names::new(&events_re));
+            if keep(plane) {
+                visit(plane, |visit| {
+                    let (name, matched) = names.resolve(visit);
+                    if matched {
+                        let duration = (visit.duration_ns() * 1000.0).trunc() as i128;
+                        match found.get_mut(&*name) {
+                            Some(values) => values.push(duration),
+                            None => _ = found.insert(name.into_owned(), vec![duration]),
+                        }
+                    }
+                    count += 1;
+                    true
+                });
             }
-            let name = visit.name();
-            if events_re.is_match(&name) {
-                durations.entry(name).or_default().push((visit.duration_ns() * 1000.0).trunc() as i128);
-            }
-            scanned += 1;
-            scanned <= MAX_SCANNED
+            (found, count)
         })?;
+        if parts.iter().map(|part| part.1).sum::<usize>() <= MAX_SCANNED {
+            for (found, count) in parts {
+                scanned += count;
+                for (name, values) in found {
+                    durations.entry(name).or_default().extend(values);
+                }
+            }
+        } else {
+            // The scan stops at the limit, in the middle of a plane.
+            visit_all(&paths, |visit| {
+                if !keep(visit.plane) {
+                    return true;
+                }
+                let name = visit.name();
+                if events_re.is_match(&name) {
+                    durations.entry(name).or_default().push((visit.duration_ns() * 1000.0).trunc() as i128);
+                }
+                scanned += 1;
+                scanned <= MAX_SCANNED
+            })?;
+        }
         let mut results: Vec<J> = durations
             .into_iter()
+            .collect::<Vec<_>>()
+            .into_par_iter()
             .map(|(name, values)| {
                 let total: i128 = values.iter().sum();
                 let floats: Vec<f64> = values.iter().map(|value| *value as f64).collect();
@@ -288,7 +379,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         let patterns: Vec<(Option<Regex>, &String)> = matchers.iter().map(|pattern| (Regex::new(pattern).ok(), pattern)).collect();
         let mut durations: IndexMap<String, Vec<f64>> = IndexMap::new();
         let (mut intervals, mut steps) = (Vec::new(), Vec::new());
-        visit(&sources(client, &source)?, |visit| {
+        visit_all(&sources(client, &source)?, |visit| {
             let plane = visit.plane.name.as_str();
             if !plane.starts_with("/device:") {
                 return true;
@@ -388,7 +479,7 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
     let function = args.text("func_name").filter(|name| !name.is_empty());
     let compute = || -> Result<Out, Error> {
         let mut durations = Vec::new();
-        visit(&sources(client, &source)?, |visit| {
+        visit_all(&sources(client, &source)?, |visit| {
             if visit.plane.name.starts_with("/device:") && visit.line.to_uppercase().contains("XLA MODULES") && function.as_ref().is_none_or(|function| visit.raw_name().contains(function.as_str())) {
                 durations.push(visit.duration_ns() / 1_000_000.0);
             }

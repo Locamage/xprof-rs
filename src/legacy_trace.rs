@@ -25,7 +25,9 @@ struct Event {
     args: BTreeMap<String, String>,
 }
 
-fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, events: &mut Vec<Event>) {
+fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, trimmed: bool, events: &mut Vec<Event>) {
+    // A scan for one name needs no other event, unless the event limit would cut the list. Only a step name can change a name.
+    let skip_others = only.filter(|_| trimmed && plane.stat_names.iter().all(|name| &**name != "step_name"));
     for line in plane.lines.iter().filter(|line| line.name != ASYNC_OPS_LINE) {
         let derived = !line.labels.is_empty();
         let ordinal = crate::group::ordinal(plane, line);
@@ -33,6 +35,16 @@ fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, events: &
             let meta = (!derived).then(|| &plane.meta[event.meta as usize]);
             if meta.is_some_and(|meta| meta.internal) {
                 continue;
+            }
+            if let Some(only) = skip_others.filter(|_| !line.steps.contains_key(&index)) {
+                let name = match meta {
+                    None => &*line.labels[event.meta as usize],
+                    Some(meta) if meta.display.is_empty() => &*meta.name,
+                    Some(meta) => &*meta.display,
+                };
+                if name != only {
+                    continue;
+                }
             }
             let all = only.is_none();
             let mut args = BTreeMap::new();
@@ -131,11 +143,12 @@ fn collect(planes: &[Plane], map: &[u8], only: Option<&str>) -> (Devices, Vec<Ev
             resources.1.insert(line.resource_id(), if line.display_name.is_empty() { line.name.clone() } else { line.display_name.clone() });
         }
     }
+    let trimmed = jobs.iter().map(|(_, plane)| plane.lines.iter().map(|line| line.events.len()).sum::<usize>()).sum::<usize>() <= MAX_EVENTS;
     let parts: Vec<Vec<Event>> = jobs
         .par_iter()
         .map(|&(device, plane)| {
             let mut events = Vec::new();
-            convert(device, plane, map, only, &mut events);
+            convert(device, plane, map, only, trimmed, &mut events);
             events
         })
         .collect();

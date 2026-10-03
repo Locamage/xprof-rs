@@ -1010,8 +1010,7 @@ fn app(state: Shared) -> Router {
         .with_state(state)
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let threads = std::thread::available_parallelism().map_or(1, usize::from).min(MAX_THREADS);
     rayon::ThreadPoolBuilder::new().num_threads(threads).build_global()?;
     if let Some(code) = cli::run(&std::env::args().skip(1).collect::<Vec<_>>()) {
@@ -1025,6 +1024,10 @@ async fn main() -> anyhow::Result<()> {
         eprintln!("{USAGE}\nxprof-rs: error: {error}");
         std::process::exit(2);
     });
+    tokio::runtime::Builder::new_multi_thread().worker_threads(threads).enable_all().build()?.block_on(listen(settings))
+}
+
+async fn listen(settings: Settings) -> anyhow::Result<()> {
     let Settings { port, host, .. } = &settings;
     let listener = match host {
         Some(host) => tokio::net::TcpListener::bind((host.as_str(), *port)).await,

@@ -312,7 +312,7 @@ fn named(bytes: &[u8]) -> Option<(u64, &[u8], &[u8])> {
 }
 
 fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
-    let mut line = Line { events: Vec::with_capacity(bytes.len() / 8), ..Default::default() };
+    let (mut line, mut bodies) = (Line::default(), Vec::with_capacity(bytes.len() / 32));
     let mut entries = fields(bytes);
     for (tag, field) in &mut entries {
         match (tag, field) {
@@ -321,28 +321,31 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
             (2, Field::Bytes(_, name)) => line.name = lossy(name).into(),
             (11, Field::Bytes(_, name)) => line.display_name = lossy(name).into(),
             (3, Field::Num(nanos)) => line.timestamp_ns = nanos as i64,
-            (4, Field::Bytes(start, body)) => {
-                let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start) as u32, body.len() as u32), meta: 0, eager: None };
-                let mut parts = fields(body);
-                let mut meta = 0;
-                for (tag, field) in &mut parts {
-                    match (tag, field) {
-                        (1, Field::Num(id)) => meta = id,
-                        (2, Field::Num(ts)) => event.ts = ts,
-                        (3, Field::Num(dur)) => event.dur = dur,
-                        _ => {}
-                    }
-                }
-                if !parts.complete() {
-                    return None;
-                }
-                event.meta = meta.min(limit) as u32;
-                line.events.push(event);
-            }
+            (4, Field::Bytes(start, body)) => bodies.push((offset + start, body)),
             _ => {}
         }
     }
-    entries.complete().then_some(line)
+    if !entries.complete() {
+        return None;
+    }
+    line.events = bodies
+        .par_iter()
+        .with_min_len(4096)
+        .map(|&(start, body)| {
+            let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: (start as u32, body.len() as u32), meta: 0, eager: None };
+            let mut parts = fields(body);
+            for (tag, field) in &mut parts {
+                match (tag, field) {
+                    (1, Field::Num(id)) => event.meta = id.min(limit) as u32,
+                    (2, Field::Num(ts)) => event.ts = ts,
+                    (3, Field::Num(dur)) => event.dur = dur,
+                    _ => {}
+                }
+            }
+            parts.complete().then_some(event)
+        })
+        .collect::<Option<Vec<Ev>>>()?;
+    Some(line)
 }
 
 fn mix(mut x: u64) -> u64 {

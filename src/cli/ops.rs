@@ -2,6 +2,7 @@ use super::client::Client;
 use super::json::J;
 use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round};
 use crate::obj;
+use rayon::prelude::*;
 use regex::Regex;
 use std::cmp::Ordering;
 use std::sync::LazyLock;
@@ -19,8 +20,18 @@ static TARGET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"custom_call_targ
 static OP_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"%([^%=]+) =").unwrap());
 
 pub fn field<'a>(node: &'a J, name: &str) -> &'a J {
-    let camel: String = name.split('_').enumerate().map(|(index, part)| if index == 0 { part.to_string() } else { part[..1].to_uppercase() + &part[1..] }).collect();
-    node.get(&camel).or_else(|| node.get(name)).unwrap_or(&J::Null)
+    let camel = |key: &str| {
+        let mut after = false;
+        key.chars().eq(name.chars().filter_map(|letter| {
+            if letter == '_' {
+                after = true;
+                None
+            } else {
+                Some(if std::mem::take(&mut after) { letter.to_ascii_uppercase() } else { letter })
+            }
+        }))
+    };
+    node.entries().iter().find(|(key, _)| camel(key)).or_else(|| node.entries().iter().find(|(key, _)| key == name)).map_or(&J::Null, |(_, value)| value)
 }
 
 fn number(node: &J, name: &str) -> f64 {
@@ -52,7 +63,23 @@ fn descending<T>(items: &mut [T], key: impl Fn(&T) -> f64) {
     items.sort_by(|left, right| key(right).partial_cmp(&key(left)).unwrap_or(Ordering::Equal));
 }
 
-fn profile(client: &dyn Client, session: &str, params: &[(&str, String)], missing: String, wrap: &str) -> Result<J, Error> {
+/// Frees the profile on another thread, so the caller does not wait for it.
+struct Parsed(J);
+
+impl std::ops::Deref for Parsed {
+    type Target = J;
+    fn deref(&self) -> &J {
+        &self.0
+    }
+}
+
+impl Drop for Parsed {
+    fn drop(&mut self) {
+        crate::release(std::mem::take(&mut self.0));
+    }
+}
+
+fn profile(client: &dyn Client, session: &str, params: &[(&str, String)], missing: String, wrap: &str) -> Result<Parsed, Error> {
     let fetched = (|| {
         let data = match client.fetch_text("op_profile", session, params)? {
             Some(data) => Some(data),
@@ -61,7 +88,7 @@ fn profile(client: &dyn Client, session: &str, params: &[(&str, String)], missin
         let data = data.ok_or_else(|| Error::new(Kind::FileNotFound, missing))?;
         J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse op_profile proto: ParseError('Failed to load JSON')"))
     })();
-    fetched.map_err(|error| rethrow(error, |error| format!("{wrap}{}", error.repr())))
+    fetched.map(Parsed).map_err(|error| rethrow(error, |error| format!("{wrap}{}", error.repr())))
 }
 
 pub fn get_profile_summary(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -415,12 +442,12 @@ pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         return fail(Kind::Type, "'float' object cannot be interpreted as an integer");
     }
     let top = |key: &str| {
-        let mut ops = flat.clone();
+        let mut ops: Vec<&J> = flat.iter().collect();
         descending(&mut ops, |op| op.at(key).float().unwrap_or(0.0));
         if limit > 0 {
             ops.truncate(limit as usize);
         }
-        ops
+        ops.into_iter().cloned().collect::<Vec<J>>()
     };
     let (by_time, by_flops, by_bytes) = (top("total_self_time_ms"), top("flops"), top("bytes_accessed"));
     let custom = by_time
@@ -451,8 +478,7 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
         .enumerate()
         .map(|(index, column)| Some(column.at("id")).filter(|id| id.truthy()).or(column.get("label")).map_or(format!("col_{index}"), J::text).to_lowercase())
         .collect();
-    let mut records = Vec::new();
-    for row in table.at("rows").items() {
+    let records = table.at("rows").items().par_iter().filter_map(|row| {
         let cells = row.at("c").items();
         let cell = |keys: &[&str]| -> Option<&J> {
             keys.iter().find_map(|key| {
@@ -465,7 +491,7 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
         let float = |keys: &[&str]| cell(keys).and_then(J::float).unwrap_or(0.0);
         let category = text(&["hlo_category", "category"], "");
         if category_filter.is_some_and(|filter| !category.to_lowercase().contains(&filter.trim().to_lowercase())) {
-            continue;
+            return None;
         }
         let expression = text(&["hlo_op_expression", "hlo_expression", "expression"], "");
         let op_name = match OP_NAME.captures(&expression) {
@@ -490,7 +516,7 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
                 None => source_file = info,
             }
         }
-        records.push(obj! {
+        Some(obj! {
             "rank" => safe_int(cell(&["rank"])),
             "program_id" => safe_int(cell(&["program_id"])),
             "category" => category,
@@ -506,9 +532,9 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
             "bound_by" => text(&["bound_by"], "Unknown"),
             "source_file" => source_file,
             "source_line" => source_line,
-        });
-    }
-    records
+        })
+    });
+    records.collect()
 }
 
 pub fn get_hlo_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -520,6 +546,7 @@ pub fn get_hlo_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let text = crate::xplane::lossy(&data);
     let table = J::parse(text.trim()).filter(|table| table.has("cols")).ok_or_else(|| Error::new(Kind::Value, "Failed to parse HloStatsDatabase proto: ParseError('Failed to load JSON')"))?;
     let mut records = stats_records(&table, args.text("category_filter").as_deref().filter(|filter| !filter.is_empty()));
+    crate::release(table);
     if records.is_empty() {
         return fail(Kind::FileNotFound, "No HLO stats records found");
     }
@@ -531,8 +558,8 @@ pub fn get_hlo_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         _ => "total_self_time_us",
     };
     descending(&mut records, |record| record.at(key).float().unwrap_or(0.0));
-    if limit > 0 {
-        records.truncate(limit as usize);
+    if limit > 0 && records.len() > limit as usize {
+        crate::release(records.split_off(limit as usize));
     }
     Ok(J::List(records).into())
 }

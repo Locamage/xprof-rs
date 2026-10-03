@@ -24,6 +24,7 @@ indexmap = "2.14.2"
 itertools = "0.15.0"
 itoa = "1.0.18"
 libc = "0.2.189"
+memchr = "2.8.3"
 libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
 mimalloc = "0.1.52"
 moka = { version = "0.12.16", features = ["future"] }

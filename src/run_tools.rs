@@ -99,8 +99,22 @@ pub fn cache_path(dir: &Path) -> PathBuf {
 
 pub(crate) fn python_string(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
+    python_string_into(&mut out, text);
+    out
+}
+
+/// Writes the text as a Python JSON string. Runs of plain characters are copied as they are.
+pub(crate) fn python_string_into(out: &mut String, text: &str) {
     out.push('"');
-    for character in text.chars() {
+    let (bytes, mut run, mut index) = (text.as_bytes(), 0, 0);
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if (b' '..=b'~').contains(&byte) && byte != b'"' && byte != b'\\' {
+            index += 1;
+            continue;
+        }
+        out.push_str(&text[run..index]);
+        let character = text[index..].chars().next().unwrap_or_default();
         match character {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
@@ -109,12 +123,13 @@ pub(crate) fn python_string(text: &str) -> String {
             '\t' => out.push_str("\\t"),
             '\u{8}' => out.push_str("\\b"),
             '\u{c}' => out.push_str("\\f"),
-            ' '..='~' => out.push(character),
             _ => character.encode_utf16(&mut [0; 2]).iter().for_each(|unit| write!(out, "\\u{unit:04x}").unwrap()),
         }
+        index += character.len_utf8();
+        run = index;
     }
+    out.push_str(&text[run..]);
     out.push('"');
-    out
 }
 
 pub(crate) fn python_value(value: &Value) -> String {
