@@ -9,11 +9,11 @@ XProf needs 10 to 25 seconds to convert a large `.xplane.pb` file for each cold 
 3. It keeps the result in a cache.
 4. It renders the time window that you zoom to.
 
-| Trace | Size | Events | Cold view | Warm view | Zoom |
+| Trace | Size | Events | Cold view | New window | Same window again |
 |---|---|---|---|---|---|
-| TPU v4-8 | 279 MB | 2.95 M | 0.63 s load | 128 ms | 5 ms |
+| TPU v4-8 | 279 MB | 2.95 M | 0.75 s load | 10 ms | 3 ms |
 
-The test machine has 4 cores. The load takes 2.0 s on one core. XProf takes 11 to 25 s for the same file.
+The test machine has 4 cores. The load takes 2.2 s on one core. XProf takes 11 to 25 s for the same file. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
 
 ## Install and start
 
@@ -58,14 +58,14 @@ The table shows the time on the 279 MB v4 trace.
 
 | Endpoint | XProf, cold | xprof-rs, first | xprof-rs, repeat |
 |---|---|---|---|
-| `trace_viewer@` | 11 to 25 s | 0.45 s | 2 ms |
-| `overview_page` | 18 s | 2.8 s (builds the shared statistics) | under 1 ms |
-| `op_profile` | 4.2 s | 0.35 s | 3 ms |
-| `hlo_stats` | 2.4 s | 0.35 s | 3 ms |
-| `framework_op_stats`, `input_pipeline_analyzer`, `roofline_model`, `memory_profile`, `kernel_stats` | 0.5 to 2.8 s | 1 to 75 ms | under 1 ms |
+| `trace_viewer@` | 12 s | 0.1 s | 3 ms |
+| `overview_page` | 18 s | 1.7 s (builds the shared statistics) | under 1 ms |
+| `op_profile` | 4.0 s | 0.16 s | 2 ms |
+| `hlo_stats` | 2.1 s | 0.13 s | 2 ms |
+| `framework_op_stats`, `input_pipeline_analyzer`, `roofline_model`, `memory_profile`, `kernel_stats`, `pod_viewer` | 0.35 to 2.7 s | 0 to 0.12 s | under 1 ms |
 | `memory_viewer`, `graph_viewer`, `module_list` | 2.3 s | 0.25 s | |
 
-The peak memory for all tools is about 2.4 GB. A 197 MB trace uses 1.6 GB.
+The peak memory of the server for all tools is 2.1 GB on 4 cores (XProf: 4.8 GB). A machine with more cores uses more memory, because more work runs at the same time.
 
 ## Remote log directories
 
@@ -132,9 +132,9 @@ The table shows the time on the 279 MB v4 trace.
 
 | Command | XProf | xprof-rs |
 |---|---|---|
-| `get_overview` | 18 s | 2.3 s |
-| `get_hlo_op_profile` | 25 s | 1.8 s |
-| `aggregate_xplane_events` | 25 s | 2.3 s |
+| `get_overview` | 18 s | 1.6 s |
+| `get_hlo_op_profile` | 25 s | 2.0 s |
+| `aggregate_xplane_events` | 25 s | 1.6 s |
 
 The CLI is different from the Python CLI in these points:
 
