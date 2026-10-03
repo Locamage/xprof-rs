@@ -21,7 +21,7 @@ form_urlencoded = "1.2.2"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 include_dir = "0.7.4"
 indexmap = "2.14.2"
-itertools = "0.14.0"
+itertools = "0.15.0"
 itoa = "1.0.18"
 libc = "0.2.189"
 libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
