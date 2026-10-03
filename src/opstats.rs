@@ -523,9 +523,11 @@ fn perf_env(plane: &Plane) -> Perf {
 
 pub fn load(path: &std::path::Path) -> Option<Arc<OpStats>> {
     let (map, planes) = crate::prepare(path, false);
-    let stats = Some(Arc::new(op_stats(&planes, &map)));
-    crate::release((map, planes));
-    stats
+    let (stats, modules) = op_stats(&planes, &map);
+    // SAFETY: the modules borrow `map`. `release` drops its tuple fields in order, so it drops the modules before `map`. The heap buffer of `map` does not move.
+    let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
+    crate::release((modules, map, planes));
+    Some(Arc::new(stats))
 }
 
 impl OpStats {
@@ -566,14 +568,15 @@ impl OpStats {
     }
 }
 
-fn op_stats(planes: &[Plane], map: &[u8]) -> OpStats {
+fn op_stats<'a>(planes: &[Plane], map: &'a [u8]) -> (OpStats, Vec<(u64, crate::hlo::Module<'a>)>) {
     let first = planes.iter().find(|plane| plane.name.starts_with("/device:TPU:"));
     let tpu = first.is_some();
     let gpus = crate::gpu::devices(planes);
     let templates: Vec<Vec<Template>> = planes.par_iter().map(|plane| if is_tensor_core(&plane.name) { templates(plane, map) } else { Vec::new() }).collect();
     let device = || {
         if !gpus.is_empty() {
-            return crate::gpu::device(planes, map, &gpus);
+            let (db, kernels) = crate::gpu::device(planes, map, &gpus);
+            return ((db, kernels), Vec::new());
         }
         let convert = || {
             let parts: Vec<Db> = planes.par_iter().zip(&templates).filter(|(plane, _)| is_tensor_core(&plane.name)).map(|(plane, templates)| convert_tensor_core(plane, map, templates)).collect();
@@ -583,9 +586,9 @@ fn op_stats(planes: &[Plane], map: &[u8]) -> OpStats {
         if tpu {
             crate::hlo::attach_fused(&modules, &mut db);
         }
-        (db, Vec::new())
+        ((db, Vec::new()), modules)
     };
-    let (((db, kernels), mut extra), (((host, infeed_enqueue), memory), programs)) = rayon::join(
+    let ((((db, kernels), modules), mut extra), (((host, infeed_enqueue), memory), programs)) = rayon::join(
         || rayon::join(device, || crate::steps::extra(planes, map, &templates)),
         || {
             rayon::join(
@@ -599,5 +602,5 @@ fn op_stats(planes: &[Plane], map: &[u8]) -> OpStats {
         crate::steps::fix(&mut extra, &db);
     }
     let perf = first.map_or_else(|| gpus.first().map_or_else(Perf::default, |plane| crate::gpu::perf_env(plane)), perf_env);
-    OpStats { db, perf, tpu, host, memory, extra: Arc::new(extra), programs, kernels }
+    (OpStats { db, perf, tpu, host, memory, extra: Arc::new(extra), programs, kernels }, modules)
 }
