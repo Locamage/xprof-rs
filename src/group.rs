@@ -184,38 +184,59 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
             _ => (event, job.base + index as u32),
         });
     }
-    let decoded: Vec<_> = nodes
-        .par_iter()
-        .with_min_len(1024)
-        .map(|&(event, _)| {
-            let kind = generic.then(|| typing.kind(map, event));
-            let value = |wanted: Option<usize>| stats(slice(map, event.raw), 4, |id| Some(id) == wanted).find_map(|stat| stat.value.int());
-            let values = matches!(kind, Some((EXECUTOR | TF_DATA, _))).then(|| (value(typing.step), value(typing.iteration)));
-            (plane.links(event.meta, slice(map, event.raw), ordinal), kind, values)
+    // Chunks decode their events in parallel. Only the nesting of the events needs them in order, and it needs one flag per event.
+    let parts: Vec<(Out, Vec<bool>)> = nodes
+        .par_chunks(1024)
+        .map(|chunk| {
+            let (mut part, mut nested) = (Out::default(), Vec::with_capacity(if generic { chunk.len() } else { 0 }));
+            for &(event, node) in chunk {
+                let links = plane.links(event.meta, slice(map, event.raw), ordinal);
+                if let Some(level) = links.root.filter(|_| generic) {
+                    part.roots.push((node, level));
+                }
+                let value = |wanted: Option<usize>| stats(slice(map, event.raw), 4, |id| Some(id) == wanted).find_map(|stat| stat.value.int());
+                match generic.then(|| typing.kind(map, event)) {
+                    Some((LAUNCH, Some(correlation))) => part.launches.push((correlation, node)),
+                    Some((EXECUTE, correlation)) => {
+                        part.executes.extend(correlation.map(|correlation| (correlation, node)));
+                        part.candidates.push(node);
+                    }
+                    Some((TF_OP_RUN, _)) => part.candidates.push(node),
+                    Some((EAGER, _)) => part.eager.push(node),
+                    Some((EXECUTOR, _)) => {
+                        if let (Some(step), Some(iteration)) = (value(typing.step), value(typing.iteration)) {
+                            part.executors.push((node, step, iteration));
+                        }
+                    }
+                    Some((TF_DATA, _)) => part.tf_data.extend(value(typing.step)),
+                    _ => {}
+                }
+                for (link, producer) in [(links.producer, true), (links.consumer, false)] {
+                    if let Some((id, kind)) = link {
+                        part.contexts.push(((kind, id, links.pid), producer, node));
+                    }
+                }
+                if generic {
+                    nested.push(links.asynchronous.is_none_or(|value| value == 0));
+                }
+            }
+            (part, nested)
         })
         .collect();
-    for (&(event, node), (links, kind, values)) in nodes.iter().zip(decoded) {
-        if let Some(level) = links.root.filter(|_| generic) {
-            out.roots.push((node, level));
-        }
-        match (kind, values) {
-            (Some((LAUNCH, Some(correlation))), _) => out.launches.push((correlation, node)),
-            (Some((EXECUTE, correlation)), _) => {
-                out.executes.extend(correlation.map(|correlation| (correlation, node)));
-                out.candidates.push(node);
-            }
-            (Some((TF_OP_RUN, _)), _) => out.candidates.push(node),
-            (Some((EAGER, _)), _) => out.eager.push(node),
-            (Some((EXECUTOR, _)), Some((Some(step), Some(iteration)))) => out.executors.push((node, step, iteration)),
-            (Some((TF_DATA, _)), Some((Some(step), _))) => out.tf_data.push(step),
-            _ => {}
-        }
-        for (link, producer) in [(links.producer, true), (links.consumer, false)] {
-            if let Some((id, kind)) = link {
-                out.contexts.push(((kind, id, links.pid), producer, node));
-            }
-        }
-        if generic && links.asynchronous.is_none_or(|value| value == 0) {
+    let mut nested = Vec::with_capacity(if generic { nodes.len() } else { 0 });
+    for (part, flags) in parts {
+        out.roots.extend(part.roots);
+        out.launches.extend(part.launches);
+        out.executes.extend(part.executes);
+        out.candidates.extend(part.candidates);
+        out.eager.extend(part.eager);
+        out.executors.extend(part.executors);
+        out.tf_data.extend(part.tf_data);
+        out.contexts.extend(part.contexts);
+        nested.extend(flags);
+    }
+    for (&(event, node), nested) in nodes.iter().zip(nested) {
+        if nested {
             let end = event.ts + event.dur;
             while let Some(&(top, begin, top_end)) = stack.last() {
                 if begin <= event.ts && end <= top_end {
@@ -408,10 +429,11 @@ fn plan_jobs(planes: &[Plane], full: bool) -> (Vec<Job>, u32, Vec<(u32, usize)>)
 }
 
 fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Graph, Vec<Vec<u32>>) {
-    let mut locs = Vec::with_capacity(nodes as usize);
-    for job in jobs.iter().filter(|job| !matches!(job.kind, Kind::Child(..))) {
-        locs.extend((0..planes[job.plane].lines[job.line].events.len() as u32).map(|event| (job.plane as u32, job.line as u32, event)));
-    }
+    let locs: Vec<(u32, u32, u32)> = jobs
+        .par_iter()
+        .filter(|job| !matches!(job.kind, Kind::Child(..)))
+        .flat_map_iter(|job| (0..planes[job.plane].lines[job.line].events.len() as u32).map(|event| (job.plane as u32, job.line as u32, event)))
+        .collect();
     let mut edges: Vec<(u32, u32)> = outs.iter().flat_map(|out| out.edges.iter().copied()).collect();
     let tf_data: FxHashSet<i64> = outs.iter().flat_map(|out| out.tf_data.iter().copied()).collect();
     let mut loops: BTreeMap<i64, BTreeMap<i64, Vec<u32>>> = BTreeMap::new();
@@ -439,7 +461,8 @@ fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Gra
     for (_, (producers, consumers)) in ordered.into_iter().filter(|(_, (producers, consumers))| producers.len() < FANOUT_LIMIT || consumers.len() < FANOUT_LIMIT) {
         edges.extend(producers.iter().flat_map(|&producer| consumers.iter().map(move |&consumer| (producer, consumer))));
     }
-    (Graph { kids: csr(nodes as usize, &edges, false), parents: csr(nodes as usize, &edges, true), locs }, iterations)
+    let (kids, parents) = rayon::join(|| csr(nodes as usize, &edges, false), || csr(nodes as usize, &edges, true));
+    (Graph { kids, parents, locs }, iterations)
 }
 
 fn classify_eager(walker: &Walker, outs: &[Out]) -> Vec<(u32, bool)> {

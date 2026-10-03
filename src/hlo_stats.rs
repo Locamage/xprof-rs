@@ -151,12 +151,23 @@ fn hlo_op_name(expression: &str) -> &str {
 }
 
 pub fn json(stats: &OpStats) -> String {
-    let mut records = Vec::new();
     let total_us = pico_to_micro(stats.db.total_time_ps);
-    let mut previous = Some((0, 0.0));
-    for metrics in stats.db.sorted() {
-        collect(&mut records, metrics, &mut previous, total_us, "");
+    let mut trees: Vec<Vec<Record>> = stats
+        .db
+        .sorted()
+        .into_par_iter()
+        .map(|metrics| {
+            let mut out = Vec::new();
+            collect(&mut out, metrics, &mut Some((0, 0.0)), total_us, "");
+            out
+        })
+        .collect();
+    let mut previous = (0, 0.0);
+    for top in trees.iter_mut().filter_map(|tree| tree.first_mut()) {
+        previous = (previous.0 + 1, previous.1 + top.self_fraction);
+        (top.rank, top.cumulative) = previous;
     }
+    let records: Vec<Record> = trees.into_iter().flatten().collect();
     let mut table = Table::new(&COLUMNS);
     table.rows = records
         .par_iter()
@@ -209,5 +220,7 @@ pub fn json(stats: &OpStats) -> String {
             row
         })
         .collect();
-    table.json()
+    let json = table.json();
+    crate::release(table);
+    json
 }

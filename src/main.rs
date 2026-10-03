@@ -61,25 +61,30 @@ use std::io::Read;
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::panic::AssertUnwindSafe;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::Semaphore;
 use tower_http::{CompressionLevel, catch_panic::CatchPanicLayer, compression::CompressionLayer};
 use trace::{MAX_SERIAL, Options, Trace};
 use xplane::Plane;
 
-const BUDGET_BYTES: u64 = 4 << 30;
-const RENDERED_BYTES: u64 = 1 << 30;
+/// The physical memory, which sizes the caches and the number of loads at once. A load needs about seven times the size of its file.
+static MEMORY: LazyLock<u64> = LazyLock::new(|| {
+    let (pages, size) = unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES), libc::sysconf(libc::_SC_PAGESIZE)) };
+    (pages.max(0) as u64).saturating_mul(size.max(0) as u64)
+});
+static BUDGET_BYTES: LazyLock<u64> = LazyLock::new(|| (*MEMORY / 8).clamp(256 << 20, 4 << 30));
 const IDLE: Duration = Duration::from_secs(3600);
 const POLL: Duration = Duration::from_secs(30);
 const FRESH: Duration = Duration::from_secs(2);
 const WATCHED_SESSIONS: usize = 8;
-const CONCURRENT_LOADS: usize = 2;
 const CONCURRENT_PREFETCHES: usize = 1;
 const GZIP_CHUNK: usize = 1 << 20;
 const GZIP_HEADER: [u8; 10] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
 const READ_CHUNK: usize = 16 << 20;
 const MAX_THREADS: usize = 32;
+/// `mi_option_purge_delay` of mimalloc 3, which `libmimalloc-sys` does not name.
+const PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
 const DEFAULT_PORT: u16 = 8791;
 const DEFAULT_GRPC_PORT: u16 = 50051;
 const DEFAULT_RESOLUTION: f64 = 8000.0;
@@ -178,7 +183,7 @@ struct Memo<T> {
 
 impl<T: Clone + Send + Sync + 'static> Memo<T> {
     fn new(weigh: impl Fn(&Stamp, &T) -> u64 + Send + Sync + 'static) -> Arc<Self> {
-        let cache = cache(BUDGET_BYTES, move |_, (stamp, outcome): &(Stamp, Outcome<T>)| outcome.as_ref().map_or(0, |value| weigh(stamp, value)));
+        let cache = cache(*BUDGET_BYTES, move |_, (stamp, outcome): &(Stamp, Outcome<T>)| outcome.as_ref().map_or(0, |value| weigh(stamp, value)));
         Arc::new(Memo { cache, flights: Flights::new() })
     }
 
@@ -888,7 +893,7 @@ async fn prefetch(state: Shared) {
             .take(WATCHED_SESSIONS)
             .flat_map(|(_, dir)| xplanes(&dir))
             .filter_map(|file| Stamp::of(&file).map(|stamp| (file, stamp)))
-            .filter(|(_, stamp)| stamp.len > 0 && stamp.len < BUDGET_BYTES && stamp.older_than(POLL))
+            .filter(|(_, stamp)| stamp.len > 0 && stamp.len < (*MEMORY / 32).min(*BUDGET_BYTES) && stamp.older_than(POLL))
             .collect();
         attempted.retain(|key| watched.contains(key));
         for key in watched {
@@ -960,10 +965,10 @@ fn state(settings: &Settings) -> Shared {
         config: run_tools::python_value(&config),
         hosts: Memo::new(|_, host: &Arc<Host>| host.bytes),
         stats: Memo::new(|stamp, _| stamp.len),
-        rendered: cache(RENDERED_BYTES, |key: &String, value: &Rendered| (key.len() + value.body.len()) as u64),
+        rendered: cache(*BUDGET_BYTES / 4, |key: &String, value: &Rendered| (key.len() + value.body.len()) as u64),
         renders: Flights::new(),
         extracts: Flights::new(),
-        loads: Arc::new(Semaphore::new(CONCURRENT_LOADS)),
+        loads: Arc::new(Semaphore::new(((*MEMORY >> 34) as usize).clamp(1, 2))),
     })
 }
 
@@ -1013,9 +1018,13 @@ fn app(state: Shared) -> Router {
 fn main() -> anyhow::Result<()> {
     let threads = std::thread::available_parallelism().map_or(1, usize::from).min(MAX_THREADS);
     rayon::ThreadPoolBuilder::new().num_threads(threads).build_global()?;
+    let purge_delay = unsafe { libmimalloc_sys::mi_option_get(PURGE_DELAY) };
+    // A command exits right after its output. Returning freed memory to the system before then only costs time.
+    unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, -1) };
     if let Some(code) = cli::run(&std::env::args().skip(1).collect::<Vec<_>>()) {
         std::process::exit(code);
     }
+    unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, purge_delay) };
     if std::env::args().any(|argument| argument == "--help" || argument == "-h") {
         println!("{USAGE}");
         return Ok(());

@@ -203,11 +203,13 @@ xprof-rs cannot copy these outputs.
 
 ## Memory
 
-- Three LRU caches hold converted traces (4 GiB), op statistics (4 GiB), and rendered responses (1 GiB, compressed). The total is about 9 GiB.
+- Three LRU caches hold converted traces, op statistics, and rendered responses (compressed). Each of the first two holds an eighth of the physical memory, at most 4 GiB. The third holds a quarter of that. On a machine with 32 GiB or more, the total is about 9 GiB.
+- The server loads 2 files at once on a machine with 32 GiB or more, and 1 file otherwise. A load needs about seven times the size of its file.
+- The server and the CLI use one thread per core, at most 32.
 - A cache removes an entry after one hour without use.
 - A trace that is larger than its cache is still served. The server caches it alone.
 - The server loads a file again when the size, the modification time, or the inode changes. It does not cache a file that changed in the last 2 s.
-- A background task loads the 8 newest sessions at startup and when a session changes. It loads only the files that did not change for 30 s. This task keeps about 0.7 GB more in memory for a 279 MB trace.
+- A background task loads the 8 newest sessions at startup and when a session changes. It loads only the files that did not change for 30 s and that are smaller than a thirty-second of the physical memory. This task keeps about 0.7 GB more in memory for a 279 MB trace.
 - A session of 4 hosts has 279 MB v4 traces. The trace viewer of all hosts takes 1.8 s. `overview_page` takes 3.8 s and a peak of 4.5 GB.
 - For 8 hosts, the times are 3.8 s and 5.2 s. The peak is 7.6 GB.
 
