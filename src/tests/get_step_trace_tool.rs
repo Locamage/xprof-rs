@@ -202,7 +202,10 @@ fn test_get_step_trace_pod_viewer_empty_breakdown_falls_back() {
         "input_pipeline_analyzer" => Some(pipeline.into()),
         _ => None,
     });
-    let summary = step_trace(&fake, &[]).at("summary").clone();
+    let result = step_trace(&fake, &[]);
+    let summary = result.at("summary").clone();
+    let step = &result.at("step_breakdown").items()[0];
+    assert!(step.at("communication_time_ms").float().unwrap().is_sign_positive(), "an empty sum must be 0.0, not -0.0");
     near(summary.at("step_time_ms_average"), 234.5234, 2);
     near(summary.at("compute_time_ms_average"), 231.9487, 2);
     assert!(summary.at("compute_percent").float().unwrap() > 95.0);

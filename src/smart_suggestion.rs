@@ -229,7 +229,7 @@ fn async_done_percent(data: &dyn ToolData) -> Data<f64> {
         .flat_map(|node| &node.children)
         .filter(|child| ASYNC_DONE_PREFIXES.contains(&child.name.split('.').next().unwrap_or("")))
         .map(|child| child.raw_time)
-        .sum();
+        .fold(0.0, |total, time| total + time);
     Ok(time / root.raw_time * 100.0)
 }
 
