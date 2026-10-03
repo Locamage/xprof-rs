@@ -443,10 +443,15 @@ impl Trace {
     }
 
     pub fn search(&self, prefix: &str, full_dma: bool) -> Vec<u32> {
-        let mut found: Vec<u32> = (0..self.events.len() as u32)
-            .filter(|&index| self.events[index as usize].serial < MAX_SERIAL && self.names[self.events[index as usize].name as usize].starts_with(prefix) && (full_dma || !self.is_dma_flow(index)))
+        let matching: Vec<bool> = self.names.par_iter().map(|name| name.starts_with(prefix)).collect();
+        let mut found: Vec<u32> = self
+            .events
+            .par_iter()
+            .enumerate()
+            .filter(|(index, event)| event.serial < MAX_SERIAL && matching[event.name as usize] && (full_dma || !self.is_dma_flow(*index as u32)))
+            .map(|(index, _)| index as u32)
             .collect();
-        found.sort_by_key(|&index| (self.events[index as usize].level, index));
+        found.par_sort_unstable_by_key(|&index| (self.events[index as usize].level, index));
         found
     }
 }
