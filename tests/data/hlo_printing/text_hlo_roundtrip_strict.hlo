@@ -1,0 +1,4 @@
+HloModule text_module
+ENTRY comp {
+  ROOT inst = f32[] parameter(0), metadata={metadata_payload="abc"}
+}

@@ -1,0 +1,63 @@
+[package]
+name = "xprof-rs"
+version = "0.1.0"
+edition = "2024"
+description = "Fast Rust backend for the XProf trace viewer, exact against XProf 2.23.2"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["profiler", "xprof", "tpu", "jax", "tracing"]
+categories = ["development-tools::profiling"]
+
+[dependencies]
+anyhow = "1.0.104"
+arcstr = "1.2.0"
+axum = "0.8.9"
+crc32fast = "1.5.2"
+flate2 = { version = "1.1.10", features = ["zlib-rs"], default-features = false }
+form_urlencoded = "1.2.2"
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+include_dir = "0.7.4"
+indexmap = "2.14.2"
+itertools = "0.14.0"
+itoa = "1.0.18"
+libc = "0.2.189"
+libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
+mimalloc = "0.1.52"
+moka = { version = "0.12.16", features = ["future"] }
+num-bigint = "0.5.1"
+num-traits = "0.2.19"
+object_store = { version = "0.14.2", features = ["gcp", "aws", "azure", "http"] }
+prost = "0.14.4"
+prost-reflect = { version = "0.16.5", features = ["serde"] }
+prost-types = "0.14.4"
+rayon = "1.12.0"
+regex = "1.13.1"
+rustc-hash = "2.1.3"
+ruzstd = "0.9.0"
+serde = "1.0.229"
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+sha2 = "0.11.0"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net"] }
+tonic = { version = "0.14.6", default-features = false, features = ["transport"] }
+tonic-prost = "0.14.6"
+tower-http = { version = "0.7.1", default-features = false, features = ["catch-panic", "compression-gzip"] }
+url = "2.5.8"
+
+[build-dependencies]
+prost-build = "0.14.4"
+prost-reflect = "0.16.5"
+prost-types = "0.14.4"
+
+[dev-dependencies]
+prost-reflect = { version = "0.16.5", features = ["text-format"] }
+tokio-stream = "0.1.19"
+tonic = { version = "0.14.6", default-features = false, features = ["transport", "server", "router"] }
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"

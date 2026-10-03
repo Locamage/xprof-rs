@@ -1,0 +1,5 @@
+xprof-rs
+
+This project reimplements the trace-viewer conversion pipeline of OpenXLA XProf (https://github.com/openxla/xprof)
+and the profiler utilities of OpenXLA XLA/TSL (https://github.com/openxla/xla), both copyright The TensorFlow
+Authors and licensed under the Apache License 2.0. The web interface served by xprof-rs is XProf's own: the files in static/ are copied unchanged from the XProf 2.23.2 Python package (Apache License 2.0, copyright The TensorFlow Authors) and embedded in the binary; this project only reimplements the backend.

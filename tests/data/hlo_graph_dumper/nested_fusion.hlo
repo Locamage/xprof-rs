@@ -1,0 +1,29 @@
+HloModule NestedFusion
+
+fused_computation.inner {
+  param_0.inner = f32[10,100]{1,0} parameter(0)
+  param_1.inner = f32[10,100]{1,0} parameter(1)
+  add.0 = f32[10,100]{1,0} add(param_0.inner, param_1.inner)
+  param_2.inner = f32[10,100]{1,0} parameter(2)
+  ROOT add.1 = f32[10,100]{1,0} add(add.0, param_2.inner)
+}
+
+fused_computation.outer {
+  param_0.outer = f32[10,100]{1,0} parameter(0)
+  param_1.outer = f32[10,100]{1,0} parameter(1)
+  param_2.outer = f32[10,100]{1,0} parameter(2)
+  fusion.inner = f32[10,100]{1,0} fusion(param_0.outer, param_1.outer, param_2.outer), kind=kLoop, calls=fused_computation.inner
+  param_3.outer = f32[10,100]{1,0} parameter(3)
+  add.2 = f32[10,100]{1,0} add(fusion.inner, param_3.outer)
+  param_4.outer = f32[10,100]{1,0} parameter(4)
+  ROOT add.3 = f32[10,100]{1,0} add(add.2, param_4.outer)
+}
+
+ENTRY b {
+  param0 = f32[10,100]{1,0} parameter(0)
+  param1 = f32[10,100]{1,0} parameter(1)
+  param2 = f32[10,100]{1,0} parameter(2)
+  param3 = f32[10,100]{1,0} parameter(3)
+  param4 = f32[10,100]{1,0} parameter(4)
+  ROOT fusion = f32[10,100]{1,0} fusion(param0, param1, param2, param3, param4), kind=kLoop, calls=fused_computation.outer
+}

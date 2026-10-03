@@ -1,0 +1,6 @@
+HloModule NanPayload_module, entry_computation_layout={()->bf16[2]{0}}
+
+ENTRY %NanPayload () -> bf16[2] {
+  ROOT %constant = bf16[2]{0} constant({-nan(0x7f), -nan(0x3f)})
+}
+

@@ -1,0 +1,13 @@
+command_buffer {
+      p0 = (f32[1024], f32[1024]) parameter(0)
+      gte.0 = f32[1024] get-tuple-element(p0), index=0
+      gte.1 = f32[1024] get-tuple-element(p0), index=1
+      ROOT tuple = (f32[1024], f32[1024]) tuple(gte.0, gte.1)
+    }
+    ENTRY comp {
+      p0 = f32[1024] parameter(0)
+      add.123 = f32[1024] add(p0, p0)
+      mul.456 = f32[1024] multiply(p0, p0)
+      tuple.1 = (f32[1024], f32[1024]) tuple(add.123, mul.456)
+      call.0 = (f32[1024], f32[1024]) call(tuple.1), to_apply=command_buffer
+    }

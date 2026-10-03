@@ -1,0 +1,8 @@
+HloModule test
+
+ENTRY %test {
+  %a = f32[2,10]{1,0} parameter(0), origin={{"a"}}
+  ROOT %v = abs(%a), origin={{"v"}}
+}
+
+

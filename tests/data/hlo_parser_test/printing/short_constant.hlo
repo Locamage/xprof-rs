@@ -1,0 +1,6 @@
+HloModule ShortConstant_module, entry_computation_layout={()->f32[67,89]{1,0}}
+
+ENTRY %ShortConstant.v4 () -> f32[67,89] {
+  ROOT %constant.1 = f32[67,89]{1,0} constant({...})
+}
+

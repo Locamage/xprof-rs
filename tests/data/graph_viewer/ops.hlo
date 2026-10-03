@@ -1,0 +1,22 @@
+HloModule ops, entry_computation_layout={(f32[8,16]{1,0}, f32[16,4]{1,0}, f32[4]{0})->(f32[8,4]{1,0}, f32[8]{0})}
+
+%sum (x: f32[], y: f32[]) -> f32[] {
+  %x = f32[] parameter(0)
+  %y = f32[] parameter(1)
+  ROOT %s = f32[] add(f32[] %x, f32[] %y)
+}
+
+ENTRY %main (lhs: f32[8,16], rhs: f32[16,4], bias: f32[4]) -> (f32[8,4], f32[8]) {
+  %lhs = f32[8,16]{1,0} parameter(0), sharding={devices=[2,1]0,1}
+  %rhs = f32[16,4]{1,0} parameter(1), sharding={replicated}
+  %bias = f32[4]{0} parameter(2)
+  %dot = f32[8,4]{1,0} dot(f32[8,16]{1,0} %lhs, f32[16,4]{1,0} %rhs), lhs_contracting_dims={1}, rhs_contracting_dims={0}, metadata={op_type="dot_general" op_name="jit(g)/dot_general"}
+  %bcast = f32[8,4]{1,0} broadcast(f32[4]{0} %bias), dimensions={1}
+  %biased = f32[8,4]{1,0} add(f32[8,4]{1,0} %dot, f32[8,4]{1,0} %bcast)
+  %zero = f32[] constant(0)
+  %reduce = f32[8]{0} reduce(f32[8,4]{1,0} %biased, f32[] %zero), dimensions={1}, to_apply=%sum
+  %cc = f32[8,4]{1,0} custom-call(f32[8,4]{1,0} %biased), custom_call_target="MyCustomCall", backend_config="{\"key\":\"value\"}"
+  %c = f32[2,2]{1,0} constant({ { 1, 2 }, { 3, 4 } })
+  %ar = f32[8]{0} all-reduce(f32[8]{0} %reduce), replica_groups={{0,1}}, to_apply=%sum
+  ROOT %out = (f32[8,4]{1,0}, f32[8]{0}) tuple(f32[8,4]{1,0} %cc, f32[8]{0} %ar)
+}

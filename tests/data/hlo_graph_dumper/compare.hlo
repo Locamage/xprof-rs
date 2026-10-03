@@ -1,0 +1,7 @@
+HloModule comp
+
+    ENTRY comp {
+      param.0 = f32[10] parameter(0)
+      param.1 = f32[10] parameter(1)
+      ROOT lt = pred[10] compare(param.0, param.1), direction=LT
+    }

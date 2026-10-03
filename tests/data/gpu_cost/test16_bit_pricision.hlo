@@ -1,0 +1,6 @@
+HloModule test_module
+ENTRY test {
+  x = bf16[2,4]{1,0} parameter(0)
+  y = bf16[2,4]{1,0} parameter(1)
+  ROOT add = f32[2,4]{1,0} convolution(x,y), dim_labels=012_012->012
+}

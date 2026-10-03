@@ -1,0 +1,18 @@
+HloModule indexed_conditional
+
+%then_branch (empty: ()) -> f32[] {
+  %empty = () parameter(0)
+  ROOT %then = f32[] constant(1)
+}
+
+%else_branch (empty.1: ()) -> f32[] {
+  %empty.1 = () parameter(0)
+  ROOT %else = f32[] constant(2)
+}
+
+ENTRY %conditional_select (constant: pred[]) -> (f32[]) {
+  %constant = pred[] parameter(0)
+  %emptytuple = () tuple()
+  %conditional = f32[] conditional(pred[] %constant, () %emptytuple, () %emptytuple), true_computation=%then_branch, false_computation=%else_branch
+  ROOT %t = (f32[]) tuple(f32[] %conditional)
+}

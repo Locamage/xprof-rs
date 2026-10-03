@@ -1,0 +1,5 @@
+HloModule Constant
+
+ENTRY b {
+  ROOT i_am_a_constant_root_instruction = f32[] constant(-42)
+}

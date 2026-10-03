@@ -1,0 +1,6 @@
+HloModule NegativeNan_module, entry_computation_layout={()->bf16[2]{0}}
+
+ENTRY %NegativeNan () -> bf16[2] {
+  ROOT %constant = bf16[2]{0} constant({-nan, -nan})
+}
+

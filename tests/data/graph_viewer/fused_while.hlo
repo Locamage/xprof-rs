@@ -1,0 +1,32 @@
+HloModule fused_while, entry_computation_layout={(f32[4]{0}, s32[])->(s32[], f32[4]{0})}
+
+%fused (p0: f32[4], p1: f32[4]) -> f32[4] {
+  %p0 = f32[4]{0} parameter(0)
+  %p1 = f32[4]{0} parameter(1)
+  %mul = f32[4]{0} multiply(f32[4]{0} %p0, f32[4]{0} %p1)
+  ROOT %add = f32[4]{0} add(f32[4]{0} %mul, f32[4]{0} %p0)
+}
+
+%cond (cond_state: (s32[], f32[4])) -> pred[] {
+  %cond_state = (s32[], f32[4]{0}) parameter(0)
+  %cond_i = s32[] get-tuple-element((s32[], f32[4]{0}) %cond_state), index=0
+  %limit = s32[] constant(10)
+  ROOT %lt = pred[] compare(s32[] %cond_i, s32[] %limit), direction=LT
+}
+
+%body (state: (s32[], f32[4])) -> (s32[], f32[4]) {
+  %state = (s32[], f32[4]{0}) parameter(0)
+  %i = s32[] get-tuple-element((s32[], f32[4]{0}) %state), index=0
+  %one = s32[] constant(1)
+  %next = s32[] add(s32[] %i, s32[] %one)
+  %x = f32[4]{0} get-tuple-element((s32[], f32[4]{0}) %state), index=1
+  %fusion = f32[4]{0} fusion(f32[4]{0} %x, f32[4]{0} %x), kind=kLoop, calls=%fused, metadata={op_type="Mul" op_name="jit(f)/while/body/mul" source_file="f.py" source_line=7}
+  ROOT %t = (s32[], f32[4]{0}) tuple(s32[] %next, f32[4]{0} %fusion)
+}
+
+ENTRY %main (a: f32[4], n: s32[]) -> (s32[], f32[4]) {
+  %a = f32[4]{0} parameter(0), metadata={op_type="Add" op_name="jit(f)/add" source_file="f.py" source_line=3}
+  %n = s32[] parameter(1)
+  %init = (s32[], f32[4]{0}) tuple(s32[] %n, f32[4]{0} %a)
+  ROOT %w = (s32[], f32[4]{0}) while((s32[], f32[4]{0}) %init), condition=%cond, body=%body, backend_config={"known_trip_count":{"n":"10"}}
+}

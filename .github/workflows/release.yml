@@ -1,0 +1,17 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  binary:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - run: tar -czf xprof-rs-${{ github.ref_name }}-x86_64-linux.tar.gz -C target/release xprof-rs
+      - run: gh release create ${{ github.ref_name }} xprof-rs-*.tar.gz --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

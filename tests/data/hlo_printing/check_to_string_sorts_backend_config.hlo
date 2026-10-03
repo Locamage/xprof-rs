@@ -1,0 +1,5 @@
+HloModule test
+
+ENTRY main {
+  ROOT custom-call = () custom-call(), custom_call_target="test", backend_config={"tuning_knobs":{"3":"0","2":"2"}}
+}

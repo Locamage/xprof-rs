@@ -1,0 +1,5 @@
+HloModule test
+
+ENTRY %test {
+  ROOT op = ((f32[], f32[3]{0}), f32[2,3]) parameter(0),  origin={(({}, {"v2"}), {"v3"})}
+}
