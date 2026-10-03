@@ -2,6 +2,7 @@ use crate::trace::{DERIVED_META, Device, Event, FLOW_END, FLOW_MID, FLOW_START, 
 use crate::xplane::{INTERNAL_STATS, Meta, NONE_GROUP, Plane, Value, lossy, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
@@ -81,48 +82,67 @@ fn put(texts: &mut FxHashMap<u64, String>, text: String) {
     }
 }
 
-fn table(views: &[View]) -> Vec<String> {
-    let mut texts = FxHashMap::<u64, String>::default();
+fn add_texts(texts: &mut FxHashMap<u64, String>, planes: &[Plane], map: &[u8], events: &[Event], long_names: &HashMap<u32, Box<str>>) {
     let framed = |plane: &Plane| plane.stat_names.iter().any(|name| matches!(&**name, "long_name" | "hlo_text"));
     let strings = |plane: &Plane, raw: &[u8], field: u32| -> Vec<String> {
         let named = |id: usize| plane.stat_names.get(id).is_some_and(|name| matches!(&**name, "long_name" | "hlo_text"));
         stats(raw, field, |_| true).filter(|stat| matches!(stat.value, Value::Str(_) | Value::Ref(_)) && named(stat.id)).map(|stat| long_text(&plane.text(&stat.value))).collect()
     };
-    for view in views {
-        let used: Vec<Vec<AtomicBool>> = view.planes.iter().map(|plane| plane.meta.iter().map(|_| AtomicBool::new(false)).collect()).collect();
-        view.trace.events.par_iter().filter(|event| event.meta != DERIVED_META).for_each(|event| used[event.plane as usize][event.meta as usize].store(true, Relaxed));
-        view.trace.long_names.values().for_each(|long| put(&mut texts, long_text(long)));
-        let metas: Vec<(&Plane, &Meta, bool)> =
-            view.planes.iter().zip(&used).flat_map(|(plane, flags)| plane.meta.iter().zip(flags).filter(|(_, used)| used.load(Relaxed)).map(move |(meta, _)| (plane, meta, framed(plane)))).collect();
-        let found = metas
-            .par_iter()
-            .fold(FxHashMap::default, |mut found, &(plane, meta, framed)| {
-                if !meta.display.is_empty() {
-                    put(&mut found, long_text(&meta.long_name(view.map)));
-                }
-                if framed {
-                    strings(plane, slice(view.map, meta.raw), 5).into_iter().for_each(|text| put(&mut found, text));
-                }
-                found
-            })
-            .reduce(FxHashMap::default, |mut left, right| {
-                left.extend(right);
-                left
-            });
-        texts.extend(found);
-        let framed: Vec<bool> = view.planes.iter().map(framed).collect();
-        let events: Vec<String> = view
-            .trace
-            .events
-            .par_iter()
-            .filter(|event| event.meta != DERIVED_META && framed[event.plane as usize])
-            .flat_map_iter(|event| strings(&view.planes[event.plane as usize], slice(view.map, event.raw), 4))
-            .collect();
-        events.into_iter().for_each(|text| put(&mut texts, text));
-    }
+    let used: Vec<Vec<AtomicBool>> = planes.iter().map(|plane| plane.meta.iter().map(|_| AtomicBool::new(false)).collect()).collect();
+    events.par_iter().filter(|event| event.meta != DERIVED_META).for_each(|event| used[event.plane as usize][event.meta as usize].store(true, Relaxed));
+    long_names.values().for_each(|long| put(texts, long_text(long)));
+    let metas: Vec<(&Plane, &Meta, bool)> =
+        planes.iter().zip(&used).flat_map(|(plane, flags)| plane.meta.iter().zip(flags).filter(|(_, used)| used.load(Relaxed)).map(move |(meta, _)| (plane, meta, framed(plane)))).collect();
+    let found = metas
+        .par_iter()
+        .fold(FxHashMap::default, |mut found, &(plane, meta, framed)| {
+            if !meta.display.is_empty() {
+                put(&mut found, long_text(&meta.long_name(map)));
+            }
+            if framed {
+                strings(plane, slice(map, meta.raw), 5).into_iter().for_each(|text| put(&mut found, text));
+            }
+            found
+        })
+        .reduce(FxHashMap::default, |mut left, right| {
+            left.extend(right);
+            left
+        });
+    texts.extend(found);
+    let framed: Vec<bool> = planes.iter().map(framed).collect();
+    let events: Vec<String> =
+        events.par_iter().filter(|event| event.meta != DERIVED_META && framed[event.plane as usize]).flat_map_iter(|event| strings(&planes[event.plane as usize], slice(map, event.raw), 4)).collect();
+    events.into_iter().for_each(|text| put(texts, text));
+}
+
+fn sorted_texts(texts: FxHashMap<u64, String>) -> Vec<String> {
     let mut sorted: Vec<(u64, String)> = texts.into_iter().collect();
     sorted.sort_unstable_by_key(|entry| entry.0);
     sorted.into_iter().map(|entry| entry.1).collect()
+}
+
+fn table(views: &[View]) -> Vec<String> {
+    let mut texts = FxHashMap::<u64, String>::default();
+    for view in views {
+        add_texts(&mut texts, view.planes, view.map, &view.trace.events, &view.trace.long_names);
+    }
+    sorted_texts(texts)
+}
+
+fn write_frames(out: &mut String, frames: &[String]) {
+    for (index, frame) in frames.iter().enumerate() {
+        write!(out, "{}\"{}\":{{\"name\":", if index > 0 { "," } else { "" }, index + 1).unwrap();
+        push_quoted(out, frame);
+        out.push('}');
+    }
+}
+
+pub fn stack_frames(planes: &[Plane], map: &[u8], events: &[Event], long_names: &HashMap<u32, Box<str>>) -> String {
+    let mut texts = FxHashMap::<u64, String>::default();
+    add_texts(&mut texts, planes, map, events, long_names);
+    let mut out = String::new();
+    write_frames(&mut out, &sorted_texts(texts));
+    out
 }
 
 fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &mut Vec<String>) -> (Vec<String>, Option<usize>) {
@@ -327,7 +347,8 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
         }
     }
     let ordered = ordered(views);
-    let mut frames = if detail { Vec::new() } else { table(views) };
+    let reused = views.len() == 1 && !detail;
+    let mut frames = if detail || reused { Vec::new() } else { table(views) };
     let is_counter = |&(host, index): &(u32, u32)| {
         let event = &views[host as usize].trace.events[index as usize];
         event.resource == NONE_RESOURCE && event.flow == NONE_FLOW
@@ -392,18 +413,39 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
     }
     let pieces: Vec<&[(u32, u32)]> = bounds.windows(2).map(|window| &ordered[window[0]..window[1]]).collect();
     let chunks: Vec<String> = if detail { vec![write_chunk(&ordered, Some(&mut frames))] } else { pieces.par_iter().map(|chunk| write_chunk(chunk, None)).collect() };
-    for chunk in chunks.iter().filter(|chunk| !chunk.is_empty()) {
-        body.push_str(if body.is_empty() { "" } else { "," });
-        body.push_str(chunk);
-    }
     out.push_str("\"stackFrames\":{");
-    for (index, frame) in frames.iter().enumerate() {
-        write!(out, "{}\"{}\":{{\"name\":", if index > 0 { "," } else { "" }, index + 1).unwrap();
-        push_quoted(&mut out, frame);
-        out.push('}');
+    if reused {
+        out.push_str(&views[0].trace.stack_frames);
+    } else {
+        write_frames(&mut out, &frames);
     }
     out.push_str("},\"traceEvents\":[");
     out.push_str(&body);
-    write!(out, "], \"showCounterMessage\": \"\" ,\"totalCounterEvents\":{counters}}}").unwrap();
-    out.into_bytes()
+    let tail = format!("], \"showCounterMessage\": \"\" ,\"totalCounterEvents\":{counters}}}");
+    let mut pieces: Vec<&[u8]> = vec![out.as_bytes()];
+    for chunk in chunks.iter().filter(|chunk| !chunk.is_empty()) {
+        if pieces.len() > 1 || !body.is_empty() {
+            pieces.push(b",");
+        }
+        pieces.push(chunk.as_bytes());
+    }
+    pieces.push(tail.as_bytes());
+    concat(&pieces)
+}
+
+fn concat(pieces: &[&[u8]]) -> Vec<u8> {
+    let total = pieces.iter().map(|piece| piece.len()).sum();
+    let mut out = Vec::<u8>::with_capacity(total);
+    let mut rest = out.spare_capacity_mut();
+    let mut targets = Vec::with_capacity(pieces.len());
+    for piece in pieces {
+        let (head, tail) = rest.split_at_mut(piece.len());
+        targets.push(head);
+        rest = tail;
+    }
+    targets.into_par_iter().zip(pieces).for_each(|(target, piece)| {
+        target.write_copy_of_slice(piece);
+    });
+    unsafe { out.set_len(total) };
+    out
 }
