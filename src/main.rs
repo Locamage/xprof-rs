@@ -274,18 +274,20 @@ fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
 }
 
 fn prepare(path: &Path, trace: bool) -> (Vec<u8>, Vec<Plane>) {
-    prepare_map(read_file(path).unwrap(), trace)
+    prepare_map(read_file(path).unwrap(), trace, false).unwrap()
 }
 
-fn prepare_map(map: Vec<u8>, trace: bool) -> (Vec<u8>, Vec<Plane>) {
-    let mut planes = xplane::parse(&map).unwrap();
+/// With `check`, an invalid file gives `None`. Checking runs alongside the parse, which never panics on invalid input.
+fn prepare_map(map: Vec<u8>, trace: bool, check: bool) -> Option<(Vec<u8>, Vec<Plane>)> {
+    let (valid, planes) = rayon::join(|| !check || counters::valid_space(&map), || xplane::parse(&map));
+    let mut planes = if valid { planes.unwrap() } else { return None };
     planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(&map));
     if !derive::is_grouped(&planes) {
         let groups = group::group(&mut planes, &map);
         derive::derive_gpu(&mut planes, &map, groups.as_ref().map(|groups| &groups.names), trace);
         planes.par_iter_mut().filter(|plane| derive::is_tensor_core(&plane.name)).for_each(|plane| derive::derive(plane, &map));
     }
-    (map, planes)
+    Some((map, planes))
 }
 
 fn release(garbage: impl Send + 'static) {

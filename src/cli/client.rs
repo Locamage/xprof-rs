@@ -203,11 +203,7 @@ impl Client for Local {
             }
             let mut kept = self.kept.write().unwrap();
             let stats = loaded.entry(paths[0].clone()).or_insert_with(|| {
-                let map = crate::read_file(&paths[0]).unwrap();
-                if !crate::counters::valid_space(&map) {
-                    return None;
-                }
-                let (stats, found) = load_kept(map, fused || self.fused);
+                let (stats, found) = load_kept(crate::read_file(&paths[0]).unwrap(), fused || self.fused)?;
                 kept.insert(paths[0].clone(), found);
                 Some(stats)
             });
