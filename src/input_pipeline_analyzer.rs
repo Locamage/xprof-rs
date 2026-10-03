@@ -80,7 +80,7 @@ const ADVANCED_READERS: [&str; 5] = ["::MemoryReader", "::MemoryWriter", "::Inte
 
 pub fn fixed(value: f64, digits: usize) -> String {
     match value {
-        value if value.is_nan() => if value.is_sign_negative() { "-nan" } else { "nan" }.into(),
+        value if value.is_nan() => "-nan".into(),
         value => format!("{value:.digits$}"),
     }
 }
