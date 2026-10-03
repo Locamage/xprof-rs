@@ -521,13 +521,25 @@ fn perf_env(plane: &Plane) -> Perf {
     Perf { peak_tera_flops, ridge_point: peak_tera_flops * 1e3 / bandwidths[0], cmem: bandwidths[3] > 0.0 || bandwidths[4] > 0.0, bandwidths }
 }
 
-pub fn load(path: &std::path::Path) -> Option<Arc<OpStats>> {
-    let (map, planes) = crate::prepare(path, false);
+/// Prepared planes with the modules that borrow their file. Fields drop in order, so the modules drop before the file.
+pub struct Kept {
+    _modules: Vec<(u64, crate::hlo::Module<'static>)>,
+    pub map: Vec<u8>,
+    pub planes: Vec<Plane>,
+}
+
+pub fn load_kept(map: Vec<u8>) -> (Arc<OpStats>, Kept) {
+    let (map, planes) = crate::prepare_map(map, false);
     let (stats, modules) = op_stats(&planes, &map);
-    // SAFETY: the modules borrow `map`. `release` drops its tuple fields in order, so it drops the modules before `map`. The heap buffer of `map` does not move.
-    let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
-    crate::release((modules, map, planes));
-    Some(Arc::new(stats))
+    // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
+    let _modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
+    (Arc::new(stats), Kept { _modules, map, planes })
+}
+
+pub fn load(path: &std::path::Path) -> Option<Arc<OpStats>> {
+    let (stats, kept) = load_kept(crate::read_file(path).unwrap());
+    crate::release(kept);
+    Some(stats)
 }
 
 impl OpStats {

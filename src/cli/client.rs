@@ -1,5 +1,6 @@
 use super::{Error, Kind, fail, json::py_repr};
-use crate::opstats::{OpStats, load};
+use crate::opstats::{Kept, OpStats, load_kept};
+use crate::xplane::Plane;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -111,6 +112,18 @@ fn latest_run(dir: &Path) -> Option<PathBuf> {
 pub struct Local {
     pub logdir: Option<PathBuf>,
     pub loaded: Mutex<HashMap<PathBuf, Option<Arc<OpStats>>>>,
+    pub kept: Mutex<HashMap<PathBuf, Kept>>,
+}
+
+impl Local {
+    /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
+    fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> T {
+        if let Some(kept) = self.kept.lock().unwrap().get(path).filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::gpu::PREFIX))) {
+            return read(&kept.planes, &kept.map);
+        }
+        let (map, planes) = crate::prepare(path, true);
+        read(&planes, &map)
+    }
 }
 
 impl Client for Local {
@@ -120,8 +133,7 @@ impl Client for Local {
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
         let [path] = <[PathBuf; 1]>::try_from(self.xspace_paths(&self.run_dir(session).ok()?).ok()?).ok()?;
-        let (map, planes) = crate::prepare(&path, true);
-        Some(crate::legacy_trace::barrier_durations(&planes, &map))
+        Some(self.prepared(&path, crate::legacy_trace::barrier_durations))
     }
 
     fn run_dir(&self, session: &str) -> Result<PathBuf, Error> {
@@ -164,7 +176,21 @@ impl Client for Local {
         let dir = paths[0].parent().map(Path::to_path_buf).unwrap_or_default();
         let stats = || {
             let mut loaded = self.loaded.lock().unwrap();
-            if paths.len() > 1 { None } else { loaded.entry(paths[0].clone()).or_insert_with(|| if crate::counters::corrupt(&paths) { None } else { load(&paths[0]) }).clone() }
+            if paths.len() > 1 {
+                return None;
+            }
+            loaded
+                .entry(paths[0].clone())
+                .or_insert_with(|| {
+                    let map = crate::read_file(&paths[0]).unwrap();
+                    if !crate::counters::valid_space(&map) {
+                        return None;
+                    }
+                    let (stats, kept) = load_kept(map);
+                    self.kept.lock().unwrap().insert(paths[0].clone(), kept);
+                    Some(stats)
+                })
+                .clone()
         };
         let rendered = match name {
             "memory_profile" if paths.len() != 1 => return fail(Kind::Assertion, ""),
@@ -190,10 +216,7 @@ impl Client for Local {
                 };
                 Some(crate::counters::kernel_utilization(&map, &filter))
             }),
-            "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone()).ok().map(|[path]| {
-                let (map, planes) = crate::prepare(&path, true);
-                crate::legacy_trace::render(&planes, &map)
-            }),
+            "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone()).ok().map(|[path]| self.prepared(&path, crate::legacy_trace::render)),
             _ => None,
         };
         Ok(rendered.map(String::into_bytes))

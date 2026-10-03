@@ -269,7 +269,10 @@ fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
 }
 
 fn prepare(path: &Path, trace: bool) -> (Vec<u8>, Vec<Plane>) {
-    let map = read_file(path).unwrap();
+    prepare_map(read_file(path).unwrap(), trace)
+}
+
+fn prepare_map(map: Vec<u8>, trace: bool) -> (Vec<u8>, Vec<Plane>) {
     let mut planes = xplane::parse(&map).unwrap();
     planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(&map));
     if !derive::is_grouped(&planes) {
