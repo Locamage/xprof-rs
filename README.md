@@ -62,18 +62,18 @@ The server has these tools. They are all written in Rust.
 - Hardware: `pod_viewer`, `megascale_stats`, `smart_suggestion`, `perf_counters`, `utilization_viewer`, `kernel_utilization`.
 - Session: `runs`, `run_tools`, `hosts`, `data_csv`, `version`, `config`, `POST /generate_cache`, `/capture_profile` (gRPC client), and the static files.
 
-The table shows the time on the 279 MB v4 trace.
+The table shows the time on the 279 MB v4 trace. xprof-rs used 4 cores. [`examples/benchmark.py`](examples/benchmark.py) measures these columns.
 
 | Endpoint | XProf, cold | xprof-rs, first | xprof-rs, repeat |
 |---|---|---|---|
-| `trace_viewer@` | 12 s | 0.1 s | 3 ms |
-| `overview_page` | 18 s | 1.7 s (builds the shared statistics) | under 1 ms |
-| `op_profile` | 4.0 s | 0.16 s | 2 ms |
-| `hlo_stats` | 2.1 s | 0.13 s | 2 ms |
-| `framework_op_stats`, `input_pipeline_analyzer`, `roofline_model`, `memory_profile`, `kernel_stats`, `pod_viewer` | 0.35 to 2.7 s | 0 to 0.12 s | under 1 ms |
+| `trace_viewer@` | 12 s | 0.8 s | 2 ms |
+| `overview_page` | 18 s | 1.4 s (builds the shared statistics) | under 1 ms |
+| `op_profile` | 4.0 s | 0.15 s | 1 ms |
+| `hlo_stats` | 2.1 s | 0.12 s | 4 ms |
+| `framework_op_stats`, `input_pipeline_analyzer`, `roofline_model`, `memory_profile`, `kernel_stats`, `pod_viewer` | 0.35 to 2.7 s | 0 to 0.03 s | under 1 ms |
 | `memory_viewer`, `graph_viewer`, `module_list` | 2.3 s | 0.25 s | |
 
-The peak memory of the server for all tools is 2.1 GB on 4 cores (XProf: 4.8 GB). A machine with more cores uses more memory, because more work runs at the same time.
+The peak memory of the server for all tools is 1.4 GB on 4 cores (XProf: 4.8 GB). A machine with more cores uses more memory, because more work runs at the same time.
 
 ## Remote log directories
 
