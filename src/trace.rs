@@ -60,6 +60,7 @@ pub struct Trace {
     pub tracks: usize,
     pub flow_ids: Vec<u64>,
     pub args: Vec<Vec<String>>,
+    pub stack_frames: String,
 }
 
 pub struct Options {
@@ -323,7 +324,7 @@ impl Trace {
             events.iter().map(|event| event.ts).find(|&ts| ts <= BAD_TIMESTAMP).unwrap_or(0),
             events.par_iter().map(|event| event.ts.saturating_add(event.dur)).filter(|&end| end <= BAD_TIMESTAMP).max().unwrap_or(0),
         );
-        let assigned = assign_levels(&events, &by_track, flow_ids.len());
+        let (assigned, stack_frames) = rayon::join(|| assign_levels(&events, &by_track, flow_ids.len()), || crate::json::stack_frames(planes, map, &events, &long_names));
         let chunks: Vec<Vec<Vec<u32>>> = events
             .par_chunks_mut(LEVEL_CHUNK)
             .zip(assigned.par_chunks(LEVEL_CHUNK))
@@ -343,7 +344,7 @@ impl Trace {
         let tpu_devices: HashSet<u32> = devices.iter().filter(|(_, device)| is_tpu_core_device_name(&device.name)).map(|(id, _)| *id).collect();
         let dma_devices =
             devices.iter().filter(|(_, device)| !tpu_devices.is_empty() && (is_tpu_core_device_name(&device.name) || maybe_tpu_non_core_device_name(&device.name))).map(|(id, _)| *id).collect();
-        Trace { devices, names, events, min_ps: span.0, max_ps: span.1, levels, tpu_devices, dma_devices, long_names, steps, tracks: by_track.len(), flow_ids, args }
+        Trace { devices, names, events, min_ps: span.0, max_ps: span.1, levels, tpu_devices, dma_devices, long_names, steps, tracks: by_track.len(), flow_ids, args, stack_frames }
     }
 
     fn is_dma_flow(&self, index: u32) -> bool {

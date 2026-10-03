@@ -20,6 +20,7 @@ fn trace_of(names: &[&str], flow_ids: &[u64]) -> Trace {
         tracks: 0,
         flow_ids: flow_ids.to_vec(),
         args: Vec::new(),
+        stack_frames: String::new(),
     }
 }
 
