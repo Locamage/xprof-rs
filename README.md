@@ -17,18 +17,26 @@ The test machine has 4 cores. The load takes 2.2 s on one core. XProf takes 11 t
 
 ## Install and start
 
-You need Rust 1.95 or newer and a 64-bit Unix system. You do not need Python, a C++ toolchain, or `protoc`.
+The [releases](https://github.com/Locamage/xprof-rs/releases) have binaries for Linux on `x86_64` and `aarch64`. They need glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04, or newer). You do not need Python.
 
 ```bash
-git clone <repository-url> && cd xprof-rs
-cargo install --path .
-xprof-rs --logdir ~/logs          # open http://localhost:8791
-xprof-rs get_overview ~/logs/run1 # the same binary runs the XProf agent CLI
+version=v0.1.0 target=x86_64-linux   # or aarch64-linux
+curl -LO https://github.com/Locamage/xprof-rs/releases/download/$version/xprof-rs-$version-$target.tar.gz
+tar -xzf xprof-rs-$version-$target.tar.gz
+xprof-rs-$version-$target/xprof-rs --logdir ~/logs          # open http://localhost:8791
+xprof-rs-$version-$target/xprof-rs get_overview ~/logs/run1 # the same binary runs the XProf agent CLI
+```
+
+To build from source, you need Rust 1.95 or newer and a 64-bit Unix system. You do not need a C++ toolchain or `protoc`.
+
+```bash
+git clone https://github.com/Locamage/xprof-rs && cd xprof-rs
+cargo install --locked --path .
 ```
 
 The release profile uses fat LTO and one codegen unit. A full build takes about 80 s on a machine with 240 cores. It uses about 10 CPU minutes. For a quick build, set `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`.
 
-A tag that starts with `v` publishes `x86_64-linux` and `aarch64-linux` archives with SHA-256 files. The workflow is `.github/workflows/release.yml`. The steps are in `RELEASING.md`.
+A tag that starts with `v` makes a draft release with `x86_64-linux` and `aarch64-linux` archives and SHA-256 files. The workflow is `.github/workflows/release.yml`. The steps are in `RELEASING.md`.
 
 ## Server
 
@@ -128,13 +136,13 @@ xprof-rs get_hlo_op_profile ~/logs --view=tree --path=by_program --depth=3
 xprof-rs list_xplane_events ~/logs/run1 --plane_regex='TPU:0$' --event_regex=all-reduce --max_events=20
 ```
 
-The table shows the time on the 279 MB v4 trace.
+The table shows the time on the 279 MB v4 trace. xprof-rs used 4 cores.
 
 | Command | XProf | xprof-rs |
 |---|---|---|
-| `get_overview` | 18 s | 1.6 s |
-| `get_hlo_op_profile` | 25 s | 2.0 s |
-| `aggregate_xplane_events` | 25 s | 1.6 s |
+| `get_overview` | 18 s | 1.1 s |
+| `get_hlo_op_profile` | 25 s | 1.6 s |
+| `aggregate_xplane_events` | 25 s | 0.7 s |
 
 The CLI is different from the Python CLI in these points:
 
