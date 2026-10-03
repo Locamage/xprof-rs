@@ -97,7 +97,7 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
                 .map(|stats| Some(stats.at("stepBreakdownUs")).filter(|map| **map != J::Null).unwrap_or_else(|| stats.at("step_breakdown_us")))
                 .filter(|map| matches!(map, J::Map(_)))
                 .map(|map| finite(map.at(key)))
-                .sum();
+                .fold(0.0, |total, value| total + value);
             round(total / count / 1000.0, 4)
         };
         let total = average("totalDurationUs");
@@ -148,7 +148,7 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
             continue;
         }
         let value = |name: &str| index(name).and_then(|at| cells.get(at)).map(|cell| cell.at("v").clone());
-        let sum = |names: &[&str]| names.iter().filter_map(|name| value(name)).map(|cell| finite(&cell)).sum::<f64>();
+        let sum = |names: &[&str]| names.iter().filter_map(|name| value(name)).map(|cell| finite(&cell)).fold(0.0, |total, value| total + value);
         let number = match cells.get(index("stepnum").unwrap_or(0)).map(|cell| cell.at("v").clone()).unwrap_or_default() {
             J::Null => J::Null,
             J::Str(text) => super::json::py_int(&text).map_or(J::Str(text), J::Int),
