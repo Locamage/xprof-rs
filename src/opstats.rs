@@ -1,5 +1,5 @@
 use crate::derive::is_tensor_core;
-use crate::roofline::add_to_program;
+use crate::roofline::add_scaled;
 use crate::xplane::{Ev, Field, Plane, Stat, Value, fields, slice, stat, stats, varint};
 use arcstr::ArcStr;
 use rayon::prelude::*;
@@ -90,7 +90,7 @@ pub struct EventStats {
     scale: Option<f64>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Perf {
     pub peak_tera_flops: f64,
     pub bandwidths: Vec<f64>,
@@ -98,6 +98,7 @@ pub struct Perf {
     pub cmem: bool,
 }
 
+#[derive(Clone)]
 pub struct OpStats {
     pub db: Db,
     pub perf: Perf,
@@ -259,7 +260,7 @@ impl EventReader {
 }
 
 impl EventStats {
-    fn span(&self, event: &Ev) -> (u64, u64) {
+    pub fn span(&self, event: &Ev) -> (u64, u64) {
         self.offset.zip(self.duration).unwrap_or((event.ts, event.dur))
     }
 }
@@ -279,20 +280,22 @@ struct Accumulator<'a> {
 }
 
 impl Accumulator<'_> {
-    fn adjusted(self) -> Metrics {
-        let mut metrics = Metrics { memory: self.template.memory.clone(), ..self.totals };
-        let occurrences = metrics.occurrences;
-        if !self.custom {
-            metrics.flops_v2 *= occurrences as f64;
-            if metrics.model_flops_v2 > 0.0 {
-                metrics.model_flops_v2 *= occurrences as f64;
-            } else {
-                metrics.model_flops_v2 = metrics.flops_v2;
-            }
-            metrics.bytes_accessed = metrics.bytes_accessed.saturating_mul(occurrences);
+    /// The flops, model flops and bytes of all occurrences.
+    fn counts(&self) -> (f64, f64, u64) {
+        let totals = &self.totals;
+        if self.custom {
+            return (totals.flops_v2, totals.model_flops_v2, totals.bytes_accessed);
         }
-        metrics.memory.iter_mut().for_each(|entry| entry.2 = entry.2.saturating_mul(occurrences));
-        metrics
+        let occurrences = totals.occurrences;
+        let flops = totals.flops_v2 * occurrences as f64;
+        (flops, if totals.model_flops_v2 > 0.0 { totals.model_flops_v2 * occurrences as f64 } else { flops }, totals.bytes_accessed.saturating_mul(occurrences))
+    }
+
+    fn adjusted(self) -> Metrics {
+        let (flops_v2, model_flops_v2, bytes_accessed) = self.counts();
+        let occurrences = self.totals.occurrences;
+        let memory = self.template.memory.iter().map(|&(operation, space, bytes)| (operation, space, bytes.saturating_mul(occurrences))).collect();
+        Metrics { memory, flops_v2, model_flops_v2, bytes_accessed, ..self.totals }
     }
 }
 
@@ -385,11 +388,11 @@ impl<'a> Builder<'a> {
 
     pub fn program(self) -> (u64, ([Metrics; 2], u64)) {
         let (mut total_op_time_ps, mut program) = (0, Default::default());
-        for entry in self.sorted() {
-            let template = entry.template;
-            let part = entry.adjusted();
-            total_op_time_ps += part.self_time_ps;
-            add_to_program(&mut program, template, &part);
+        let mut order: Vec<&Accumulator> = self.entries.iter().collect();
+        order.sort_unstable_by_key(|entry| entry.key);
+        for entry in order {
+            total_op_time_ps += entry.totals.self_time_ps;
+            add_scaled(&mut program, entry.template, &entry.totals, entry.counts(), &entry.template.memory, entry.totals.occurrences);
         }
         (total_op_time_ps, program)
     }
@@ -415,8 +418,10 @@ impl Db {
 
     fn merge(&mut self, index: &mut FxHashMap<(u64, ArcStr), usize>, source: &Db, update_cores: bool) {
         add!(self, source, total_time_ps, total_op_time_ps, normalized_total_op_time_ps);
-        for metrics in &source.metrics {
-            let destination = self.entry(index, metrics.module, &metrics.name);
+        for (position, metrics) in source.metrics.iter().enumerate() {
+            // Parts of one trace list the same operations in the same order, so most lookups need no hash.
+            let aligned = self.metrics.get(position).is_some_and(|known| known.module == metrics.module && known.name == metrics.name);
+            let destination = if aligned { &mut self.metrics[position] } else { self.entry(index, metrics.module, &metrics.name) };
             for (to, from) in [
                 (&mut destination.long_name, &metrics.long_name),
                 (&mut destination.category, &metrics.category),
@@ -523,21 +528,36 @@ fn perf_env(plane: &Plane) -> Perf {
 
 /// Prepared planes with the modules that borrow their file. Fields drop in order, so the modules drop before the file.
 pub struct Kept {
-    _modules: Vec<(u64, crate::hlo::Module<'static>)>,
+    modules: Vec<(u64, crate::hlo::Module<'static>)>,
+    pub fused: bool,
     pub map: Vec<u8>,
     pub planes: Vec<Plane>,
 }
 
-pub fn load_kept(map: Vec<u8>) -> (Arc<OpStats>, Kept) {
+impl Kept {
+    /// Adds the fused children to the operations of a trace that was loaded without them.
+    pub fn fuse(&mut self, stats: &mut OpStats) {
+        if !self.fused && stats.tpu {
+            let modules = crate::hlo::parse_modules(&self.planes, &self.map);
+            crate::hlo::attach_fused(&modules, &mut stats.db);
+            // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
+            self.modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
+        }
+        self.fused = true;
+    }
+}
+
+/// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
+pub fn load_kept(map: Vec<u8>, fused: bool) -> (Arc<OpStats>, Kept) {
     let (map, planes) = crate::prepare_map(map, false);
-    let (stats, modules) = op_stats(&planes, &map);
+    let (stats, modules) = op_stats(&planes, &map, fused);
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
-    let _modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
-    (Arc::new(stats), Kept { _modules, map, planes })
+    let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
+    (Arc::new(stats), Kept { modules, fused, map, planes })
 }
 
 pub fn load(path: &std::path::Path) -> Option<Arc<OpStats>> {
-    let (stats, kept) = load_kept(crate::read_file(path).unwrap());
+    let (stats, kept) = load_kept(crate::read_file(path).unwrap(), true);
     crate::release(kept);
     Some(stats)
 }
@@ -580,7 +600,7 @@ impl OpStats {
     }
 }
 
-fn op_stats<'a>(planes: &[Plane], map: &'a [u8]) -> (OpStats, Vec<(u64, crate::hlo::Module<'a>)>) {
+fn op_stats<'a>(planes: &[Plane], map: &'a [u8], fused: bool) -> (OpStats, Vec<(u64, crate::hlo::Module<'a>)>) {
     let first = planes.iter().find(|plane| plane.name.starts_with("/device:TPU:"));
     let tpu = first.is_some();
     let gpus = crate::gpu::devices(planes);
@@ -592,23 +612,29 @@ fn op_stats<'a>(planes: &[Plane], map: &'a [u8]) -> (OpStats, Vec<(u64, crate::h
         }
         let convert = || {
             let parts: Vec<Db> = planes.par_iter().zip(&templates).filter(|(plane, _)| is_tensor_core(&plane.name)).map(|(plane, templates)| convert_tensor_core(plane, map, templates)).collect();
-            Db::combined(&parts, true)
+            let db = Db::combined(&parts, true);
+            crate::release(parts);
+            db
         };
-        let (mut db, modules) = rayon::join(convert, || if tpu { crate::hlo::parse_modules(planes, map) } else { Vec::new() });
-        if tpu {
+        let (mut db, modules) = rayon::join(convert, || if tpu && fused { crate::hlo::parse_modules(planes, map) } else { Vec::new() });
+        if tpu && fused {
             crate::hlo::attach_fused(&modules, &mut db);
         }
         ((db, Vec::new()), modules)
     };
-    let ((((db, kernels), modules), mut extra), (((host, infeed_enqueue), memory), programs)) = rayon::join(
-        || rayon::join(device, || crate::steps::extra(planes, map, &templates)),
-        || {
+    // Each part runs on a thread outside the pool, so no part waits for the work of another that the pool stole.
+    let (((db, kernels), modules), mut extra, (((host, infeed_enqueue), memory), programs)) = std::thread::scope(|scope| {
+        let side = scope.spawn(|| {
             rayon::join(
                 || rayon::join(|| crate::framework_op_stats::host_db(planes, map), || crate::memory_profile::json(planes, map)),
-                || crate::hlo::protos(planes, map).into_par_iter().map(|(id, proto)| (id, crate::hlo::module_name(proto))).collect(),
+                || crate::hlo::protos(planes, map).into_par_iter().map(|(id, proto)| (id, crate::hlo::module_name(proto))).collect::<HashMap<u64, String>>(),
             )
-        },
-    );
+        });
+        let extra = scope.spawn(|| crate::steps::extra(planes, map, &templates));
+        let device = scope.spawn(device);
+        (device.join().unwrap(), extra.join().unwrap(), side.join().unwrap())
+    });
+    crate::release(templates);
     extra.infeed_enqueue = infeed_enqueue;
     if tpu {
         crate::steps::fix(&mut extra, &db);

@@ -409,20 +409,24 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         }
         let mut hlo_params = vec![("group_by", "category".to_string())];
         hlo_params.push(super::bypass(bypass));
-        let profile = client.fetch_text("hlo_op_profile.json", &session, &hlo_params).ok().flatten().and_then(|raw| J::parse(&raw));
-        let start = profile.as_ref().map(|profile| field(profile, "by_category")).filter(|node| matches!(node, J::Map(_)) && node.truthy());
-        let available = start.is_some();
-        let (compute_ps, hbm_ps, ici_ps) = start.map_or((0.0, 0.0, 0.0), hlo_times);
+        let profile_times = |client: &dyn Client| {
+            let profile = client.fetch_text("hlo_op_profile.json", &session, &hlo_params).ok().flatten().and_then(|raw| J::parse(&raw));
+            let times = profile.as_ref().map(|profile| field(profile, "by_category")).filter(|node| matches!(node, J::Map(_)) && node.truthy()).map(hlo_times);
+            crate::release(profile);
+            times
+        };
+        let others = |client: &dyn Client| (barrier(client, &session), utilization_metrics(client, &session, hosts, bypass));
+        let (times, ((barrier_average, barriers), [idleness, hbm, ici_read, ici_write])) = super::both(client, profile_times, others);
+        let available = times.is_some();
+        let (compute_ps, hbm_ps, ici_ps) = times.unwrap_or((0.0, 0.0, 0.0));
         let scale = |picoseconds: f64| picoseconds / 1e9 / cores as f64;
         let (compute_ms, hbm_ms, ici_ms) = (scale(compute_ps), scale(hbm_ps), scale(ici_ps));
-        let (barrier_average, barriers) = barrier(client, &session);
         let barrier_ms = if barriers > 0 { barrier_average * steps as f64 } else { 0.0 };
         let idle = total - (compute_ms + hbm_ms + ici_ms);
         let pure_idle = (idle - barrier_ms).max(0.0);
         let active = total - pure_idle;
         let ratio = if active > 0.0 { pure_idle / active } else { 0.0 } * 100.0;
         let idle_chips = cores as f64 * if total > 0.0 { pure_idle / total } else { 0.0 };
-        let [idleness, hbm, ici_read, ici_write] = utilization_metrics(client, &session, hosts, bypass);
         let (idle_high, mxu_high, hbm_low, ici_low) = (ratio > IDLE_RATIO_THRESHOLD, idleness > MXU_IDLENESS_THRESHOLD, hbm < HBM_THRESHOLD, ici_read < ICI_THRESHOLD && ici_write < ICI_THRESHOLD);
         let (mut reasons, mut recommendations) = (Vec::new(), Vec::new());
         let status = if idle_high && mxu_high && hbm_low && ici_low {

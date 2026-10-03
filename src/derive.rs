@@ -122,6 +122,11 @@ struct Derived {
     gpu: bool,
 }
 
+/// The op, the source and whether the event is asynchronous.
+type Tags = (String, String, u64);
+/// The start, the duration, the line and the index of an event.
+type Position = (u64, Reverse<u64>, usize, usize);
+
 struct Parsed {
     scopes: Vec<u32>,
     op: Option<u32>,
@@ -257,44 +262,39 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
         }
         (tf_op, source, is_async)
     };
-    let tags: Vec<(String, String, u64)> = plane.meta.iter().map(|meta| scan(slice(map, meta.raw), 5)).collect();
-    let mut order: Vec<(u64, Reverse<u64>, usize, usize)> = plane
-        .lines
-        .iter()
-        .enumerate()
-        .flat_map(|(line_index, line)| {
-            let (tags, wanted) = (&tags, &wanted);
-            line.events
-                .iter()
-                .enumerate()
-                .filter(move |(_, event)| {
-                    let (tf_op, source, _) = &tags[event.meta as usize];
-                    !tf_op.is_empty() || !source.is_empty() || stats(slice(map, event.raw), 4, |id| wanted.contains(&id)).next().is_some()
-                })
-                .map(move |(index, event)| (event.ts, Reverse(event.dur), line_index, index))
-        })
-        .collect();
-    order.sort_unstable();
+    let tags: Vec<Tags> = plane.meta.par_iter().map(|meta| scan(slice(map, meta.raw), 5)).collect();
+    // The events to derive from, in time order, with their groups and the tags of their own stats.
+    let mut order: Vec<(Position, i64, Option<Tags>)> = Vec::new();
+    for (line_index, line) in plane.lines.iter().enumerate() {
+        order.par_extend(line.events.par_iter().enumerate().filter_map(|(index, event)| {
+            let raw = slice(map, event.raw);
+            let own = stats(raw, 4, |id| wanted.contains(&id)).next().is_some();
+            let (tf_op, source, _) = &tags[event.meta as usize];
+            if tf_op.is_empty() && source.is_empty() && !own {
+                return None;
+            }
+            let group = if event.group != NONE_GROUP { event.group } else { plane.group_of(event.meta, raw).unwrap_or(NONE_GROUP) };
+            Some(((event.ts, Reverse(event.dur), line_index, index), group, own.then(|| scan(raw, 4))))
+        }));
+    }
+    order.par_sort_unstable_by_key(|&(position, _, _)| position);
     let mut derived = Derived::new(&TPU_LINES, 0, "", false);
-    let mut cache: Vec<Option<Parsed>> = (0..tags.len()).map(|_| None).collect();
-    for (start, Reverse(dur), line_index, index) in order {
-        let event = &plane.lines[line_index].events[index];
-        let (meta, raw) = (event.meta as usize, slice(map, event.raw));
-        let group = if event.group != NONE_GROUP { event.group } else { plane.group_of(meta as u32, raw).unwrap_or(NONE_GROUP) };
-        if stats(raw, 4, |id| wanted.contains(&id)).next().is_some() {
-            let (tf_op, source, is_async) = &tags[meta];
-            let (event_tf_op, event_source, event_async) = scan(raw, 4);
-            let (tf_op, source) = (if event_tf_op.is_empty() { tf_op } else { &event_tf_op }, if event_source.is_empty() { source } else { &event_source });
-            if (if event_async != 0 { event_async } else { *is_async }) == 0 {
-                let parsed = derived.parse(tf_op, source);
-                derived.apply(&parsed, (start, start + dur), group);
+    // Parsing the same texts again gives the same metadata, so each pair of texts is parsed once.
+    let mut cache: FxHashMap<(&str, &str), Parsed> = FxHashMap::default();
+    for ((start, Reverse(dur), line_index, index), group, own) in &order {
+        let (tf_op, source, is_async) = &tags[plane.lines[*line_index].events[*index].meta as usize];
+        let texts = match own {
+            Some((event_tf_op, event_source, event_async)) => {
+                if (if *event_async != 0 { *event_async } else { *is_async }) != 0 {
+                    continue;
+                }
+                (if event_tf_op.is_empty() { tf_op } else { event_tf_op }, if event_source.is_empty() { source } else { event_source })
             }
-        } else if tags[meta].2 == 0 {
-            if cache[meta].is_none() {
-                cache[meta] = Some(derived.parse(&tags[meta].0, &tags[meta].1));
-            }
-            derived.apply(cache[meta].as_ref().unwrap(), (start, start + dur), group);
-        }
+            None if *is_async == 0 => (tf_op, source),
+            None => continue,
+        };
+        let parsed = cache.entry((texts.0.as_str(), texts.1.as_str())).or_insert_with(|| derived.parse(texts.0, texts.1));
+        derived.apply(parsed, (*start, start + dur), *group);
     }
     derived.reset(SCOPES, 0);
     plane.lines.extend(derived.into_lines(true).into_iter().filter(|line| !line.events.is_empty()));

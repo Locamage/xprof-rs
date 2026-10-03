@@ -1,14 +1,15 @@
 use crate::hlo::general;
 use crate::opstats::{HBM, IDLE, Metrics, OpStats, READ, SPARSE_CORE, Source, WRITE, add, combine_memory, giga_to_gibi, pico_to_nano, safe_divide};
-use crate::pbtext::quoted as quote;
+use crate::pbtext::json_string;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
 
 const CHILDREN_PER_NODE: usize = 100;
 const ROOT: usize = 0;
-const PARALLEL_LEVELS: usize = 2;
+const PARALLEL_LEVELS: usize = 4;
 const GIBI_IN_GIGA: f64 = (1u64 << 30) as f64 / 1.0e9;
 const PROGRAM: usize = 0;
 const CATEGORY: usize = 1;
@@ -51,8 +52,8 @@ struct Node<'a> {
 struct Builder<'a> {
     grouping: usize,
     nodes: Vec<Node<'a>>,
-    programs: HashMap<u64, usize>,
-    children: HashMap<(u8, usize, &'a str), usize>,
+    programs: FxHashMap<u64, usize>,
+    children: FxHashMap<(u8, usize, &'a str), usize>,
     names: &'a HashMap<u64, String>,
     peak_gigaflops: f64,
     peak_bandwidths: Vec<f64>,
@@ -309,7 +310,9 @@ impl<'a> Builder<'a> {
             ("uncappedFlops", &[uncapped * fraction]),
             ("normalizedTimePs", &[metrics.normalized_time_ps as f64]),
         ];
-        write!(out, "{{\"name\":{},\"metrics\":{{", quote(&node.name)).unwrap();
+        out.push_str("{\"name\":");
+        json_string(out, &node.name);
+        out.push_str(",\"metrics\":{");
         for (position, (key, values)) in fields.iter().enumerate() {
             write!(out, "{}\"{key}\":", if position > 0 { "," } else { "" }).unwrap();
             if let [value] = values {
@@ -343,21 +346,23 @@ impl<'a> Builder<'a> {
         }
         out.push(']');
         if let Some(xla) = &node.xla {
-            let source = xla.source.cloned().unwrap_or_default();
-            write!(
-                out,
-                ",\"xla\":{{\"op\":\"\",\"expression\":{},\"provenance\":{},\"category\":{}{},\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\"sourceInfo\":{{\"fileName\":{},\"lineNumber\":{},\"stackFrame\":{}}},\"xprofKernelMetadata\":{}}}",
-                quote(xla.expression),
-                quote(xla.provenance),
-                quote(xla.category),
-                if xla.layout { ",\"layout\":{\"dimensions\":[]}" } else { "" },
-                xla.program_id,
-                quote(&source.file),
-                source.line,
-                quote(&source.stack),
-                quote(&kernel_metadata(xla.expression))
-            )
-            .unwrap();
+            out.push_str(",\"xla\":{\"op\":\"\",\"expression\":");
+            json_string(out, xla.expression);
+            out.push_str(",\"provenance\":");
+            json_string(out, xla.provenance);
+            out.push_str(",\"category\":");
+            json_string(out, xla.category);
+            if xla.layout {
+                out.push_str(",\"layout\":{\"dimensions\":[]}");
+            }
+            write!(out, ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\"sourceInfo\":{{\"fileName\":", xla.program_id).unwrap();
+            let (file, line, stack) = xla.source.map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
+            json_string(out, file);
+            write!(out, ",\"lineNumber\":{line},\"stackFrame\":").unwrap();
+            json_string(out, stack);
+            out.push_str("},\"xprofKernelMetadata\":");
+            json_string(out, &kernel_metadata(xla.expression));
+            out.push('}');
         }
         write!(out, ",\"numChildren\":{}}}", node.num_children).unwrap();
     }
@@ -389,8 +394,8 @@ fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> String {
     let mut builder = Builder {
         grouping,
         nodes: vec![Node { name: Cow::Borrowed(GROUPINGS[grouping].0), ..Default::default() }],
-        programs: HashMap::new(),
-        children: HashMap::new(),
+        programs: FxHashMap::default(),
+        children: FxHashMap::default(),
         names: &stats.programs,
         peak_gigaflops: stats.perf.peak_tera_flops * 1e3,
         peak_bandwidths: stats.perf.bandwidths.iter().map(|&bandwidth| giga_to_gibi(bandwidth)).collect(),
@@ -408,6 +413,11 @@ fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> String {
 }
 
 pub fn json(stats: &OpStats, group_by: Option<&str>) -> String {
+    json_trees(stats, group_by, true)
+}
+
+/// Without `with_busy`, the output has no tree for the busy time. The command line tools use no such tree.
+pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> String {
     let grouping = match group_by {
         Some("category") => CATEGORY,
         Some("provenance") => PROVENANCE,
@@ -420,12 +430,13 @@ pub fn json(stats: &OpStats, group_by: Option<&str>) -> String {
         _ => "UNKNOWN_HARDWARE",
     };
     let key = GROUPINGS[grouping].1;
-    let (all, busy) = rayon::join(|| tree(stats, grouping, false), || tree(stats, grouping, true));
+    let (all, busy) = rayon::join(|| tree(stats, grouping, false), || if with_busy { tree(stats, grouping, true) } else { String::new() });
+    let busy = if with_busy { format!(",\"{key}ExcludeIdle\":{busy}") } else { busy };
     let mut out = String::with_capacity(all.len() + busy.len() + 256);
     if grouping == PROVENANCE {
-        write!(out, "{{\"deviceType\":\"{device}\",\"{key}\":{all},\"{key}ExcludeIdle\":{busy}").unwrap();
+        write!(out, "{{\"deviceType\":\"{device}\",\"{key}\":{all}{busy}").unwrap();
     } else {
-        write!(out, "{{\"{key}\":{all},\"deviceType\":\"{device}\",\"{key}ExcludeIdle\":{busy}").unwrap();
+        write!(out, "{{\"{key}\":{all},\"deviceType\":\"{device}\"{busy}").unwrap();
     }
     out.push_str(",\"aggDvfsTimeScaleMultiplier\":");
     proto_double(&mut out, safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64));

@@ -162,20 +162,35 @@ pub fn program(db: &Db) -> ([Metrics; 2], u64) {
     program
 }
 
-pub fn add_to_program((sums, infeed_outfeed): &mut ([Metrics; 2], u64), kind: &Metrics, part: &Metrics) {
+pub fn add_to_program(program: &mut ([Metrics; 2], u64), kind: &Metrics, part: &Metrics) {
+    add_scaled(program, kind, part, (part.flops_v2, part.model_flops_v2, part.bytes_accessed), &part.memory, 1);
+}
+
+/// Adds `part`, an operation of `kind`, with the given flops, model flops and bytes, and with `memory` times `scale`.
+pub fn add_scaled((sums, infeed_outfeed): &mut ([Metrics; 2], u64), kind: &Metrics, part: &Metrics, (flops, model, bytes): (f64, f64, u64), memory: &[(u8, u64, u64)], scale: u64) {
     let category = category(kind);
     if matches!(category, "call" | "conditional" | "while" | "megacore fusion") || part.core_type == SPARSE_CORE {
         return;
     }
-    accumulate(&mut sums[0], part);
-    if is_infeed_or_outfeed(category) {
+    let infeed = is_infeed_or_outfeed(category);
+    for sum in &mut sums[..if infeed { 1 } else { 2 }] {
+        sum.flops_v2 += flops;
+        sum.model_flops_v2 += model;
+        sum.bytes_accessed += bytes;
+        for &(operation, space, amount) in memory {
+            let amount = amount.saturating_mul(scale);
+            match sum.memory.iter_mut().find(|entry| entry.0 == operation && entry.1 == space) {
+                Some(entry) => entry.2 += amount,
+                None => sum.memory.push((operation, space, amount)),
+            }
+        }
+    }
+    if infeed {
         *infeed_outfeed += part.time_ps;
-    } else {
-        accumulate(&mut sums[1], part);
     }
 }
 
-fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool) {
+fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool, total_only: bool) {
     let side = usize::from(!include);
     let gpu = stats.extra.hardware == GPU;
     let program_row = |table: &mut Table, sums: &Metrics, step: String, steps: Option<usize>| {
@@ -187,6 +202,9 @@ fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool) 
     sums[0].time_ps = db.total_time_ps;
     sums[1].time_ps = db.total_time_ps.wrapping_sub(program_infeed_outfeed);
     program_row(table, &sums[side], "Total".into(), None);
+    if total_only {
+        return;
+    }
     let infeed_outfeed: u64 = if include { 0 } else { db.metrics.iter().filter(|metrics| is_infeed_or_outfeed(&metrics.category)).map(|metrics| metrics.time_ps).sum() };
     let total_time_ps = db.total_time_ps.wrapping_sub(infeed_outfeed);
     let total_us = pico_to_micro(total_time_ps);
@@ -215,6 +233,11 @@ fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool) 
 }
 
 pub fn json(stats: &OpStats) -> String {
+    json_rows(stats, false)
+}
+
+/// With `total_only`, the table has the first row only. The overview command needs no other row.
+pub fn json_rows(stats: &OpStats, total_only: bool) -> String {
     let extra = &*stats.extra;
     let bandwidth = |index: usize| giga_to_gibi(stats.perf.bandwidths.get(index).copied().unwrap_or(0.0));
     if extra.hardware == GPU {
@@ -230,8 +253,8 @@ pub fn json(stats: &OpStats) -> String {
         table.prop("peak_vmem_write_bw", general(peaks[5], 6));
         table.prop("hbm_ridge_point", general(safe_divide(peaks[0], peaks[1] * GIBI_IN_GIGA), 6));
         table.prop("vmem_write_ridge_point", general(safe_divide(peaks[0], peaks[5] * GIBI_IN_GIGA), 6));
-        records(&mut table, stats, &peaks, true);
-        records(&mut table, stats, &peaks, false);
+        records(&mut table, stats, &peaks, true, total_only);
+        records(&mut table, stats, &peaks, false, total_only);
         let warnings = if extra.steps.is_empty() { vec![NO_STEP_MARKER.to_string()] } else { Vec::new() };
         return format!("[{},{}]", table.json(), diagnostics_table(&warnings, &[]).json());
     }
@@ -253,8 +276,10 @@ pub fn json(stats: &OpStats) -> String {
     table.prop("device_type", if stats.tpu { extra.device_type.as_str() } else { "" });
     let mut warnings = Vec::new();
     if stats.tpu {
-        records(&mut table, stats, &peaks, true);
-        records(&mut table, stats, &peaks, false);
+        records(&mut table, stats, &peaks, true, total_only);
+        if !total_only {
+            records(&mut table, stats, &peaks, false, false);
+        }
         if extra.program_steps.is_empty() {
             warnings.push(NO_STEP_MARKER.to_string());
         }

@@ -46,13 +46,6 @@ pub fn row_dict(table: &J, row: &J) -> J {
     J::Map(ids.zip(row.at("c").items().iter().map(|cell| if let J::Map(_) = cell { cell.at("v").clone() } else { cell.clone() })).collect())
 }
 
-fn table_rows(data: &str) -> Option<(J, Vec<J>, J)> {
-    let parsed = J::parse(data)?;
-    let table = parsed.items().first()?.clone();
-    let rows = table.at("rows").items().iter().map(|row| row_dict(&table, row)).collect();
-    Some((table.at("p").clone(), rows, table))
-}
-
 fn zero(value: Option<&J>) -> bool {
     value.is_none_or(|value| !value.truthy() || value.str().is_some_and(|text| ZERO_PERCENTS.contains(&text)))
 }
@@ -67,9 +60,10 @@ fn roofline_fallback(client: &dyn Client, session: &str, summary: &mut J) -> Opt
     if !needs_flop && !needs_memory {
         return None;
     }
-    let data = client.fetch_text("roofline_model.json", session, &[]).ok()?.or_else(|| client.fetch_text("roofline_model", session, &[]).ok()?)?;
-    let (_, rows, _) = table_rows(&data)?;
-    let program = rows.first()?;
+    let data = client.roofline_total(session)?;
+    let parsed = J::parse(&data)?;
+    let table = parsed.items().first()?;
+    let program = &row_dict(table, table.at("rows").items().first()?);
     let value = |key: &str| program.at(key).float();
     if let Some(efficiency) = value("roofline_efficiency") {
         summary.set("roofline_efficiency_percent", percent(efficiency));

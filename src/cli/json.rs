@@ -1,6 +1,7 @@
-use crate::run_tools::python_string;
+use crate::run_tools::python_string_into;
+use rayon::prelude::*;
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
-use std::fmt;
+use std::fmt::{self, Write};
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum J {
@@ -63,6 +64,11 @@ impl<T: Into<J>> From<Option<T>> for J {
 
 impl J {
     pub fn parse(text: &str) -> Option<J> {
+        if text.len() >= SPLIT
+            && let Some(value) = split_parse(text)
+        {
+            return Some(value);
+        }
         serde_json::from_str(text).ok()
     }
 
@@ -186,12 +192,11 @@ impl J {
         match self {
             J::Null => out.push_str("null"),
             J::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
-            J::Int(number) => out.push_str(&number.to_string()),
+            J::Int(number) => _ = write!(out, "{number}"),
             J::Float(number) if number.is_nan() => out.push_str("NaN"),
             J::Float(number) if number.is_infinite() => out.push_str(if *number > 0.0 { "Infinity" } else { "-Infinity" }),
             J::Float(number) => out.push_str(&crate::table::repr(*number)),
-            J::Str(text) if ascii => out.push_str(&python_string(text)),
-            J::Str(text) => out.push_str(&serde_json::to_string(text).unwrap()),
+            J::Str(text) => string(out, text, ascii),
             J::List(items) if items.is_empty() => out.push_str("[]"),
             J::Map(entries) if entries.is_empty() => out.push_str("{}"),
             J::List(items) => {
@@ -221,7 +226,7 @@ impl J {
                         ", "
                     });
                     open(out, inner);
-                    J::Str(key.clone()).write(out, inner, ascii);
+                    string(out, key, ascii);
                     out.push_str(": ");
                     value.write(out, inner, ascii);
                 }
@@ -229,6 +234,14 @@ impl J {
                 out.push('}');
             }
         }
+    }
+}
+
+fn string(out: &mut String, text: &str, ascii: bool) {
+    if ascii {
+        python_string_into(out, text);
+    } else {
+        out.push_str(&serde_json::to_string(text).unwrap());
     }
 }
 
@@ -259,6 +272,127 @@ pub fn py_repr(text: &str) -> String {
     }
     out.push(quote);
     out
+}
+
+/// Containers at least this long are split at their top-level commas, and the parts are parsed in parallel.
+const SPLIT: usize = 1 << 16;
+
+fn trim(text: &str) -> &str {
+    text.trim_matches([' ', '\t', '\n', '\r'])
+}
+
+/// The index after the closing quote of the string that starts at `start`.
+fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut index = start + 1;
+    loop {
+        index += memchr::memchr2(b'"', b'\\', bytes.get(index..)?)?;
+        if bytes[index] == b'"' {
+            return Some(index + 1);
+        }
+        index += 2;
+    }
+}
+
+fn backslashes_before(bytes: &[u8], index: usize) -> usize {
+    bytes[..index].iter().rev().take_while(|&&byte| byte == b'\\').count()
+}
+
+/// The commas in `bytes[start..end]` at the lowest depth the range reaches, the depth change, and that lowest depth.
+fn chunk_commas(bytes: &[u8], start: usize, end: usize, inside: bool) -> Option<(Vec<usize>, isize, isize)> {
+    let mut index = start;
+    if inside {
+        index = string_end(bytes, start - backslashes_before(bytes, start) - 1)?;
+    }
+    let (mut depth, mut lowest, mut commas) = (0isize, 0isize, Vec::new());
+    while index < end {
+        match bytes[index] {
+            b'"' => index = string_end(bytes, index)? - 1,
+            b'[' | b'{' => depth += 1,
+            b']' | b'}' => {
+                depth -= 1;
+                if depth < lowest {
+                    (lowest, commas) = (depth, Vec::new());
+                }
+            }
+            b',' if depth == lowest => commas.push(index),
+            _ => {}
+        }
+        index += 1;
+    }
+    Some((commas, depth, lowest))
+}
+
+/// Splits the inside of a container at its top-level commas. Chunks are scanned in parallel: a chunk starts in a
+/// string when the earlier chunks hold an odd number of quotes, not counting quotes after an odd run of backslashes.
+fn parts(text: &str) -> Option<Vec<&str>> {
+    let bytes = text.as_bytes();
+    let size = (bytes.len() / rayon::current_num_threads()).max(SPLIT);
+    let starts: Vec<usize> = (0..bytes.len()).step_by(size).collect();
+    let quotes: Vec<usize> = starts
+        .par_iter()
+        .map(|&start| memchr::memchr_iter(b'"', &bytes[start..(start + size).min(bytes.len())]).filter(|&at| backslashes_before(bytes, start + at).is_multiple_of(2)).count())
+        .collect();
+    let mut inside = false;
+    let starts: Vec<(usize, bool)> = starts
+        .into_iter()
+        .zip(quotes)
+        .map(|(start, count)| {
+            let was = inside;
+            inside ^= count % 2 == 1;
+            (start, was)
+        })
+        .collect();
+    let scanned = starts.into_par_iter().map(|(start, inside)| chunk_commas(bytes, start, (start + size).min(bytes.len()), inside)).collect::<Option<Vec<_>>>()?;
+    let (mut depth, mut start, mut parts) = (0isize, 0, Vec::new());
+    for (commas, change, lowest) in scanned {
+        match depth + lowest {
+            ..0 => return None,
+            0 => {
+                for comma in commas {
+                    parts.push(&text[start..comma]);
+                    start = comma + 1;
+                }
+            }
+            _ => {}
+        }
+        depth += change;
+    }
+    parts.push(&text[start..]);
+    (depth == 0).then_some(parts)
+}
+
+/// Gives what `serde_json` gives, or `None` when the text is not valid JSON.
+fn split_parse(text: &str) -> Option<J> {
+    let text = trim(text);
+    let (open, close) = (*text.as_bytes().first()?, *text.as_bytes().last()?);
+    if text.len() < SPLIT || !matches!((open, close), (b'[', b']') | (b'{', b'}')) {
+        return serde_json::from_str(text).ok();
+    }
+    let parts = parts(&text[1..text.len() - 1])?;
+    if let [only] = parts[..]
+        && trim(only).is_empty()
+    {
+        return Some(if open == b'[' { J::List(Vec::new()) } else { J::Map(Vec::new()) });
+    }
+    if open == b'[' {
+        return parts.into_par_iter().map(split_parse).collect::<Option<_>>().map(J::List);
+    }
+    let members: Vec<(String, J)> = parts
+        .into_par_iter()
+        .map(|part| {
+            let part = trim(part);
+            let end = string_end(part.as_bytes(), 0).filter(|_| part.starts_with('"'))?;
+            Some((serde_json::from_str(&part[..end]).ok()?, split_parse(trim(&part[end..]).strip_prefix(':')?)?))
+        })
+        .collect::<Option<_>>()?;
+    let mut entries: Vec<(String, J)> = Vec::with_capacity(members.len());
+    for (key, value) in members {
+        match entries.iter_mut().find(|(name, _)| *name == key) {
+            Some(slot) => slot.1 = value,
+            None => entries.push((key, value)),
+        }
+    }
+    Some(J::Map(entries))
 }
 
 impl<'de> Deserialize<'de> for J {
@@ -295,11 +429,14 @@ impl<'de> Deserialize<'de> for J {
                 Ok(J::List(items))
             }
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<J, A::Error> {
-                let mut object = J::Map(Vec::new());
+                let mut entries: Vec<(String, J)> = Vec::new();
                 while let Some((key, value)) = map.next_entry::<String, J>()? {
-                    object.set(&key, value);
+                    match entries.iter_mut().find(|(name, _)| *name == key) {
+                        Some(slot) => slot.1 = value,
+                        None => entries.push((key, value)),
+                    }
                 }
-                Ok(object)
+                Ok(J::Map(entries))
             }
         }
         deserializer.deserialize_any(Walk)
