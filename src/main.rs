@@ -1030,10 +1030,10 @@ async fn main() -> anyhow::Result<()> {
             Err(_) => tokio::net::TcpListener::bind(("0.0.0.0", *port)).await,
         },
     }
-    .with_context(|| format!("cannot listen on {}:{port}", host.as_deref().unwrap_or("::")))?;
+    .with_context(|| format!("Cannot listen on {}:{port}", host.as_deref().unwrap_or("::")))?;
     eprintln!(
-        "xprof-rs at http://localhost:{port}/ serving {}",
-        settings.remote.as_ref().map_or_else(|| settings.logdir.display().to_string(), |remote| format!("{} (mirrored in {})", remote.url, remote.mirror.display()))
+        "xprof-rs runs at http://localhost:{port}/ and serves {}",
+        settings.remote.as_ref().map_or_else(|| settings.logdir.display().to_string(), |remote| format!("{} (copy in {})", remote.url, remote.mirror.display()))
     );
     let state = state(&settings);
     tokio::spawn(prefetch(state.clone()));
