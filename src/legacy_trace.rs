@@ -34,6 +34,7 @@ fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, events: &
             if meta.is_some_and(|meta| meta.internal) {
                 continue;
             }
+            let all = only.is_none();
             let mut args = BTreeMap::new();
             let mut name = match meta {
                 None => line.labels[event.meta as usize].to_string(),
@@ -41,12 +42,16 @@ fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, events: &
                 Some(meta) => meta.display.to_string(),
             };
             if let Some(meta) = meta {
-                if !meta.display.is_empty() {
+                if all && !meta.display.is_empty() {
                     args.insert("long_name".into(), meta.long_name(map).into_owned());
                 }
                 for (raw, field) in [(slice(map, meta.raw), 5), (slice(map, event.raw), 4)] {
                     for stat in stats(raw, field, |_| true) {
                         let Some(stat_name) = plane.stat_names.get(stat.id).filter(|stat_name| !INTERNAL_STATS.contains(&&***stat_name)) else { continue };
+                        let is_step = &**stat_name == "step_name";
+                        if !all && !is_step {
+                            continue;
+                        }
                         let text = match &stat.value {
                             Value::Int(value) => value.to_string(),
                             Value::Uint(value) => value.to_string(),
@@ -54,23 +59,27 @@ fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, events: &
                             Value::Str(_) | Value::Ref(_) => plane.text(&stat.value),
                             Value::Bytes(_) => "<opaque bytes>".into(),
                         };
-                        if &**stat_name == "step_name" {
+                        if is_step {
                             name.clone_from(&text);
                         }
-                        args.insert(stat_name.to_string(), text);
+                        if all {
+                            args.insert(stat_name.to_string(), text);
+                        }
                     }
                 }
-                let links = plane.links(event.meta, slice(map, event.raw), ordinal);
-                if let Some(group) = Some(event.group).filter(|&group| group != NONE_GROUP).or(links.group) {
-                    args.insert("group_id".into(), group.to_string());
+                if all {
+                    let links = plane.links(event.meta, slice(map, event.raw), ordinal);
+                    if let Some(group) = Some(event.group).filter(|&group| group != NONE_GROUP).or(links.group) {
+                        args.insert("group_id".into(), group.to_string());
+                    }
+                    if let Some(flow) = links.flow {
+                        args.insert("flow".into(), flow.to_string());
+                    }
+                    if let Some(eager) = event.eager {
+                        args.insert("is_eager".into(), u8::from(eager).to_string());
+                    }
                 }
-                if let Some(flow) = links.flow {
-                    args.insert("flow".into(), flow.to_string());
-                }
-                if let Some(eager) = event.eager {
-                    args.insert("is_eager".into(), u8::from(eager).to_string());
-                }
-            } else {
+            } else if all {
                 if let Some(long) = line.longs.get(event.meta as usize).filter(|long| !long.is_empty()) {
                     args.insert("long_name".into(), long.to_string());
                 }
@@ -91,17 +100,18 @@ fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, events: &
                     }
                 }
             }
-            if derived && event.group != NONE_GROUP {
+            if all && derived && event.group != NONE_GROUP {
                 args.insert("group_id".into(), event.group.to_string());
             }
             if let Some(step) = line.steps.get(&index) {
                 name.clone_from(&step.name);
-                args.insert("step_name".into(), step.name.clone());
-                step.stats.iter().for_each(|(key, value)| _ = args.insert((*key).into(), value.to_string()));
+                if all {
+                    args.insert("step_name".into(), step.name.clone());
+                    step.stats.iter().for_each(|(key, value)| _ = args.insert((*key).into(), value.to_string()));
+                }
             }
             if only.is_some_and(|only| only != name) {
                 name.clear();
-                args.clear();
             }
             let ts = event.ts + (plane.origin_ns as u64).wrapping_mul(1000);
             events.push(Event { device, resource: line.resource_id(), name, ts, dur: event.dur, args });
