@@ -6,6 +6,7 @@ use itertools::Itertools;
 use prost::Message;
 use prost::encoding::encode_varint;
 use rayon::prelude::*;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -658,12 +659,20 @@ pub fn parse_modules<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, Module<'a
 }
 
 pub fn attach_fused(modules: &[(u64, Module)], db: &mut Db) {
-    let printers: HashMap<u64, (Printer, HashMap<&str, usize>)> = modules
+    let mut wanted = FxHashMap::<u64, FxHashSet<&str>>::default();
+    for metrics in &db.metrics {
+        wanted.entry(metrics.module).or_default().insert(metrics.name.as_str());
+    }
+    let printers: HashMap<u64, (Printer, FxHashMap<&str, usize>)> = modules
         .iter()
         .map(|(id, module)| {
-            let mut names = HashMap::new();
-            for (index, node) in module.nodes.iter().enumerate() {
-                names.entry(node.name.as_str()).or_insert(index);
+            let found: Vec<(&str, usize)> = match wanted.get(id) {
+                Some(wanted) => module.nodes.par_iter().enumerate().filter(|(_, node)| wanted.contains(node.name.as_str())).map(|(index, node)| (node.name.as_str(), index)).collect(),
+                None => Vec::new(),
+            };
+            let mut names = FxHashMap::default();
+            for (name, index) in found {
+                names.entry(name).or_insert(index);
             }
             (*id, (Printer::new(module, Style::Expression, false), names))
         })
