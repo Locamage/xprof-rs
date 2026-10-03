@@ -17,7 +17,7 @@ The test machine has 4 cores. The load takes 2.0 s on one core. XProf takes 11 t
 
 ## Install and start
 
-You need a stable Rust toolchain (edition 2024) and a 64-bit Unix system. You do not need Python, a C++ toolchain, or `protoc`.
+You need Rust 1.95 or newer and a 64-bit Unix system. You do not need Python, a C++ toolchain, or `protoc`.
 
 ```bash
 git clone <repository-url> && cd xprof-rs
@@ -28,7 +28,7 @@ xprof-rs get_overview ~/logs/run1 # the same binary runs the XProf agent CLI
 
 The release profile uses fat LTO and one codegen unit. A full build takes about 80 s on a machine with 240 cores. It uses about 10 CPU minutes. For a quick build, set `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`.
 
-A tag that starts with `v` publishes an `x86_64-linux` tarball. The workflow is `.github/workflows/release.yml`.
+A tag that starts with `v` publishes `x86_64-linux` and `aarch64-linux` archives with SHA-256 files. The workflow is `.github/workflows/release.yml`. The steps are in `RELEASING.md`.
 
 ## Server
 

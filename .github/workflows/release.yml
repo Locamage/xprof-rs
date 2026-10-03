@@ -2,16 +2,50 @@ name: release
 on:
   push:
     tags: ["v*"]
+env:
+  CARGO_TERM_COLOR: always
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag must match the version in Cargo.toml
+        run: test "v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" = "${GITHUB_REF_NAME}"
   binary:
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-linux
+            runner: ubuntu-latest
+          - target: aarch64-linux
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --locked --release
+      - name: Make the archive
+        run: |
+          name=xprof-rs-${GITHUB_REF_NAME}-${{ matrix.target }}
+          mkdir "$name"
+          cp target/release/xprof-rs LICENSE NOTICE README.md "$name"
+          tar -czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: xprof-rs-*
+  publish:
+    needs: binary
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release
-      - run: tar -czf xprof-rs-${{ github.ref_name }}-x86_64-linux.tar.gz -C target/release xprof-rs
-      - run: gh release create ${{ github.ref_name }} xprof-rs-*.tar.gz --generate-notes
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - run: gh release create "${GITHUB_REF_NAME}" xprof-rs-* --generate-notes --verify-tag
         env:
           GH_TOKEN: ${{ github.token }}

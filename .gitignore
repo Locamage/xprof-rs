@@ -1,2 +1,6 @@
 target/
 __pycache__/
+*.profraw
+perf.data*
+.idea/
+.vscode/
