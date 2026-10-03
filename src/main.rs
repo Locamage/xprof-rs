@@ -1040,14 +1040,8 @@ fn main() -> anyhow::Result<()> {
 
 async fn listen(settings: Settings) -> anyhow::Result<()> {
     let Settings { port, host, .. } = &settings;
-    let listener = match host {
-        Some(host) => tokio::net::TcpListener::bind((host.as_str(), *port)).await,
-        None => match tokio::net::TcpListener::bind(("::", *port)).await {
-            Ok(listener) => Ok(listener),
-            Err(_) => tokio::net::TcpListener::bind(("0.0.0.0", *port)).await,
-        },
-    }
-    .with_context(|| format!("Cannot listen on {}:{port}", host.as_deref().unwrap_or("::")))?;
+    let host = host.as_deref().unwrap_or("127.0.0.1");
+    let listener = tokio::net::TcpListener::bind((host, *port)).await.with_context(|| format!("Cannot listen on {host}:{port}"))?;
     eprintln!(
         "xprof-rs runs at http://localhost:{port}/ and serves {}",
         settings.remote.as_ref().map_or_else(|| settings.logdir.display().to_string(), |remote| format!("{} (copy in {})", remote.url, remote.mirror.display()))
