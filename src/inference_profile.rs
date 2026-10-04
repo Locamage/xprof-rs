@@ -71,7 +71,7 @@ const TPU_COLUMNS: [(&str, &str, &str); 7] = [
     ("idle time", "number", "Idle time"),
 ];
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TensorEventDetail {
     pub tensor_pattern_index: i32,
     pub owner: i32,
@@ -101,8 +101,8 @@ pub struct RequestDetail {
 }
 
 impl Default for RequestDetail {
-    fn default() -> RequestDetail {
-        RequestDetail {
+    fn default() -> Self {
+        Self {
             request_id: -1,
             model_id_index: -1,
             start_time_ps: 0,
@@ -143,8 +143,8 @@ pub struct BatchDetail {
 }
 
 impl Default for BatchDetail {
-    fn default() -> BatchDetail {
-        BatchDetail {
+    fn default() -> Self {
+        Self {
             batch_id: -1,
             start_time_ps: 0,
             end_time_ps: 0,
@@ -198,7 +198,7 @@ pub struct PerModelInferenceStats {
     pub per_batch_size_aggregated_result: Vec<PerBatchSizeAggregatedResult>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BatchingParameters {
     pub num_batch_threads: i64,
     pub batch_timeout_micros: i64,
@@ -207,7 +207,7 @@ pub struct BatchingParameters {
     pub allowed_batch_sizes: String,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ModelIdDatabase {
     pub ids: Vec<String>,
     pub id_to_index: HashMap<String, i32>,
@@ -296,7 +296,7 @@ fn int64(value: &Value) -> i64 {
 }
 
 fn group_of(raw: &[u8], group: i64, id: Option<usize>) -> Option<i64> {
-    if group != NONE_GROUP { Some(group) } else { event_stat(raw, id).map(|value| int64(&value)) }
+    if group == NONE_GROUP { event_stat(raw, id).map(|value| int64(&value)) } else { Some(group) }
 }
 
 fn targets(relatives: &Metadata, group: i64) -> impl Iterator<Item = i64> + '_ {
@@ -329,8 +329,8 @@ struct StatIds {
 }
 
 impl StatIds {
-    fn new(host: &Plane) -> StatIds {
-        StatIds {
+    fn new(host: &Plane) -> Self {
+        Self {
             group: host.id("group_id"),
             root: host.id("_r"),
             model: host.id("model_id"),
@@ -353,7 +353,7 @@ struct Events<'a> {
 }
 
 impl<'a> Events<'a> {
-    fn collect(host: &'a Plane, map: &'a [u8], names: &'a [Cow<str>], ids: &StatIds) -> Events<'a> {
+    fn collect(host: &'a Plane, map: &'a [u8], names: &'a [Cow<str>], ids: &StatIds) -> Self {
         let all: Vec<HostEvent> = host
             .lines
             .iter()
@@ -744,20 +744,19 @@ fn combine(host_id: i32, src: InferenceStats, dst: &mut InferenceStats) {
         }
         let mut update = false;
         for id in &src.model_id_db.ids {
-            match dst.model_id_db.id_to_index.get(id) {
-                Some(&index) => update |= index != src.model_id_db.id_to_index[id],
-                None => {
-                    dst.model_id_db.id_to_index.insert(id.clone(), dst.model_id_db.ids.len() as i32);
-                    dst.model_id_db.ids.push(id.clone());
-                    update = true;
-                }
+            if let Some(&index) = dst.model_id_db.id_to_index.get(id) {
+                update |= index != src.model_id_db.id_to_index[id];
+            } else {
+                dst.model_id_db.id_to_index.insert(id.clone(), dst.model_id_db.ids.len() as i32);
+                dst.model_id_db.ids.push(id.clone());
+                update = true;
             }
         }
         update
     };
     let mut pattern_index: HashMap<String, i32> = dst.tensor_patterns.iter().enumerate().map(|(index, pattern)| (pattern.clone(), index as i32)).collect();
     let update_patterns = if dst.tensor_patterns.is_empty() {
-        dst.tensor_patterns = src.tensor_patterns.clone();
+        dst.tensor_patterns.clone_from(&src.tensor_patterns);
         false
     } else {
         let mut update = false;

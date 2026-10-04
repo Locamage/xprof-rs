@@ -31,7 +31,7 @@ const SUBGROUPS: [&str; 7] = ["replicated", "maximal", "error_type.", "error_typ
 
 type WindowField = (&'static str, fn(&WindowDimension) -> bool, fn(&WindowDimension) -> String);
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Style {
     Short,
     Long,
@@ -70,9 +70,9 @@ fn intern<K: Hash + Eq>(set: &mut IndexSet<K>, key: K) -> i64 {
 }
 
 impl Frames {
-    fn new(module: &Module) -> Frames {
+    fn new(module: &Module) -> Self {
         let stack = msg(&module.proto.stack_frame_index);
-        let mut frames = Frames { of: vec![0; module.nodes.len()], ..Frames::default() };
+        let mut frames = Self { of: vec![0; module.nodes.len()], ..Self::default() };
         let mut mapping: HashMap<i64, i64> = HashMap::new();
         for node in 0..module.nodes.len() {
             let (mut current, mut path, mut seen) = (module.nodes[node].frame, Vec::new(), HashSet::new());
@@ -166,10 +166,7 @@ pub fn lexes_as_json_dict(text: &str) -> bool {
 }
 
 pub fn frontend_attributes(attributes: &HashMap<String, String>) -> String {
-    let items = attributes.iter().sorted().map(|(key, value)| match lexes_as_json_dict(value) {
-        true => format!("{key}={value}"),
-        false => format!("{key}=\"{}\"", escaped(value)),
-    });
+    let items = attributes.iter().sorted().map(|(key, value)| if lexes_as_json_dict(value) { format!("{key}={value}") } else { format!("{key}=\"{}\"", escaped(value)) });
     format!("{{{}}}", items.format(","))
 }
 
@@ -264,10 +261,7 @@ pub fn iota_text(dims: &[i64], reshape: &[i64], perm: &[i64]) -> String {
 }
 
 fn leaf_count(shape: &Shape) -> usize {
-    match shape.is_tuple() {
-        true => shape.tuple_shapes.iter().map(leaf_count).sum(),
-        false => 1,
-    }
+    if shape.is_tuple() { shape.tuple_shapes.iter().map(leaf_count).sum() } else { 1 }
 }
 
 fn separate(out: &mut String, index: usize, interval: usize) {
@@ -360,19 +354,18 @@ fn window(inst: &Inst) -> String {
 
 fn mesh_groups(list: &MeshAxesReplicaGroupListProto) -> String {
     let mesh = msg(&list.mesh);
-    let declared = match mesh.axes.is_empty() {
-        true => format!("maximal_mesh[device_id={}]", mesh.device_ids.first().copied().unwrap_or(0)),
-        false => {
-            let transform = msg(&mesh.iota_transform);
-            let (mut dims, mut perm) = (transform.reshape_dims.clone(), transform.transpose_perm.clone());
-            canonicalize_iota(&mut dims, &mut perm);
-            let assignment = match (mesh.device_ids.is_empty(), mesh.iota_transform.is_some() && dims.len() > 1) {
-                (false, _) => format!(", device_ids=({})", mesh.device_ids.iter().join(",")),
-                (true, true) => format!(", device_ids=([{}]T({}))", dims.iter().join(","), perm.iter().join(",")),
-                (true, false) => String::new(),
-            };
-            format!("mesh[{}]{assignment}", mesh.axes.iter().map(|axis| format!("'{}'={}", axis.name, axis.size)).join(","))
-        }
+    let declared = if mesh.axes.is_empty() {
+        format!("maximal_mesh[device_id={}]", mesh.device_ids.first().copied().unwrap_or(0))
+    } else {
+        let transform = msg(&mesh.iota_transform);
+        let (mut dims, mut perm) = (transform.reshape_dims.clone(), transform.transpose_perm.clone());
+        canonicalize_iota(&mut dims, &mut perm);
+        let assignment = match (mesh.device_ids.is_empty(), mesh.iota_transform.is_some() && dims.len() > 1) {
+            (false, _) => format!(", device_ids=({})", mesh.device_ids.iter().join(",")),
+            (true, true) => format!(", device_ids=([{}]T({}))", dims.iter().join(","), perm.iter().join(",")),
+            (true, false) => String::new(),
+        };
+        format!("mesh[{}]{assignment}", mesh.axes.iter().map(|axis| format!("'{}'={}", axis.name, axis.size)).join(","))
     };
     let axis_text = |axis: &xla::AxisRefProto| {
         let index = axis.mesh_axis_index;
@@ -390,9 +383,10 @@ fn replica_groups(inst: &Inst) -> String {
     match &inst.replica_group_list {
         Some(ReplicaGroupList::IotaCollectiveDeviceList(list)) => {
             let dims = [list.num_replica_groups, list.num_devices_per_group];
-            match list.iota_reshape_dims.is_empty() {
-                true => iota_text(&dims, &[dims[0] * dims[1]], &[0]),
-                false => iota_text(&dims, &list.iota_reshape_dims, &list.iota_transpose_perm.iter().map(|&value| i64::from(value)).collect::<Vec<_>>()),
+            if list.iota_reshape_dims.is_empty() {
+                iota_text(&dims, &[dims[0] * dims[1]], &[0])
+            } else {
+                iota_text(&dims, &list.iota_reshape_dims, &list.iota_transpose_perm.iter().map(|&value| i64::from(value)).collect::<Vec<_>>())
             }
         }
         Some(ReplicaGroupList::MeshAxesReplicaGroupList(list)) => mesh_groups(list),
@@ -427,7 +421,7 @@ fn collective(opcode: &str, inst: &Inst, channel_id: Option<i64>, first_dimensio
 }
 
 impl<'a> Printer<'a> {
-    pub fn new(module: &'a Module<'a>, style: Style, metadata: bool) -> Printer<'a> {
+    pub fn new(module: &'a Module<'a>, style: Style, metadata: bool) -> Self {
         let async_graphs = module.nodes.iter().filter(|node| node.opcode == "async-start").flat_map(|node| node.called.iter().copied()).collect();
         let frames = if metadata { Frames::new(module) } else { Frames { of: vec![0; module.nodes.len()], ..Frames::default() } };
         Printer { module, style, metadata, operand_shapes: style == Style::Expression, large_constants: style == Style::Long, async_graphs, failed: Mutex::new(None), frames }
@@ -510,25 +504,23 @@ impl<'a> Printer<'a> {
             }
             position == list.len()
         };
-        let metadata = match self.metadata && !sharding.metadata.is_empty() {
-            true => {
-                format!(", metadata={{{}}}", sharding.metadata.iter().map(|entry| format!("{{{}}}", metadata_text(entry, i64::from(entry.stack_frame_id), &self.module.proto.payloads))).join(", "))
-            }
-            false => String::new(),
+        let metadata = if self.metadata && !sharding.metadata.is_empty() {
+            format!(", metadata={{{}}}", sharding.metadata.iter().map(|entry| format!("{{{}}}", metadata_text(entry, i64::from(entry.stack_frame_id), &self.module.proto.payloads))).join(", "))
+        } else {
+            String::new()
         };
         let maximal = mesh.axes.is_empty() && mesh.device_ids.len() == 1;
-        let mut text = match maximal {
-            true => format!("{{maximal_mesh[device_id={}]", mesh.device_ids[0]),
-            false => {
-                let mut devices = (!mesh.device_ids.is_empty()).then(|| mesh.device_ids.iter().join(","));
-                if let Some(iota) = mesh.iota_transform.as_ref().filter(|_| devices.is_none()) {
-                    let (mut dims, mut perm) = (iota.reshape_dims.clone(), iota.transpose_perm.clone());
-                    canonicalize_iota(&mut dims, &mut perm);
-                    devices = (dims.len() > 1).then(|| format!("[{}]T({})", dims.iter().join(","), perm.iter().join(",")));
-                }
-                let names = mesh.axes.iter().map(|axis| format!("'{}'={}", axis.name, axis.size)).join(",");
-                format!("{{mesh[{names}]{}", devices.map_or_else(String::new, |devices| format!(", device_ids=({devices})")))
+        let mut text = if maximal {
+            format!("{{maximal_mesh[device_id={}]", mesh.device_ids[0])
+        } else {
+            let mut devices = (!mesh.device_ids.is_empty()).then(|| mesh.device_ids.iter().join(","));
+            if let Some(iota) = mesh.iota_transform.as_ref().filter(|_| devices.is_none()) {
+                let (mut dims, mut perm) = (iota.reshape_dims.clone(), iota.transpose_perm.clone());
+                canonicalize_iota(&mut dims, &mut perm);
+                devices = (dims.len() > 1).then(|| format!("[{}]T({})", dims.iter().join(","), perm.iter().join(",")));
             }
+            let names = mesh.axes.iter().map(|axis| format!("'{}'={}", axis.name, axis.size)).join(",");
+            format!("{{mesh[{names}]{}", devices.map_or_else(String::new, |devices| format!(", device_ids=({devices})")))
         };
         let no_dimensions = sharding.dim_shardings.is_empty();
         let reduction = ["", "max", "min"].get(sharding.reduction_op as usize).copied().unwrap_or("");
@@ -612,9 +604,10 @@ impl<'a> Printer<'a> {
             _ if subgroup => write!(out, "{{{}{suffix}}}", SUBGROUPS[subgroups[0] as usize]).unwrap(),
             _ => {
                 out.push_str("{devices=");
-                match reshape.is_empty() {
-                    true => write!(out, "[{}]{}", dims.iter().join(","), devices.iter().join(",")).unwrap(),
-                    false => out.push_str(&iota_text(dims, reshape, &sharding.iota_transpose_perm.iter().map(|&value| i64::from(value)).collect::<Vec<_>>())),
+                if reshape.is_empty() {
+                    write!(out, "[{}]{}", dims.iter().join(","), devices.iter().join(",")).unwrap();
+                } else {
+                    out.push_str(&iota_text(dims, reshape, &sharding.iota_transpose_perm.iter().map(|&value| i64::from(value)).collect::<Vec<_>>()));
                 }
                 if sharding.replicate_on_last_tile_dim {
                     out.push_str(" last_tile_dim_replicate");
@@ -795,7 +788,7 @@ impl<'a> Printer<'a> {
             }
             "get-tuple-element" => attributes.push(format!("index={}", inst.tuple_index)),
             "reduce-precision" => attributes.extend([format!("exponent_bits={}", inst.exponent_bits), format!("mantissa_bits={}", inst.mantissa_bits)]),
-            "convolution" => self.convolution(inst, has_window, attributes),
+            "convolution" => Self::convolution(inst, has_window, attributes),
             "reduce-window" | "select-and-scatter" if has_window => attributes.push(window(inst)),
             "custom-call" => self.custom_call(inst, attributes),
             "pad" => {
@@ -836,7 +829,7 @@ impl<'a> Printer<'a> {
                 precision(&msg(&inst.precision_config), attributes);
             }
             "batch-norm-training" | "batch-norm-inference" | "batch-norm-grad" => {
-                attributes.extend([format!("epsilon={}", general(f64::from(inst.epsilon), 6)), format!("feature_index={}", inst.feature_index)])
+                attributes.extend([format!("epsilon={}", general(f64::from(inst.epsilon), 6)), format!("feature_index={}", inst.feature_index)]);
             }
             "triangular-solve" => {
                 let options = msg(&inst.triangular_solve_options);
@@ -868,7 +861,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn convolution(&self, inst: &Inst, has_window: bool, attributes: &mut Vec<String>) {
+    fn convolution(inst: &Inst, has_window: bool, attributes: &mut Vec<String>) {
         if has_window {
             attributes.push(window(inst));
         }
@@ -926,10 +919,13 @@ impl<'a> Printer<'a> {
         match entry.opcode.as_str() {
             "while" if called.len() == 2 => attributes.extend([format!("condition={}", self.graph_name(called[1])), format!("body={}", self.graph_name(called[0]))]),
             "select-and-scatter" if called.len() == 2 => attributes.extend([format!("select={}", self.graph_name(called[0])), format!("scatter={}", self.graph_name(called[1]))]),
-            "conditional" if self.style != Style::Graph => match entry.operands.first().map(|&operand| module.nodes[operand].shape.element_type) == Some(1) && called.len() == 2 {
-                true => attributes.extend([format!("true_computation={}", self.graph_name(called[0])), format!("false_computation={}", self.graph_name(called[1]))]),
-                false => attributes.push(format!("branch_computations={{{}}}", names(called))),
-            },
+            "conditional" if self.style != Style::Graph => {
+                if entry.operands.first().map(|&operand| module.nodes[operand].shape.element_type) == Some(1) && called.len() == 2 {
+                    attributes.extend([format!("true_computation={}", self.graph_name(called[0])), format!("false_computation={}", self.graph_name(called[1]))]);
+                } else {
+                    attributes.push(format!("branch_computations={{{}}}", names(called)));
+                }
+            }
             opcode if CALLS_TO_APPLY.contains(&opcode) => {
                 if let Some(&graph) = called.first() {
                     attributes.push(format!("to_apply={}", self.graph_name(graph)));
@@ -976,7 +972,7 @@ impl<'a> Printer<'a> {
         }
         match msg(&inst.result_accuracy).specs {
             Some(xla::result_accuracy::Specs::Tolerance(tolerance)) => {
-                attributes.push(format!("result_accuracy={{tolerance={{atol={},rtol={},ulps={}}}}}", general(tolerance.atol, 6), general(tolerance.rtol, 6), tolerance.ulps))
+                attributes.push(format!("result_accuracy={{tolerance={{atol={},rtol={},ulps={}}}}}", general(tolerance.atol, 6), general(tolerance.rtol, 6), tolerance.ulps));
             }
             Some(xla::result_accuracy::Specs::Mode(mode)) if mode != 0 => attributes.push(format!("result_accuracy={{mode={}}}", if mode == 1 { "highest" } else { "unknown" })),
             _ => {}
@@ -1012,13 +1008,12 @@ impl<'a> Printer<'a> {
             Some(config) if !config.is_empty() => {
                 out.push_str(", backend_config=");
                 let text = crate::xplane::lossy(&config);
-                match lexes_as_json_dict(&text) {
-                    true => out.push_str(&text),
-                    false => {
-                        out.push('"');
-                        c_escape(out, &config);
-                        out.push('"');
-                    }
+                if lexes_as_json_dict(&text) {
+                    out.push_str(&text);
+                } else {
+                    out.push('"');
+                    c_escape(out, &config);
+                    out.push('"');
                 }
             }
             Some(_) => {}

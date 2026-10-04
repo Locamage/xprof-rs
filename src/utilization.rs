@@ -55,7 +55,7 @@ const V7X_PRECISIONS: [(&str, &[(u64, &str)]); 2] = [("MXU BF16", &[(4, "LMR_BF1
 
 pub type Counters = FxHashMap<u64, u64>;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Device {
     V6e,
     V7x,
@@ -71,26 +71,26 @@ pub struct Metric {
 }
 
 impl Device {
-    pub fn from_type(device_type: &str) -> Option<Device> {
+    pub fn from_type(device_type: &str) -> Option<Self> {
         match device_type {
-            "TPU v7x" => Some(Device::V7x),
-            "TPU v6 Lite" => Some(Device::V6e),
+            "TPU v7x" => Some(Self::V7x),
+            "TPU v6 Lite" => Some(Self::V6e),
             _ => None,
         }
     }
 
     pub fn frequency_hz(self) -> f64 {
-        if self == Device::V6e { 1.75e9 } else { 1.9e9 }
+        if self == Self::V6e { 1.75e9 } else { 1.9e9 }
     }
 
     fn id(self, name: &str) -> u64 {
-        if self == Device::V6e { V6E_IDS[name] } else { V7X_IDS[name] }
+        if self == Self::V6e { V6E_IDS[name] } else { V7X_IDS[name] }
     }
 
     fn tensor_counter(self, core: usize, name: &str) -> u64 {
         match self {
-            Device::V6e => self.id(&format!("{TC_V6E}{name}")),
-            Device::V7x => self.id(&format!("VF_CHIP_DIE{}_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_{name}", die(core))),
+            Self::V6e => self.id(&format!("{TC_V6E}{name}")),
+            Self::V7x => self.id(&format!("VF_CHIP_DIE{}_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_{name}", die(core))),
         }
     }
 
@@ -100,8 +100,8 @@ impl Device {
 
     pub fn cycle_counters(self) -> Vec<u64> {
         match self {
-            Device::V6e => vec![self.tensor_counter(0, "CYCLES")],
-            Device::V7x => (0..2).map(|core| self.power_counter(core, "CYCLE_COUNT")).collect(),
+            Self::V6e => vec![self.tensor_counter(0, "CYCLES")],
+            Self::V7x => (0..2).map(|core| self.power_counter(core, "CYCLE_COUNT")).collect(),
         }
     }
 }

@@ -29,7 +29,7 @@ pub fn proto_files(client: &dyn Client, session: &str) -> Result<Vec<PathBuf>, E
     if files.is_empty() {
         files = find(&run, &[SUFFIX], true);
     }
-    files.retain(|path| !path.file_name().is_some_and(|name| name == NO_MODULE));
+    files.retain(|path| path.file_name().is_none_or(|name| name != NO_MODULE));
     Ok(files)
 }
 

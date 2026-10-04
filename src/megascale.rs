@@ -23,7 +23,7 @@ const SEND_DONE: usize = 4;
 const RECV: usize = 5;
 const RECV_DONE: usize = 6;
 
-#[derive(Clone, Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub struct Summary {
     pub rendezvous: String,
     pub transfer_type: String,
@@ -34,7 +34,7 @@ pub struct Summary {
     pub times_us: [u64; 7],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Opcode {
     Send,
     Recv,
@@ -43,7 +43,7 @@ pub enum Opcode {
     Other,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Instruction {
     pub opcode: Opcode,
     pub channel_id: u64,
@@ -83,7 +83,7 @@ pub struct Tracker {
 fn replica_group_size(info: &[u8]) -> i64 {
     let mut groups = fields(info).filter_map(|(tag, field)| if let Field::Bytes(_, body) = field { Some((tag, body)) } else { None });
     let (one_to_one, endpoints): (Vec<_>, Vec<_>) = groups.by_ref().filter(|(tag, _)| *tag == 2 || *tag == 3).partition(|(tag, _)| *tag == 3);
-    if !one_to_one.is_empty() { 1 } else { endpoints.first().map_or(0, |(_, group)| fields(group).filter(|(tag, field)| *tag == 1 && matches!(field, Field::Bytes(..))).count() as i64) }
+    if one_to_one.is_empty() { endpoints.first().map_or(0, |(_, group)| fields(group).filter(|(tag, field)| *tag == 1 && matches!(field, Field::Bytes(..))).count() as i64) } else { 1 }
 }
 
 pub fn transmitted_bytes(size: i64, group: i64, transfer_type: &str) -> u64 {

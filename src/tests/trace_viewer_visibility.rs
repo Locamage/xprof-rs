@@ -60,7 +60,7 @@ fn visible(planes: &[(&str, &[TimedEvent])], start_ps: u64, end_ps: u64, full_dm
     for (plane, events) in planes {
         let plane = space.plane(plane);
         plane.named_line(1, "XLA Ops");
-        for &(name, begin, duration, flow) in events.iter() {
+        for &(name, begin, duration, flow) in *events {
             let stats: Vec<(&str, super::xspace::V)> = flow.map(|flow| ("flow", super::xspace::V::Uint(flow << 2 | FLOW_MID_DIRECTION))).into_iter().collect();
             plane.event(1, name, begin, duration, &stats);
         }

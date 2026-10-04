@@ -235,8 +235,8 @@ pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
 pub struct EventReader(Vec<u8>);
 
 impl EventReader {
-    pub fn new(plane: &Plane) -> EventReader {
-        EventReader(plane.stat_names.iter().map(|name| EVENT_STATS.iter().position(|known| *known == &**name).map_or(UNREAD, |kind| kind as u8)).collect())
+    pub fn new(plane: &Plane) -> Self {
+        Self(plane.stat_names.iter().map(|name| EVENT_STATS.iter().position(|known| *known == &**name).map_or(UNREAD, |kind| kind as u8)).collect())
     }
 
     pub fn read(&self, map: &[u8], event: &Ev) -> EventStats {
@@ -318,7 +318,7 @@ impl Accumulator<'_> {
         let occurrences = self.totals.occurrences;
         let memory = self.template.memory.iter().map(|&(operation, space, bytes)| (operation, space, bytes.saturating_mul(occurrences))).collect();
         let Totals { time_ps, self_time_ps, normalized_time_ps, min_time_ps, dma_stall_ps, vdd_energy, core_type, .. } = self.totals;
-        Metrics { occurrences, time_ps, self_time_ps, normalized_time_ps, min_time_ps, dma_stall_ps, flops_v2, model_flops_v2, bytes_accessed, memory, vdd_energy, core_type, ..Default::default() }
+        Metrics { occurrences, time_ps, normalized_time_ps, min_time_ps, self_time_ps, dma_stall_ps, flops_v2, model_flops_v2, bytes_accessed, memory, vdd_energy, core_type, ..Default::default() }
     }
 }
 
@@ -330,7 +330,7 @@ pub struct Builder<'a> {
 }
 
 impl<'a> Builder<'a> {
-    pub fn new(templates: &'a Templates) -> Builder<'a> {
+    pub fn new(templates: &'a Templates) -> Self {
         Builder { templates, positions: vec![u32::MAX; templates.keys], entries: Vec::new() }
     }
 
@@ -446,12 +446,12 @@ fn absorb(destination: &mut Metrics, metrics: &Metrics, update_cores: bool) {
 }
 
 impl Db {
-    pub fn combined<'a>(parts: impl IntoIterator<Item = &'a Db>, update_cores: bool) -> Db {
-        let (mut db, mut index, parts) = (Db::default(), FxHashMap::default(), parts.into_iter().collect::<Vec<_>>());
+    pub fn combined<'a>(parts: impl IntoIterator<Item = &'a Self>, update_cores: bool) -> Self {
+        let (mut db, mut index, parts) = (Self::default(), FxHashMap::default(), parts.into_iter().collect::<Vec<_>>());
         let Some((first, rest)) = parts.split_first() else { return db };
         db.merge(&mut index, first, update_cores);
         // Parts of one trace list the same operations in the same order, so they merge position by position in parallel.
-        let same = |part: &&&Db| part.metrics.len() == db.metrics.len() && part.metrics.par_iter().zip(&db.metrics).all(|(a, b)| a.module == b.module && a.name == b.name);
+        let same = |part: &&&Self| part.metrics.len() == db.metrics.len() && part.metrics.par_iter().zip(&db.metrics).all(|(a, b)| a.module == b.module && a.name == b.name);
         let (aligned, rest) = rest.split_at(rest.iter().take_while(same).count());
         for part in aligned {
             add!(db, part, total_time_ps, total_op_time_ps, normalized_total_op_time_ps);
@@ -461,7 +461,7 @@ impl Db {
         db
     }
 
-    fn merge(&mut self, index: &mut FxHashMap<(u64, ArcStr), usize>, source: &Db, update_cores: bool) {
+    fn merge(&mut self, index: &mut FxHashMap<(u64, ArcStr), usize>, source: &Self, update_cores: bool) {
         add!(self, source, total_time_ps, total_op_time_ps, normalized_total_op_time_ps);
         for (position, metrics) in source.metrics.iter().enumerate() {
             let aligned = self.metrics.get(position).is_some_and(|known| known.module == metrics.module && known.name == metrics.name);
@@ -477,7 +477,7 @@ impl Db {
         &mut self.metrics[position]
     }
 
-    pub fn with_idle(mut self, total_time_ps: u64) -> Db {
+    pub fn with_idle(mut self, total_time_ps: u64) -> Self {
         self.total_time_ps = total_time_ps.max(self.total_op_time_ps);
         let idle = self.total_time_ps.wrapping_sub(self.total_op_time_ps);
         self.metrics.push(Metrics { name: IDLE.into(), category: IDLE.into(), time_ps: idle, self_time_ps: idle, ..Default::default() });
@@ -584,8 +584,8 @@ pub fn load(path: &std::path::Path) -> Option<Arc<OpStats>> {
 }
 
 impl OpStats {
-    pub fn combine(all: &[Option<Arc<OpStats>>]) -> Option<Arc<OpStats>> {
-        let all: Vec<&Arc<OpStats>> = all.iter().map(Option::as_ref).collect::<Option<_>>()?;
+    pub fn combine(all: &[Option<Arc<Self>>]) -> Option<Arc<Self>> {
+        let all: Vec<&Arc<Self>> = all.iter().map(Option::as_ref).collect::<Option<_>>()?;
         let first = *all.first()?;
         if all.len() == 1 {
             return Some(first.clone());
@@ -608,16 +608,7 @@ impl OpStats {
         (extra.megacore, extra.merged_vmem) = (false, false);
         let extra = Arc::new(extra);
         let tpu = all.iter().any(|stats| stats.tpu);
-        Some(Arc::new(OpStats {
-            db,
-            perf,
-            tpu,
-            host,
-            memory: String::new(),
-            extra,
-            programs,
-            kernels: crate::gpu::sorted_kernels(all.iter().flat_map(|stats| stats.kernels.iter().cloned()).collect()),
-        }))
+        Some(Arc::new(Self { db, perf, tpu, host, memory: String::new(), extra, programs, kernels: crate::gpu::sorted_kernels(all.iter().flat_map(|stats| stats.kernels.iter().cloned()).collect()) }))
     }
 }
 

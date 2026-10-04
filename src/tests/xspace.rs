@@ -110,7 +110,7 @@ pub struct XEventMetadata {
     pub child_id: Vec<i64>,
 }
 
-#[derive(Clone, PartialEq, Message)]
+#[derive(Clone, PartialEq, Eq, Message)]
 pub struct XStatMetadata {
     #[prost(int64, tag = "1")]
     pub id: i64,
@@ -131,38 +131,38 @@ pub enum V {
 }
 
 impl From<i32> for V {
-    fn from(value: i32) -> V {
-        V::Int(value.into())
+    fn from(value: i32) -> Self {
+        Self::Int(value.into())
     }
 }
 
 impl From<i64> for V {
-    fn from(value: i64) -> V {
-        V::Int(value)
+    fn from(value: i64) -> Self {
+        Self::Int(value)
     }
 }
 
 impl From<u64> for V {
-    fn from(value: u64) -> V {
-        V::Uint(value)
+    fn from(value: u64) -> Self {
+        Self::Uint(value)
     }
 }
 
 impl From<f64> for V {
-    fn from(value: f64) -> V {
-        V::Double(value)
+    fn from(value: f64) -> Self {
+        Self::Double(value)
     }
 }
 
 impl From<&str> for V {
-    fn from(value: &str) -> V {
-        V::Str(value.into())
+    fn from(value: &str) -> Self {
+        Self::Str(value.into())
     }
 }
 
 impl From<String> for V {
-    fn from(value: String) -> V {
-        V::Str(value)
+    fn from(value: String) -> Self {
+        Self::Str(value)
     }
 }
 
@@ -436,7 +436,7 @@ impl XEvent {
 }
 
 impl XSpace {
-    pub fn text(text: &str) -> XSpace {
+    pub fn text(text: &str) -> Self {
         parse_text("tensorflow.profiler.XSpace", text)
     }
 

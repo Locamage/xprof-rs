@@ -13,7 +13,7 @@ fn gpu_step_events_classify_correlated_kernels_inside_derived_step_markers() {
     let planes = crate::xplane::parse(&map).unwrap();
     let events = gpu_device(&planes[0], &map, 0);
     let mut steps: Vec<i64> = events.keys().copied().collect();
-    steps.sort();
+    steps.sort_unstable();
     assert_eq!(steps, vec![0, 1, 2]);
     let kinds = |step: i64| events[&step].events.iter().map(|(kind, span)| (*kind, span.begin)).collect::<Vec<_>>();
     assert_eq!(kinds(0), vec![(DEVICE_COMPUTE_32, 1_000_000), (DEVICE_COLLECTIVES, 1_000_020), (DEVICE_TO_DEVICE, 1_000_040), (HOST_TO_DEVICE, 1_000_005)]);

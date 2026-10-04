@@ -32,7 +32,7 @@ fn canonical_line(line: &str, ids: &mut HashMap<String, usize>) -> String {
         Some((head, tail)) => {
             let (callers, rest) = tail.split_at(tail.find('<').unwrap_or(tail.len()));
             let mut callers: Vec<&str> = callers.split(", ").collect();
-            callers.sort();
+            callers.sort_unstable();
             format!("{head}Caller instructions: {}{rest}", callers.join(", "))
         }
         None => line.to_string(),

@@ -80,15 +80,15 @@ pub enum Kind {
     Fire,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
     pub kind: Kind,
     pub message: String,
 }
 
 impl Error {
-    pub fn new(kind: Kind, message: impl Into<String>) -> Error {
-        Error { kind, message: message.into() }
+    pub fn new(kind: Kind, message: impl Into<String>) -> Self {
+        Self { kind, message: message.into() }
     }
 
     pub fn name(&self) -> &'static str {
@@ -178,8 +178,8 @@ pub enum Out {
 }
 
 impl From<J> for Out {
-    fn from(value: J) -> Out {
-        Out::Text(value.dumps())
+    fn from(value: J) -> Self {
+        Self::Text(value.dumps())
     }
 }
 

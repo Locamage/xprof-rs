@@ -197,7 +197,7 @@ fn tpu_device_trace_to_step_db() {
     plane.event(1, "op_name", 0, 10 * 1000, &[]);
     let stats = op_stats(&[space]).unwrap();
     let mut names: Vec<&str> = stats.db.metrics.iter().map(|metrics| &*metrics.name).collect();
-    names.sort();
+    names.sort_unstable();
     assert_eq!(names, [IDLE, "op_name"]);
 }
 

@@ -43,7 +43,7 @@ const SYMBOL: usize = 5;
 const FLOPS: usize = 6;
 const CATEGORY: usize = 9;
 
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Span {
     pub begin: u64,
     pub duration: u64,
@@ -54,7 +54,7 @@ impl Span {
         self.begin.wrapping_add(self.duration)
     }
 
-    pub(crate) fn includes(self, other: Span) -> bool {
+    pub(crate) fn includes(self, other: Self) -> bool {
         self.begin <= other.begin && other.end() <= self.end()
     }
 }
@@ -79,7 +79,7 @@ pub struct Details {
 pub type StepEvents = HashMap<i64, Details>;
 
 impl Details {
-    fn combine(&mut self, other: Details) {
+    fn combine(&mut self, other: Self) {
         self.markers.extend(other.markers);
         self.events.extend(other.events);
         for (core, collectives) in other.collectives {
@@ -190,7 +190,7 @@ fn scan<'a>(plane: &'a Plane, raw: &'a [u8], field: u32, ids: &[Option<usize>; 1
                     Value::Str(bytes) => crate::xplane::lossy(bytes),
                     Value::Ref(id) => Cow::Borrowed(plane.stat_names.get(id as usize).map_or("", |name| &**name)),
                     _ => Cow::Borrowed(""),
-                })
+                });
             }
             Some(index) => out.0[index] = stat.value.int().or(out.0[index]),
             None => {}
@@ -302,7 +302,7 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
                 }
             }
             let own: [Option<i64>; 4] = own[..4].try_into().unwrap();
-            Some((index, event, own, if event.group != NONE_GROUP { event.group } else { own[0]? }))
+            Some((index, event, own, if event.group == NONE_GROUP { own[0]? } else { event.group }))
         });
         if step_line {
             markers = HashMap::new();
@@ -461,7 +461,7 @@ pub fn host_steps(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
                 }
                 let current = (!text(stage_name).is_empty(), async_parent || stack.last().is_some_and(|top| top.1 || top.0), span);
                 stack.push(current);
-                let group = if event.group != NONE_GROUP { event.group } else { number(event, group_id).unwrap_or(-1) };
+                let group = if event.group == NONE_GROUP { number(event, group_id).unwrap_or(-1) } else { event.group };
                 if group < 0 {
                     continue;
                 }
@@ -528,17 +528,7 @@ fn step_db(events: &StepEvents, has_device: bool) -> Vec<StepRecord> {
             let (host, device) = (details.longest(|marker| !marker.device), details.longest(|marker| marker.device));
             let step_time = if (device.begin == 0 && device.duration == 0) || host.includes(device) { host } else { device };
             let info = |span: Span, breakdown| StepInfo { name: details.name.clone(), begin: span.begin, duration: span.duration, breakdown };
-            let cores: BTreeMap<u32, StepInfo> = if !details.cores.is_empty() {
-                let cores = details.cores.iter().filter(|_| step_time.duration != 0);
-                cores
-                    .map(|(&core, (categories, total_op))| {
-                        let span = if core >= SPARSE_CORE_START { details.longest(|marker| marker.core == Some(core)) } else { step_time };
-                        let mut breakdown = categories.clone();
-                        *breakdown.entry(IDLE.to_string()).or_default() += (*total_op).max(span.duration) - total_op;
-                        (core, info(span, Breakdown::Categories(breakdown)))
-                    })
-                    .collect()
-            } else {
+            let cores: BTreeMap<u32, StepInfo> = if details.cores.is_empty() {
                 let mut types: BTreeMap<u32, u64> = BTreeMap::new();
                 for &(kind, span) in &details.events {
                     *types.entry(kind).or_default() +=
@@ -553,6 +543,16 @@ fn step_db(events: &StepEvents, has_device: bool) -> Vec<StepRecord> {
                     return None;
                 }
                 BTreeMap::from([(1, info(step_time, Breakdown::Types(types)))])
+            } else {
+                let cores = details.cores.iter().filter(|_| step_time.duration != 0);
+                cores
+                    .map(|(&core, (categories, total_op))| {
+                        let span = if core >= SPARSE_CORE_START { details.longest(|marker| marker.core == Some(core)) } else { step_time };
+                        let mut breakdown = categories.clone();
+                        *breakdown.entry(IDLE.to_string()).or_default() += (*total_op).max(span.duration) - total_op;
+                        (core, info(span, Breakdown::Categories(breakdown)))
+                    })
+                    .collect()
             };
             let collectives = if cores.is_empty() { BTreeMap::new() } else { details.collectives.clone() };
             Some(StepRecord { num: number as u32, cores, collectives })

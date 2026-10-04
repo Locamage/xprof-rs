@@ -145,10 +145,7 @@ fn source_info(stack: &StackFrameIndexProto, metadata: &OpMetadata) -> Option<So
 
 impl Buffer<'_> {
     fn name_with_index(&self) -> String {
-        match self.logical.shape_index.is_empty() {
-            true => self.logical.name.to_string(),
-            false => format!("{}{{{}}}", self.logical.name, self.logical.shape_index.iter().join(",")),
-        }
+        if self.logical.shape_index.is_empty() { self.logical.name.clone() } else { format!("{}{{{}}}", self.logical.name, self.logical.shape_index.iter().join(",")) }
     }
 }
 
@@ -162,7 +159,7 @@ struct Model<'a> {
 }
 
 impl<'a> Model<'a> {
-    fn new(module: &'a Module<'a>, assignment: &'a BufferAssignmentProto, logicals: &'a [Logical]) -> Model<'a> {
+    fn new(module: &'a Module<'a>, assignment: &'a BufferAssignmentProto, logicals: &'a [Logical]) -> Self {
         let logicals: HashMap<i64, &Logical> = logicals.iter().map(|logical| (logical.id, logical)).collect();
         let stack = msg(&module.proto.stack_frame_index);
         let (allocations, traces) = (&assignment.buffer_allocations[..], &assignment.heap_simulator_traces[..]);
@@ -358,10 +355,7 @@ fn fitting_label(label: &str, width: f64, height: f64, fontsize: f64) -> String 
     if label.len() as i64 <= max_chars {
         return label.to_string();
     }
-    match max_chars >= 4 {
-        true => format!("{}...", crate::xplane::lossy(&label.as_bytes()[..max_chars as usize - 3])),
-        false => String::new(),
-    }
+    if max_chars >= 4 { format!("{}...", crate::xplane::lossy(&label.as_bytes()[..max_chars as usize - 3])) } else { String::new() }
 }
 
 fn logical_buffers(module: &Module, bodies: &[&[u8]]) -> Option<Vec<Logical>> {

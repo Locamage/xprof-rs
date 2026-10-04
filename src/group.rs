@@ -57,7 +57,7 @@ struct Typing {
 }
 
 impl Typing {
-    fn new(plane: &Plane, map: &[u8]) -> Typing {
+    fn new(plane: &Plane, map: &[u8]) -> Self {
         let kinds = plane
             .meta
             .par_iter()
@@ -77,7 +77,7 @@ impl Typing {
                 },
             })
             .collect();
-        Typing { kinds, host: plane.name == HOST, correlation: plane.id("correlation_id"), step: plane.id("id"), iteration: plane.id("iter_num") }
+        Self { kinds, host: plane.name == HOST, correlation: plane.id("correlation_id"), step: plane.id("id"), iteration: plane.id("iter_num") }
     }
 
     fn kind(&self, map: &[u8], event: &Ev) -> (u8, Option<u64>) {
@@ -464,7 +464,7 @@ fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Gra
         edges.extend(producers.iter().flat_map(|&producer| consumers.iter().map(move |&consumer| (producer, consumer))));
     }
     let (kids, parents) = rayon::join(|| csr(nodes as usize, &edges, false), || csr(nodes as usize, &edges, true));
-    (Graph { kids, parents, locs }, iterations)
+    (Graph { locs, kids, parents }, iterations)
 }
 
 fn classify_eager(walker: &Walker, outs: &[Out]) -> Vec<(u32, bool)> {

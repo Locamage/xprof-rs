@@ -184,8 +184,8 @@ fn summarize(steps: &[J], props: Option<&J>) -> J {
     let mut summary = obj! {
         "total_steps" => steps.len(),
         "step_time_ms_average" => step,
-        "step_time_ms_min" => round(times.iter().cloned().fold(f64::INFINITY, f64::min), 4),
-        "step_time_ms_max" => round(times.iter().cloned().fold(f64::NEG_INFINITY, f64::max), 4),
+        "step_time_ms_min" => round(times.iter().copied().fold(f64::INFINITY, f64::min), 4),
+        "step_time_ms_max" => round(times.iter().copied().fold(f64::NEG_INFINITY, f64::max), 4),
         "step_time_ms_stddev" => if steps.len() > 1 { round(stdev(&times), 4) } else { 0.0 },
         "compute_time_ms_average" => compute,
         "compute_percent" => percent(compute, step),

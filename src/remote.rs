@@ -44,22 +44,22 @@ impl PartialEq for Remote {
 }
 
 impl Remote {
-    pub fn open(url: &str) -> Result<Remote, String> {
+    pub fn open(url: &str) -> Result<Self, String> {
         let parsed = url::Url::parse(url).map_err(|error| format!("The log directory '{url}' is not a valid URL: {error}"))?;
         let (store, root) = object_store::parse_url_opts(&parsed, std::env::vars()).map_err(|error| format!("Cannot open {url}: {error}"))?;
-        Remote::new(url, Arc::from(store), root)
+        Self::new(url, Arc::from(store), root)
     }
 
-    pub fn new(url: &str, store: Arc<dyn ObjectStore>, root: Key) -> Result<Remote, String> {
+    pub fn new(url: &str, store: Arc<dyn ObjectStore>, root: Key) -> Result<Self, String> {
         let digest: String = Sha256::digest(url.as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect();
         #[cfg(not(test))]
         let temp_dir = std::env::temp_dir;
         #[cfg(test)]
         let temp_dir = crate::tests::temp_dir;
         let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}"));
-        let mirror = std::fs::create_dir_all(&mirror).and_then(|_| mirror.canonicalize()).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
+        let mirror = std::fs::create_dir_all(&mirror).and_then(|()| mirror.canonicalize()).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
         let budget = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
-        Ok(Remote { url: url.to_string(), mirror, budget, used: Mutex::default(), store, root, checked: Mutex::default(), locks: Mutex::default() })
+        Ok(Self { url: url.to_string(), mirror, budget, used: Mutex::default(), store, root, checked: Mutex::default(), locks: Mutex::default() })
     }
 
     fn key(&self, dir: &Path) -> Option<Key> {
@@ -118,7 +118,7 @@ impl Remote {
             }
             let fetch = async |path: PathBuf, object: ObjectMeta| {
                 let partial = path.with_file_name(format!(".{}.partial", object.location.filename().unwrap_or_default()));
-                let file = Arc::new(std::fs::File::create(&partial).and_then(|file| file.set_len(object.size).map(|_| file)).map_err(unwritable)?);
+                let file = Arc::new(std::fs::File::create(&partial).and_then(|file| file.set_len(object.size).map(|()| file)).map_err(unwritable)?);
                 stream::iter((0..object.size).step_by(PART_BYTES as usize))
                     .map(|start| {
                         let (file, location) = (file.clone(), &object.location);
@@ -130,7 +130,7 @@ impl Remote {
                     .buffer_unordered(PARALLEL_PARTS)
                     .try_collect::<Vec<()>>()
                     .await?;
-                file.set_modified(SystemTime::from(object.last_modified)).and_then(|_| std::fs::rename(&partial, &path)).map_err(unwritable)
+                file.set_modified(SystemTime::from(object.last_modified)).and_then(|()| std::fs::rename(&partial, &path)).map_err(unwritable)
             };
             stream::iter(wanted).map(|(path, object)| fetch(path, object)).buffer_unordered(PARALLEL_FILES).try_collect::<Vec<()>>().await?;
             let used = self.used.lock().unwrap().clone();

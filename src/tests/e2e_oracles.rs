@@ -94,7 +94,7 @@ pub fn oracle_duty_cycle(path: &Path) -> f64 {
         .flat_map(|(_, _, spans)| spans.into_iter().map(|(start, duration)| (start as i64, start as i64 + duration as i64)))
         .filter(|(start, end)| end > start)
         .collect();
-    intervals.sort();
+    intervals.sort_unstable();
     let mut merged: Vec<(i64, i64)> = Vec::new();
     for (start, end) in intervals {
         match merged.last_mut() {

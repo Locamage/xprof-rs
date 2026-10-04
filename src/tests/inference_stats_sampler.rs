@@ -4,7 +4,7 @@ use crate::inference_profile::sample;
 #[test]
 fn test_sort() {
     let stats = inference_stats(
-        r#"
+        r"
         inference_stats_per_model {
           key: 1
           value {
@@ -15,7 +15,7 @@ fn test_sort() {
             batch_details { batch_id: 4 start_time_ps: 0 end_time_ps: 20000 batch_delay_ps: 1000 padding_amount: 10 batch_size_after_padding: 100 }
             batch_details { batch_id: 5 start_time_ps: 0 end_time_ps: 30000 batch_delay_ps: 3000 padding_amount: 30 batch_size_after_padding: 300 }
           }
-        }"#,
+        }",
     );
 
     let by_latency = &sample("Latency", "Latency", &stats)[&1];

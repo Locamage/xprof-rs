@@ -32,7 +32,7 @@ pub const DNN_CONVOLUTION: [&str; 5] = ["__cudnn$convForward", "__cudnn$convForw
 const CALL_MARKERS: [&str; 2] = ["__xla_internal_call_marker_before", "__xla_internal_call_marker_after"];
 const QUOTES: [&str; 8] = ["\"", "22", "x22", "X22", "u0022", "U0022", "u00000022", ""];
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Cost {
     pub model_flops: i64,
     pub device_flops: i64,
@@ -63,8 +63,8 @@ enum Key {
 struct Props(FxHashMap<Key, f32>);
 
 impl Props {
-    fn get(&self, key: Key) -> f32 {
-        self.0.get(&key).copied().unwrap_or(0.0)
+    fn get(&self, key: &Key) -> f32 {
+        self.0.get(key).copied().unwrap_or(0.0)
     }
 
     fn slot(&mut self, key: Key) -> &mut f32 {
@@ -79,7 +79,7 @@ impl Props {
         self.0.iter().filter(|(_, value)| **value != 0.0).map(|(key, value)| (key, *value))
     }
 
-    fn merge(&mut self, other: &Props, combine: fn(f32, f32) -> f32) {
+    fn merge(&mut self, other: &Self, combine: fn(f32, f32) -> f32) {
         for (key, value) in other.nonzero() {
             let slot = self.slot(key.clone());
             *slot = combine(*slot, value);
@@ -306,7 +306,7 @@ impl<'m> Context<'m> {
         }
     }
 
-    fn equal_ignoring_element_type(&self, left: &Shape, right: &Shape) -> bool {
+    fn equal_ignoring_element_type(left: &Shape, right: &Shape) -> bool {
         let layout =
             |shape: &Shape| shape.layout.as_ref().map(|layout| (layout.minor_to_major.clone(), layout.tiles.iter().map(|tile| tile.dimensions.clone()).collect::<Vec<_>>(), layout.memory_space));
         left.dimensions == right.dimensions && left.is_dynamic_dimension == right.is_dynamic_dimension && left.is_array() == right.is_array() && layout(left) == layout(right)
@@ -349,7 +349,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
         }
     }
 
-    fn property(&self, node: usize, key: Key) -> f32 {
+    fn property(&self, node: usize, key: &Key) -> f32 {
         self.properties.get(&node).map_or(0.0, |props| props.get(key))
     }
 
@@ -435,7 +435,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
     fn postprocess(&mut self, node: usize) -> Status {
         let context = self.context;
         if context.opcode(node) != "custom-call" {
-            let model = self.current.get(Key::Flops);
+            let model = self.current.get(&Key::Flops);
             let widths: Vec<i64> =
                 context.operands(node).iter().map(|&operand| context.shape(operand).element_type).filter(|kind| !matches!(*kind, 0 | TUPLE | OPAQUE | TOKEN)).map(bit_width).collect();
             let adjustment: u32 = match widths.iter().max() {
@@ -793,7 +793,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let inputs = context.operands(node).len() / 2;
         let mut bytes = output_bytes;
         for index in 0..inputs {
-            bytes = (bytes as f32 + self.current.get(operand_bytes_key(index, &[]))) as i64;
+            bytes = (bytes as f32 + self.current.get(&operand_bytes_key(index, &[]))) as i64;
         }
         let output_elements = output.elements();
         for index in inputs..context.operands(node).len() {
@@ -876,7 +876,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
             let flops = dot_flops(operand, &output, &lhs) as f32;
             self.current.set(Key::Flops, flops);
             let size = byte_size(&output) as f32;
-            *self.current.slot(Key::Bytes) -= self.current.get(output_key(&[]));
+            *self.current.slot(Key::Bytes) -= self.current.get(&output_key(&[]));
             *self.current.slot(Key::Bytes) += size;
             self.set_output(&[], size);
             let adjustment: u32 = match bit_width(operand.element_type) {
@@ -892,7 +892,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
             self.current.set(Key::Flops, flops as f32);
             if shape.is_tuple() {
                 let size = byte_size(&output) as f32;
-                *self.current.slot(Key::Bytes) -= self.current.get(output_key(&[]));
+                *self.current.slot(Key::Bytes) -= self.current.get(&output_key(&[]));
                 *self.current.slot(Key::Bytes) += size;
                 self.set_output(&[], size);
             }
@@ -940,7 +940,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.fusion_utilizations(graph);
         for &child in &context.module.graphs[graph].nodes {
             if context.opcode(child) == "constant" && context.shape(child).elements() > IMMEDIATE_CONSTANT_MAX_ELEMENTS {
-                let utilization = (self.property(child, Key::Utilization) as f64).min(1.0) as f32;
+                let utilization = (self.property(child, &Key::Utilization) as f64).min(1.0) as f32;
                 *self.current.slot(Key::Bytes) += shape_size(context.shape(child)) as f32 * utilization;
             }
         }
@@ -964,7 +964,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
             }
             *self.current.slot(Key::Bytes) += size as f32;
             self.set_operand_bytes(index, &[], size as f32);
-            let utilization = self.property(parameter, Key::Utilization);
+            let utilization = self.property(parameter, &Key::Utilization);
             self.set_operand_utilization(index, utilization);
         }
         Ok(())
@@ -999,7 +999,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
 
     fn propagate_output(&mut self, shape: &Shape, index: &mut Vec<i64>) -> f32 {
         let key = output_key(index);
-        let bytes = self.current.get(key.clone());
+        let bytes = self.current.get(&key);
         if bytes != 0.0 || !shape.is_tuple() {
             self.current.slot(key);
             return bytes;
@@ -1039,14 +1039,14 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 *self.slot(instruction, Key::Utilization) += utilization;
                 *self.slot(instruction, Key::IrSize) += size as f32;
             }
-            let utilization = self.property(instruction, Key::Utilization);
-            let emitted = self.property(instruction, Key::IrSize);
-            let flops = self.property(instruction, Key::Flops);
+            let utilization = self.property(instruction, &Key::Utilization);
+            let emitted = self.property(instruction, &Key::IrSize);
+            let flops = self.property(instruction, &Key::Flops);
             *self.current.slot(Key::Flops) += utilization * flops;
             *self.current.slot(Key::IrSize) += emitted;
             let opcode = context.opcode(instruction);
             let passes = context.is_elementwise(instruction)
-                || (opcode == "bitcast" && context.equal_ignoring_element_type(context.shape(context.operand(instruction, 0)), context.shape(instruction)))
+                || (opcode == "bitcast" && Context::equal_ignoring_element_type(context.shape(context.operand(instruction, 0)), context.shape(instruction)))
                 || opcode == "tuple"
                 || opcode == "get-tuple-element";
             for (index, &operand) in context.operands(instruction).iter().enumerate() {
@@ -1062,7 +1062,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
                     if !entry.contains(&operand) {
                         entry.push(operand);
                     }
-                    let mut operand_utilization = utilization * self.property(instruction, Key::OperandUtilization(index));
+                    let mut operand_utilization = utilization * self.property(instruction, &Key::OperandUtilization(index));
                     let count = elements_recursive(context.shape(operand));
                     operand_utilization = if count == 0 { 0.0 } else { (operand_utilization * count as f32).ceil() / count as f32 };
                     *self.root_utilizations.entry(operand).or_insert(0.0) += operand_utilization;
@@ -1074,7 +1074,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
     }
 
     fn parameter_read_bytes(&self, node: usize) -> i64 {
-        let utilization = (self.property(node, Key::Utilization) as f64).min(1.0) as f32;
+        let utilization = (self.property(node, &Key::Utilization) as f64).min(1.0) as f32;
         (shape_size(self.context.shape(node)) as f32 * utilization).round() as i64
     }
 }
@@ -1158,7 +1158,7 @@ pub fn costs(module: &Module) -> Option<Vec<Cost>> {
         (0..module.nodes.len())
             .map(|node| {
                 let props = analysis.properties.get(&node);
-                let get = |key: Key| props.map_or(0.0, |props| props.get(key));
+                let get = |key: Key| props.map_or(0.0, |props| props.get(&key));
                 let flops = get(Key::Flops) as i64;
                 let bytes_accessed = valid(get(Key::Bytes) as i64);
                 let mut memory = Vec::new();

@@ -2,7 +2,7 @@ use crate::{DEFAULT_PORT, Settings, arguments};
 use std::path::PathBuf;
 
 fn run(list: &[&str]) -> Result<Settings, String> {
-    arguments(list.iter().map(|argument| argument.to_string()))
+    arguments(list.iter().map(std::string::ToString::to_string))
 }
 
 fn logdir_of(logdir: &str) -> PathBuf {
@@ -22,7 +22,7 @@ fn test_start_server() {
     let dir = std::env::temp_dir().canonicalize().unwrap();
     let path = dir.to_string_lossy().into_owned();
     assert_eq!(run(&["--port", "1234", "--grpc_port", "50051"]), Ok(Settings { port: 1234, ..Default::default() }));
-    assert_eq!(run(&["--logdir", &path, "--port", "5678"]), Ok(Settings { logdir: dir.clone(), port: 5678, ..Default::default() }));
+    assert_eq!(run(&["--logdir", &path, "--port", "5678"]), Ok(Settings { logdir: dir, port: 5678, ..Default::default() }));
     assert_eq!(
         run(&["--port", "1234", "--hide_capture_profile_button", "--src_prefix", ""]),
         Ok(Settings { port: 1234, hide_capture_profile_button: true, src_prefix: Some(String::new()), ..Default::default() })

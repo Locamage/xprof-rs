@@ -16,30 +16,30 @@ pub struct Fake {
 }
 
 impl Fake {
-    pub fn new(fetch: impl Fn(&str, &Params) -> Result<Option<Vec<u8>>, Error> + 'static) -> Fake {
-        Fake { fetch: Box::new(fetch), hosts: None, dir: PathBuf::new(), logdir: None, calls: RefCell::default() }
+    pub fn new(fetch: impl Fn(&str, &Params) -> Result<Option<Vec<u8>>, Error> + 'static) -> Self {
+        Self { fetch: Box::new(fetch), hosts: None, dir: PathBuf::new(), logdir: None, calls: RefCell::default() }
     }
 
-    pub fn tools(answer: impl Fn(&str) -> Option<String> + 'static) -> Fake {
-        Fake::new(move |tool, _| Ok(answer(tool).map(String::into_bytes)))
+    pub fn tools(answer: impl Fn(&str) -> Option<String> + 'static) -> Self {
+        Self::new(move |tool, _| Ok(answer(tool).map(String::into_bytes)))
     }
 
-    pub fn fixed(data: &str) -> Fake {
+    pub fn fixed(data: &str) -> Self {
         let data = data.to_string();
-        Fake::tools(move |_| Some(data.clone()))
+        Self::tools(move |_| Some(data.clone()))
     }
 
-    pub fn with_hosts(mut self, hosts: &[&str]) -> Fake {
-        self.hosts = Some(Ok(hosts.iter().map(|host| host.to_string()).collect()));
+    pub fn with_hosts(mut self, hosts: &[&str]) -> Self {
+        self.hosts = Some(Ok(hosts.iter().map(std::string::ToString::to_string).collect()));
         self
     }
 
-    pub fn failing_hosts(mut self, error: Error) -> Fake {
+    pub fn failing_hosts(mut self, error: Error) -> Self {
         self.hosts = Some(Err(error));
         self
     }
 
-    pub fn in_dir(mut self, dir: &Path) -> Fake {
+    pub fn in_dir(mut self, dir: &Path) -> Self {
         self.dir = dir.to_path_buf();
         self
     }
@@ -64,12 +64,11 @@ impl Client for Fake {
     }
 
     fn hosts(&self, session: &str) -> Result<Vec<String>, Error> {
-        match &self.hosts {
-            Some(hosts) => hosts.clone(),
-            None => {
-                let paths = self.xspace_paths(&self.run_dir(session)?)?;
-                Ok(paths.iter().map(|path| crate::cli::client::host(path)).collect())
-            }
+        if let Some(hosts) = &self.hosts {
+            hosts.clone()
+        } else {
+            let paths = self.xspace_paths(&self.run_dir(session)?)?;
+            Ok(paths.iter().map(|path| crate::cli::client::host(path)).collect())
         }
     }
 }
@@ -91,7 +90,7 @@ pub fn json(out: Result<Out, Error>) -> J {
     match out.unwrap() {
         Out::Text(text) => J::parse(&text).unwrap_or_else(|| panic!("not JSON: {text}")),
         Out::Value(value) => value,
-        other => panic!("expected JSON, got {other:?}"),
+        other @ Out::Bytes(_) => panic!("expected JSON, got {other:?}"),
     }
 }
 
@@ -100,7 +99,7 @@ pub fn parse(text: &str) -> J {
 }
 
 pub fn run(argv: &[&str]) -> (i32, String, String) {
-    let argv: Vec<String> = argv.iter().map(|argument| argument.to_string()).collect();
+    let argv: Vec<String> = argv.iter().map(std::string::ToString::to_string).collect();
     let (code, out, err) = crate::cli::execute(&argv).expect("a CLI command");
     (code, String::from_utf8_lossy(&out).into_owned(), err)
 }
