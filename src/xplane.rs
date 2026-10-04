@@ -322,7 +322,7 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
             (2, Field::Bytes(_, name)) => line.name = lossy(name).into(),
             (11, Field::Bytes(_, name)) => line.display_name = lossy(name).into(),
             (3, Field::Num(nanos)) => line.timestamp_ns = nanos as i64,
-            (4, Field::Bytes(start, body)) => bodies.push((offset + start, body)),
+            (4, Field::Bytes(start, body)) => bodies.push((start as u32, body.len() as u32)),
             _ => {}
         }
     }
@@ -333,9 +333,9 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
     bodies
         .par_iter()
         .with_min_len(4096)
-        .map(|&(start, body)| {
-            let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: (start as u32, body.len() as u32), meta: 0, eager: None };
-            let mut parts = fields(body);
+        .map(|&(start, len)| {
+            let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start as usize) as u32, len), meta: 0, eager: None };
+            let mut parts = fields(&bytes[start as usize..][..len as usize]);
             for (tag, field) in &mut parts {
                 match (tag, field) {
                     (1, Field::Num(id)) => event.meta = id.min(limit) as u32,

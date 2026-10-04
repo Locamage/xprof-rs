@@ -169,7 +169,6 @@ struct StepPrograms {
 }
 
 type Scanned<'a> = ([Option<i64>; 9], Option<Cow<'a, str>>);
-type Op = ([Option<i64>; 4], [bool; 2]);
 type Intervals = Vec<(u64, u64)>;
 type Tracker = (Intervals, Option<(u64, u64)>);
 type CategoryTimes = (FxHashMap<(i64, i64), u32>, BTreeMap<String, u64>, u64);
@@ -287,28 +286,23 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
         if name != "XLA Ops" && !op_line && !step_line {
             continue;
         }
-        let ops: Vec<Op> = line
-            .events
-            .iter()
-            .map(|event| {
-                let (own, own_category) = scan(plane, slice(map, event.raw), 4, &ids);
+        let active = &mut device.active;
+        let grouped = line.events.iter().enumerate().filter_map(|(index, event)| {
+            let (own, own_category) = scan(plane, slice(map, event.raw), 4, &ids);
+            if name == "XLA Ops" {
                 let (meta, meta_category) = &metas[event.meta as usize];
                 let category = meta_category.as_deref().or(own_category.as_deref());
                 let off = category.is_some_and(|category| OFF_DUTY.contains(&category));
                 let custom_off = category == Some("custom-call")
                     && own_category.as_deref().or(meta_category.as_deref()) == Some("custom-call")
                     && (FLOPS..CATEGORY).all(|index| own[index].or(meta[index]).unwrap_or(0) <= 0);
-                (own[..4].try_into().unwrap(), [!off, !(off || custom_off)])
-            })
-            .collect();
-        if name == "XLA Ops" {
-            for (event, (_, active)) in line.events.iter().zip(&ops) {
-                for (intervals, _) in device.active.iter_mut().zip(active).filter(|(_, keep)| **keep) {
+                for (intervals, _) in active.iter_mut().zip([!off, !(off || custom_off)]).filter(|(_, keep)| *keep) {
                     intervals.push((event.ts.wrapping_add(origin), (event.ts + event.dur).wrapping_add(origin)));
                 }
             }
-        }
-        let grouped = line.events.iter().zip(&ops).enumerate().filter_map(|(index, (event, &(own, _)))| Some((index, event, own, if event.group != NONE_GROUP { event.group } else { own[0]? })));
+            let own: [Option<i64>; 4] = own[..4].try_into().unwrap();
+            Some((index, event, own, if event.group != NONE_GROUP { event.group } else { own[0]? }))
+        });
         if step_line {
             markers = HashMap::new();
             for (index, event, [_, offset, duration, _], group) in grouped {
@@ -344,6 +338,8 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
                 result.entry(group).or_default().cores.insert(step_core, (categories, total));
             }
             device.events = result;
+        } else {
+            grouped.for_each(drop);
         }
     }
     if !device.events.is_empty() {
