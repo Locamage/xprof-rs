@@ -2,7 +2,7 @@ use crate::derive::is_tensor_core;
 use crate::framework_op_stats::{is_jax_op_type, is_tf_op_name, is_tf_op_type, parse_tf_op};
 use crate::group::is_sparse_core;
 use crate::input_pipeline_analyzer::{TC_IDLE, tpu_step_details};
-use crate::opstats::{Builder, Db, EventReader, EventStats, IDLE, Metrics, Templates, safe_divide};
+use crate::opstats::{Builder, Db, EventReader, IDLE, Metrics, Templates, safe_divide};
 use crate::roofline::accumulate;
 use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, fields, slice, stats};
 use rayon::prelude::*;
@@ -170,7 +170,6 @@ struct StepPrograms {
 
 type Scanned<'a> = ([Option<i64>; 9], Option<Cow<'a, str>>);
 type Op = ([Option<i64>; 4], [bool; 2]);
-type TimedEvent = (usize, (u64, u64));
 type Intervals = Vec<(u64, u64)>;
 type Tracker = (Intervals, Option<(u64, u64)>);
 type CategoryTimes = (FxHashMap<(i64, i64), u32>, BTreeMap<String, u64>, u64);
@@ -218,10 +217,9 @@ fn nest<T>(items: impl Iterator<Item = (Span, T)>, mut finish: impl FnMut(T, Spa
     }
 }
 
-fn step_programs(plane: &Plane, map: &[u8], templates: &Templates) -> HashMap<i64, StepPrograms> {
+fn step_programs<'a>(plane: &Plane, map: &[u8], templates: &'a Templates) -> HashMap<i64, StepPrograms> {
     let mut markers: HashMap<i64, Vec<u64>> = HashMap::new();
-    let mut ops: HashMap<i64, Vec<TimedEvent>> = HashMap::new();
-    let mut read: Vec<(&Ev, EventStats)> = Vec::new();
+    let mut builders: HashMap<i64, Builder<'a>> = HashMap::new();
     let reader = EventReader::new(plane);
     for line in &plane.lines {
         if line.name == "Steps" {
@@ -233,20 +231,19 @@ fn step_programs(plane: &Plane, map: &[u8], templates: &Templates) -> HashMap<i6
                 markers.entry(event.group).or_default().push(duration);
             }
         } else if PROGRAM_LINES.contains(&line.name.as_str()) {
-            ops.clear();
-            read = line.events.iter().filter(|event| event.group != NONE_GROUP).map(|event| (event, reader.read(map, event))).collect();
-            let spans = read.iter().enumerate().map(|(index, (event, stats))| {
+            builders.clear();
+            let spans = line.events.iter().filter(|event| event.group != NONE_GROUP).map(|event| {
+                let stats = reader.read(map, event);
                 let (begin, duration) = stats.span(event);
-                (Span { begin, duration }, index)
+                (Span { begin, duration }, (event, stats))
             });
-            nest(spans, |index, span, self_time| ops.entry(read[index].0.group).or_default().push((index, (span.duration, self_time))));
+            nest(spans, |(event, stats), span, self_time| builders.entry(event.group).or_insert_with(|| Builder::new(templates)).add(event, &stats, (span.duration, self_time), false));
         }
     }
-    ops.into_par_iter()
-        .filter_map(|(group, events)| {
+    builders
+        .into_par_iter()
+        .filter_map(|(group, builder)| {
             let markers = markers.get(&group)?.clone();
-            let mut builder = Builder::new(templates);
-            events.into_iter().for_each(|(index, times)| builder.add(read[index].0, &read[index].1, times, false));
             let (total_op_time_ps, (sums, infeed_outfeed)) = builder.program();
             Some((group, StepPrograms { markers, cores: vec![(total_op_time_ps, sums, infeed_outfeed)] }))
         })

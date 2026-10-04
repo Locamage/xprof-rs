@@ -107,7 +107,7 @@ fn valid(buf: &[u8], message: Message) -> bool {
                 let body = &buf[pos..pos + length as usize];
                 pos += length as usize;
                 match slot(message, field) {
-                    Slot::Message(child) if matches!(message, Message::Space | Message::Plane | Message::Line) => {
+                    Slot::Message(child) if matches!(message, Message::Space | Message::Plane) => {
                         children.push((body, child));
                         true
                     }
