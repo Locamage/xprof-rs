@@ -159,7 +159,7 @@ xprof-rs replaces the backend. It does not replace the complete XProf distributi
 **Inputs**
 
 - xprof-rs does not read `.xplane.riegeli` sessions. The continuous-profiling mode of the gRPC capture client is the only source of these files. The `jax.profiler.start_trace` function writes `.xplane.pb`. MaxText, Levanter, and marin use this function.
-- xprof-rs rejects a profile of 4 GiB or more.
+- xprof-rs rejects a profile of 4 GiB or more. A profile file is one protobuf message, and protobuf limits a message to 2 GiB. Thus XProf cannot read a profile of 2 GiB or more.
 
 **Server**
 
