@@ -581,7 +581,7 @@ fn emit(error: &Error) -> (i32, Vec<u8>, String) {
     (code, format!("{}\n", payload.dumps()).into_bytes(), format!("{reason}: {message}\n{detail}"))
 }
 
-/// Runs both at once when the client allows it.
+/// Runs both at the same time when the client can do this.
 pub fn both<A: Send, B: Send>(client: &dyn Client, first: impl FnOnce(&dyn Client) -> A, second: impl FnOnce(&dyn Client) -> B + Send) -> (A, B) {
     match client.shared() {
         Some(shared) => std::thread::scope(|scope| {
@@ -617,7 +617,7 @@ pub fn execute(argv: &[String]) -> Option<(i32, Vec<u8>, String)> {
     if let Some((_, text, _)) = COMMANDS.iter().find(|(name, _, _)| name == command).filter(|_| argv.iter().skip(1).any(|argument| argument == "--help" || argument == "-h")) {
         return Some((0, format!("NAME\n    xprof {command}\n\nSYNOPSIS\n    xprof {command} {}\n", usage(&spec(text))).into_bytes(), String::new()));
     }
-    // The process exits soon after. Dropping the loaded planes would only cost time.
+    // The process exits soon after. To drop the loaded planes only costs time.
     Some(match invoke(Box::leak(Box::new(Local { fused: command == "check_host_boundness", ..Local::default() })), command, &argv[1..]) {
         Ok((_, leftover)) if !leftover.is_empty() => emit(&Error::new(Kind::Fire, format!("Could not consume arg: {}", leftover[0]))),
         Ok((out, _)) => {

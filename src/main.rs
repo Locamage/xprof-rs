@@ -277,7 +277,7 @@ fn prepare(path: &Path, trace: bool) -> (Vec<u8>, Vec<Plane>) {
     prepare_map(read_file(path).unwrap(), trace, false).unwrap()
 }
 
-/// With `check`, an invalid file gives `None`. Checking runs alongside the parse, which never panics on invalid input.
+/// With `check`, a file that is not valid gives `None`. The check runs at the same time as the parse. The parse does not panic on input that is not valid.
 fn prepare_map(map: Vec<u8>, trace: bool, check: bool) -> Option<(Vec<u8>, Vec<Plane>)> {
     let (valid, planes) = rayon::join(|| !check || counters::valid_space(&map), || xplane::parse(&map));
     let mut planes = if valid { planes.unwrap() } else { return None };
@@ -304,7 +304,7 @@ fn load_host(path: &Path) -> Host {
     let start = Instant::now();
     let trace = Trace::build(&planes, &name, &map);
     release(planes.iter_mut().map(|plane| std::mem::take(&mut plane.lines)).collect::<Vec<_>>());
-    eprintln!("loaded {name}: {} events, trace built in {:?}, total {:?}", trace.events.len(), start.elapsed(), begin.elapsed());
+    eprintln!("Loaded {name}: {} events. The trace took {:?}. The load took {:?}.", trace.events.len(), start.elapsed(), begin.elapsed());
     Host { bytes: (map.len() + trace.events.len() * std::mem::size_of::<trace::Event>()) as u64, map, planes, trace }
 }
 
@@ -1021,7 +1021,7 @@ fn main() -> anyhow::Result<()> {
     let threads = std::thread::available_parallelism().map_or(1, usize::from).min(MAX_THREADS);
     rayon::ThreadPoolBuilder::new().num_threads(threads).build_global()?;
     let purge_delay = unsafe { libmimalloc_sys::mi_option_get(PURGE_DELAY) };
-    // A command exits right after its output. Returning freed memory to the system before then only costs time.
+    // A command exits right after its output. To give freed memory back to the system before the exit only costs time.
     unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, -1) };
     if let Some(code) = cli::run(&std::env::args().skip(1).collect::<Vec<_>>()) {
         std::process::exit(code);

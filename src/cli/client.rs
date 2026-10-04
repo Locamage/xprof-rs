@@ -226,7 +226,7 @@ impl Client for Local {
             "memory_viewer" => crate::memory_viewer::serve(&dir, &options).map(|(body, _)| body),
             "graph_viewer" => return crate::graph_viewer::serve(&dir, &options).map(|(body, _)| Some(body)).map_err(|message| Error::new(Kind::Value, message)),
             "utilization_viewer" | "perf_counters" => {
-                // A trace that the process has read already is not read or checked again.
+                // The process does not read or check a trace again after it read the trace one time.
                 let known = (name == "utilization_viewer" && paths.len() == 1).then(|| self.kept.read().unwrap().get(&paths[0]).map(|kept| crate::counters::utilization_viewer(&kept.map))).flatten();
                 known.or_else(|| crate::counters::serve(name, &paths))
             }

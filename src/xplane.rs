@@ -359,7 +359,7 @@ fn hash(kind: u64, parts: &[u64]) -> u64 {
 }
 
 pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
-    anyhow::ensure!(buf.len() <= u32::MAX as usize, "profile larger than 4 GiB");
+    anyhow::ensure!(buf.len() <= u32::MAX as usize, "The profile is larger than 4 GiB");
     let mut entries = fields(buf);
     let (mut spans, mut host) = (Vec::new(), None);
     for (tag, field) in &mut entries {
@@ -369,7 +369,7 @@ pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
             _ => {}
         }
     }
-    anyhow::ensure!(entries.complete(), "malformed XSpace");
+    anyhow::ensure!(entries.complete(), "The XSpace is not valid");
     let mut planes: Vec<Plane> = spans.par_iter().map(|&span| Plane::parse(span, buf)).collect::<anyhow::Result<_>>()?;
     let origin = origin_ns(&planes);
     let host = host.map_or(0, |name| hash(name.len() as u64, &name.iter().map(|&byte| byte as u64).collect::<Vec<_>>()));
@@ -398,7 +398,7 @@ impl Plane {
                     let mut parts = fields(entry);
                     for (entry_tag, value) in &mut parts {
                         let (2, Field::Bytes(value_start, value)) = (entry_tag, value) else { continue };
-                        let (id, long, display) = named(value).context("malformed metadata")?;
+                        let (id, long, display) = named(value).context("The metadata is not valid")?;
                         let name: Box<str> = if display.is_empty() { lossy(long).into() } else { Box::default() };
                         if tag == 4 {
                             let raw = ((offset + entry_start + value_start) as u32, value.len() as u32);
@@ -409,16 +409,16 @@ impl Plane {
                             names.push((id, name));
                         }
                     }
-                    anyhow::ensure!(parts.complete(), "malformed metadata");
+                    anyhow::ensure!(parts.complete(), "The metadata is not valid");
                 }
                 _ => {}
             }
         }
-        anyhow::ensure!(entries.complete(), "malformed XPlane");
-        plane.meta = table(metas).context("event metadata id out of range")?;
-        plane.stat_names = table(names).context("stat metadata id out of range")?;
+        anyhow::ensure!(entries.complete(), "The XPlane is not valid");
+        plane.meta = table(metas).context("An event metadata ID is out of range")?;
+        plane.stat_names = table(names).context("A stat metadata ID is out of range")?;
         let limit = plane.meta.len() as u64;
-        plane.lines = spans.par_iter().map(|&span| line(span, limit)).collect::<Option<Vec<Line>>>().context("malformed XLine")?;
+        plane.lines = spans.par_iter().map(|&span| line(span, limit)).collect::<Option<Vec<Line>>>().context("An XLine is not valid")?;
         for line in plane.lines.iter_mut().filter(|line| !line.events.is_sorted_by_key(|event| (event.ts, Reverse(event.dur)))) {
             line.events.sort_by_key(|event| (event.ts, Reverse(event.dur)));
         }

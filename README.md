@@ -1,6 +1,6 @@
 # xprof-rs
 
-xprof-rs is a fast backend for the [XProf](https://github.com/openxla/xprof) trace viewer. It is written in Rust. It replaces the XProf server. It gives the same responses as XProf 2.23.2. The tests compare them with the output of XProf.
+xprof-rs is a fast backend for the [XProf](https://github.com/openxla/xprof) trace viewer. We wrote it in Rust. It replaces the XProf server. It gives the same responses as XProf 2.23.2. The tests compare them with the output of XProf.
 
 XProf needs 10 to 25 seconds to convert a large `.xplane.pb` file for each cold request. xprof-rs does these steps:
 
@@ -152,7 +152,7 @@ The CLI is different from the Python CLI in these points:
 - `get_graph_viewer --output_type=pb` returns the bytes of the module file. XProf serializes the module again with hash-ordered maps.
 - For a multi-host session, the tools that use combined op statistics report no data. `memory_profile` fails. XProf needs its worker service for these sessions.
 
-## Missing and not supported
+## Not available and not supported
 
 xprof-rs replaces the backend. It does not replace the complete XProf distribution.
 
@@ -169,8 +169,8 @@ xprof-rs replaces the backend. It does not replace the complete XProf distributi
 
 **Tools**
 
-- `get_llo_analysis` and `get_llo_debug_string` return the LLO-not-available report of XProf. The LLO analysis is closed source.
-- `verify_numerical_parity` returns the missing-dependencies error of XProf. XProf runs Python callables for this command.
+- `get_llo_analysis` and `get_llo_debug_string` return the LLO-not-available report of XProf. The source code of the LLO analysis is not public.
+- `verify_numerical_parity` returns the error of XProf for dependencies that are not installed. XProf runs Python callables for this command.
 - The `detect_*` commands from the README of XProf are not available. XProf 2.23.2 does not register them.
 - `mpmd_pipeline_view=true` has no effect. XProf has the same behavior.
 

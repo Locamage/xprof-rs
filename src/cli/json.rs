@@ -274,14 +274,14 @@ pub fn py_repr(text: &str) -> String {
     out
 }
 
-/// Containers at least this long are split at their top-level commas, and the parts are parsed in parallel.
+/// The code splits a container of this length or more at its top-level commas. It parses the parts in parallel.
 const SPLIT: usize = 1 << 16;
 
 fn trim(text: &str) -> &str {
     text.trim_matches([' ', '\t', '\n', '\r'])
 }
 
-/// The index after the closing quote of the string that starts at `start`.
+/// The index after the quote at the end of the string that starts at `start`.
 fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
     let mut index = start + 1;
     loop {
@@ -322,8 +322,8 @@ fn chunk_commas(bytes: &[u8], start: usize, end: usize, inside: bool) -> Option<
     Some((commas, depth, lowest))
 }
 
-/// Splits the inside of a container at its top-level commas. Chunks are scanned in parallel: a chunk starts in a
-/// string when the earlier chunks hold an odd number of quotes, not counting quotes after an odd run of backslashes.
+/// Splits the inside of a container at its top-level commas. Threads scan the chunks in parallel. A chunk starts in a
+/// string when the earlier chunks hold an odd number of quotes. A quote after an odd run of backslashes does not count.
 fn parts(text: &str) -> Option<Vec<&str>> {
     let bytes = text.as_bytes();
     let size = (bytes.len() / rayon::current_num_threads()).max(SPLIT);

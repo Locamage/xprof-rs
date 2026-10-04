@@ -440,7 +440,7 @@ impl<'a> Printer<'a> {
     pub fn unsupported(&self) -> bool {
         let failed = self.failed.lock().unwrap();
         if let Some(reason) = failed.as_ref() {
-            eprintln!("hlo rendering unsupported: {reason}");
+            eprintln!("xprof-rs cannot render this HLO module: {reason}");
         }
         failed.is_some()
     }

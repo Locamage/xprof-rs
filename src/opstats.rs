@@ -535,7 +535,7 @@ pub struct Kept {
 }
 
 impl Kept {
-    /// Adds the fused children to the operations of a trace that was loaded without them.
+    /// Adds the fused children to the operations of a trace that does not have them.
     pub fn fuse(&mut self, stats: &mut OpStats) {
         if !self.fused && stats.tpu {
             let modules = crate::hlo::parse_modules(&self.planes, &self.map);

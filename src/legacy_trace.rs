@@ -26,7 +26,7 @@ struct Event {
 }
 
 fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, trimmed: bool, events: &mut Vec<Event>) {
-    // A scan for one name needs no other event, unless the event limit would cut the list. Only a step name can change a name.
+    // A scan for one name needs no other event, unless the event limit can cut the list. Only a step name can change a name.
     let skip_others = only.filter(|_| trimmed && plane.stat_names.iter().all(|name| &**name != "step_name"));
     for line in plane.lines.iter().filter(|line| line.name != ASYNC_OPS_LINE) {
         let derived = !line.labels.is_empty();
