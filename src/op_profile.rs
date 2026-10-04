@@ -1,4 +1,3 @@
-use crate::hlo::general;
 use crate::opstats::{HBM, IDLE, Metrics, OpStats, READ, SPARSE_CORE, Source, WRITE, add, combine_memory, giga_to_gibi, pico_to_nano, safe_divide};
 use crate::pbtext::json_string;
 use rayon::prelude::*;
@@ -47,6 +46,7 @@ struct Node<'a> {
     xla: Option<Xla<'a>>,
     num_children: i32,
     metrics: Acc,
+    fused: Option<&'a Metrics>,
 }
 
 struct Builder<'a> {
@@ -177,19 +177,10 @@ impl<'a> Builder<'a> {
         index
     }
 
-    fn insert_fused(&mut self, metrics: &'a Metrics, node: usize) {
-        for child in &metrics.children.metrics {
-            let index = self.add_child(node, Cow::Borrowed(&child.name));
-            self.nodes[index].xla = Some(symbol(child));
-            combine(child, &mut self.nodes[index].metrics);
-            self.insert_fused(child, index);
-        }
-    }
-
     fn add_leaf(&mut self, metrics: &'a Metrics, parent: usize) -> usize {
         let leaf = self.add_child(parent, Cow::Borrowed(&metrics.name));
         self.nodes[leaf].xla = Some(symbol(metrics));
-        self.insert_fused(metrics, leaf);
+        self.nodes[leaf].fused = Some(metrics);
         leaf
     }
 
@@ -239,21 +230,28 @@ impl<'a> Builder<'a> {
         node
     }
 
+    /// Adds the fused children of a node only when the node stays after the prune.
     fn sort_and_prune(&mut self, k: usize, level: i32, node: usize) {
-        self.nodes[node].num_children = self.nodes[node].children.len() as i32;
-        for position in 0..self.nodes[node].children.len() {
-            self.sort_and_prune(k, level - 1, self.nodes[node].children[position]);
+        for child in self.nodes[node].fused.take().map_or(&[][..], |metrics| &metrics.children.metrics) {
+            let index = self.add_child(node, Cow::Borrowed(&child.name));
+            self.nodes[index].xla = Some(symbol(child));
+            self.nodes[index].fused = Some(child);
+            combine(child, &mut self.nodes[index].metrics);
         }
+        self.nodes[node].num_children = self.nodes[node].children.len() as i32;
         let mut children = std::mem::take(&mut self.nodes[node].children);
-        let k = if level > 0 { children.len() } else { k.min(children.len()) };
+        let kept = if level > 0 { children.len() } else { k.min(children.len()) };
         if children.len() > 1 {
             let nodes = &self.nodes;
             if self.nodes[node].xla.as_ref().is_some_and(|xla| is_fusion(xla.category)) {
-                partial_sort(&mut children, k, |a, b| nodes[a].metrics.model_flops_v2 > nodes[b].metrics.model_flops_v2);
+                partial_sort(&mut children, kept, |a, b| nodes[a].metrics.model_flops_v2 > nodes[b].metrics.model_flops_v2);
             } else {
-                partial_sort(&mut children, k, |a, b| nodes[a].metrics.time_ps as f64 > nodes[b].metrics.time_ps as f64);
+                partial_sort(&mut children, kept, |a, b| nodes[a].metrics.time_ps as f64 > nodes[b].metrics.time_ps as f64);
             }
-            children.truncate(k);
+            children.truncate(kept);
+        }
+        for &child in &children {
+            self.sort_and_prune(k, level - 1, child);
         }
         self.nodes[node].children = children;
     }
@@ -341,7 +339,7 @@ impl<'a> Builder<'a> {
         } else {
             for (position, &child) in node.children.iter().enumerate() {
                 out.push_str(if position > 0 { "," } else { "" });
-                self.write(out, child, 0);
+                self.write(out, child, if node.children.len() == 1 { parallel } else { 0 });
             }
         }
         out.push(']');
@@ -379,8 +377,7 @@ pub fn proto_double(out: &mut String, value: f64) {
     } else if value.is_infinite() {
         out.push_str(if value > 0.0 { "\"Infinity\"" } else { "\"-Infinity\"" });
     } else {
-        let short = general(value, 15);
-        out.push_str(&if short.parse::<f64>().ok() == Some(value) { short } else { general(value, 17) });
+        crate::hlo::round_trip(out, value);
     }
 }
 

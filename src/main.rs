@@ -61,6 +61,7 @@ use std::io::Read;
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::panic::AssertUnwindSafe;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::Semaphore;
@@ -79,6 +80,8 @@ const POLL: Duration = Duration::from_secs(30);
 const FRESH: Duration = Duration::from_secs(2);
 const WATCHED_SESSIONS: usize = 8;
 const CONCURRENT_PREFETCHES: usize = 1;
+/// The prefetch starts a load only after this time without requests. A load at the same time as a request makes the request slow.
+const QUIET: Duration = Duration::from_secs(1);
 const GZIP_CHUNK: usize = 1 << 20;
 const GZIP_HEADER: [u8; 10] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
 const READ_CHUNK: usize = 16 << 20;
@@ -279,15 +282,25 @@ fn prepare(path: &Path, trace: bool) -> (Vec<u8>, Vec<Plane>) {
 
 /// With `check`, a file that is not valid gives `None`. The check runs at the same time as the parse. The parse does not panic on input that is not valid.
 fn prepare_map(map: Vec<u8>, trace: bool, check: bool) -> Option<(Vec<u8>, Vec<Plane>)> {
-    let (valid, planes) = rayon::join(|| !check || counters::valid_space(&map), || xplane::parse(&map));
-    let mut planes = if valid { planes.unwrap() } else { return None };
-    planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(&map));
-    if !derive::is_grouped(&planes) {
-        let groups = group::group(&mut planes, &map);
-        derive::derive_gpu(&mut planes, &map, groups.as_ref().map(|groups| &groups.names), trace);
-        planes.par_iter_mut().filter(|plane| derive::is_tensor_core(&plane.name)).for_each(|plane| derive::derive(plane, &map));
-    }
+    let mut planes = parse_checked(&map, check)?;
+    finish(&mut planes, &map, trace);
     Some((map, planes))
+}
+
+fn parse_checked(map: &[u8], check: bool) -> Option<Vec<Plane>> {
+    let (valid, planes) = rayon::join(|| !check || counters::valid_space(map), || xplane::parse(map));
+    valid.then(|| planes.unwrap())
+}
+
+/// Adds the regions, the groups, and the derived lines.
+fn finish(planes: &mut [Plane], map: &[u8], trace: bool) {
+    planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
+    if !derive::is_grouped(planes) {
+        let groups = group::group(planes, map);
+        derive::derive_gpu(planes, map, groups.as_ref().map(|groups| &groups.names), trace);
+        // Each plane runs on a thread outside the pool, so no plane waits for the work of another that the pool stole.
+        std::thread::scope(|scope| planes.iter_mut().filter(|plane| derive::is_tensor_core(&plane.name)).for_each(|plane| _ = scope.spawn(|| derive::derive(plane, map))));
+    }
 }
 
 fn release(garbage: impl Send + 'static) {
@@ -817,7 +830,9 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
                 "application/json",
                 blocking(move || {
                     let (map, planes) = prepare(&file, true);
-                    legacy_trace::render(&planes, &map)
+                    let json = legacy_trace::render(&planes, &map);
+                    release((map, planes));
+                    json
                 })
                 .await,
             ),
@@ -875,6 +890,32 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
     body.map_or_else(not_found, |body| response(StatusCode::OK, if protobuf { "application/octet-stream" } else { "application/json" }, body))
 }
 
+static STARTED: LazyLock<Instant> = LazyLock::new(Instant::now);
+/// The number of requests in progress, and the end of the last request in milliseconds after `STARTED`.
+static ACTIVE: AtomicUsize = AtomicUsize::new(0);
+static LAST: AtomicU64 = AtomicU64::new(0);
+
+struct Active;
+
+impl Drop for Active {
+    fn drop(&mut self) {
+        LAST.store(STARTED.elapsed().as_millis() as u64, Ordering::Relaxed);
+        ACTIVE.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+async fn track(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    ACTIVE.fetch_add(1, Ordering::Relaxed);
+    let _active = Active;
+    next.run(request).await
+}
+
+async fn quiet() {
+    while ACTIVE.load(Ordering::Relaxed) > 0 || (STARTED.elapsed().as_millis() as u64).saturating_sub(LAST.load(Ordering::Relaxed)) < QUIET.as_millis() as u64 {
+        tokio::time::sleep(QUIET / 10).await;
+    }
+}
+
 async fn prefetch(state: Shared) {
     let (permits, mut attempted) = (Arc::new(Semaphore::new(CONCURRENT_PREFETCHES)), Vec::new());
     loop {
@@ -901,8 +942,10 @@ async fn prefetch(state: Shared) {
         for key in watched {
             if !attempted.contains(&key) {
                 attempted.push(key.clone());
-                _ = state.hosts.get(key.0.clone(), &permits, |path| Arc::new(load_host(path))).await;
-                _ = state.stats.get(key.0, &permits, opstats::load).await;
+                quiet().await;
+                _ = state.stats.get(key.0.clone(), &permits, opstats::load).await;
+                quiet().await;
+                _ = state.hosts.get(key.0, &permits, |path| Arc::new(load_host(path))).await;
             }
         }
         tokio::time::sleep(POLL).await;
@@ -1014,6 +1057,7 @@ fn app(state: Shared) -> Router {
             reply
         }))
         .layer(CompressionLayer::new().quality(CompressionLevel::Fastest))
+        .layer(axum::middleware::from_fn(track))
         .with_state(state)
 }
 

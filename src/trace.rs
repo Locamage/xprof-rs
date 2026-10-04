@@ -53,6 +53,8 @@ pub struct Trace {
     pub min_ps: u64,
     pub max_ps: u64,
     pub levels: Vec<Vec<u32>>,
+    /// Bit `index` is 1 when event `index` compares equal to the event before it.
+    pub ties: Vec<u64>,
     pub tpu_devices: HashSet<u32>,
     pub dma_devices: HashSet<u32>,
     pub long_names: HashMap<u32, Box<str>>,
@@ -296,35 +298,44 @@ impl Trace {
         let (events, extra, args) = convert(planes, map, &layout);
         let Layout { devices, tracks, mut names, long_names, steps, .. } = layout;
         names.extend(extra);
-        let mut keys: Vec<(u64, u32)> = events.par_iter().enumerate().map(|(index, event)| (event.ts, index as u32)).collect();
-        keys.par_sort_by(|a, b| a.0.cmp(&b.0).then_with(|| compare(&names, &events[a.1 as usize], &events[b.1 as usize])));
-        keys.truncate(keys.partition_point(|key| key.0 != u64::MAX));
-        let mut events: Vec<Event> = keys.par_iter().map(|key| events[key.1 as usize]).collect();
-        drop(keys);
-        let (mut async_tracks, mut by_track) = (FxHashMap::<(u32, &str), u32>::default(), vec![Vec::new(); tracks]);
-        let (mut flow_index, mut flow_ids, mut previous) = (FxHashMap::<u64, u64>::default(), Vec::new(), (u64::MAX, 0));
-        for (index, event) in events.iter_mut().enumerate() {
-            previous = (event.ts, if event.ts == previous.0 { previous.1 + 1 } else { 0 });
-            event.serial = previous.1;
-            if event.resource == NONE_RESOURCE {
-                event.track = *async_tracks.entry((event.device, &*names[event.name as usize])).or_insert_with(|| {
-                    by_track.push(Vec::new());
-                    by_track.len() as u32 - 1
-                });
-            }
-            if event.flow != NONE_FLOW {
-                event.flow = *flow_index.entry(event.flow).or_insert_with(|| {
-                    flow_ids.push(event.flow);
-                    flow_ids.len() as u64 - 1
-                });
-            }
-            by_track[event.track as usize].push(index as u32);
-        }
-        let span = (
-            events.iter().map(|event| event.ts).find(|&ts| ts <= BAD_TIMESTAMP).unwrap_or(0),
-            events.par_iter().map(|event| event.ts.saturating_add(event.dur)).filter(|&end| end <= BAD_TIMESTAMP).max().unwrap_or(0),
+        // The stack frames do not depend on the order of the events, so they build at the same time as the order.
+        let (stack_frames, (mut events, by_track, flow_ids, span, assigned, ties)) = rayon::join(
+            || crate::json::stack_frames(planes, map, &events, &long_names),
+            || {
+                let mut keys: Vec<(u64, u32)> = events.par_iter().enumerate().map(|(index, event)| (event.ts, index as u32)).collect();
+                keys.par_sort_by(|a, b| a.0.cmp(&b.0).then_with(|| compare(&names, &events[a.1 as usize], &events[b.1 as usize])));
+                keys.truncate(keys.partition_point(|key| key.0 != u64::MAX));
+                let mut events: Vec<Event> = keys.par_iter().map(|key| events[key.1 as usize]).collect();
+                drop(keys);
+                let (mut async_tracks, mut by_track) = (FxHashMap::<(u32, &str), u32>::default(), vec![Vec::new(); tracks]);
+                let (mut flow_index, mut flow_ids, mut previous) = (FxHashMap::<u64, u64>::default(), Vec::new(), (u64::MAX, 0));
+                for (index, event) in events.iter_mut().enumerate() {
+                    previous = (event.ts, if event.ts == previous.0 { previous.1 + 1 } else { 0 });
+                    event.serial = previous.1;
+                    if event.resource == NONE_RESOURCE {
+                        event.track = *async_tracks.entry((event.device, &*names[event.name as usize])).or_insert_with(|| {
+                            by_track.push(Vec::new());
+                            by_track.len() as u32 - 1
+                        });
+                    }
+                    if event.flow != NONE_FLOW {
+                        event.flow = *flow_index.entry(event.flow).or_insert_with(|| {
+                            flow_ids.push(event.flow);
+                            flow_ids.len() as u64 - 1
+                        });
+                    }
+                    by_track[event.track as usize].push(index as u32);
+                }
+                let span = (
+                    events.iter().map(|event| event.ts).find(|&ts| ts <= BAD_TIMESTAMP).unwrap_or(0),
+                    events.par_iter().map(|event| event.ts.saturating_add(event.dur)).filter(|&end| end <= BAD_TIMESTAMP).max().unwrap_or(0),
+                );
+                let assigned = assign_levels(&events, &by_track, flow_ids.len());
+                let tie = |index: usize| index > 0 && index < events.len() && compare(&names, &events[index - 1], &events[index]).is_eq();
+                let ties = (0..events.len().div_ceil(64)).into_par_iter().map(|word| (0..64).filter(|bit| tie(word * 64 + bit)).fold(0, |bits, bit| bits | 1 << bit)).collect();
+                (events, by_track, flow_ids, span, assigned, ties)
+            },
         );
-        let (assigned, stack_frames) = rayon::join(|| assign_levels(&events, &by_track, flow_ids.len()), || crate::json::stack_frames(planes, map, &events, &long_names));
         let chunks: Vec<Vec<Vec<u32>>> = events
             .par_chunks_mut(LEVEL_CHUNK)
             .zip(assigned.par_chunks(LEVEL_CHUNK))
@@ -344,7 +355,7 @@ impl Trace {
         let tpu_devices: HashSet<u32> = devices.iter().filter(|(_, device)| is_tpu_core_device_name(&device.name)).map(|(id, _)| *id).collect();
         let dma_devices =
             devices.iter().filter(|(_, device)| !tpu_devices.is_empty() && (is_tpu_core_device_name(&device.name) || maybe_tpu_non_core_device_name(&device.name))).map(|(id, _)| *id).collect();
-        Trace { devices, names, events, min_ps: span.0, max_ps: span.1, levels, tpu_devices, dma_devices, long_names, steps, tracks: by_track.len(), flow_ids, args, stack_frames }
+        Trace { devices, names, events, min_ps: span.0, max_ps: span.1, levels, ties, tpu_devices, dma_devices, long_names, steps, tracks: by_track.len(), flow_ids, args, stack_frames }
     }
 
     fn is_dma_flow(&self, index: u32) -> bool {
@@ -390,7 +401,9 @@ impl Trace {
     fn merge(&self, sources: Vec<&[u32]>) -> Vec<u32> {
         let mut out = Vec::with_capacity(sources.iter().map(|source| source.len()).sum());
         let mut heap: Vec<&[u32]> = sources.into_iter().filter(|source| !source.is_empty()).collect();
-        let after = |a: &[u32], b: &[u32]| compare(&self.names, &self.events[b[0] as usize], &self.events[a[0] as usize]) == Ordering::Less;
+        // The events are in order, so an event before another compares less, unless the two are equal.
+        let tied = |index: u32| self.ties[index as usize / 64] >> (index % 64) & 1 != 0;
+        let after = |a: &[u32], b: &[u32]| b[0] < a[0] && (!tied(a[0]) || compare(&self.names, &self.events[b[0] as usize], &self.events[a[0] as usize]) == Ordering::Less);
         let length = heap.len();
         if length >= 2 {
             for parent in (0..=(length - 2) / 2).rev() {

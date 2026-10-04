@@ -93,7 +93,7 @@ fn add_texts(texts: &mut FxHashMap<u64, String>, planes: &[Plane], map: &[u8], e
         stats(raw, field, |_| true).filter(|stat| matches!(stat.value, Value::Str(_) | Value::Ref(_)) && named(stat.id)).map(|stat| long_text(&plane.text(&stat.value))).collect()
     };
     let used: Vec<Vec<AtomicBool>> = planes.iter().map(|plane| plane.meta.iter().map(|_| AtomicBool::new(false)).collect()).collect();
-    events.par_iter().filter(|event| event.meta != DERIVED_META).for_each(|event| used[event.plane as usize][event.meta as usize].store(true, Relaxed));
+    events.par_iter().filter(|event| event.meta != DERIVED_META && event.ts != u64::MAX).for_each(|event| used[event.plane as usize][event.meta as usize].store(true, Relaxed));
     long_names.values().for_each(|long| put(texts, long_text(long)));
     let metas: Vec<(&Plane, &Meta, bool)> =
         planes.iter().zip(&used).flat_map(|(plane, flags)| plane.meta.iter().zip(flags).filter(|(_, used)| used.load(Relaxed)).map(move |(meta, _)| (plane, meta, framed(plane)))).collect();
@@ -114,8 +114,11 @@ fn add_texts(texts: &mut FxHashMap<u64, String>, planes: &[Plane], map: &[u8], e
         });
     texts.extend(found);
     let framed: Vec<bool> = planes.iter().map(framed).collect();
-    let events: Vec<String> =
-        events.par_iter().filter(|event| event.meta != DERIVED_META && framed[event.plane as usize]).flat_map_iter(|event| strings(&planes[event.plane as usize], slice(map, event.raw), 4)).collect();
+    let events: Vec<String> = events
+        .par_iter()
+        .filter(|event| event.meta != DERIVED_META && event.ts != u64::MAX && framed[event.plane as usize])
+        .flat_map_iter(|event| strings(&planes[event.plane as usize], slice(map, event.raw), 4))
+        .collect();
     events.into_iter().for_each(|text| put(texts, text));
 }
 

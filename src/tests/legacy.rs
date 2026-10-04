@@ -187,6 +187,31 @@ fn printf_general_formatting_matches_c() {
 }
 
 #[test]
+fn round_trip_matches_printf() {
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let special = [0.1, 0.3, 0.1 + 0.2, -0.0, 1e-5, 1e-4, 9.99999999999999e14, 1e15, 123456789012345.6, 5e-324, f64::MAX, 2.0 / 3.0];
+    let random = (0..200_000).map(|index| match index % 4 {
+        0 => f64::from_bits(next() >> 1),
+        1 => (next() % 1_000_000_000) as f64 / (next() % 100_000 + 1) as f64,
+        2 => (next() % 100_000) as f64 * 10f64.powi((next() % 40) as i32 - 20),
+        _ => -((next() >> 11) as f64 / (1u64 << 53) as f64),
+    });
+    for value in special.into_iter().chain(random).filter(|value| value.is_finite()) {
+        let short = hlo::general(value, 15);
+        let expected = if short.parse::<f64>().ok() == Some(value) { short } else { hlo::general(value, 17) };
+        let mut out = String::new();
+        hlo::round_trip(&mut out, value);
+        assert_eq!(out, expected, "{value:e}");
+    }
+}
+
+#[test]
 fn fused_instructions_print_like_xla() {
     let shape = bytes(3, &[number(2, 11), bytes(3, &varint(4)), bytes(5, &bytes(1, &varint(0)))].concat());
     let instruction = |id: u64, name: &str, opcode: &str, operands: &[u64], extra: Vec<u8>| {

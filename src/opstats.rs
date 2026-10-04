@@ -540,7 +540,7 @@ impl Kept {
     /// Adds the fused children to the operations of a trace that does not have them.
     pub fn fuse(&mut self, stats: &mut OpStats) {
         if !self.fused && stats.tpu {
-            let modules = crate::hlo::parse_modules(&self.planes, &self.map);
+            let modules = crate::hlo::parse_modules(crate::hlo::protos(&self.planes, &self.map));
             crate::hlo::attach_fused(&modules, &mut stats.db);
             // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
             self.modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
@@ -551,8 +551,11 @@ impl Kept {
 
 /// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
 pub fn load_kept(map: Vec<u8>, fused: bool) -> Option<(Arc<OpStats>, Kept)> {
-    let (map, planes) = crate::prepare_map(map, false, true)?;
-    let (stats, modules) = op_stats(&planes, &map, fused);
+    let mut planes = crate::parse_checked(&map, true)?;
+    // The modules come from the metadata plane only, so they parse at the same time as the other planes change.
+    let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
+    let (modules, ()) = rayon::join(|| crate::hlo::parse_modules(protos), || crate::finish(&mut planes, &map, false));
+    let stats = op_stats(&planes, &map, &modules);
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
     let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
     Some((Arc::new(stats), Kept { modules, fused, map, planes }))
@@ -602,30 +605,25 @@ impl OpStats {
     }
 }
 
-fn op_stats<'a>(planes: &[Plane], map: &'a [u8], fused: bool) -> (OpStats, Vec<(u64, crate::hlo::Module<'a>)>) {
+fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)]) -> OpStats {
     let first = planes.iter().find(|plane| plane.name.starts_with("/device:TPU:"));
     let tpu = first.is_some();
     let gpus = crate::gpu::devices(planes);
     let templates: Vec<Templates> = planes.par_iter().map(|plane| if is_tensor_core(&plane.name) { templates(plane, map) } else { Templates::default() }).collect();
     let device = || {
         if !gpus.is_empty() {
-            let (db, kernels) = crate::gpu::device(planes, map, &gpus);
-            return ((db, kernels), Vec::new());
+            return crate::gpu::device(planes, map, &gpus);
         }
-        let convert = || {
-            let parts: Vec<Db> = planes.par_iter().zip(&templates).filter(|(plane, _)| is_tensor_core(&plane.name)).map(|(plane, templates)| convert_tensor_core(plane, map, templates)).collect();
-            let db = Db::combined(&parts, true);
-            crate::release(parts);
-            db
-        };
-        let (mut db, modules) = rayon::join(convert, || if tpu && fused { crate::hlo::parse_modules(planes, map) } else { Vec::new() });
-        if tpu && fused {
-            crate::hlo::attach_fused(&modules, &mut db);
+        let parts: Vec<Db> = planes.par_iter().zip(&templates).filter(|(plane, _)| is_tensor_core(&plane.name)).map(|(plane, templates)| convert_tensor_core(plane, map, templates)).collect();
+        let mut db = Db::combined(&parts, true);
+        crate::release(parts);
+        if !modules.is_empty() {
+            crate::hlo::attach_fused(modules, &mut db);
         }
-        ((db, Vec::new()), modules)
+        (db, Vec::new())
     };
     // Each part runs on a thread outside the pool, so no part waits for the work of another that the pool stole.
-    let (((db, kernels), modules), mut extra, (((host, infeed_enqueue), memory), programs)) = std::thread::scope(|scope| {
+    let ((db, kernels), mut extra, (((host, infeed_enqueue), memory), programs)) = std::thread::scope(|scope| {
         let side = scope.spawn(|| {
             rayon::join(
                 || rayon::join(|| crate::framework_op_stats::host_db(planes, map), || crate::memory_profile::json(planes, map)),
@@ -642,5 +640,5 @@ fn op_stats<'a>(planes: &[Plane], map: &'a [u8], fused: bool) -> (OpStats, Vec<(
         crate::steps::fix(&mut extra, &db);
     }
     let perf = first.map_or_else(|| gpus.first().map_or_else(Perf::default, |plane| crate::gpu::perf_env(plane)), perf_env);
-    (OpStats { db, perf, tpu, host, memory, extra: Arc::new(extra), programs, kernels }, modules)
+    OpStats { db, perf, tpu, host, memory, extra: Arc::new(extra), programs, kernels }
 }
