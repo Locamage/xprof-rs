@@ -13,7 +13,7 @@ XProf needs 10 to 25 seconds to convert a large `.xplane.pb` file for each cold 
 |---|---|---|---|---|---|
 | TPU v4-8 | 279 MB | 2.95 M | 0.75 s load | 10 ms | 3 ms |
 
-The test machine has 4 cores. The load takes 2.2 s on one core. XProf takes 11 to 25 s for the same file. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
+The test machine has 4 cores. The load takes 2.9 s on one core. XProf takes 11 to 25 s for the same file. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
 
 ## Install and start
 
@@ -67,13 +67,13 @@ The table shows the time on the 279 MB v4 trace. xprof-rs used 4 cores. [`exampl
 | Endpoint | XProf, cold | xprof-rs, first | xprof-rs, repeat |
 |---|---|---|---|
 | `trace_viewer@` | 12 s | 0.8 s | 2 ms |
-| `overview_page` | 18 s | 1.4 s (builds the shared statistics) | under 1 ms |
-| `op_profile` | 4.0 s | 0.15 s | 1 ms |
-| `hlo_stats` | 2.1 s | 0.12 s | 4 ms |
+| `overview_page` | 18 s | 1.5 s (builds the shared statistics) | under 1 ms |
+| `op_profile` | 4.0 s | 0.14 s | 1 ms |
+| `hlo_stats` | 2.1 s | 0.3 s | 4 ms |
 | `framework_op_stats`, `input_pipeline_analyzer`, `roofline_model`, `memory_profile`, `kernel_stats`, `pod_viewer` | 0.35 to 2.7 s | 0 to 0.03 s | under 1 ms |
 | `memory_viewer`, `graph_viewer`, `module_list` | 2.3 s | 0.25 s | |
 
-The peak memory of the server for all tools is 1.4 GB on 4 cores (XProf: 4.8 GB). A machine with more cores uses more memory, because more work runs at the same time.
+The peak memory of the server for all tools is 2.0 GB on 4 cores (XProf: 4.8 GB). A machine with more cores uses more memory, because more work runs at the same time.
 
 ## Remote log directories
 
@@ -140,9 +140,11 @@ The table shows the time on the 279 MB v4 trace. xprof-rs used 4 cores.
 
 | Command | XProf | xprof-rs |
 |---|---|---|
-| `get_overview` | 18 s | 1.1 s |
-| `get_hlo_op_profile` | 25 s | 1.6 s |
+| `get_overview` | 18 s | 1.0 s |
+| `get_hlo_op_profile` | 25 s | 1.4 s |
 | `aggregate_xplane_events` | 25 s | 0.7 s |
+
+More cores make a command faster, up to about 24 cores. `get_overview` takes 1.9 s on 2 cores, 0.61 s on 8 cores, 0.43 s on 16 cores, and 0.39 s on 32 cores. Its peak memory is 1.2 GB on 4 cores.
 
 The CLI is different from the Python CLI in these points:
 
@@ -212,7 +214,7 @@ xprof-rs cannot copy these outputs.
 ## Memory
 
 - Three LRU caches hold converted traces, op statistics, and rendered responses (compressed). Each of the first two holds an eighth of the physical memory, at most 4 GiB. The third holds a quarter of that. On a machine with 32 GiB or more, the total is about 9 GiB.
-- The server loads 2 files at once on a machine with 32 GiB or more, and 1 file otherwise. A load needs about seven times the size of its file.
+- The server loads 2 files at once on a machine with 32 GiB or more, and 1 file otherwise. A load needs about four to six times the size of its file. More cores need more memory.
 - The server and the CLI use one thread per core, at most 32.
 - A cache removes an entry after one hour without use.
 - A trace that is larger than its cache is still served. The server caches it alone.
