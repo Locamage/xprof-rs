@@ -442,9 +442,8 @@ fn wanted(devices: &[&Plane], map: &[u8]) -> Names {
 }
 
 fn info(module: &Module, printer: &Printer, node: usize) -> Info {
-    let metadata = msg(&module.inst(node).metadata).into_owned();
     let mut expression = String::new();
-    printer.instruction(node, &mut expression);
+    let metadata = msg(&printer.instruction(node, &mut expression).metadata).into_owned();
     if expression.len() > MAX_EXPRESSION {
         expression.truncate(expression.floor_char_boundary(MAX_EXPRESSION));
     }

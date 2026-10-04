@@ -261,6 +261,8 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
     let (tensor, sparse) = (is_tensor_core(&plane.name), is_sparse_core(&plane.name));
     let step_core = if sparse { SPARSE_CORE_START } else { 0 } + plane.id as u32;
     let metas: Vec<Scanned> = plane.meta.iter().map(|meta| scan(plane, slice(map, meta.raw), 5, &ids)).collect();
+    let kind = |category: &str| (OFF_DUTY.contains(&category), category == "custom-call");
+    let duty: Vec<Option<(bool, bool)>> = metas.iter().map(|(_, category)| category.as_deref().map(kind)).collect();
     let span_of = |offset: Option<i64>, duration: Option<i64>, event: &Ev| match (offset, duration) {
         (Some(offset), Some(duration)) => Span { begin: offset as u64, duration: duration as u64 },
         _ => Span { begin: event.ts.wrapping_add(origin), duration: event.dur },
@@ -290,12 +292,11 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
         let grouped = line.events.iter().enumerate().filter_map(|(index, event)| {
             let (own, own_category) = scan(plane, slice(map, event.raw), 4, &ids);
             if name == "XLA Ops" {
-                let (meta, meta_category) = &metas[event.meta as usize];
-                let category = meta_category.as_deref().or(own_category.as_deref());
-                let off = category.is_some_and(|category| OFF_DUTY.contains(&category));
-                let custom_off = category == Some("custom-call")
-                    && own_category.as_deref().or(meta_category.as_deref()) == Some("custom-call")
-                    && (FLOPS..CATEGORY).all(|index| own[index].or(meta[index]).unwrap_or(0) <= 0);
+                let (off, custom) = duty[event.meta as usize].or_else(|| own_category.as_deref().map(kind)).unwrap_or_default();
+                let custom_off = custom && {
+                    let (meta, meta_category) = &metas[event.meta as usize];
+                    own_category.as_deref().or(meta_category.as_deref()) == Some("custom-call") && (FLOPS..CATEGORY).all(|index| own[index].or(meta[index]).unwrap_or(0) <= 0)
+                };
                 for (intervals, _) in active.iter_mut().zip([!off, !(off || custom_off)]).filter(|(_, keep)| *keep) {
                     intervals.push((event.ts.wrapping_add(origin), (event.ts + event.dur).wrapping_add(origin)));
                 }
