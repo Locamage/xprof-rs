@@ -65,7 +65,7 @@ pub fn sorted<'a>(tools: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     if set.contains("trace_viewer@") {
         set.remove("trace_viewer");
     }
-    let mut out: Vec<String> = SORT_ORDER.iter().filter(|tool| set.contains(*tool)).map(|tool| tool.to_string()).collect();
+    let mut out: Vec<String> = SORT_ORDER.iter().filter(|tool| set.contains(*tool)).map(std::string::ToString::to_string).collect();
     out.extend(set.into_iter().filter(|tool| !SORT_ORDER.contains(tool)).map(String::from));
     out
 }

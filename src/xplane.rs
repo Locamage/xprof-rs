@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-static NAMES: LazyLock<HashMap<&str, (bool, [u8; CONNECTIONS.len()])>> = LazyLock::new(|| {
-    let mut names: HashMap<&str, (bool, [u8; CONNECTIONS.len()])> = HashMap::new();
+static NAMES: LazyLock<HashMap<&str, (bool, [u8; ROLES])>> = LazyLock::new(|| {
+    let mut names: HashMap<&str, (bool, [u8; ROLES])> = HashMap::new();
     INTERNAL_EVENTS.split(' ').for_each(|name| names.entry(name).or_default().0 = true);
     for (index, connection) in CONNECTIONS.iter().enumerate() {
         connection.producers.split(' ').for_each(|name| names.entry(name).or_default().1[index] = 1);
@@ -49,7 +49,8 @@ struct Connection {
     stats: &'static [usize],
 }
 
-const CONNECTIONS: [Connection; 3] = [
+const ROLES: usize = 3;
+const CONNECTIONS: [Connection; ROLES] = [
     Connection { producers: "EnqueueRequestLocked", consumers: QUEUE_CONSUMERS, context: 11, stats: &[REQUEST_ID, QUEUE_ADDR] },
     Connection { producers: "DoEnqueueProgram", consumers: "CompleteCallbacks", context: LAUNCH, stats: &[DEVICE_ORDINAL, QUEUE_ID, RUN_ID, CORE_TYPE] },
     Connection { producers: "ExecutorState::Process", consumers: "TpuExecuteOp", context: LEGACY, stats: &[STEP_ID, ITER_NUM] },
@@ -193,7 +194,7 @@ pub struct Meta {
     root: Option<(i64, bool)>,
     step: Option<String>,
     base: Option<Box<Stats>>,
-    role: [u8; CONNECTIONS.len()],
+    role: [u8; ROLES],
 }
 
 impl Meta {
@@ -364,7 +365,7 @@ fn hash(kind: u64, parts: &[u64]) -> u64 {
 }
 
 pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
-    anyhow::ensure!(buf.len() <= u32::MAX as usize, "The profile is larger than 4 GiB");
+    anyhow::ensure!(u32::try_from(buf.len()).is_ok(), "The profile is larger than 4 GiB");
     let mut entries = fields(buf);
     let (mut spans, mut host) = (Vec::new(), None);
     for (tag, field) in &mut entries {
@@ -390,9 +391,9 @@ pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
 }
 
 impl Plane {
-    fn parse((offset, bytes): (usize, &[u8]), buf: &[u8]) -> anyhow::Result<Plane> {
+    fn parse((offset, bytes): (usize, &[u8]), buf: &[u8]) -> anyhow::Result<Self> {
         let (mut spans, mut metas, mut names) = (Vec::new(), Vec::new(), Vec::new());
-        let mut plane = Plane::default();
+        let mut plane = Self::default();
         let mut entries = fields(bytes);
         for (tag, field) in &mut entries {
             match (tag, field) {
@@ -460,7 +461,7 @@ impl Plane {
             })
             .collect();
         for (meta, (base, step)) in plane.meta.iter_mut().zip(bases) {
-            let roles = NAMES.get(&*meta.name).map_or([0; CONNECTIONS.len()], |known| known.1);
+            let roles = NAMES.get(&*meta.name).map_or([0; ROLES], |known| known.1);
             (meta.base, meta.step, meta.role) = (base, step, std::array::from_fn(|index| if ready[index] { roles[index] } else { 0 }));
         }
         Ok(plane)
@@ -481,13 +482,13 @@ impl Plane {
     }
 
     pub fn group_of(&self, meta: u32, raw: &[u8]) -> Option<i64> {
-        let mut out = self.meta[meta as usize].base.as_deref().cloned().unwrap_or_default();
+        let mut out = self.meta[meta as usize].base.as_deref().copied().unwrap_or_default();
         self.apply(&mut out, raw, 4, |kind| kind == GROUP);
         out[GROUP].map(|group| group as i64)
     }
 
     pub fn links(&self, meta: u32, raw: &[u8], ordinal: Option<u64>) -> Links {
-        let mut out = self.meta[meta as usize].base.as_deref().cloned().unwrap_or_default();
+        let mut out = self.meta[meta as usize].base.as_deref().copied().unwrap_or_default();
         let (mut correlation, mut step) = (None, None);
         for stat in stats(raw, 4, |id| self.kind.get(id).is_some_and(|&kind| kind != NO_KIND)) {
             let kind = self.kind[stat.id] as usize;
@@ -510,7 +511,7 @@ impl Plane {
                     connection
                         .stats
                         .iter()
-                        .map(|&kind| if !self.present[kind] { Some(0) } else { get(kind).map(|value| if kind == RUN_ID && connection.context == LAUNCH { value & RUN_ID_MASK } else { value }) })
+                        .map(|&kind| if self.present[kind] { get(kind).map(|value| if kind == RUN_ID && connection.context == LAUNCH { value & RUN_ID_MASK } else { value }) } else { Some(0) })
                         .collect()
                 })
                 .flatten();
@@ -581,7 +582,7 @@ impl Plane {
     pub fn text(&self, value: &Value) -> String {
         match value {
             Value::Str(bytes) => lossy(bytes).into_owned(),
-            Value::Ref(id) => self.stat_names.get(*id as usize).map(|name| name.to_string()).unwrap_or_default(),
+            Value::Ref(id) => self.stat_names.get(*id as usize).map(std::string::ToString::to_string).unwrap_or_default(),
             _ => String::new(),
         }
     }

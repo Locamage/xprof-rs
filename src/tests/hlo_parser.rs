@@ -1,3 +1,5 @@
+#![allow(clippy::needless_raw_string_hashes)]
+
 use crate::hlo::Module;
 use crate::hlo_text::{Printer, Style};
 use std::borrow::Cow;

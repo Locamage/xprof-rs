@@ -144,9 +144,9 @@ struct Stamp {
 }
 
 impl Stamp {
-    fn of(path: &Path) -> Option<Stamp> {
+    fn of(path: &Path) -> Option<Self> {
         let meta = std::fs::metadata(path).ok()?;
-        Some(Stamp { len: meta.len(), modified: meta.modified().ok()?, inode: meta.ino(), device: meta.dev() })
+        Some(Self { len: meta.len(), modified: meta.modified().ok()?, inode: meta.ino(), device: meta.dev() })
     }
 
     fn older_than(&self, age: Duration) -> bool {
@@ -161,7 +161,7 @@ struct Flights<K, T>(Arc<Mutex<HashMap<K, Flight<T>>>>);
 
 impl<K: Hash + Eq + Clone + Send + 'static, T: Clone + Send + Sync + 'static> Flights<K, T> {
     fn new() -> Self {
-        Flights(Arc::default())
+        Self(Arc::default())
     }
 
     fn join<F: Future<Output = T> + Send + 'static>(&self, key: K, work: impl FnOnce() -> F) -> Flight<T> {
@@ -169,7 +169,7 @@ impl<K: Hash + Eq + Clone + Send + 'static, T: Clone + Send + Sync + 'static> Fl
         let flight = flights.entry(key.clone()).or_insert_with(|| {
             let (flights, work) = (self.0.clone(), AssertUnwindSafe(work()).catch_unwind());
             let task = tokio::spawn(async move {
-                let outcome = work.await.map_err(panic_message);
+                let outcome = work.await.map_err(|payload| panic_message(&*payload));
                 flights.lock().unwrap().remove(&key);
                 outcome
             });
@@ -187,7 +187,7 @@ struct Memo<T> {
 impl<T: Clone + Send + Sync + 'static> Memo<T> {
     fn new(weigh: impl Fn(&Stamp, &T) -> u64 + Send + Sync + 'static) -> Arc<Self> {
         let cache = cache(*BUDGET_BYTES, move |_, (stamp, outcome): &(Stamp, Outcome<T>)| outcome.as_ref().map_or(0, |value| weigh(stamp, value)));
-        Arc::new(Memo { cache, flights: Flights::new() })
+        Arc::new(Self { cache, flights: Flights::new() })
     }
 
     async fn get(self: &Arc<Self>, path: PathBuf, permits: &Arc<Semaphore>, build: fn(&Path) -> T) -> Outcome<T> {
@@ -201,7 +201,7 @@ impl<T: Clone + Send + Sync + 'static> Memo<T> {
         let flight = self.flights.join((path.clone(), stamp), move || async move {
             let _permit = permits.acquire_owned().await;
             let file = path.clone();
-            let outcome = AssertUnwindSafe(blocking(move || build(&file))).catch_unwind().await.map_err(panic_message);
+            let outcome = AssertUnwindSafe(blocking(move || build(&file))).catch_unwind().await.map_err(|payload| panic_message(&*payload));
             if Stamp::of(&path) == Some(stamp) && stamp.older_than(FRESH) {
                 memo.cache.insert(path, (stamp, outcome.clone())).await;
             }
@@ -257,7 +257,7 @@ fn cache<K: Hash + Eq + Send + Sync + 'static, V: Clone + Send + Sync + 'static>
         .build()
 }
 
-fn panic_message(payload: Box<dyn Any + Send>) -> Arc<str> {
+fn panic_message(payload: &(dyn Any + Send)) -> Arc<str> {
     match (payload.downcast_ref::<&str>(), payload.downcast_ref::<String>()) {
         (Some(message), _) => Arc::from(*message),
         (_, Some(message)) => Arc::from(message.as_str()),
@@ -449,56 +449,55 @@ async fn cached(state: &Shared, key: String, dir: &Path, accepts_gzip: bool, ren
     let mut hasher = std::hash::DefaultHasher::new();
     stamps.hash(&mut hasher);
     let key = format!("{key}#{:x}", hasher.finish());
-    let rendered = match state.rendered.get(&key).await {
-        Some(hit) => Ok(hit),
-        None => {
-            let (cache, stored) = (state.rendered.clone(), key.clone());
-            let flight = state.renders.join(key, move || async move {
-                let (parts, body) = render.await.into_parts();
-                let body = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
-                if parts.status != StatusCode::OK {
-                    return Rendered { status: parts.status, headers: parts.headers, body, gzipped: false };
-                }
-                let body = blocking(move || {
-                    let chunks = body.len().div_ceil(GZIP_CHUNK).max(1);
-                    let parts: Vec<(Vec<u8>, crc32fast::Hasher)> = (0..chunks)
-                        .into_par_iter()
-                        .map(|index| {
-                            let chunk = &body[(index * GZIP_CHUNK).min(body.len())..((index + 1) * GZIP_CHUNK).min(body.len())];
-                            let flush = if index + 1 == chunks { flate2::FlushCompress::Finish } else { flate2::FlushCompress::Sync };
-                            let (mut deflate, mut out) = (flate2::Compress::new(flate2::Compression::fast(), false), Vec::with_capacity(chunk.len() / 2 + 128));
-                            loop {
-                                let consumed = deflate.total_in() as usize;
-                                let status = deflate.compress_vec(&chunk[consumed..], &mut out, flush).unwrap();
-                                if status == flate2::Status::StreamEnd || (deflate.total_in() as usize == chunk.len() && out.len() < out.capacity()) {
-                                    break;
-                                }
-                                out.reserve(out.capacity() / 2 + 1024);
+    let rendered = if let Some(hit) = state.rendered.get(&key).await {
+        Ok(hit)
+    } else {
+        let (cache, stored) = (state.rendered.clone(), key.clone());
+        let flight = state.renders.join(key, move || async move {
+            let (parts, body) = render.await.into_parts();
+            let body = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
+            if parts.status != StatusCode::OK {
+                return Rendered { status: parts.status, headers: parts.headers, body, gzipped: false };
+            }
+            let body = blocking(move || {
+                let chunks = body.len().div_ceil(GZIP_CHUNK).max(1);
+                let parts: Vec<(Vec<u8>, crc32fast::Hasher)> = (0..chunks)
+                    .into_par_iter()
+                    .map(|index| {
+                        let chunk = &body[(index * GZIP_CHUNK).min(body.len())..((index + 1) * GZIP_CHUNK).min(body.len())];
+                        let flush = if index + 1 == chunks { flate2::FlushCompress::Finish } else { flate2::FlushCompress::Sync };
+                        let (mut deflate, mut out) = (flate2::Compress::new(flate2::Compression::fast(), false), Vec::with_capacity(chunk.len() / 2 + 128));
+                        loop {
+                            let consumed = deflate.total_in() as usize;
+                            let status = deflate.compress_vec(&chunk[consumed..], &mut out, flush).unwrap();
+                            if status == flate2::Status::StreamEnd || (deflate.total_in() as usize == chunk.len() && out.len() < out.capacity()) {
+                                break;
                             }
-                            let mut crc = crc32fast::Hasher::new();
-                            crc.update(chunk);
-                            (out, crc)
-                        })
-                        .collect();
-                    let mut packed = GZIP_HEADER.to_vec();
-                    let mut crc = crc32fast::Hasher::new();
-                    for (deflated, part) in &parts {
-                        packed.extend_from_slice(deflated);
-                        crc.combine(part);
-                    }
-                    packed.extend_from_slice(&crc.finalize().to_le_bytes());
-                    packed.extend_from_slice(&(body.len() as u32).to_le_bytes());
-                    Bytes::from(packed)
-                })
-                .await;
-                let rendered = Rendered { status: parts.status, headers: parts.headers, body, gzipped: true };
-                if settled {
-                    cache.insert(stored, rendered.clone()).await;
+                            out.reserve(out.capacity() / 2 + 1024);
+                        }
+                        let mut crc = crc32fast::Hasher::new();
+                        crc.update(chunk);
+                        (out, crc)
+                    })
+                    .collect();
+                let mut packed = GZIP_HEADER.to_vec();
+                let mut crc = crc32fast::Hasher::new();
+                for (deflated, part) in &parts {
+                    packed.extend_from_slice(deflated);
+                    crc.combine(part);
                 }
-                rendered
-            });
-            flight.await
-        }
+                packed.extend_from_slice(&crc.finalize().to_le_bytes());
+                packed.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                Bytes::from(packed)
+            })
+            .await;
+            let rendered = Rendered { status: parts.status, headers: parts.headers, body, gzipped: true };
+            if settled {
+                cache.insert(stored, rendered.clone()).await;
+            }
+            rendered
+        });
+        flight.await
     };
     let Rendered { status, headers, body, gzipped } = match rendered {
         Ok(rendered) => rendered,
@@ -610,10 +609,7 @@ async fn generate_cache(State(state): State<Shared>, method: Method, Query(param
         return response(StatusCode::METHOD_NOT_ALLOWED, "text/plain", "Method Not Allowed");
     }
     let Some(path) = params.get("session_path").filter(|path| !path.is_empty()) else { return response(StatusCode::BAD_REQUEST, "text/plain", "Missing \"session_path\" parameter") };
-    let dir = match confine(&state, state.logdir.join(path)) {
-        Some(dir) => dir,
-        None => return outside(),
-    };
+    let Some(dir) = confine(&state, state.logdir.join(path)) else { return outside() };
     if xplanes(&dir).is_empty() {
         return response(StatusCode::NOT_FOUND, "text/plain", "No XPlane files found in session_path");
     }
@@ -716,7 +712,7 @@ async fn module_list(State(state): State<Shared>, Query(params): Query<Params>) 
         let target = dir.clone();
         let extract = move || {
             blocking(move || match hlo::modules(&target) {
-                existing if existing.is_empty() => hlo::extract(&target, &files).map(|_| hlo::modules(&target)).unwrap_or_default(),
+                existing if existing.is_empty() => hlo::extract(&target, &files).map(|()| hlo::modules(&target)).unwrap_or_default(),
                 existing => existing,
             })
         };
@@ -1050,7 +1046,7 @@ fn app(state: Shared) -> Router {
         .fallback(assets)
         .layer(axum::middleware::from_fn_with_state(state.clone(), remote::mirror))
         .layer(axum::middleware::map_request(first_values))
-        .layer(CatchPanicLayer::custom(|payload| internal(&panic_message(payload))))
+        .layer(CatchPanicLayer::custom(|payload: Box<dyn Any + Send>| internal(&panic_message(&*payload))))
         .layer(axum::middleware::map_response(|mut reply: Response| async move {
             reply.headers_mut().insert(HeaderName::from_static("content-security-policy"), HeaderValue::from_static(SECURITY_POLICY));
             reply.headers_mut().insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));

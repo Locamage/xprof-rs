@@ -76,7 +76,7 @@ fn test_with_model_id() {
 #[test]
 fn test_tensor_pattern_percentile() {
     let mut stats = inference_stats(
-        r#"
+        r"
         inference_stats_per_host {
           key: 0
           value {
@@ -89,11 +89,11 @@ fn test_tensor_pattern_percentile() {
             request_details { start_time_ps: 2000 end_time_ps: 3000 request_id: 6 tensor_event_details { tensor_pattern_index: 0 owner: BATCH linearize_delinearize_time_ps: 700000 } }
             request_details { start_time_ps: 2000 end_time_ps: 3000 request_id: 7 tensor_event_details { tensor_pattern_index: 0 owner: BATCH linearize_delinearize_time_ps: 800000 } }
           }
-        }"#,
+        }",
     );
     regroup(&mut stats);
     let expected = tensor_transfer(
-        r#"
+        r"
         tensor_pattern_results {
           tensor_pattern_index: 0
           count: 6
@@ -103,7 +103,7 @@ fn test_tensor_pattern_percentile() {
           linearize_delinearize_percentile_time { percentile: 95 time_ps: 600000 }
           linearize_delinearize_percentile_time { percentile: 99 time_ps: 600000 }
           linearize_delinearize_percentile_time { percentile: 99.9 time_ps: 600000 }
-        }"#,
+        }",
     );
     assert_eq!(stats.inference_stats_per_model[&0].tensor_pattern_results, expected);
 }
@@ -111,7 +111,7 @@ fn test_tensor_pattern_percentile() {
 #[test]
 fn test_without_model_id() {
     let mut stats = inference_stats(
-        r#"
+        r"
         inference_stats_per_host {
           key: 0
           value {
@@ -127,7 +127,7 @@ fn test_without_model_id() {
             request_details { start_time_ps: 4000 end_time_ps: 8000 request_id: 3 related_batch_ids: 1 host_runtime_ps: 100 }
             batch_details { batch_id: 1 related_request_ids: 2 related_request_ids: 3 start_time_ps: 3000 end_time_ps: 4000 batch_size_after_padding: 256 }
           }
-        }"#,
+        }",
     );
     regroup(&mut stats);
     let expected = inference_stats(

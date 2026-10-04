@@ -101,7 +101,7 @@ fn tools_cache_dir(name: &str) -> PathBuf {
 }
 
 fn saved(dir: &Path, tools: &[&str]) {
-    save(&dir.join(CACHE_FILE), dir, &tools.iter().map(|tool| tool.to_string()).collect::<Vec<_>>());
+    save(&dir.join(CACHE_FILE), dir, &tools.iter().map(std::string::ToString::to_string).collect::<Vec<_>>());
 }
 
 fn loaded(dir: &Path) -> Option<Vec<Value>> {

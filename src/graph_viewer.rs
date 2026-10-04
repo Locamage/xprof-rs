@@ -38,8 +38,6 @@ pub fn wrap_dot_html(dot: &str, engine: &str) -> String {
 }
 
 fn adjacent(module: &Module, name: &str) -> Option<String> {
-    let node = module.find(name)?;
-    let mut operands = Vec::new();
     fn walk(module: &Module, node: usize, forward: bool, out: &mut Vec<String>) {
         let next = if forward { &module.nodes[node].users } else { &module.nodes[node].operands };
         for &other in next {
@@ -50,6 +48,8 @@ fn adjacent(module: &Module, name: &str) -> Option<String> {
             }
         }
     }
+    let node = module.find(name)?;
+    let mut operands = Vec::new();
     walk(module, node, false, &mut operands);
     let mut consumers = Vec::new();
     walk(module, node, true, &mut consumers);
@@ -61,26 +61,25 @@ pub fn serve(dir: &Path, params: &HashMap<String, String>) -> Result<(Vec<u8>, &
     let kind = params.get("type").map(String::as_str);
     let positional = matches!(kind, Some("graph" | "adj_nodes"));
     let node = if positional { text("node_name").unwrap_or("") } else { "" };
-    let module = match hlo::by_options(dir, params) {
-        Some(module) => module,
-        None => {
-            let unparsable = |module: &str| format!("Can't parse {} as binary proto", dir.join(format!("{module}.hlo_proto.pb")).display());
-            let missing = match (text("module_name"), text("program_id")) {
-                (Some(module), _) if dir.join(format!("{module}.hlo_proto.pb")).is_file() => unparsable(module),
-                (Some(module), _) => format!("{}; No such file or directory", dir.join(format!("{module}.hlo_proto.pb")).display()),
-                (None, Some(program)) => match hlo::modules(dir).into_iter().find(|module| module.contains(program)) {
-                    Some(module) => unparsable(&module),
-                    None => format!("HLO proto file containing program ID {program} not found in {}", dir.display()),
-                },
-                (None, None) => "Can not load hlo proto from options.".into(),
-            };
-            let valid = kind.is_some_and(|kind| VIEWS.contains(&kind));
-            if !valid || node.is_empty() {
-                return Err(missing);
-            }
-            let by_node = hlo::modules(dir).iter().filter_map(|module| hlo::load(dir, module)).find(|module| (0..module.nodes.len()).any(|index| module.inst(index).name == node));
-            by_node.ok_or_else(|| format!("HLO proto file containing node name {node} not found in {}", dir.display()))?
+    let module = if let Some(module) = hlo::by_options(dir, params) {
+        module
+    } else {
+        let unparsable = |module: &str| format!("Can't parse {} as binary proto", dir.join(format!("{module}.hlo_proto.pb")).display());
+        let missing = match (text("module_name"), text("program_id")) {
+            (Some(module), _) if dir.join(format!("{module}.hlo_proto.pb")).is_file() => unparsable(module),
+            (Some(module), _) => format!("{}; No such file or directory", dir.join(format!("{module}.hlo_proto.pb")).display()),
+            (None, Some(program)) => match hlo::modules(dir).into_iter().find(|module| module.contains(program)) {
+                Some(module) => unparsable(&module),
+                None => format!("HLO proto file containing program ID {program} not found in {}", dir.display()),
+            },
+            (None, None) => "Can not load hlo proto from options.".into(),
+        };
+        let valid = kind.is_some_and(|kind| VIEWS.contains(&kind));
+        if !valid || node.is_empty() {
+            return Err(missing);
         }
+        let by_node = hlo::modules(dir).iter().filter_map(|module| hlo::load(dir, module)).find(|module| (0..module.nodes.len()).any(|index| module.inst(index).name == node));
+        by_node.ok_or_else(|| format!("HLO proto file containing node name {node} not found in {}", dir.display()))?
     };
     let kind = kind.ok_or("Graph viewer must provide a type option.")?;
     if !VIEWS.contains(&kind) {
@@ -194,16 +193,13 @@ fn computation_id(graph: usize) -> String {
     format!("cluster_{}", graph + 1)
 }
 
-impl<'a> Dumper<'a> {
+impl Dumper<'_> {
     fn show(&self, node: usize) -> Show {
         let Some(filter) = &self.filter else { return Show::Normal };
         if let Some(&result) = filter.get(&node) {
             return result;
         }
-        match self.module.nodes[node].computation != self.computation && !self.acf_parameter(node) {
-            true => Show::Normal,
-            false => Show::Hide,
-        }
+        if self.module.nodes[node].computation != self.computation && !self.acf_parameter(node) { Show::Normal } else { Show::Hide }
     }
 
     fn shown(&self, node: usize) -> bool {
@@ -626,19 +622,18 @@ impl<'a> Dumper<'a> {
             return String::new();
         }
         self.cluster_ids.insert(graph, self.cluster_ids.len() as i64 + 1);
-        let (label, style) = match parent_entry.opcode == "fusion" {
-            true => {
-                let category = hlo::fusion_category(&module.inst(parent).fusion_kind);
-                let mut label = format!("Fused expression for <b>{}</b><br/>{}", sanitize_html(&parent_entry.name), sanitize_html(category));
-                for part in [self.extra_info(parent), self.backend_config(parent)].iter().filter(|part| !part.is_empty()) {
-                    write!(label, "<br/>{part}").unwrap();
-                }
-                let highlight = self.show(parent) == Show::Highlight;
-                let statistic = statistic_colors(&module.inst(parent).statistics_viz.unwrap_or_default()).filter(|_| !highlight);
-                let (fill, stroke) = statistic.map_or(if highlight { ("#ffcdd2", "#b71c1c") } else { ("#f5f5f5", "#c2c2c2") }, |(fill, _)| (fill, "#c2c2c2"));
-                (label, format!("style=\"rounded,filled,bold\"; fillcolor=\"{fill}\"; color=\"{stroke};\""))
+        let (label, style) = if parent_entry.opcode == "fusion" {
+            let category = hlo::fusion_category(&module.inst(parent).fusion_kind);
+            let mut label = format!("Fused expression for <b>{}</b><br/>{}", sanitize_html(&parent_entry.name), sanitize_html(category));
+            for part in [self.extra_info(parent), self.backend_config(parent)].iter().filter(|part| !part.is_empty()) {
+                write!(label, "<br/>{part}").unwrap();
             }
-            false => (format!("Subcomputation for <b>{}</b><br/>{}", sanitize_html(&parent_entry.name), sanitize_html(&module.graphs[graph].name)), "style=rounded; color=black;".to_string()),
+            let highlight = self.show(parent) == Show::Highlight;
+            let statistic = statistic_colors(&module.inst(parent).statistics_viz.unwrap_or_default()).filter(|_| !highlight);
+            let (fill, stroke) = statistic.map_or(if highlight { ("#ffcdd2", "#b71c1c") } else { ("#f5f5f5", "#c2c2c2") }, |(fill, _)| (fill, "#c2c2c2"));
+            (label, format!("style=\"rounded,filled,bold\"; fillcolor=\"{fill}\"; color=\"{stroke};\""))
+        } else {
+            (format!("Subcomputation for <b>{}</b><br/>{}", sanitize_html(&parent_entry.name), sanitize_html(&module.graphs[graph].name)), "style=rounded; color=black;".to_string())
         };
         let body = self.computation_body(graph);
         let id = computation_id(graph);
@@ -770,7 +765,7 @@ fn radius_filter(module: &Module, dumper: &Dumper, root: usize, radius: i64) -> 
     let root_graph = module.nodes[root].computation;
     let displayed = |node: usize| nodes.contains_key(&node) || module.nodes[node].opcode == "constant" || module.nodes[node].computation != root_graph;
     let mut result = nodes.clone();
-    for (&node, show) in result.iter_mut() {
+    for (&node, show) in &mut result {
         let operands = &module.nodes[node].operands;
         if operands.iter().any(|&operand| displayed(operand)) && !operands.iter().all(|&operand| displayed(operand)) {
             *show = Show::SomeOperandsOmitted;
@@ -812,7 +807,7 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         if activation == 8 {
             properties.push(("leakyrelu_alpha", hlo::general(number(&conv, "leakyrelu_alpha"), 6)));
         }
-        properties.push(("activation_mode", ACTIVATION_MODES.get(activation as usize).map_or_else(|| format!("unknown: {activation}"), |mode| mode.to_string())));
+        properties.push(("activation_mode", ACTIVATION_MODES.get(activation as usize).map_or_else(|| format!("unknown: {activation}"), std::string::ToString::to_string)));
         let algorithm = child(&conv, "algorithm");
         let knobs: std::collections::BTreeMap<i64, i64> = value(&algorithm, "tuning_knobs").as_map().unwrap().iter().map(|(key, value)| (key.as_i64().unwrap(), value.as_i64().unwrap())).collect();
         properties.push(("algo", format!("eng{}{{{}}}", value(&algorithm, "algo_id").as_i64().unwrap(), knobs.iter().map(|(key, value)| format!("k{key}={value}")).join(","))));

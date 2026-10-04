@@ -340,7 +340,7 @@ fn upper_bound(runs: &[(i64, i64)], ts: i64) -> usize {
 fn sort_track(track: &mut Track) {
     let mut order: Vec<usize> = (0..track.events.len()).collect();
     let events = &track.events;
-    std_sort(&mut order, &|a, b| if events[a].ts != events[b].ts { events[a].ts < events[b].ts } else { events[a].dur > events[b].dur });
+    std_sort(&mut order, &|a, b| if events[a].ts == events[b].ts { events[a].dur > events[b].dur } else { events[a].ts < events[b].ts });
     let mut taken = std::mem::take(&mut track.events);
     track.events = order.into_iter().map(|index| std::mem::take(&mut taken[index])).collect();
 }
@@ -670,7 +670,7 @@ struct Writer<'a> {
 }
 
 impl Writer<'_> {
-    fn emit(&mut self, packet: Packet) {
+    fn emit(&mut self, packet: &Packet) {
         let mut body = Vec::new();
         if let Some(timestamp) = packet.timestamp {
             number(&mut body, 8, timestamp);
@@ -706,7 +706,7 @@ impl Writer<'_> {
             }
             bytes(&mut descriptor, 8, &body);
         }
-        self.emit(Packet { descriptor, ..Default::default() });
+        self.emit(&Packet { descriptor, ..Default::default() });
         uuid
     }
 
@@ -750,11 +750,10 @@ impl Writer<'_> {
         }
         let mut body = Vec::new();
         for key in keys {
-            let values: Vec<Value> = event.args.iter().filter(|arg| arg.key == key).map(|arg| arg.value).collect();
             let mut annotation = Vec::new();
             let iid = self.intern(1, key, &mut packet);
             number(&mut annotation, 1, iid);
-            let encoded: Vec<Vec<u8>> = values.into_iter().map(|value| self.value(value, &mut packet)).collect();
+            let encoded: Vec<Vec<u8>> = event.args.iter().filter(|arg| arg.key == key).map(|arg| self.value(arg.value, &mut packet)).collect();
             match &encoded[..] {
                 [single] => annotation.extend(single),
                 many => many.iter().for_each(|value| bytes(&mut annotation, 12, value)),
@@ -770,7 +769,7 @@ impl Writer<'_> {
             }
         }
         packet.event = body;
-        self.emit(packet);
+        self.emit(&packet);
         if instant {
             return;
         }
@@ -780,7 +779,7 @@ impl Writer<'_> {
         for &(id, _) in event.flows.iter().filter(|(_, sink)| !sink) {
             fixed(&mut end, 47, id as u64);
         }
-        self.emit(Packet { timestamp: Some(((event.ts + event.dur) / 1000) as u64), event: end, ..Default::default() });
+        self.emit(&Packet { timestamp: Some(((event.ts + event.dur) / 1000) as u64), event: end, ..Default::default() });
     }
 
     fn track(&mut self, track: &Track, parent: u64) {
@@ -800,7 +799,7 @@ impl Writer<'_> {
                 Sample::Int(value) => number(&mut body, 30, value as u64),
                 Sample::Double(value) => fixed(&mut body, 44, value.to_bits()),
             }
-            self.emit(Packet { timestamp: Some((ts / 1000) as u64), event: body, ..Default::default() });
+            self.emit(&Packet { timestamp: Some((ts / 1000) as u64), event: body, ..Default::default() });
         }
     }
 

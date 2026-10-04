@@ -180,7 +180,7 @@ impl Shape {
                 self.tuple_shapes.clear();
             }
         }
-        self.tuple_shapes.iter_mut().for_each(Shape::normalize);
+        self.tuple_shapes.iter_mut().for_each(Self::normalize);
     }
 
     pub fn print(&self, out: &mut String, layout: bool) {
@@ -246,7 +246,7 @@ impl Shape {
     pub fn unpadded_bytes(&self) -> i64 {
         match self.element_type {
             TUPLE => 8 * self.tuple_shapes.len() as i64,
-            BUFFER => self.tuple_shapes.first().map_or(0, Shape::unpadded_bytes),
+            BUFFER => self.tuple_shapes.first().map_or(0, Self::unpadded_bytes),
             OPAQUE => 8,
             _ if self.is_array() => match self.layout.as_ref().map_or(0, |layout| layout.element_size_in_bits) {
                 0 => {
@@ -333,7 +333,7 @@ impl<'a> Module<'a> {
         order
     }
 
-    pub fn parse(data: Cow<'a, [u8]>) -> Module<'a> {
+    pub fn parse(data: Cow<'a, [u8]>) -> Self {
         let bytes: &[u8] = &data;
         let (rest, bodies) = split(last_bytes(bytes, 1), 3);
         let proto = xla::HloModuleProto::decode(rest.as_slice()).unwrap_or_default();
@@ -415,7 +415,7 @@ impl<'a> Module<'a> {
             let range = starts[index]..starts[index + 1];
             let root = range.clone().rev().find(|&node| nodes[node].id as i32 == computation.root_id as i32);
             let mut parameters: Vec<(i64, usize)> = range.clone().filter(|&node| nodes[node].opcode == "parameter").map(|node| (nodes[node].parameter, node)).collect();
-            parameters.sort();
+            parameters.sort_unstable();
             valid &= root.is_some();
             graphs.push(Graph {
                 name: sanitize(&computation.name),

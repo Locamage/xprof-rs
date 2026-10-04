@@ -274,7 +274,7 @@ fn convert(planes: &[Plane], map: &[u8], layout: &Layout) -> (Vec<Event>, Vec<Bo
                 ts: event.ts,
                 dur: event.dur,
                 flow,
-                group: if event.group != NONE_GROUP { event.group } else { links.group.unwrap_or(NONE_GROUP) },
+                group: if event.group == NONE_GROUP { links.group.unwrap_or(NONE_GROUP) } else { event.group },
                 raw,
                 name,
                 device,
@@ -293,7 +293,7 @@ fn convert(planes: &[Plane], map: &[u8], layout: &Layout) -> (Vec<Event>, Vec<Bo
 }
 
 impl Trace {
-    pub fn build(planes: &[Plane], host: &str, map: &[u8]) -> Trace {
+    pub fn build(planes: &[Plane], host: &str, map: &[u8]) -> Self {
         let layout = layout(planes, host);
         let (events, extra, args) = convert(planes, map, &layout);
         let Layout { devices, tracks, mut names, long_names, steps, .. } = layout;
@@ -355,7 +355,7 @@ impl Trace {
         let tpu_devices: HashSet<u32> = devices.iter().filter(|(_, device)| is_tpu_core_device_name(&device.name)).map(|(id, _)| *id).collect();
         let dma_devices =
             devices.iter().filter(|(_, device)| !tpu_devices.is_empty() && (is_tpu_core_device_name(&device.name) || maybe_tpu_non_core_device_name(&device.name))).map(|(id, _)| *id).collect();
-        Trace { devices, names, events, min_ps: span.0, max_ps: span.1, levels, ties, tpu_devices, dma_devices, long_names, steps, tracks: by_track.len(), flow_ids, args, stack_frames }
+        Self { devices, names, events, min_ps: span.0, max_ps: span.1, levels, ties, tpu_devices, dma_devices, long_names, steps, tracks: by_track.len(), flow_ids, args, stack_frames }
     }
 
     fn is_dma_flow(&self, index: u32) -> bool {

@@ -418,7 +418,7 @@ fn percent(value: f64, total: f64) -> f64 {
     (value / total * 10000.0).round() / 100.0
 }
 
-fn summarize(name: String, duration_us: f64, metrics: &[Metric]) -> Json {
+fn summarize(name: &str, duration_us: f64, metrics: &[Metric]) -> Json {
     let (mut mxu, mut mxu_peak, mut precisions) = (0.0, 0.0, [0.0f64; 4]);
     let mut other: BTreeMap<String, (f64, f64)> = BTreeMap::new();
     for metric in metrics {
@@ -485,8 +485,8 @@ pub struct Filter {
 }
 
 impl Default for Filter {
-    fn default() -> Filter {
-        Filter { kernel: String::new(), duration_us: 0.0, force: false, device: -1 }
+    fn default() -> Self {
+        Self { kernel: String::new(), duration_us: 0.0, force: false, device: -1 }
     }
 }
 
@@ -525,7 +525,7 @@ fn device_kernels(plane: &Plane, sorted: bool, filter: &Filter) -> Option<Json> 
                         }
                     }
                 }
-                Some(summarize(name, duration_us, &compute(&counters, device)))
+                Some(summarize(&name, duration_us, &compute(&counters, device)))
             })
             .collect()
     };

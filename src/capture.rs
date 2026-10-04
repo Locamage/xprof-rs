@@ -19,7 +19,7 @@ const TOOLS: [&str; 10] = ["trace_viewer", "op_profile", "input_pipeline", "kern
 const TF_MISSING: &str = "TensorFlow is not installed, but is required to use TPU names.";
 const SERVER_ERROR: &str = "<!doctype html>\n<html lang=en>\n<title>500 Internal Server Error</title>\n<h1>Internal Server Error</h1>\n<p>The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.</p>\n";
 
-#[derive(Clone, PartialEq, prost::Message)]
+#[derive(Clone, PartialEq, Eq, prost::Message)]
 pub struct ProfileOptions {
     #[prost(uint32, tag = "5")]
     pub version: u32,
@@ -41,7 +41,7 @@ pub struct ProfileOptions {
     pub repository_path: String,
 }
 
-#[derive(Clone, PartialEq, prost::Message)]
+#[derive(Clone, PartialEq, Eq, prost::Message)]
 pub struct ProfileRequest {
     #[prost(uint64, tag = "1")]
     pub duration_ms: u64,
@@ -59,7 +59,7 @@ pub struct ProfileRequest {
     pub host_name: String,
 }
 
-#[derive(Clone, PartialEq, prost::Message)]
+#[derive(Clone, PartialEq, Eq, prost::Message)]
 pub struct ToolData {
     #[prost(string, tag = "1")]
     pub name: String,
@@ -67,7 +67,7 @@ pub struct ToolData {
     pub data: Vec<u8>,
 }
 
-#[derive(Clone, PartialEq, prost::Message)]
+#[derive(Clone, PartialEq, Eq, prost::Message)]
 pub struct ProfileResponse {
     #[prost(message, repeated, tag = "6")]
     pub tool_data: Vec<ToolData>,
@@ -106,7 +106,7 @@ fn unix_ns() -> u64 {
 fn timestamp() -> String {
     let seconds = unix_ns() as i64 / 1_000_000_000;
     let mut local: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&seconds, &mut local) };
+    unsafe { libc::localtime_r(&raw const seconds, &raw mut local) };
     format!("{:04}_{:02}_{:02}_{:02}_{:02}_{:02}", local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec)
 }
 

@@ -403,7 +403,7 @@ fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> String {
         total_time_ps: if exclude_idle { db.total_op_time_ps } else { db.total_time_ps },
     };
     builder.nodes.push(Node { name: Cow::Borrowed(GROUPINGS[grouping].0), ..Default::default() });
-    for metrics in db.metrics.iter().filter(|metrics| !metrics.name.starts_with("region") && !(exclude_idle && metrics.category == IDLE)) {
+    for metrics in db.metrics.iter().filter(|metrics| !(metrics.name.starts_with("region") || exclude_idle && metrics.category == IDLE)) {
         builder.add(metrics);
     }
     builder.nodes[ROOT].metrics.time_ps = builder.total_time_ps;

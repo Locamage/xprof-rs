@@ -115,7 +115,7 @@ pub fn get_profile_summary(client: &dyn Client, args: &Args) -> Result<Out, Erro
     for node in nodes {
         let name = Some(field(node, "name").text()).filter(|name| !name.is_empty() && *field(node, "name") != J::Null).unwrap_or_else(|| "Unknown".into());
         let time = number(node, "raw_time");
-        let fraction = if total != 0.0 { time / total } else { 0.0 };
+        let fraction = if total == 0.0 { 0.0 } else { time / total };
         lines.push(format!("| {} | {:.4} | {:.1}% |", name.replace('|', "\\|"), time / 1e12, fraction * 100.0));
     }
     Ok(Out::Text(lines.join("\n")))
@@ -509,7 +509,7 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
             match info.rsplit_once(':') {
                 Some((file, line)) => {
                     source_file = file.to_string();
-                    if source_line == 0 && !line.is_empty() && line.chars().all(|character| character.is_numeric()) {
+                    if source_line == 0 && !line.is_empty() && line.chars().all(char::is_numeric) {
                         source_line = line.parse().unwrap_or(0);
                     }
                 }

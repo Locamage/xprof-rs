@@ -71,14 +71,14 @@ pub fn c_escape(out: &mut String, bytes: &[u8]) {
             b'\'' => out.push_str("\\'"),
             b'\\' => out.push_str("\\\\"),
             0x20..=0x7e => out.push(byte as char),
-            byte => write!(out, "\\{:03o}", byte).unwrap(),
+            byte => write!(out, "\\{byte:03o}").unwrap(),
         }
     }
 }
 
 pub fn json_string(out: &mut String, text: &str) {
     out.push('"');
-    let special = |byte: u8| !(0x20..0x7f).contains(&byte) | (byte == b'"') | (byte == b'\\') | (byte == b'<') | (byte == b'>');
+    let special = |byte: u8| !(0x20..0x7f).contains(&byte) || (byte == b'"') || (byte == b'\\') || (byte == b'<') || (byte == b'>');
     let mut rest = text;
     loop {
         let mut plain = 0;
@@ -122,7 +122,7 @@ pub fn json_string(out: &mut String, text: &str) {
             | '\u{e0020}'..='\u{e007f}' => {
                 let mut units = [0u16; 2];
                 for unit in character.encode_utf16(&mut units) {
-                    write!(out, "\\u{:04x}", unit).unwrap();
+                    write!(out, "\\u{unit:04x}").unwrap();
                 }
             }
             character => out.push(character),

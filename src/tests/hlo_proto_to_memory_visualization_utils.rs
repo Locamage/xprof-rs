@@ -321,10 +321,10 @@ fn rects_overlap(a: &DoubleRectInfo, b: &DoubleRectInfo) -> bool {
 
 #[test]
 fn test_heap_simulator_trace_share_with_1() {
-    let trace = r#"events { kind: ALLOC buffer_id: 1 }
+    let trace = r"events { kind: ALLOC buffer_id: 1 }
 events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
 events { kind: FREE buffer_id: 1 }
-events { kind: FREE buffer_id: 2 }"#;
+events { kind: FREE buffer_id: 2 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
     assert_eq!(number(&preprocess_result, "peakUnpaddedHeapMib"), 8.0 / (1 << 20) as f64 + 1.0);
@@ -334,10 +334,10 @@ events { kind: FREE buffer_id: 2 }"#;
 
 #[test]
 fn test_heap_simulator_trace_share_with_2() {
-    let trace = r#"events { kind: ALLOC buffer_id: 1 }
+    let trace = r"events { kind: ALLOC buffer_id: 1 }
 events { kind: FREE buffer_id: 1 }
 events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
-events { kind: FREE buffer_id: 2 }"#;
+events { kind: FREE buffer_id: 2 }";
     let proto = hlo_proto(&HLO_BASE.replace("%s", trace));
     let preprocess_result = preprocess(&proto, 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
@@ -349,12 +349,12 @@ events { kind: FREE buffer_id: 2 }"#;
 
 #[test]
 fn test_heap_simulator_trace_share_with_chain() {
-    let trace = r#"events { kind: ALLOC buffer_id: 1 }
+    let trace = r"events { kind: ALLOC buffer_id: 1 }
 events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
 events { kind: FREE buffer_id: 1 }
 events { kind: FREE buffer_id: 2 }
 events { kind: SHARE_WITH buffer_id: 3 share_with_canonical_id: 2 }
-events { kind: FREE buffer_id: 3 }"#;
+events { kind: FREE buffer_id: 3 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_CHAIN.replace("%s", trace)), 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 0.5);
     assert_eq!(list(&preprocess_result, "maxHeap").len(), 1);
@@ -362,14 +362,14 @@ events { kind: FREE buffer_id: 3 }"#;
 
 #[test]
 fn test_share_with_chain_display_name() {
-    let trace = r#"events { kind: ALLOC buffer_id: 1 }
+    let trace = r"events { kind: ALLOC buffer_id: 1 }
 events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
 events { kind: FREE buffer_id: 1 }
 events { kind: FREE buffer_id: 2 }
 events { kind: ALLOC buffer_id: 4 }
 events { kind: SHARE_WITH buffer_id: 3 share_with_canonical_id: 2 }
 events { kind: FREE buffer_id: 3 }
-events { kind: FREE buffer_id: 4 }"#;
+events { kind: FREE buffer_id: 4 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_CHAIN_DISPLAY_NAME.replace("%s", trace)), 1);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 0.75);
     assert_eq!(list(&preprocess_result, "maxHeap").len(), 2);
@@ -665,10 +665,10 @@ buffer_assignment {
 
 #[test]
 fn scoped_vmem_allocation_hbm_ignores_scoped() {
-    let trace = r#"events { kind: ALLOC buffer_id: 1 }
+    let trace = r"events { kind: ALLOC buffer_id: 1 }
 events { kind: ALLOC buffer_id: 2 }
 events { kind: FREE buffer_id: 1 }
-events { kind: FREE buffer_id: 2 }"#;
+events { kind: FREE buffer_id: 2 }";
     let mut proto = hlo_proto(&HLO_BASE.replace("%s", trace));
     proto.hlo_module.as_mut().unwrap().computations[0].instructions[0].backend_config = br#"{"used_scoped_memory_configs":[{"memory_space":"1","size":"1048576"}]}"#.to_vec();
     let result = preprocess(&proto, 0);
@@ -678,10 +678,10 @@ events { kind: FREE buffer_id: 2 }"#;
 
 #[test]
 fn test_convert_allocation_timeline_buffer_blocks() {
-    let trace = r#"events { kind: ALLOC buffer_id: 1 }
+    let trace = r"events { kind: ALLOC buffer_id: 1 }
 events { kind: FREE buffer_id: 1 }
 events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
-events { kind: FREE buffer_id: 2 }"#;
+events { kind: FREE buffer_id: 2 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     let blocks = list(&preprocess_result, "bufferBlocks");
     assert_eq!(blocks.len(), 2);

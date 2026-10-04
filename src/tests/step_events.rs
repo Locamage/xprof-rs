@@ -51,7 +51,7 @@ fn tpu_op_plane(step_line: bool, events: &[(&str, i64, i64)]) -> XSpace {
     plane.id = 1;
     plane.named_line(0, if step_line { "XLA Ops" } else { "Steps" });
     plane.named_line(1, if step_line { "Steps" } else { "XLA Ops" });
-    let ops = if step_line { 0 } else { 1 };
+    let ops = i64::from(!step_line);
     op_metadata(plane, "op_long_name", "op_name", 1);
     op_metadata(plane, "op_long_name2", "op_name2", 2);
     for &(name, offset, group) in events {

@@ -35,7 +35,7 @@ const COLUMNS: [(&str, &str, &str); 19] = [
     ("eager", "string", "Execution mode"),
 ];
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TfOp {
     pub known: bool,
     pub name: String,

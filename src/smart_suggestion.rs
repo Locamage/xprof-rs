@@ -82,7 +82,7 @@ pub struct Step {
 pub struct Node {
     pub name: String,
     pub raw_time: f64,
-    pub children: Vec<Node>,
+    pub children: Vec<Self>,
 }
 
 pub trait ToolData {

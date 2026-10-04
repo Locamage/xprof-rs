@@ -266,7 +266,7 @@ pub fn counter_values(plane: &Plane, event: &Event, map: &[u8]) -> (Option<Box<s
                 Value::Double(v) if name.ends_with("(util %)") || name.ends_with(" (MB/sec)") => format!("{v:.2}"),
                 Value::Double(v) => double(v),
                 Value::Str(_) | Value::Ref(_) => quoted(&plane.text(&stat.value)),
-                _ => continue,
+                Value::Bytes(_) => continue,
             };
             first.get_or_insert_with(|| name.clone());
             values.push(value);
@@ -287,7 +287,11 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
     push_quoted(out, &trace.names[event.name as usize]);
     out.push_str(",\"ts\":");
     micros(out, if forced_entry.is_some() { event.ts + event.dur } else { event.ts });
-    if event.resource != NONE_RESOURCE {
+    if event.resource == NONE_RESOURCE {
+        out.push_str(",\"id\":");
+        number(out, trace.flow_ids[event.flow as usize]);
+        write!(out, ",\"cat\":\"{category}\",\"ph\":\"{}\"", if matches!(entry, FLOW_START | FLOW_MID) { "b" } else { "e" }).unwrap();
+    } else {
         out.push_str(",\"dur\":");
         micros(out, event.dur.max(1));
         if event.flow != NONE_FLOW {
@@ -304,10 +308,6 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
             });
         }
         out.push_str(",\"ph\":\"X\"");
-    } else {
-        out.push_str(",\"id\":");
-        number(out, trace.flow_ids[event.flow as usize]);
-        write!(out, ",\"cat\":\"{category}\",\"ph\":\"{}\"", if matches!(entry, FLOW_START | FLOW_MID) { "b" } else { "e" }).unwrap();
     }
     let mut frame = None;
     if forced_entry.is_none() || event.group != NONE_GROUP {

@@ -19,7 +19,7 @@ pub fn is_grouped(planes: &[Plane]) -> bool {
 
 const MEMCPY: [&str; 4] = ["MemcpyHToD", "MemcpyDToH", "MemcpyDToD", "MemcpyHToH"];
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Category {
     Unknown,
     TensorFlow,
@@ -134,9 +134,9 @@ struct Parsed {
 }
 
 impl Derived {
-    fn new(lines: &[(i64, &str, &'static [usize])], base: i64, suffix: &str, gpu: bool) -> Derived {
+    fn new(lines: &[(i64, &str, &'static [usize])], base: i64, suffix: &str, gpu: bool) -> Self {
         let lines = lines.iter().map(|&(id, name, dependents)| Builder { id: base + id, name: format!("{name}{suffix}"), dependents, ..Default::default() }).collect();
-        Derived { lines, gpu }
+        Self { lines, gpu }
     }
 
     fn meta(&mut self, line: usize, key: &str, display: &str) -> u32 {
@@ -273,7 +273,7 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
             if tf_op.is_empty() && source.is_empty() && !own {
                 return None;
             }
-            let group = if event.group != NONE_GROUP { event.group } else { plane.group_of(event.meta, raw).unwrap_or(NONE_GROUP) };
+            let group = if event.group == NONE_GROUP { plane.group_of(event.meta, raw).unwrap_or(NONE_GROUP) } else { event.group };
             Some(((event.ts, Reverse(event.dur), line_index, index), group, own.then(|| scan(raw, 4))))
         }));
     }
@@ -352,7 +352,7 @@ fn annotate(plane: &Plane, map: &[u8], stream: usize, base: i64, symbols: &Symbo
         if found.text(gpu::KERNEL).is_empty() && !found.has(gpu::GRAPH_EXEC) {
             continue;
         }
-        let group = if event.group != NONE_GROUP { event.group } else { found.signed(gpu::GROUP).unwrap_or(NONE_GROUP) };
+        let group = if event.group == NONE_GROUP { found.signed(gpu::GROUP).unwrap_or(NONE_GROUP) } else { event.group };
         let (span, module, program, hlo_op) = ((event.ts, event.ts + event.dur), found.text(gpu::MODULE), found.program(), found.text(gpu::HLO_OP));
         let has_ops = found.has(gpu::HLO_OP);
         levels.clear();
@@ -417,12 +417,11 @@ fn steps(plane: &mut Plane, map: &[u8], names: &HashMap<i64, String>) {
     let mut key = String::new();
     for (line, index) in sorted(plane, &lines) {
         let event = &mut plane.lines[line].events[index];
-        match group_of(map, event, group_id) {
-            Some(group) => last = Some(group),
-            None => {
-                let Some(group) = last else { continue };
-                event.group = group;
-            }
+        if let Some(group) = group_of(map, event, group_id) {
+            last = Some(group);
+        } else {
+            let Some(group) = last else { continue };
+            event.group = group;
         }
         let group = last.unwrap();
         key.clear();
@@ -513,7 +512,7 @@ fn launch_lines(planes: &[Plane], map: &[u8], devices: usize, names: &HashMap<i6
                         _ => group = Some(int_value(&stat.value)),
                     }
                 }
-                let group = if event.group != NONE_GROUP { Some(event.group) } else { group };
+                let group = if event.group == NONE_GROUP { group } else { Some(event.group) };
                 let (Some(device), Some(_), Some(group)) = (device, correlation, group) else { continue };
                 let Some(device) = usize::try_from(device).ok().filter(|&device| device < devices) else { continue };
                 let entry = launches[device].entry(group).or_insert((event.ts, event.ts + event.dur, 0, 0, 0));

@@ -121,7 +121,7 @@ fn test_d15_roofline_bottleneck_intensity_and_deduplication() {
     }
     let mut ranks: Vec<i128> = result.at("top_operations").items().iter().filter_map(|op| op.at("rank").int()).collect();
     let count = ranks.len();
-    ranks.sort();
+    ranks.sort_unstable();
     ranks.dedup();
     assert_eq!(ranks.len(), count);
 }
@@ -153,15 +153,15 @@ fn test_d23_get_hlo_neighborhood_default_mode_bfs_expansion() {
     std::fs::write(dir.join("module_0001.jit_compute.hlo_proto.pb"), b"").unwrap();
     let fake = Fake::fixed(SHORT_TXT_GRAPH).in_dir(&dir);
     let found = hlo::neighborhood(&fake, dir.to_str().unwrap(), Some("mul".into()), 2, None, None, false).unwrap();
-    let positions: Vec<usize> = ["[dist=1]", "neg", "w", "x"]
+    let in_order = ["[dist=1]", "neg", "w", "x"]
         .iter()
         .scan(0, |start, needle| {
             let at = *start + found[*start..].find(needle)?;
             *start = at + needle.len();
             Some(at)
         })
-        .collect();
-    assert_eq!(positions.len(), 4, "{found}");
+        .count();
+    assert_eq!(in_order, 4, "{found}");
     assert!(found.contains("[entry]") && !found.contains("[unknown]"), "{found}");
 }
 

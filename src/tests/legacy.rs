@@ -776,7 +776,7 @@ fn graph_html_escapes_the_dot_inside_its_template_literal() {
 #[test]
 fn command_line_errors_are_reported_not_panicked() {
     let dir = logdir("arguments");
-    let run = |list: &[&str]| arguments(list.iter().map(|argument| argument.to_string()));
+    let run = |list: &[&str]| arguments(list.iter().map(std::string::ToString::to_string));
     let path = dir.to_string_lossy().into_owned();
     let base = Settings { logdir: dir.clone(), port: DEFAULT_PORT, ..Default::default() };
     assert_eq!(run(&["--logdir", &path]), Ok(Settings { logdir: dir.clone(), port: DEFAULT_PORT, ..Default::default() }));

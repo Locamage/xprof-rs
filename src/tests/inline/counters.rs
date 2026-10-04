@@ -87,8 +87,7 @@ fn kernel_helpers() {
     assert_eq!(kernel_name("other", "f"), DEFAULT_KERNEL);
     assert_eq!([f64::NAN, -1.0, 1e30, 2.9, 0.0].map(|value| counter_value(&Value::Double(value))), [0, 0, u64::MAX, 2, 0]);
     let metric = |name: &str, achieved, peak| Metric { node: 0, name: name.into(), achieved, peak, unit: "cycles" };
-    let kernel =
-        summarize("k".into(), 1.0, &[metric("Avg MXU Busy", 1.0, 3.0), metric("MXU BF16", 3.0, 0.0), metric("MXU I8", 1.0, 0.0), metric("HBM Rd+Wr - core 0", 1.0, 8.0), metric("Idle", 1.0, 0.0)]);
+    let kernel = summarize("k", 1.0, &[metric("Avg MXU Busy", 1.0, 3.0), metric("MXU BF16", 3.0, 0.0), metric("MXU I8", 1.0, 0.0), metric("HBM Rd+Wr - core 0", 1.0, 8.0), metric("Idle", 1.0, 0.0)]);
     assert_eq!(kernel["mxu_utilization"], 33.33);
     assert_eq!(kernel["mxu_cycles_breakdown"], json!({"BF16": 75.0, "FP8": 0.0, "Int4": 0.0, "Int8": 25.0}));
     assert_eq!(kernel["other_metrics"], json!({"HBM Bandwidth Utilization": 12.5}));

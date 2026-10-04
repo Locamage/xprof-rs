@@ -11,8 +11,8 @@ pub enum J {
     Int(i128),
     Float(f64),
     Str(String),
-    List(Vec<J>),
-    Map(Vec<(String, J)>),
+    List(Vec<Self>),
+    Map(Vec<(String, Self)>),
 }
 
 #[macro_export]
@@ -27,43 +27,43 @@ macro_rules! from {
 from!(i32 => Int as i128, i64 => Int as i128, u64 => Int as i128, usize => Int as i128, i128 => Int as i128, f64 => Float as f64, bool => Bool as bool);
 
 impl From<&str> for J {
-    fn from(value: &str) -> J {
-        J::Str(value.to_string())
+    fn from(value: &str) -> Self {
+        Self::Str(value.to_string())
     }
 }
 
 impl From<String> for J {
-    fn from(value: String) -> J {
-        J::Str(value)
+    fn from(value: String) -> Self {
+        Self::Str(value)
     }
 }
 
 impl From<&String> for J {
-    fn from(value: &String) -> J {
-        J::Str(value.clone())
+    fn from(value: &String) -> Self {
+        Self::Str(value.clone())
     }
 }
 
-impl From<&J> for J {
-    fn from(value: &J) -> J {
+impl From<&Self> for J {
+    fn from(value: &Self) -> Self {
         value.clone()
     }
 }
 
-impl<T: Into<J>> From<Vec<T>> for J {
-    fn from(items: Vec<T>) -> J {
-        J::List(items.into_iter().map(Into::into).collect())
+impl<T: Into<Self>> From<Vec<T>> for J {
+    fn from(items: Vec<T>) -> Self {
+        Self::List(items.into_iter().map(Into::into).collect())
     }
 }
 
-impl<T: Into<J>> From<Option<T>> for J {
-    fn from(value: Option<T>) -> J {
-        value.map_or(J::Null, Into::into)
+impl<T: Into<Self>> From<Option<T>> for J {
+    fn from(value: Option<T>) -> Self {
+        value.map_or(Self::Null, Into::into)
     }
 }
 
 impl J {
-    pub fn parse(text: &str) -> Option<J> {
+    pub fn parse(text: &str) -> Option<Self> {
         if text.len() >= SPLIT
             && let Some(value) = split_parse(text)
         {
@@ -72,23 +72,23 @@ impl J {
         serde_json::from_str(text).ok()
     }
 
-    pub fn get(&self, key: &str) -> Option<&J> {
+    pub fn get(&self, key: &str) -> Option<&Self> {
         match self {
-            J::Map(entries) => entries.iter().find(|(name, _)| name == key).map(|(_, value)| value),
+            Self::Map(entries) => entries.iter().find(|(name, _)| name == key).map(|(_, value)| value),
             _ => None,
         }
     }
 
-    pub fn at(&self, key: &str) -> &J {
-        self.get(key).unwrap_or(&J::Null)
+    pub fn at(&self, key: &str) -> &Self {
+        self.get(key).unwrap_or(&Self::Null)
     }
 
     pub fn has(&self, key: &str) -> bool {
         self.get(key).is_some()
     }
 
-    pub fn set(&mut self, key: &str, value: impl Into<J>) {
-        if let J::Map(entries) = self {
+    pub fn set(&mut self, key: &str, value: impl Into<Self>) {
+        if let Self::Map(entries) = self {
             let value = value.into();
             match entries.iter_mut().find(|(name, _)| name == key) {
                 Some(slot) => slot.1 = value,
@@ -97,74 +97,74 @@ impl J {
         }
     }
 
-    pub fn entries(&self) -> &[(String, J)] {
+    pub fn entries(&self) -> &[(String, Self)] {
         match self {
-            J::Map(entries) => entries,
+            Self::Map(entries) => entries,
             _ => &[],
         }
     }
 
-    pub fn items(&self) -> &[J] {
+    pub fn items(&self) -> &[Self] {
         match self {
-            J::List(items) => items,
+            Self::List(items) => items,
             _ => &[],
         }
     }
 
     pub fn str(&self) -> Option<&str> {
         match self {
-            J::Str(text) => Some(text),
+            Self::Str(text) => Some(text),
             _ => None,
         }
     }
 
     pub fn truthy(&self) -> bool {
         match self {
-            J::Null => false,
-            J::Bool(flag) => *flag,
-            J::Int(number) => *number != 0,
-            J::Float(number) => *number != 0.0,
-            J::Str(text) => !text.is_empty(),
-            J::List(items) => !items.is_empty(),
-            J::Map(entries) => !entries.is_empty(),
+            Self::Null => false,
+            Self::Bool(flag) => *flag,
+            Self::Int(number) => *number != 0,
+            Self::Float(number) => *number != 0.0,
+            Self::Str(text) => !text.is_empty(),
+            Self::List(items) => !items.is_empty(),
+            Self::Map(entries) => !entries.is_empty(),
         }
     }
 
     pub fn float(&self) -> Option<f64> {
         match self {
-            J::Bool(flag) => Some(f64::from(u8::from(*flag))),
-            J::Int(number) => Some(*number as f64),
-            J::Float(number) => Some(*number),
-            J::Str(text) => py_float(text),
+            Self::Bool(flag) => Some(f64::from(u8::from(*flag))),
+            Self::Int(number) => Some(*number as f64),
+            Self::Float(number) => Some(*number),
+            Self::Str(text) => py_float(text),
             _ => None,
         }
     }
 
     pub fn int(&self) -> Option<i128> {
         match self {
-            J::Bool(flag) => Some(i128::from(*flag)),
-            J::Int(number) => Some(*number),
-            J::Float(number) if number.is_finite() => Some(number.trunc() as i128),
-            J::Str(text) => py_int(text),
+            Self::Bool(flag) => Some(i128::from(*flag)),
+            Self::Int(number) => Some(*number),
+            Self::Float(number) if number.is_finite() => Some(number.trunc() as i128),
+            Self::Str(text) => py_int(text),
             _ => None,
         }
     }
 
     pub fn text(&self) -> String {
         match self {
-            J::Null => "None".into(),
-            J::Bool(flag) => if *flag { "True" } else { "False" }.into(),
-            J::Int(number) => number.to_string(),
-            J::Float(number) => crate::table::repr(*number),
-            J::Str(text) => text.clone(),
-            J::List(items) => format!("[{}]", items.iter().map(J::repr).collect::<Vec<_>>().join(", ")),
-            J::Map(entries) => format!("{{{}}}", entries.iter().map(|(key, value)| format!("{}: {}", py_repr(key), value.repr())).collect::<Vec<_>>().join(", ")),
+            Self::Null => "None".into(),
+            Self::Bool(flag) => if *flag { "True" } else { "False" }.into(),
+            Self::Int(number) => number.to_string(),
+            Self::Float(number) => crate::table::repr(*number),
+            Self::Str(text) => text.clone(),
+            Self::List(items) => format!("[{}]", items.iter().map(Self::repr).collect::<Vec<_>>().join(", ")),
+            Self::Map(entries) => format!("{{{}}}", entries.iter().map(|(key, value)| format!("{}: {}", py_repr(key), value.repr())).collect::<Vec<_>>().join(", ")),
         }
     }
 
     pub fn repr(&self) -> String {
         match self {
-            J::Str(text) => py_repr(text),
+            Self::Str(text) => py_repr(text),
             other => other.text(),
         }
     }
@@ -190,16 +190,16 @@ impl J {
         };
         let inner = depth.map(|depth| depth + 1);
         match self {
-            J::Null => out.push_str("null"),
-            J::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
-            J::Int(number) => _ = write!(out, "{number}"),
-            J::Float(number) if number.is_nan() => out.push_str("NaN"),
-            J::Float(number) if number.is_infinite() => out.push_str(if *number > 0.0 { "Infinity" } else { "-Infinity" }),
-            J::Float(number) => out.push_str(&crate::table::repr(*number)),
-            J::Str(text) => string(out, text, ascii),
-            J::List(items) if items.is_empty() => out.push_str("[]"),
-            J::Map(entries) if entries.is_empty() => out.push_str("{}"),
-            J::List(items) => {
+            Self::Null => out.push_str("null"),
+            Self::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+            Self::Int(number) => _ = write!(out, "{number}"),
+            Self::Float(number) if number.is_nan() => out.push_str("NaN"),
+            Self::Float(number) if number.is_infinite() => out.push_str(if *number > 0.0 { "Infinity" } else { "-Infinity" }),
+            Self::Float(number) => out.push_str(&crate::table::repr(*number)),
+            Self::Str(text) => string(out, text, ascii),
+            Self::List(items) if items.is_empty() => out.push_str("[]"),
+            Self::Map(entries) if entries.is_empty() => out.push_str("{}"),
+            Self::List(items) => {
                 out.push('[');
                 for (index, item) in items.iter().enumerate() {
                     out.push_str(if index == 0 {
@@ -215,7 +215,7 @@ impl J {
                 open(out, depth);
                 out.push(']');
             }
-            J::Map(entries) => {
+            Self::Map(entries) => {
                 out.push('{');
                 for (index, (key, value)) in entries.iter().enumerate() {
                     out.push_str(if index == 0 {
@@ -396,7 +396,7 @@ fn split_parse(text: &str) -> Option<J> {
 }
 
 impl<'de> Deserialize<'de> for J {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<J, D::Error> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct Walk;
         impl<'de> Visitor<'de> for Walk {
             type Value = J;

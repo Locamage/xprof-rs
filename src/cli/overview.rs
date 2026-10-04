@@ -178,7 +178,8 @@ fn parse_memory(data: &str) -> Result<Memory, Error> {
     };
     if first.has("cols") && first.has("rows") {
         return fail(Kind::Value, "Table format memory profile not fully supported");
-    } else if first.has("memoryProfileSummary") {
+    }
+    if first.has("memoryProfileSummary") {
         for device in &devices {
             let summary = device.at("memoryProfileSummary");
             if !device.truthy() || !device.has("memoryProfileSummary") {
@@ -419,7 +420,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
         operations.sort_by(|left, right| right.at("total_self_time_ms").float().partial_cmp(&left.at("total_self_time_ms").float()).unwrap_or(std::cmp::Ordering::Equal));
         operations.truncate(top_n.max(0) as usize);
         let custom = operations.iter().any(|operation| operation.at("bound_by").str() == Some("CustomCall (opaque)"));
-        if custom && matches!(summary.at("bound_by"), J::Null) || custom && matches!(summary.at("bound_by").str(), Some("Unknown" | "")) {
+        if custom && (matches!(summary.at("bound_by"), J::Null) || matches!(summary.at("bound_by").str(), Some("Unknown" | ""))) {
             summary.set("bound_by", "CustomCall (opaque)");
         }
         let mut output = obj! {"program" => summary, "device_info" => info, "top_operations" => operations, "total_operations_analyzed" => total};
@@ -457,29 +458,26 @@ fn percentage(rows: &[&J]) -> Option<f64> {
 
 pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
     let parsed = J::parse(raw.trim()).filter(|table| table.has("cols"));
-    let (rows, fields): (Vec<J>, Vec<String>) = match &parsed {
-        Some(table) => {
-            let labels: Vec<String> = table
-                .at("cols")
-                .items()
-                .iter()
-                .enumerate()
-                .map(|(index, column)| Some(column.at("label")).filter(|label| label.truthy()).or(column.get("id")).map_or(format!("col_{index}"), J::text))
-                .collect();
-            let rows = table
-                .at("rows")
-                .items()
-                .iter()
-                .map(|row| J::Map(labels.iter().cloned().zip(row.at("c").items().iter().map(|cell| if let J::Map(_) = cell { cell.at("v").clone() } else { cell.clone() })).collect()))
-                .collect();
-            (rows, labels)
-        }
-        None => {
-            let mut lines = raw.lines();
-            let header: Vec<String> = lines.next().unwrap_or_default().split(',').map(|field| field.trim().to_string()).collect();
-            let rows = lines.map(|line| J::Map(header.iter().cloned().zip(line.split(',').map(|value| J::from(value.trim()))).filter(|(key, _)| !key.is_empty()).collect())).collect();
-            (rows, header.into_iter().filter(|field| !field.is_empty()).collect())
-        }
+    let (rows, fields): (Vec<J>, Vec<String>) = if let Some(table) = &parsed {
+        let labels: Vec<String> = table
+            .at("cols")
+            .items()
+            .iter()
+            .enumerate()
+            .map(|(index, column)| Some(column.at("label")).filter(|label| label.truthy()).or(column.get("id")).map_or(format!("col_{index}"), J::text))
+            .collect();
+        let rows = table
+            .at("rows")
+            .items()
+            .iter()
+            .map(|row| J::Map(labels.iter().cloned().zip(row.at("c").items().iter().map(|cell| if let J::Map(_) = cell { cell.at("v").clone() } else { cell.clone() })).collect()))
+            .collect();
+        (rows, labels)
+    } else {
+        let mut lines = raw.lines();
+        let header: Vec<String> = lines.next().unwrap_or_default().split(',').map(|field| field.trim().to_string()).collect();
+        let rows = lines.map(|line| J::Map(header.iter().cloned().zip(line.split(',').map(|value| J::from(value.trim()))).filter(|(key, _)| !key.is_empty()).collect())).collect();
+        (rows, header.into_iter().filter(|field| !field.is_empty()).collect())
     };
     if rows.is_empty() {
         return obj! {"status" => "NO_DATA", "message" => "No hardware performance counter events found in trace"};
@@ -515,7 +513,7 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
     let idleness = if selected.iter().any(|row| row.at("Name").str() == Some("No MXU Busy")) {
         named("No MXU Busy")
     } else if !mxu_values.is_empty() {
-        Some(round(100.0 - mxu_values.iter().cloned().fold(f64::MIN, f64::max), 2).max(0.0))
+        Some(round(100.0 - mxu_values.iter().copied().fold(f64::MIN, f64::max), 2).max(0.0))
     } else {
         Some(named("Avg MXU Busy").map_or(100.0, |busy| round(100.0 - busy, 2)))
     };

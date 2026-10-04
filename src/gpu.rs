@@ -197,7 +197,7 @@ pub fn event_name<'a>(plane: &'a Plane, map: &'a [u8], meta: u32) -> Cow<'a, str
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(plane: &'a Plane, map: &'a [u8]) -> Scanner<'a> {
+    pub fn new(plane: &'a Plane, map: &'a [u8]) -> Self {
         let mut slots = vec![UNWANTED; plane.stat_names.len()];
         for (slot, name) in STATS.iter().enumerate() {
             if let Some(id) = plane.id(name) {
@@ -252,7 +252,7 @@ impl<'a> Stats<'a> {
 pub fn groups(plane: &Plane, map: &[u8]) -> Vec<Vec<Option<i64>>> {
     let id = plane.id("group_id");
     let own = |event: &Ev| {
-        if event.group != NONE_GROUP { Some(event.group) } else { stats(slice(map, event.raw), 4, |stat| Some(stat) == id).next().and_then(|stat| stat.value.int()) }
+        if event.group == NONE_GROUP { stats(slice(map, event.raw), 4, |stat| Some(stat) == id).next().and_then(|stat| stat.value.int()) } else { Some(event.group) }
     };
     let mut result: Vec<Vec<Option<i64>>> = plane.lines.iter().map(|line| line.events.iter().map(own).collect()).collect();
     if id.is_none() && result.iter().flatten().all(Option::is_none) {

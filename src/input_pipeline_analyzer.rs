@@ -23,7 +23,7 @@ const KERNEL_LAUNCH_TF_DATA: &str = ". It could be due to CPU contention with tf
 pub const HARDWARE: [&str; 4] = ["UNKNOWN_HARDWARE", "CPU_ONLY", "GPU", "TPU"];
 pub const BOTTLENECK_PREFIXES: [&str; 4] = ["", "kernel_launch_", "all_other_", "device_collectives_"];
 const RECOMMENDATIONS: [&str; 5] = [
-    r#"Enqueuing data: you may want to combine small input data chunks into fewer but larger chunks."#,
+    r"Enqueuing data: you may want to combine small input data chunks into fewer but larger chunks.",
     r#"Data preprocessing: you may increase num_parallel_calls in <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#map" target="_blank">Dataset map()</a> or preprocess the data OFFLINE."#,
     r#"Reading data from files in advance: you may tune parameters in the following tf.data API (<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" target="_blank">prefetch size</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" target="_blank">interleave cycle_length</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/TFRecordDataset#class_tfrecorddataset" target="_blank">reader buffer_size</a>)"#,
     r#"Reading data from files on demand: you should read data IN ADVANCE using the following tf.data API (<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" target="_blank">prefetch</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" target="_blank">interleave</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/TFRecordDataset#class_tfrecorddataset" target="_blank">reader buffer</a>)"#,
@@ -207,7 +207,7 @@ pub struct Analysis {
     pub warnings: Vec<String>,
 }
 
-fn summarize<const N: usize>(rows: impl Iterator<Item = [f64; N]> + Clone) -> Vec<[f64; 4]> {
+fn summarize<const N: usize>(rows: &(impl Iterator<Item = [f64; N]> + Clone)) -> Vec<[f64; 4]> {
     (0..N).map(|index| summary(rows.clone().map(|row| row[index]))).collect()
 }
 
@@ -257,7 +257,7 @@ fn host_result(host: &Db, enqueue: (u64, u64), fallback_ratio: f64) -> (Table, [
     }
     let (enqueue_us, total_input_us) = (aggregated[0], aggregated[1] + aggregated[2] + aggregated[3]);
     let ratio = if enqueue.1 > 0 { safe_divide(enqueue.0 as f64, enqueue.1 as f64) } else { fallback_ratio }.min(1.0);
-    let non_enqueue = if ratio != 0.0 { enqueue_us * (1.0 - ratio) / ratio } else { total_input_us };
+    let non_enqueue = if ratio == 0.0 { total_input_us } else { enqueue_us * (1.0 - ratio) / ratio };
     let scaled = |value: f64| safe_divide(non_enqueue * value, total_input_us);
     let (demanded, advanced, preprocessing) = (scaled(aggregated[1]), scaled(aggregated[2]), scaled(aggregated[3]));
     (table, [enqueue_us, demanded, advanced, preprocessing, 0.0f64.max(non_enqueue - demanded - advanced - preprocessing)])
@@ -275,7 +275,7 @@ fn tpu_steps(extra: &Extra, steps: &mut Table, cores: &mut Table, step_summary: 
     let (two, one) = (|value: f64| fixed(value, 2), |value: f64| fixed(value, 1));
     let has_sparse_core = extra.cores.values().any(|core| core.sparse);
     let tpu_steps: Vec<TpuStep> = extra.steps.iter().map(|record| tpu_step_details(record, &extra.cores)).collect();
-    let breakdown = summarize(tpu_steps.iter().map(|step| step.fields));
+    let breakdown = summarize(&tpu_steps.iter().map(|step| step.fields));
     let input_percent = summary(tpu_steps.iter().map(|step| step.infeed_percent[2]));
     let columns: Vec<_> = TPU_COLUMNS.iter().filter(|column| !has_sparse_core || !column.0.starts_with("scv0")).collect();
     steps.column("stepnum", "string", "stepnum");
@@ -402,7 +402,7 @@ pub fn analyze(stats: &OpStats) -> Analysis {
         ];
         generic_steps.push((if info.name.is_empty() { record.num.to_string() } else { info.name.clone() }, ms(info.duration), values));
     }
-    let generic_breakdown = summarize(generic_steps.iter().map(|step| step.2));
+    let generic_breakdown = summarize(&generic_steps.iter().map(|step| step.2));
     let tpu = extra.hardware == TPU;
     let fallback_ratio = if step_summary[0] > 0.0 && !tpu { safe_divide(generic_breakdown[TO_DEVICE][0], step_summary[0]) } else { 0.0 };
     let (mut host, input_time) = host_result(&stats.host, extra.infeed_enqueue, fallback_ratio);

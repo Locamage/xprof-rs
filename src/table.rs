@@ -165,8 +165,8 @@ pub fn string(out: &mut String, text: &str) {
 }
 
 impl Table {
-    pub fn new(columns: &[(&str, &'static str, &str)]) -> Table {
-        Table { columns: columns.iter().map(|&(id, kind, label)| (id.into(), kind, label.into(), None)).collect(), ..Default::default() }
+    pub fn new(columns: &[(&str, &'static str, &str)]) -> Self {
+        Self { columns: columns.iter().map(|&(id, kind, label)| (id.into(), kind, label.into(), None)).collect(), ..Default::default() }
     }
 
     pub fn column(&mut self, id: &str, kind: &'static str, label: &str) {

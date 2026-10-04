@@ -50,7 +50,6 @@ fn plane_steps(plane: &Plane, map: &[u8]) -> HashMap<i64, u64> {
                 }
             }
         } else if (DERIVED_MIN..=DERIVED_MAX).contains(&id) {
-            continue;
         } else if tensor || sparse {
             if (tensor && OP_LINES.contains(&line.name.as_str())) || (sparse && line.name == "Sparse Core Ops") {
                 ops = line.events.iter().filter_map(|event| group(map, event, group_id, true)).collect();
