@@ -208,14 +208,28 @@ fn from_metadata(plane: &Plane, map: &[u8], meta: usize) -> (Option<(u64, u64)>,
     (key.0.zip(key.1), out)
 }
 
-pub fn templates(plane: &Plane, map: &[u8]) -> Vec<Template> {
+/// The templates of the operations of one plane. Each operation with a key has a slot, and the slots are in the order of the keys.
+#[derive(Default)]
+pub struct Templates {
+    metas: Vec<Template>,
+    slots: Vec<u32>,
+    keys: usize,
+}
+
+pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
     let mut used = vec![false; plane.meta.len()];
     for event in plane.lines.iter().flat_map(|line| &line.events) {
         if let Some(slot) = used.get_mut(event.meta as usize) {
             *slot = true;
         }
     }
-    used.par_iter().enumerate().map(|(meta, &used)| used.then(|| from_metadata(plane, map, meta))).collect()
+    let metas: Vec<Template> = used.par_iter().enumerate().map(|(meta, &used)| used.then(|| from_metadata(plane, map, meta))).collect();
+    let key = |template: &Template| template.as_ref().and_then(|(key, _)| key.filter(|key| key.1 != 0));
+    let mut keys: Vec<(u64, u64)> = metas.iter().filter_map(key).collect();
+    keys.sort_unstable();
+    keys.dedup();
+    let slots = metas.iter().map(|template| key(template).map_or(u32::MAX, |key| keys.binary_search(&key).unwrap() as u32)).collect();
+    Templates { metas, slots, keys: keys.len() }
 }
 
 pub struct EventReader(Vec<u8>);
@@ -265,18 +279,26 @@ impl EventStats {
     }
 }
 
-#[derive(Clone, Copy)]
-enum Slot {
-    Unseen,
-    Skipped,
-    Filled(u32, bool),
+/// The sums of one operation. It keeps only numbers, so that many of them fit in the cache.
+#[derive(Clone, Copy, Default)]
+struct Totals {
+    occurrences: u64,
+    time_ps: u64,
+    self_time_ps: u64,
+    normalized_time_ps: u64,
+    min_time_ps: u64,
+    dma_stall_ps: u64,
+    flops_v2: f64,
+    model_flops_v2: f64,
+    bytes_accessed: u64,
+    vdd_energy: Option<f64>,
+    core_type: u8,
 }
 
 struct Accumulator<'a> {
-    key: (u64, u64),
     template: &'a Metrics,
     custom: bool,
-    totals: Metrics,
+    totals: Totals,
 }
 
 impl Accumulator<'_> {
@@ -295,47 +317,26 @@ impl Accumulator<'_> {
         let (flops_v2, model_flops_v2, bytes_accessed) = self.counts();
         let occurrences = self.totals.occurrences;
         let memory = self.template.memory.iter().map(|&(operation, space, bytes)| (operation, space, bytes.saturating_mul(occurrences))).collect();
-        Metrics { memory, flops_v2, model_flops_v2, bytes_accessed, ..self.totals }
+        let Totals { time_ps, self_time_ps, normalized_time_ps, min_time_ps, dma_stall_ps, vdd_energy, core_type, .. } = self.totals;
+        Metrics { occurrences, time_ps, self_time_ps, normalized_time_ps, min_time_ps, dma_stall_ps, flops_v2, model_flops_v2, bytes_accessed, memory, vdd_energy, core_type, ..Default::default() }
     }
 }
 
 pub struct Builder<'a> {
-    templates: &'a [Template],
-    slots: Vec<Slot>,
-    keys: FxHashMap<(u64, u64), u32>,
-    entries: Vec<Accumulator<'a>>,
+    templates: &'a Templates,
+    entries: Vec<Option<Accumulator<'a>>>,
 }
 
 impl<'a> Builder<'a> {
-    pub fn new(templates: &'a [Template]) -> Builder<'a> {
-        Builder { templates, slots: vec![Slot::Unseen; templates.len()], keys: FxHashMap::default(), entries: Vec::new() }
-    }
-
-    fn slot(&mut self, meta: usize, min_time_ps: u64) -> Option<(usize, bool, bool)> {
-        match self.slots[meta] {
-            Slot::Skipped => None,
-            Slot::Filled(slot, custom) => Some((slot as usize, custom, false)),
-            Slot::Unseen => {
-                let templates = self.templates;
-                let Some((Some(key), template)) = templates[meta].as_ref().filter(|(key, _)| key.is_some_and(|key| key.1 != 0)) else {
-                    self.slots[meta] = Slot::Skipped;
-                    return None;
-                };
-                let (next, custom) = (self.entries.len() as u32, template.category == CUSTOM_CALL);
-                let slot = *self.keys.entry(*key).or_insert(next);
-                if slot == next {
-                    self.entries.push(Accumulator { key: *key, template, custom, totals: Metrics { min_time_ps, ..Default::default() } });
-                }
-                self.slots[meta] = Slot::Filled(slot, custom);
-                Some((slot as usize, custom, slot == next))
-            }
-        }
+    pub fn new(templates: &'a Templates) -> Builder<'a> {
+        Builder { templates, entries: (0..templates.keys).map(|_| None).collect() }
     }
 
     pub fn add(&mut self, event: &Ev, stats: &EventStats, (time_ps, self_time_ps): (u64, u64), tensor_core: bool) {
-        let min_time_ps = stats.min_time_ps.unwrap_or(event.dur);
-        let Some((slot, custom, fresh)) = self.slot(event.meta as usize, min_time_ps) else { return };
-        let entry = &mut self.entries[slot];
+        let (meta, min_time_ps) = (event.meta as usize, stats.min_time_ps.unwrap_or(event.dur));
+        let (Some(slot), Some((_, template))) = (self.entries.get_mut(self.templates.slots[meta] as usize), &self.templates.metas[meta]) else { return };
+        let (custom, fresh) = (template.category == CUSTOM_CALL, slot.is_none());
+        let entry = slot.get_or_insert(Accumulator { template, custom, totals: Totals { min_time_ps, ..Default::default() } });
         let totals = &mut entry.totals;
         totals.occurrences += stats.occurrences.max(1);
         totals.time_ps += time_ps;
@@ -347,7 +348,7 @@ impl<'a> Builder<'a> {
         if stats.vdd_energy.is_some() || totals.vdd_energy.is_some() {
             totals.vdd_energy = Some(stats.vdd_energy.unwrap_or(0.0) + totals.vdd_energy.unwrap_or(0.0));
         }
-        if let Some((_, template)) = self.templates[event.meta as usize].as_ref().filter(|_| fresh || entry.custom) {
+        if fresh || entry.custom {
             let custom = if custom { stats.custom } else { [0; 3] };
             totals.flops_v2 += template.flops_v2 + custom[2] as f64;
             totals.model_flops_v2 += template.model_flops_v2 + custom[1] as f64;
@@ -355,15 +356,9 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn sorted(self) -> Vec<Accumulator<'a>> {
-        let mut entries = self.entries;
-        entries.sort_unstable_by_key(|entry| entry.key);
-        entries
-    }
-
     pub fn finish(self) -> Db {
         let mut db = Db::default();
-        for entry in self.sorted() {
+        for entry in self.entries.into_iter().flatten() {
             let template = entry.template;
             let metrics = Metrics {
                 module: template.module,
@@ -388,11 +383,9 @@ impl<'a> Builder<'a> {
 
     pub fn program(self) -> (u64, ([Metrics; 2], u64)) {
         let (mut total_op_time_ps, mut program) = (0, Default::default());
-        let mut order: Vec<&Accumulator> = self.entries.iter().collect();
-        order.sort_unstable_by_key(|entry| entry.key);
-        for entry in order {
+        for entry in self.entries.iter().flatten() {
             total_op_time_ps += entry.totals.self_time_ps;
-            add_scaled(&mut program, entry.template, &entry.totals, entry.counts(), &entry.template.memory, entry.totals.occurrences);
+            add_scaled(&mut program, entry.template, (entry.totals.core_type, entry.totals.time_ps), entry.counts(), &entry.template.memory, entry.totals.occurrences);
         }
         (total_op_time_ps, program)
     }
@@ -486,7 +479,7 @@ impl Db {
     }
 }
 
-pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &[Template]) -> Db {
+pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates) -> Db {
     let (mut builder, mut first, mut last, reader) = (Builder::new(templates), u64::MAX, 0u64, EventReader::new(plane));
     for line in &plane.lines {
         let is_step = line.name == "Steps" || line.name == "Sparse Core Steps";
@@ -613,7 +606,7 @@ fn op_stats<'a>(planes: &[Plane], map: &'a [u8], fused: bool) -> (OpStats, Vec<(
     let first = planes.iter().find(|plane| plane.name.starts_with("/device:TPU:"));
     let tpu = first.is_some();
     let gpus = crate::gpu::devices(planes);
-    let templates: Vec<Vec<Template>> = planes.par_iter().map(|plane| if is_tensor_core(&plane.name) { templates(plane, map) } else { Vec::new() }).collect();
+    let templates: Vec<Templates> = planes.par_iter().map(|plane| if is_tensor_core(&plane.name) { templates(plane, map) } else { Templates::default() }).collect();
     let device = || {
         if !gpus.is_empty() {
             let (db, kernels) = crate::gpu::device(planes, map, &gpus);

@@ -2,7 +2,7 @@ use crate::derive::is_tensor_core;
 use crate::framework_op_stats::{is_jax_op_type, is_tf_op_name, is_tf_op_type, parse_tf_op};
 use crate::group::is_sparse_core;
 use crate::input_pipeline_analyzer::{TC_IDLE, tpu_step_details};
-use crate::opstats::{Builder, Db, EventReader, EventStats, IDLE, Metrics, Template, safe_divide};
+use crate::opstats::{Builder, Db, EventReader, EventStats, IDLE, Metrics, Templates, safe_divide};
 use crate::roofline::accumulate;
 use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, fields, slice, stats};
 use rayon::prelude::*;
@@ -218,7 +218,7 @@ fn nest<T>(items: impl Iterator<Item = (Span, T)>, mut finish: impl FnMut(T, Spa
     }
 }
 
-fn step_programs(plane: &Plane, map: &[u8], templates: &[Template]) -> HashMap<i64, StepPrograms> {
+fn step_programs(plane: &Plane, map: &[u8], templates: &Templates) -> HashMap<i64, StepPrograms> {
     let mut markers: HashMap<i64, Vec<u64>> = HashMap::new();
     let mut ops: HashMap<i64, Vec<TimedEvent>> = HashMap::new();
     let mut read: Vec<(&Ev, EventStats)> = Vec::new();
@@ -253,7 +253,7 @@ fn step_programs(plane: &Plane, map: &[u8], templates: &[Template]) -> HashMap<i
         .collect()
 }
 
-pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &[Template], origin: u64, hostname: &str) -> Device {
+pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &Templates, origin: u64, hostname: &str) -> Device {
     let (programs, mut device) =
         rayon::join(|| if is_tensor_core(&plane.name) { step_programs(plane, map, templates) } else { HashMap::new() }, || device_lines(plane, raw_plane, map, origin, hostname));
     device.programs = programs;
@@ -590,7 +590,7 @@ fn add_metrics(total: &mut [Metrics; 2], part: &[Metrics; 2], times: [u64; 2]) {
     }
 }
 
-pub fn extra(planes: &[Plane], map: &[u8], templates: &[Vec<Template>]) -> Extra {
+pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
     let texts = |tag: u32| {
         let mut seen = HashSet::new();
         nested(map, tag).map(|bytes| crate::xplane::lossy(bytes).into_owned()).filter(|text| seen.insert(text.clone())).collect::<Vec<String>>()
