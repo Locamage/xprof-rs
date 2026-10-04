@@ -292,7 +292,7 @@ fn parse_checked(map: &[u8], check: bool) -> Option<Vec<Plane>> {
     valid.then(|| planes.unwrap())
 }
 
-/// Adds the regions, the groups, and the derived lines.
+/// Adds the regions, the groups, and the derived lines. Do not call it on a thread of the pool: the pool stops when all of its threads wait for the threads of this function.
 fn finish(planes: &mut [Plane], map: &[u8], trace: bool) {
     planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
     if !derive::is_grouped(planes) {
