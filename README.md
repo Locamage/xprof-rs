@@ -74,7 +74,7 @@ The table shows the time on the 279 MB v4 trace. [`examples/benchmark.py`](examp
 | `framework_op_stats`, `input_pipeline_analyzer`, `roofline_model`, `memory_profile`, `kernel_stats`, `pod_viewer` | 0.35 to 2.7 s | 0 to 0.03 s | under 1 ms |
 | `memory_viewer`, `graph_viewer`, `module_list` | 2.3 s | 0.3 s | 3 ms |
 
-The peak memory of the server for the tools in the table is 1.5 GB (XProf: 4.8 GB). A machine with more cores uses more memory, because more work runs at the same time.
+The peak memory of xprof-rs for the tools in the table is 1.5 GB. XProf used 4.8 GB for all of its tools. A machine with more cores uses more memory, because more work runs at the same time.
 
 ## Remote log directories
 
