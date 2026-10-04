@@ -322,21 +322,28 @@ impl Accumulator<'_> {
     }
 }
 
+/// A builder keeps only the operations that it saw, so a builder for one step is small.
 pub struct Builder<'a> {
     templates: &'a Templates,
-    entries: Vec<Option<Accumulator<'a>>>,
+    positions: Vec<u32>,
+    entries: Vec<(u32, Accumulator<'a>)>,
 }
 
 impl<'a> Builder<'a> {
     pub fn new(templates: &'a Templates) -> Builder<'a> {
-        Builder { templates, entries: (0..templates.keys).map(|_| None).collect() }
+        Builder { templates, positions: vec![u32::MAX; templates.keys], entries: Vec::new() }
     }
 
     pub fn add(&mut self, event: &Ev, stats: &EventStats, (time_ps, self_time_ps): (u64, u64), tensor_core: bool) {
         let (meta, min_time_ps) = (event.meta as usize, stats.min_time_ps.unwrap_or(event.dur));
-        let (Some(slot), Some((_, template))) = (self.entries.get_mut(self.templates.slots[meta] as usize), &self.templates.metas[meta]) else { return };
-        let (custom, fresh) = (template.category == CUSTOM_CALL, slot.is_none());
-        let entry = slot.get_or_insert(Accumulator { template, custom, totals: Totals { min_time_ps, ..Default::default() } });
+        let slot = self.templates.slots[meta];
+        let (Some(position), Some((_, template))) = (self.positions.get_mut(slot as usize), &self.templates.metas[meta]) else { return };
+        let (custom, fresh) = (template.category == CUSTOM_CALL, *position == u32::MAX);
+        if fresh {
+            *position = self.entries.len() as u32;
+            self.entries.push((slot, Accumulator { template, custom, totals: Totals { min_time_ps, ..Default::default() } }));
+        }
+        let entry = &mut self.entries[*position as usize].1;
         let totals = &mut entry.totals;
         totals.occurrences += stats.occurrences.max(1);
         totals.time_ps += time_ps;
@@ -356,9 +363,14 @@ impl<'a> Builder<'a> {
         }
     }
 
+    fn sorted(mut self) -> impl Iterator<Item = Accumulator<'a>> {
+        self.entries.sort_unstable_by_key(|&(slot, _)| slot);
+        self.entries.into_iter().map(|(_, entry)| entry)
+    }
+
     pub fn finish(self) -> Db {
         let mut db = Db::default();
-        for entry in self.entries.into_iter().flatten() {
+        for entry in self.sorted() {
             let template = entry.template;
             let metrics = Metrics {
                 module: template.module,
@@ -383,7 +395,7 @@ impl<'a> Builder<'a> {
 
     pub fn program(self) -> (u64, ([Metrics; 2], u64)) {
         let (mut total_op_time_ps, mut program) = (0, Default::default());
-        for entry in self.entries.iter().flatten() {
+        for entry in self.sorted() {
             total_op_time_ps += entry.totals.self_time_ps;
             add_scaled(&mut program, entry.template, (entry.totals.core_type, entry.totals.time_ps), entry.counts(), &entry.template.memory, entry.totals.occurrences);
         }
