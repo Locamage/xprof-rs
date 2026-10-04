@@ -128,7 +128,7 @@ fn equivalent(path: &str, body: &str, expected: &str) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn synthetic_gpu_profiles_answer_every_tool_like_xprof() {
-    let root = std::env::temp_dir().join(format!("xprof-rs-gpu-parity-{}", std::process::id()));
+    let root = crate::tests::temp_dir().join(format!("xprof-rs-gpu-parity-{}", std::process::id()));
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/gpu/xplane");
     for variant in std::fs::read_dir(&fixtures).unwrap().map(|entry| entry.unwrap().path()) {
         let session = root.join(variant.file_name().unwrap()).join("plugins/profile/s");

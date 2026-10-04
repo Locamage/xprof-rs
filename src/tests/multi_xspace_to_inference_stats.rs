@@ -24,7 +24,7 @@ fn batch_with_programs(programs: &[(&str, u64, i64, i64)]) -> InferenceStats {
 fn test_with_multiple_xspaces() {
     let paths: Vec<_> = (1..=2)
         .map(|host| {
-            let path = std::env::temp_dir().join(format!("xprof-rs-inference-{}-hostname{host}.xplane.pb", std::process::id()));
+            let path = crate::tests::temp_dir().join(format!("xprof-rs-inference-{}-hostname{host}.xplane.pb", std::process::id()));
             std::fs::write(&path, XSpace::default().encode_to_vec()).unwrap();
             path
         })

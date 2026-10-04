@@ -21,7 +21,7 @@ const RUN_TO_HOSTS: [(&str, &[Option<&str>]); 6] =
 const XPLANE_TOOLS: [&str; 5] = ["trace_viewer", "trace_viewer@", "overview_page", "op_profile", "input_pipeline_analyzer"];
 
 fn temp_logdir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("xprof-rs-plugin-{}-{name}", std::process::id()));
+    let dir = crate::tests::temp_dir().join(format!("xprof-rs-plugin-{}-{name}", std::process::id()));
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir.canonicalize().unwrap()

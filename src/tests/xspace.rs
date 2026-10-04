@@ -170,7 +170,7 @@ pub fn op_stats(spaces: &[XSpace]) -> Option<Arc<OpStats>> {
     let all: Vec<Option<Arc<OpStats>>> = spaces
         .iter()
         .map(|space| {
-            let path = std::env::temp_dir().join(format!("xprof-rs-op-stats-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
+            let path = crate::tests::temp_dir().join(format!("xprof-rs-op-stats-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
             std::fs::write(&path, space.encode_to_vec()).unwrap();
             let stats = crate::opstats::load(&path);
             std::fs::remove_file(&path).unwrap();

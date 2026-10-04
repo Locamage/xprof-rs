@@ -106,7 +106,7 @@ pub fn run(argv: &[&str]) -> (i32, String, String) {
 }
 
 pub fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("xprof-rs-cli-{}-{name}", std::process::id()));
+    let dir = crate::tests::temp_dir().join(format!("xprof-rs-cli-{}-{name}", std::process::id()));
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir

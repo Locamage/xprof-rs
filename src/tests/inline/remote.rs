@@ -109,7 +109,7 @@ async fn a_file_url_logdir_serves_what_the_same_local_logdir_serves() {
         format!("{base}/data?run=s&run_path=run/plugins/profile&tag=hlo_stats&host=host-a"),
         format!("{base}/data?run=s&session_path=run/plugins/profile/s&tag=framework_op_stats&host=host-a"),
         format!("{base}/data?run=../x/s&tag=trace_viewer@&host=h"),
-        format!("{base}/data?run=s&session_path=../../etc&tag=trace_viewer@"),
+        format!("{base}/data?run=s&session_path=../../../../../../../../etc&tag=trace_viewer@"),
     ] {
         let (expected, served) = (fetch(&local, &uri).await, fetch(&remote, &uri).await);
         assert_eq!((served.0, &served.2), (expected.0, &expected.2), "{uri}");

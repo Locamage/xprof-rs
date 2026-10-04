@@ -69,7 +69,7 @@ fn python_sort_puts_unknown_tools_last_alphabetically() {
 
 #[test]
 fn cache_round_trips_and_invalidates_on_file_changes() {
-    let dir = std::env::temp_dir().join(format!("xprof-rs-run-tools-{}", std::process::id()));
+    let dir = crate::tests::temp_dir().join(format!("xprof-rs-run-tools-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("host.xplane.pb"), plane("/host:CPU", &[])).unwrap();
     assert_eq!(json(&dir), r#"["overview_page", "trace_viewer@", "op_profile", "input_pipeline_analyzer", "memory_profile", "roofline_model", "framework_op_stats", "hlo_stats"]"#);
@@ -94,7 +94,7 @@ const TOOLS_1: [&str; 1] = ["tool1"];
 const TOOLS_2: [&str; 2] = ["tool1", "tool2"];
 
 fn tools_cache_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("xprof-rs-tools-cache-{}-{name}", std::process::id()));
+    let dir = crate::tests::temp_dir().join(format!("xprof-rs-tools-cache-{}-{name}", std::process::id()));
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
