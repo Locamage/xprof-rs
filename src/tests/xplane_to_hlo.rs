@@ -57,7 +57,7 @@ fn get_hlo_proto_by_node_name_ignores_other_files() {
 
 #[test]
 fn get_hlo_proto_by_node_name_invalid_dir() {
-    let invalid_profile_dir = std::env::temp_dir().join("xprof-rs-non_existent_dir");
+    let invalid_profile_dir = crate::tests::temp_dir().join("xprof-rs-non_existent_dir");
     assert!(by_node_name(&invalid_profile_dir, "my_target_node").unwrap_err().contains("not found"));
 }
 

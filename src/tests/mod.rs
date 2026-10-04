@@ -127,3 +127,26 @@ mod xprof_gpu_cost_analysis;
 mod xspace;
 mod xspace_to_event_time_fraction_analyzer;
 mod zstd_compression;
+
+/// Gives the directory of this test run. A run removes the directories of the runs that stopped, so the test files do not collect.
+pub fn temp_dir() -> std::path::PathBuf {
+    static ROOT: std::sync::LazyLock<std::path::PathBuf> = std::sync::LazyLock::new(|| {
+        fn remove(path: &std::path::Path) {
+            _ = std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o700));
+            std::fs::read_dir(path).into_iter().flatten().map_while(Result::ok).filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).for_each(|entry| remove(&entry.path()));
+            _ = std::fs::remove_dir_all(path);
+        }
+        let base = std::env::temp_dir();
+        for entry in std::fs::read_dir(&base).into_iter().flatten().map_while(Result::ok) {
+            if let Some(pid) = entry.file_name().to_str().and_then(|name| name.strip_prefix("xprof-rs-tests-"))
+                && !std::path::Path::new("/proc").join(pid).exists()
+            {
+                remove(&entry.path());
+            }
+        }
+        let root = base.join(format!("xprof-rs-tests-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    });
+    ROOT.clone()
+}

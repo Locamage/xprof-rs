@@ -52,7 +52,11 @@ impl Remote {
 
     pub fn new(url: &str, store: Arc<dyn ObjectStore>, root: Key) -> Result<Remote, String> {
         let digest: String = Sha256::digest(url.as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect();
-        let mirror = std::env::var_os(CACHE_DIR).map_or_else(std::env::temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}"));
+        #[cfg(not(test))]
+        let temp_dir = std::env::temp_dir;
+        #[cfg(test)]
+        let temp_dir = crate::tests::temp_dir;
+        let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}"));
         let mirror = std::fs::create_dir_all(&mirror).and_then(|_| mirror.canonicalize()).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
         let budget = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
         Ok(Remote { url: url.to_string(), mirror, budget, used: Mutex::default(), store, root, checked: Mutex::default(), locks: Mutex::default() })

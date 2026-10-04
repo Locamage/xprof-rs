@@ -24,7 +24,7 @@ pub fn module(proto: &HloProto) -> Module<'static> {
 }
 
 pub fn session_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("xprof-rs-{name}-{}-{}", std::process::id(), DIRS.fetch_add(1, Ordering::Relaxed)));
+    let dir = crate::tests::temp_dir().join(format!("xprof-rs-{name}-{}-{}", std::process::id(), DIRS.fetch_add(1, Ordering::Relaxed)));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

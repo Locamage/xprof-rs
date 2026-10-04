@@ -22,7 +22,7 @@ fn create_session_snapshot(test_name: &str, has_dcn_collective_stats: bool) -> S
     if has_dcn_collective_stats {
         xplane.event_metadata("MegaScale:");
     }
-    let dir = std::env::temp_dir().join(format!("xprof-rs-dcn-{}-{test_name}", std::process::id()));
+    let dir = crate::tests::temp_dir().join(format!("xprof-rs-dcn-{}-{test_name}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("hostname.xplane.pb");
     std::fs::write(&path, xspace.encode_to_vec()).unwrap();

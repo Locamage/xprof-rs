@@ -41,7 +41,7 @@ fn annotated_space() -> Vec<u8> {
 }
 
 fn host_of(space: &[u8]) -> Host {
-    let path = std::env::temp_dir().join(format!("xprof-rs-test-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
+    let path = crate::tests::temp_dir().join(format!("xprof-rs-test-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
     std::fs::write(&path, space).unwrap();
     let host = load_host(&path);
     std::fs::remove_file(&path).unwrap();
@@ -141,7 +141,7 @@ fn numbers_print_like_nlohmann_grisu2() {
 }
 
 fn op_stats_of(space: &[u8]) -> std::sync::Arc<OpStats> {
-    let path = std::env::temp_dir().join(format!("xprof-rs-test-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
+    let path = crate::tests::temp_dir().join(format!("xprof-rs-test-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
     std::fs::write(&path, space).unwrap();
     let stats = opstats::load(&path);
     std::fs::remove_file(&path).unwrap();
@@ -332,7 +332,7 @@ fn demo_trace_matches_xprof_outputs() {
     for (name, golden, produced) in tools {
         assert!(golden == produced, "{name} differs from XProf");
     }
-    let dir = std::env::temp_dir().join(format!("xprof-rs-golden-{}", std::process::id()));
+    let dir = crate::tests::temp_dir().join(format!("xprof-rs-golden-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("tpu-vm-demo-host-0.xplane.pb");
     std::fs::write(&path, demo).unwrap();
@@ -545,7 +545,7 @@ fn cpu_input_waits_come_from_iterator_ops_and_pipeline_stage_roots() {
 }
 
 pub fn logdir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("xprof-rs-server-{}-{name}", std::process::id()));
+    let dir = crate::tests::temp_dir().join(format!("xprof-rs-server-{}-{name}", std::process::id()));
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("run/plugins/profile/s")).unwrap();
     dir.canonicalize().unwrap()

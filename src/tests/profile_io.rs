@@ -4,7 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("xprof-rs-profile-io-{}-{name}", std::process::id()));
+    let dir = crate::tests::temp_dir().join(format!("xprof-rs-profile-io-{}-{name}", std::process::id()));
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir.canonicalize().unwrap()
