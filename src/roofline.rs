@@ -163,13 +163,13 @@ pub fn program(db: &Db) -> ([Metrics; 2], u64) {
 }
 
 pub fn add_to_program(program: &mut ([Metrics; 2], u64), kind: &Metrics, part: &Metrics) {
-    add_scaled(program, kind, part, (part.flops_v2, part.model_flops_v2, part.bytes_accessed), &part.memory, 1);
+    add_scaled(program, kind, (part.core_type, part.time_ps), (part.flops_v2, part.model_flops_v2, part.bytes_accessed), &part.memory, 1);
 }
 
 /// Adds `part`, an operation of `kind`, with the given flops, model flops and bytes, and with `memory` times `scale`.
-pub fn add_scaled((sums, infeed_outfeed): &mut ([Metrics; 2], u64), kind: &Metrics, part: &Metrics, (flops, model, bytes): (f64, f64, u64), memory: &[(u8, u64, u64)], scale: u64) {
+pub fn add_scaled((sums, infeed_outfeed): &mut ([Metrics; 2], u64), kind: &Metrics, (core_type, time_ps): (u8, u64), (flops, model, bytes): (f64, f64, u64), memory: &[(u8, u64, u64)], scale: u64) {
     let category = category(kind);
-    if matches!(category, "call" | "conditional" | "while" | "megacore fusion") || part.core_type == SPARSE_CORE {
+    if matches!(category, "call" | "conditional" | "while" | "megacore fusion") || core_type == SPARSE_CORE {
         return;
     }
     let infeed = is_infeed_or_outfeed(category);
@@ -186,7 +186,7 @@ pub fn add_scaled((sums, infeed_outfeed): &mut ([Metrics; 2], u64), kind: &Metri
         }
     }
     if infeed {
-        *infeed_outfeed += part.time_ps;
+        *infeed_outfeed += time_ps;
     }
 }
 
