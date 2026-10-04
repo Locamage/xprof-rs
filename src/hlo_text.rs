@@ -983,7 +983,8 @@ impl<'a> Printer<'a> {
         }
     }
 
-    pub fn instruction(&self, node: usize, out: &mut String) {
+    /// Writes the text of an instruction, and gives the instruction that it decoded.
+    pub fn instruction(&self, node: usize, out: &mut String) -> Inst {
         let module = self.module;
         let entry = &module.nodes[node];
         write!(out, "{} = {} {}(", self.name(&entry.name), entry.shape.text(true), self.opcode(node)).unwrap();
@@ -1004,24 +1005,25 @@ impl<'a> Printer<'a> {
             write!(out, ", metadata={{{}}}", metadata_text(&metadata, frame, &module.proto.payloads)).unwrap();
         }
         if self.style == Style::Expression {
-            return;
+            return inst;
         }
-        let Some(config) = module.backend_config(&inst) else {
-            self.fail("backend config payload id");
-            return;
-        };
-        if !config.is_empty() {
-            out.push_str(", backend_config=");
-            let text = crate::xplane::lossy(&config);
-            match lexes_as_json_dict(&text) {
-                true => out.push_str(&text),
-                false => {
-                    out.push('"');
-                    c_escape(out, &config);
-                    out.push('"');
+        match module.backend_config(&inst) {
+            None => self.fail("backend config payload id"),
+            Some(config) if !config.is_empty() => {
+                out.push_str(", backend_config=");
+                let text = crate::xplane::lossy(&config);
+                match lexes_as_json_dict(&text) {
+                    true => out.push_str(&text),
+                    false => {
+                        out.push('"');
+                        c_escape(out, &config);
+                        out.push('"');
+                    }
                 }
             }
+            Some(_) => {}
         }
+        inst
     }
 
     fn computation(&self, graph: usize, schedule: &HashMap<usize, Vec<usize>>, out: &mut String) {

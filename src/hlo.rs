@@ -681,9 +681,8 @@ fn fused_children(printer: &Printer, node: usize) -> Vec<Metrics> {
         .iter()
         .filter(|&&child| !matches!(module.nodes[child].opcode.as_str(), "parameter" | "tuple"))
         .map(|&child| {
-            let metadata = module.inst(child).metadata.unwrap_or_default();
             let mut long_name = String::new();
-            printer.instruction(child, &mut long_name);
+            let metadata = printer.instruction(child, &mut long_name).metadata.unwrap_or_default();
             if long_name.len() > MAX_EXPRESSION {
                 long_name.truncate(long_name.floor_char_boundary(MAX_EXPRESSION));
             }
