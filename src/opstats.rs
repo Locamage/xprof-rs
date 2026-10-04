@@ -566,7 +566,11 @@ pub fn load_kept(map: Vec<u8>, fused: bool) -> Option<(Arc<OpStats>, Kept)> {
     let mut planes = crate::parse_checked(&map, true)?;
     // The modules come from the metadata plane only, so they parse at the same time as the other planes change.
     let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
-    let (modules, ()) = rayon::join(|| crate::hlo::parse_modules(protos), || crate::finish(&mut planes, &map, false));
+    let modules = std::thread::scope(|scope| {
+        let modules = scope.spawn(|| crate::hlo::parse_modules(protos));
+        crate::finish(&mut planes, &map, false);
+        modules.join().unwrap()
+    });
     let stats = op_stats(&planes, &map, &modules);
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
     let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
