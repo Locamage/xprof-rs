@@ -11,9 +11,9 @@ XProf needs 10 to 25 seconds to convert a large `.xplane.pb` file for each cold 
 
 | Trace | Size | Events | Cold view | New window | Same window again |
 |---|---|---|---|---|---|
-| TPU v4-8 | 279 MB | 2.95 M | 0.75 s load | 10 ms | 3 ms |
+| TPU v4-8 | 279 MB | 2.95 M | 0.73 s load | 10 ms | 3 ms |
 
-The test machine has 4 cores. The load takes 2.9 s on one core. XProf takes 11 to 25 s for the same file. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
+We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores. The load takes 2.9 s on one core. XProf takes 11 to 25 s for the same file. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
 
 ## Install and start
 
@@ -62,18 +62,18 @@ The server has these tools. They are all written in Rust.
 - Hardware: `pod_viewer`, `megascale_stats`, `smart_suggestion`, `perf_counters`, `utilization_viewer`, `kernel_utilization`.
 - Session: `runs`, `run_tools`, `hosts`, `data_csv`, `version`, `config`, `POST /generate_cache`, `/capture_profile` (gRPC client), and the static files.
 
-The table shows the time on the 279 MB v4 trace. xprof-rs used 4 cores. [`examples/benchmark.py`](examples/benchmark.py) measures these columns.
+The table shows the time on the 279 MB v4 trace. [`examples/benchmark.py`](examples/benchmark.py) measures these columns.
 
 | Endpoint | XProf, cold | xprof-rs, first | xprof-rs, repeat |
 |---|---|---|---|
-| `trace_viewer@` | 12 s | 0.8 s | 2 ms |
-| `overview_page` | 18 s | 1.5 s (builds the shared statistics) | under 1 ms |
-| `op_profile` | 4.0 s | 0.14 s | 1 ms |
-| `hlo_stats` | 2.1 s | 0.3 s | 4 ms |
+| `trace_viewer@` | 12 s | 0.73 s | 2 ms |
+| `overview_page` | 18 s | 1.3 s (builds the shared statistics) | under 1 ms |
+| `op_profile` | 4.0 s | 0.13 s | 3 ms |
+| `hlo_stats` | 2.1 s | 0.09 s | 3 ms |
 | `framework_op_stats`, `input_pipeline_analyzer`, `roofline_model`, `memory_profile`, `kernel_stats`, `pod_viewer` | 0.35 to 2.7 s | 0 to 0.03 s | under 1 ms |
-| `memory_viewer`, `graph_viewer`, `module_list` | 2.3 s | 0.25 s | |
+| `memory_viewer`, `graph_viewer`, `module_list` | 2.3 s | 0.3 s | 3 ms |
 
-The peak memory of the server for all tools is 2.0 GB on 4 cores (XProf: 4.8 GB). A machine with more cores uses more memory, because more work runs at the same time.
+The peak memory of the server for the tools in the table is 1.5 GB (XProf: 4.8 GB). A machine with more cores uses more memory, because more work runs at the same time.
 
 ## Remote log directories
 
@@ -136,15 +136,15 @@ xprof-rs get_hlo_op_profile ~/logs --view=tree --path=by_program --depth=3
 xprof-rs list_xplane_events ~/logs/run1 --plane_regex='TPU:0$' --event_regex=all-reduce --max_events=20
 ```
 
-The table shows the time on the 279 MB v4 trace. xprof-rs used 4 cores.
+The table shows the time on the 279 MB v4 trace.
 
 | Command | XProf | xprof-rs |
 |---|---|---|
 | `get_overview` | 18 s | 1.0 s |
 | `get_hlo_op_profile` | 25 s | 1.4 s |
-| `aggregate_xplane_events` | 25 s | 0.7 s |
+| `aggregate_xplane_events` | 25 s | 0.65 s |
 
-More cores make a command faster, up to about 24 cores. `get_overview` takes 1.9 s on 2 cores, 0.61 s on 8 cores, 0.43 s on 16 cores, and 0.39 s on 32 cores. Its peak memory is 1.2 GB on 4 cores.
+More cores make a command faster, up to about 16 cores. `get_overview` takes 1.9 s on 2 cores, 0.62 s on 8 cores, 0.40 s on 16 cores, and 0.38 s on 32 cores. Its peak memory is 0.96 GB on 4 cores and 1.6 GB on 32 cores.
 
 The CLI is different from the Python CLI in these points:
 
@@ -160,7 +160,7 @@ xprof-rs replaces the backend. It does not replace the complete XProf distributi
 
 **Inputs**
 
-- xprof-rs does not read `.xplane.riegeli` sessions. The continuous-profiling mode of the gRPC capture client is the only source of these files. The `jax.profiler.start_trace` function writes `.xplane.pb`. MaxText, Levanter, and marin use this function.
+- xprof-rs does not read `.xplane.riegeli` sessions. The continuous capture mode of the gRPC client is the only source of these files. The `jax.profiler.start_trace` function writes `.xplane.pb`. MaxText, Levanter, and marin use this function.
 - xprof-rs rejects a profile of 4 GiB or more. A profile file is one protobuf message, and protobuf limits a message to 2 GiB. Thus XProf cannot read a profile of 2 GiB or more.
 
 **Server**
@@ -207,7 +207,7 @@ xprof-rs cannot copy these outputs.
 - `cargo test` compares each tool and the trace viewer with these outputs.
 - Other tests used TPU v4 and v6e traces and one 8-GPU trace. They also used synthetic sessions of 2, 4, and 8 hosts.
 - The synthetic GPU sessions use 1, 2, or 8 GPUs from NVIDIA or AMD. They cover TensorFlow, JAX, eager steps, NCCL, and CUDA graphs.
-- The synthetic inference sessions cover TensorFlow, batching, TFRT, Pathways, and Orbax. No real inference profile was available.
+- The synthetic inference sessions cover TensorFlow, request batches, TFRT, Pathways, and Orbax. No real inference profile was available.
 - These traces are not in the repository.
 - The real-world coverage is small. If a response is different from XProf 2.23.2, open an issue. Do not include private data.
 
