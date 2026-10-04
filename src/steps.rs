@@ -242,7 +242,7 @@ fn step_programs(plane: &Plane, map: &[u8], templates: &[Template]) -> HashMap<i
             nest(spans, |index, span, self_time| ops.entry(read[index].0.group).or_default().push((index, (span.duration, self_time))));
         }
     }
-    ops.into_iter()
+    ops.into_par_iter()
         .filter_map(|(group, events)| {
             let markers = markers.get(&group)?.clone();
             let mut builder = Builder::new(templates);

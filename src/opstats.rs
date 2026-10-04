@@ -407,51 +407,60 @@ pub fn combine_memory(source: &[(u8, u64, u64)], destination: &mut Vec<(u8, u64,
     }
 }
 
+fn absorb(destination: &mut Metrics, metrics: &Metrics, update_cores: bool) {
+    for (to, from) in [
+        (&mut destination.long_name, &metrics.long_name),
+        (&mut destination.category, &metrics.category),
+        (&mut destination.provenance, &metrics.provenance),
+        (&mut destination.deduplicated_name, &metrics.deduplicated_name),
+    ] {
+        if to.is_empty() {
+            to.clone_from(from);
+        }
+    }
+    if destination.children.metrics.is_empty() && destination.children.total_time_ps == 0 {
+        destination.children = metrics.children.clone();
+    }
+    if destination.source.is_none() {
+        destination.source.clone_from(&metrics.source);
+    }
+    if destination.core_type == 0 {
+        destination.core_type = metrics.core_type;
+    }
+    destination.min_time_ps = if destination.occurrences == 0 { metrics.min_time_ps } else { destination.min_time_ps.min(metrics.min_time_ps) };
+    destination.is_eager |= metrics.is_eager;
+    destination.autotuned |= metrics.autotuned;
+    if update_cores {
+        destination.num_cores += metrics.num_cores;
+    }
+    add!(destination, metrics, occurrences, time_ps, self_time_ps, normalized_time_ps, flops_v2, model_flops_v2, bytes_accessed, dma_stall_ps);
+    combine_memory(&metrics.memory, &mut destination.memory);
+    if metrics.vdd_energy.is_some() || destination.vdd_energy.is_some() {
+        destination.vdd_energy = Some(metrics.vdd_energy.unwrap_or(0.0) + destination.vdd_energy.unwrap_or(0.0));
+    }
+}
+
 impl Db {
     pub fn combined<'a>(parts: impl IntoIterator<Item = &'a Db>, update_cores: bool) -> Db {
-        let (mut db, mut index) = (Db::default(), FxHashMap::default());
-        for source in parts {
-            db.merge(&mut index, source, update_cores);
+        let (mut db, mut index, parts) = (Db::default(), FxHashMap::default(), parts.into_iter().collect::<Vec<_>>());
+        let Some((first, rest)) = parts.split_first() else { return db };
+        db.merge(&mut index, first, update_cores);
+        // Parts of one trace list the same operations in the same order, so they merge position by position in parallel.
+        let same = |part: &&&Db| part.metrics.len() == db.metrics.len() && part.metrics.par_iter().zip(&db.metrics).all(|(a, b)| a.module == b.module && a.name == b.name);
+        let (aligned, rest) = rest.split_at(rest.iter().take_while(same).count());
+        for part in aligned {
+            add!(db, part, total_time_ps, total_op_time_ps, normalized_total_op_time_ps);
         }
+        db.metrics.par_iter_mut().enumerate().for_each(|(position, destination)| aligned.iter().for_each(|part| absorb(destination, &part.metrics[position], update_cores)));
+        rest.iter().for_each(|part| db.merge(&mut index, part, update_cores));
         db
     }
 
     fn merge(&mut self, index: &mut FxHashMap<(u64, ArcStr), usize>, source: &Db, update_cores: bool) {
         add!(self, source, total_time_ps, total_op_time_ps, normalized_total_op_time_ps);
         for (position, metrics) in source.metrics.iter().enumerate() {
-            // Parts of one trace list the same operations in the same order, so most lookups need no hash.
             let aligned = self.metrics.get(position).is_some_and(|known| known.module == metrics.module && known.name == metrics.name);
-            let destination = if aligned { &mut self.metrics[position] } else { self.entry(index, metrics.module, &metrics.name) };
-            for (to, from) in [
-                (&mut destination.long_name, &metrics.long_name),
-                (&mut destination.category, &metrics.category),
-                (&mut destination.provenance, &metrics.provenance),
-                (&mut destination.deduplicated_name, &metrics.deduplicated_name),
-            ] {
-                if to.is_empty() {
-                    to.clone_from(from);
-                }
-            }
-            if destination.children.metrics.is_empty() && destination.children.total_time_ps == 0 {
-                destination.children = metrics.children.clone();
-            }
-            if destination.source.is_none() {
-                destination.source.clone_from(&metrics.source);
-            }
-            if destination.core_type == 0 {
-                destination.core_type = metrics.core_type;
-            }
-            destination.min_time_ps = if destination.occurrences == 0 { metrics.min_time_ps } else { destination.min_time_ps.min(metrics.min_time_ps) };
-            destination.is_eager |= metrics.is_eager;
-            destination.autotuned |= metrics.autotuned;
-            if update_cores {
-                destination.num_cores += metrics.num_cores;
-            }
-            add!(destination, metrics, occurrences, time_ps, self_time_ps, normalized_time_ps, flops_v2, model_flops_v2, bytes_accessed, dma_stall_ps);
-            combine_memory(&metrics.memory, &mut destination.memory);
-            if metrics.vdd_energy.is_some() || destination.vdd_energy.is_some() {
-                destination.vdd_energy = Some(metrics.vdd_energy.unwrap_or(0.0) + destination.vdd_energy.unwrap_or(0.0));
-            }
+            absorb(if aligned { &mut self.metrics[position] } else { self.entry(index, metrics.module, &metrics.name) }, metrics, update_cores);
         }
     }
 
