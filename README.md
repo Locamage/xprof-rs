@@ -1,19 +1,22 @@
 # xprof-rs
 
-xprof-rs is a fast backend for the [XProf](https://github.com/openxla/xprof) trace viewer. We wrote it in Rust. It replaces the XProf server. It gives the same responses as XProf 2.23.2. The tests compare them with the output of XProf.
+xprof-rs is a fast backend for the [XProf](https://github.com/openxla/xprof) profile viewer. It is one Rust binary. It replaces the XProf server and the XProf agent CLI, and it serves the same user interface. Its responses are the same as the responses of XProf 2.23.2. The tests compare them with the output of XProf.
 
-XProf needs 10 to 25 seconds to convert a large `.xplane.pb` file for each cold request. xprof-rs does these steps:
+| 279 MB TPU v4 profile, 2.95 M events | XProf | xprof-rs |
+|---|---|---|
+| Open the trace viewer | 12 s | 0.73 s |
+| Open the overview page | 18 s | 1.3 s |
+| Open the op profile after the overview | 4.0 s | 0.13 s |
+| `get_overview` in the CLI | 18 s | 1.0 s |
+
+We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores. More cores make xprof-rs faster. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
+
+XProf converts the `.xplane.pb` file again for each cold request. xprof-rs does these steps:
 
 1. It reads the file into memory.
 2. It converts the events in parallel.
 3. It keeps the result in a cache.
-4. It renders the time window that you zoom to.
-
-| Trace | Size | Events | Cold view | New window | Same window again |
-|---|---|---|---|---|---|
-| TPU v4-8 | 279 MB | 2.95 M | 0.73 s load | 10 ms | 3 ms |
-
-We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores. The load takes 2.9 s on one core. XProf takes 11 to 25 s for the same file. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
+4. It renders only the time window that you zoom to. A new window takes about 10 ms, and the same window again takes about 3 ms.
 
 ## Install and start
 
@@ -35,8 +38,6 @@ cargo install --locked --path .
 ```
 
 The release profile uses fat LTO and one codegen unit. A full build takes about 80 s on a machine with 240 cores. It uses about 10 CPU minutes. For a quick build, set `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`.
-
-A tag that starts with `v` makes a draft release with `x86_64-linux` and `aarch64-linux` archives and SHA-256 files. The workflow is `.github/workflows/release.yml`. The steps are in `RELEASING.md`.
 
 ## Server
 
@@ -232,6 +233,8 @@ cargo fmt --check
 cargo clippy --release --all-targets -- -D warnings
 cargo test --release
 ```
+
+A tag that starts with `v` makes a draft release with `x86_64-linux` and `aarch64-linux` archives and SHA-256 files. The steps are in `RELEASING.md`.
 
 The code is in `src/`:
 
