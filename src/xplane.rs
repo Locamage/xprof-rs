@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 static NAMES: LazyLock<HashMap<&str, (bool, [u8; CONNECTIONS.len()])>> = LazyLock::new(|| {
     let mut names: HashMap<&str, (bool, [u8; CONNECTIONS.len()])> = HashMap::new();
@@ -328,7 +329,8 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
     if !entries.complete() {
         return None;
     }
-    line.events = bodies
+    let complete = AtomicBool::new(true);
+    bodies
         .par_iter()
         .with_min_len(4096)
         .map(|&(start, body)| {
@@ -342,10 +344,13 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
                     _ => {}
                 }
             }
-            parts.complete().then_some(event)
+            if !parts.complete() {
+                complete.store(false, Ordering::Relaxed);
+            }
+            event
         })
-        .collect::<Option<Vec<Ev>>>()?;
-    Some(line)
+        .collect_into_vec(&mut line.events);
+    complete.into_inner().then_some(line)
 }
 
 fn mix(mut x: u64) -> u64 {
