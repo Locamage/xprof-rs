@@ -335,7 +335,11 @@ impl<'a> Builder<'a> {
                     part
                 })
                 .collect();
-            out.push_str(&parts.join(","));
+            out.reserve(parts.iter().map(|part| part.len() + 1).sum());
+            for (position, part) in parts.iter().enumerate() {
+                out.push_str(if position > 0 { "," } else { "" });
+                out.push_str(part);
+            }
         } else {
             for (position, &child) in node.children.iter().enumerate() {
                 out.push_str(if position > 0 { "," } else { "" });
@@ -390,14 +394,15 @@ fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> String {
     }
     let mut builder = Builder {
         grouping,
-        nodes: vec![Node { name: Cow::Borrowed(GROUPINGS[grouping].0), ..Default::default() }],
+        nodes: Vec::with_capacity(3 * db.metrics.len()),
         programs: FxHashMap::default(),
-        children: FxHashMap::default(),
+        children: FxHashMap::with_capacity_and_hasher(2 * db.metrics.len(), Default::default()),
         names: &stats.programs,
         peak_gigaflops: stats.perf.peak_tera_flops * 1e3,
         peak_bandwidths: stats.perf.bandwidths.iter().map(|&bandwidth| giga_to_gibi(bandwidth)).collect(),
         total_time_ps: if exclude_idle { db.total_op_time_ps } else { db.total_time_ps },
     };
+    builder.nodes.push(Node { name: Cow::Borrowed(GROUPINGS[grouping].0), ..Default::default() });
     for metrics in db.metrics.iter().filter(|metrics| !metrics.name.starts_with("region") && !(exclude_idle && metrics.category == IDLE)) {
         builder.add(metrics);
     }
@@ -428,12 +433,18 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
     };
     let key = GROUPINGS[grouping].1;
     let (all, busy) = rayon::join(|| tree(stats, grouping, false), || if with_busy { tree(stats, grouping, true) } else { String::new() });
-    let busy = if with_busy { format!(",\"{key}ExcludeIdle\":{busy}") } else { busy };
     let mut out = String::with_capacity(all.len() + busy.len() + 256);
     if grouping == PROVENANCE {
-        write!(out, "{{\"deviceType\":\"{device}\",\"{key}\":{all}{busy}").unwrap();
+        write!(out, "{{\"deviceType\":\"{device}\",\"{key}\":").unwrap();
+        out.push_str(&all);
     } else {
-        write!(out, "{{\"{key}\":{all},\"deviceType\":\"{device}\"{busy}").unwrap();
+        write!(out, "{{\"{key}\":").unwrap();
+        out.push_str(&all);
+        write!(out, ",\"deviceType\":\"{device}\"").unwrap();
+    }
+    if with_busy {
+        write!(out, ",\"{key}ExcludeIdle\":").unwrap();
+        out.push_str(&busy);
     }
     out.push_str(",\"aggDvfsTimeScaleMultiplier\":");
     proto_double(&mut out, safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64));
