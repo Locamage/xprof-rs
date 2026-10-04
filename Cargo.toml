@@ -68,6 +68,7 @@ debug = "line-tables-only"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+assert_is_empty = "allow"
 cast_lossless = "allow"
 cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
