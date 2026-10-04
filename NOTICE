@@ -8,4 +8,5 @@ The TensorFlow Authors hold the copyright of both projects. Both projects use th
 
 The web interface that xprof-rs serves is the interface of XProf. The files in static/ are the files of the XProf 2.23.2
 Python package, with no changes (Apache License 2.0, copyright The TensorFlow Authors). The binary includes these files.
-This project replaces only the backend.
+This project replaces only the backend. static/materialicons.woff2.gz is the Material Icons font of Google (Apache License
+2.0). The JavaScript bundles include third-party libraries with their licenses, as in the XProf package.
