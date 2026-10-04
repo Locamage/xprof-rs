@@ -27,6 +27,7 @@ const LAUNCH: u8 = 4;
 const EXECUTE: u8 = 5;
 const EXECUTOR: u8 = 6;
 const TF_DATA: u8 = 7;
+const LOOP: u8 = 8;
 const TF_DATA_RUNS: [&str; 4] =
     ["InstantiatedCapturedFunction::Run", "InstantiatedCapturedFunction::RunAsync", "InstantiatedCapturedFunction::RunInstantiated", "InstantiatedCapturedFunction::RunWithBorrowedArgs"];
 const IMPLICIT_ROOT_EVENTS: [&str; 4] = ["FunctionRun", "SessionRun", "RunGraph", "ExecutorState::Process"];
@@ -66,6 +67,7 @@ impl Typing {
                 "KernelLaunch" => LAUNCH,
                 "KernelExecute" => EXECUTE,
                 "ExecutorState::Process" => EXECUTOR,
+                name if LOOPS.contains(&name) => LOOP,
                 name if TF_DATA_RUNS.contains(&name) => TF_DATA,
                 name if HOST_EVENT_SET.contains(name) => OTHER,
                 name => match tf_op(name).category {
@@ -518,10 +520,10 @@ fn align_device_lines(plane: &mut Plane, map: &[u8], names: &HashMap<i64, String
 }
 
 pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
-    if planes.par_iter().any(|plane| plane.meta.par_iter().any(|meta| LOOPS.contains(&&*meta.full_name(map)))) {
+    let typings: Vec<Typing> = planes.par_iter().map(|plane| Typing::new(plane, map)).collect();
+    if typings.iter().any(|typing| typing.kinds.contains(&LOOP)) {
         return None;
     }
-    let typings: Vec<Typing> = planes.par_iter().map(|plane| Typing::new(plane, map)).collect();
     let eager_exists = planes.iter().zip(&typings).any(|(plane, typing)| !plane.name.starts_with(TPU) && typing.kinds.contains(&EAGER));
     let full = eager_exists
         || planes.iter().any(Plane::has_roots)
