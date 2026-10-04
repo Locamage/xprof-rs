@@ -81,6 +81,55 @@ pub fn general(value: f64, precision: usize) -> String {
     crate::xplane::lossy(&buffer[..length as usize]).into_owned()
 }
 
+/// Writes `%.15g` when it gives back `value`, and `%.17g` if not. For a normal `value`, a shortest form of 15 or fewer digits is equal to `%.15g`.
+pub fn round_trip(out: &mut String, value: f64) {
+    use std::io::Write as _;
+    if !value.is_normal() {
+        let short = general(value, 15);
+        return out.push_str(&if short.parse::<f64>().ok() == Some(value) { short } else { general(value, 17) });
+    }
+    let mut text = [0u8; 32];
+    let free = {
+        let mut cursor = &mut text[..];
+        write!(cursor, "{:e}", value.abs()).unwrap();
+        cursor.len()
+    };
+    let text = &text[..32 - free];
+    let split = text.iter().position(|&byte| byte == b'e').unwrap();
+    let digits: Vec<u8> = text[..split].iter().copied().filter(|&byte| byte != b'.').collect();
+    if digits.len() > 15 {
+        return out.push_str(&general(value, 17));
+    }
+    let exponent: i32 = std::str::from_utf8(&text[split + 1..]).unwrap().parse().unwrap();
+    let digit = |index: usize| char::from(digits.get(index).copied().unwrap_or(b'0'));
+    if value.is_sign_negative() {
+        out.push('-');
+    }
+    if !(-4..15).contains(&exponent) {
+        out.push(digit(0));
+        if digits.len() > 1 {
+            out.push('.');
+            out.extend((1..digits.len()).map(digit));
+        }
+        out.push_str(if exponent < 0 { "e-" } else { "e+" });
+        if exponent.abs() < 10 {
+            out.push('0');
+        }
+        out.push_str(itoa::Buffer::new().format(exponent.abs()));
+    } else if exponent >= 0 {
+        let whole = exponent as usize + 1;
+        out.extend((0..whole).map(digit));
+        if digits.len() > whole {
+            out.push('.');
+            out.extend((whole..digits.len()).map(digit));
+        }
+    } else {
+        out.push_str("0.");
+        out.extend(std::iter::repeat_n('0', (-exponent - 1) as usize));
+        out.extend((0..digits.len()).map(digit));
+    }
+}
+
 pub fn sanitize(name: &str) -> String {
     if name.is_empty() {
         return String::new();
@@ -654,8 +703,8 @@ fn fused_children(printer: &Printer, node: usize) -> Vec<Metrics> {
         .collect()
 }
 
-pub fn parse_modules<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, Module<'a>)> {
-    protos(planes, map).into_par_iter().map(|(id, proto)| (id, Module::parse(Cow::Borrowed(proto)))).collect()
+pub fn parse_modules(protos: Vec<(u64, &[u8])>) -> Vec<(u64, Module<'_>)> {
+    protos.into_par_iter().map(|(id, proto)| (id, Module::parse(Cow::Borrowed(proto)))).collect()
 }
 
 pub fn attach_fused(modules: &[(u64, Module)], db: &mut Db) {

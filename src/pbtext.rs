@@ -78,9 +78,17 @@ pub fn c_escape(out: &mut String, bytes: &[u8]) {
 
 pub fn json_string(out: &mut String, text: &str) {
     out.push('"');
+    let special = |byte: u8| !(0x20..0x7f).contains(&byte) | (byte == b'"') | (byte == b'\\') | (byte == b'<') | (byte == b'>');
     let mut rest = text;
     loop {
-        let plain = rest.bytes().position(|byte| !(0x20..0x7f).contains(&byte) || matches!(byte, b'"' | b'\\' | b'<' | b'>')).unwrap_or(rest.len());
+        let mut plain = 0;
+        while let Some(chunk) = rest.as_bytes().get(plain..plain + 16) {
+            if chunk.iter().fold(false, |found, &byte| found | special(byte)) {
+                break;
+            }
+            plain += 16;
+        }
+        plain += rest.as_bytes()[plain..].iter().position(|&byte| special(byte)).unwrap_or(rest.len() - plain);
         out.push_str(&rest[..plain]);
         rest = &rest[plain..];
         let Some(character) = rest.chars().next() else { break };

@@ -13,6 +13,7 @@ fn trace_of(names: &[&str], flow_ids: &[u64]) -> Trace {
         min_ps: 0,
         max_ps: 0,
         levels: Vec::new(),
+        ties: Vec::new(),
         tpu_devices: HashSet::new(),
         dma_devices: HashSet::new(),
         long_names: HashMap::new(),
