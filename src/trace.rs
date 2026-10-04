@@ -500,7 +500,12 @@ fn assign_levels(events: &[Event], by_track: &[Vec<u32>], flow_count: usize) -> 
                 if event.flow == NONE_FLOW { usize::MAX } else { (0..SPLIT).find(|&level| flow_visible[level][event.flow as usize] == Some(true) || event.dur >= LAYER_PS[level]).unwrap_or(SPLIT) }
             })
             .collect();
+        // The passes after all events have a level change nothing.
+        let mut remaining = assigned.iter().filter(|&&level| level == usize::MAX).count();
         for (level, &resolution) in LAYER_PS[..SPLIT].iter().enumerate() {
+            if remaining == 0 {
+                break;
+            }
             let mut row = Row::default();
             for (position, &(ts, dur, kind)) in compact.iter().enumerate() {
                 if assigned[position] < level || (kind & 2 != 0 && assigned[position] == level) {
@@ -508,7 +513,7 @@ fn assign_levels(events: &[Event], by_track: &[Vec<u32>], flow_count: usize) -> 
                 } else if kind & 2 == 0 && assigned[position] == usize::MAX {
                     let (visible, depth) = if kind & 1 != 0 { (row.counter(ts, resolution), 0) } else { row.probe(ts, dur, resolution) };
                     if visible {
-                        assigned[position] = level;
+                        (assigned[position], remaining) = (level, remaining - 1);
                         if kind & 1 == 0 {
                             row.push(depth, ts + dur);
                         }
