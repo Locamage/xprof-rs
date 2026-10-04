@@ -631,7 +631,7 @@ async fn trace_requests_default_to_resolution_8000_and_failures_answer_with_secu
     for tool in ["trace_viewer@", "overview_page"] {
         let (status, headers, message) = fetch(&state, &format!("{base}&tag={tool}&host=bad")).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{tool} {message}");
-        assert!(message.contains("event metadata id out of range"), "{message}");
+        assert!(message.contains("An event metadata ID is out of range"), "{message}");
         assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
         let (status, _, message) = fetch(&state, &format!("{base}&tag={tool}&host=corrupt")).await;
         assert_eq!((status, message.as_str()), (StatusCode::NOT_FOUND, "No Data"));

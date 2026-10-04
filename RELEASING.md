@@ -1,6 +1,6 @@
 # Release steps
 
-xprof-rs is released as GitHub releases with prebuilt binaries. It is not published to crates.io (`publish = false`).
+Each release of xprof-rs is a GitHub release with prebuilt binaries. We do not publish xprof-rs to crates.io (`publish = false`).
 
 1. Check that the working tree is clean and CI is green on `main`.
 2. Change `version` in `Cargo.toml`. Run `cargo check --locked` to update `Cargo.lock`.

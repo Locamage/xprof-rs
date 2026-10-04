@@ -1,10 +1,10 @@
 # Examples
 
-## CLIP training with overlapped communication
+## Train a CLIP model with overlapped communication
 
 `clip_overlap.py` trains a CLIP model from [jimm](https://github.com/pythoncrazy/jimm) on a TPU slice. The model uses fully sharded data parallelism (FSDP). Each step does these transfers:
 
-- **Device to device:** an all-gather of the weights for each layer, a gradient reduction, and an all-gather of the image and text features for the contrastive loss.
+- **Device to device:** an all-gather of the weights for each layer and a gradient reduction. Also an all-gather of the image and text features for the contrastive loss.
 - **Host to device:** a copy of the image batch (`uint8`) and the tokens for each step.
 
 The script then writes a profile. `overlap_report.py` reads that profile with the `xprof-rs` command line and shows how much communication the compute hides.
@@ -24,7 +24,7 @@ I made these changes one at a time. After each change, I read the profile with `
 | Step | Change | Step time | Device busy | Communication hidden |
 | --- | --- | --- | --- | --- |
 | 0 | Baseline: jimm with an automatic mesh, input made in the loop | 140 ms | 23% | 0% |
-| 1 | Explicit mesh axis `fsdp` and a loss that gathers the features. XLA stops doing tensor-parallel all-reduces on activations. The batches are random and copied in a thread (`--prefetch`). | 43 ms | 77% | 0% |
+| 1 | Explicit mesh axis `fsdp` and a loss that gathers the features. XLA does not do tensor-parallel all-reduces on activations after this change. The batches are random. A thread copies them (`--prefetch`). | 43 ms | 77% | 0% |
 | 2 | libtpu flags (`--overlap`) start the all-gathers early | 39 ms | 71% | 53% |
 | 3 | `jax.jit` on the split state. `nnx.jit` used 8 ms of host time for each step. | 28 ms | 99.5% | 54% |
 | 4 | Move the state to its final sharding before the first step. The step compiled two times before. | 28 ms | 99.5% | 54% |
@@ -41,5 +41,5 @@ How to find each problem with `xprof-rs`:
 ### Limits
 
 - On TPU v4, libtpu supports asynchronous collective fusion for all-gathers only. libtpu rejects the flags for all-reduce and reduce-scatter on this chip ("not supported on platforms other than Viperlite"). The gradient reductions stay exposed. This is why the hidden part stops near 50%.
-- The all-gather of the weights is hidden best when each layer has enough compute. The larger CLIP L/14 model hides 47% of 24 ms of all-gather per step. B/16 hides 54% of 11 ms.
+- The compute hides the all-gather of the weights best when each layer has enough compute. The larger CLIP L/14 model hides 47% of 24 ms of all-gather per step. B/16 hides 54% of 11 ms.
 - The images are random. The loader copies four prepared batches again and again. A real loader must decode images on other threads. Keep the copy in a thread, as `Batches` does.

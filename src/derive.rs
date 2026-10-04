@@ -279,7 +279,7 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
     }
     order.par_sort_unstable_by_key(|&(position, _, _)| position);
     let mut derived = Derived::new(&TPU_LINES, 0, "", false);
-    // Parsing the same texts again gives the same metadata, so each pair of texts is parsed once.
+    // The same texts always give the same metadata. Thus the code parses each pair of texts one time.
     let mut cache: FxHashMap<(&str, &str), Parsed> = FxHashMap::default();
     for ((start, Reverse(dur), line_index, index), group, own) in &order {
         let (tf_op, source, is_async) = &tags[plane.lines[*line_index].events[*index].meta as usize];

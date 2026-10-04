@@ -103,7 +103,7 @@ pub(crate) fn python_string(text: &str) -> String {
     out
 }
 
-/// Writes the text as a Python JSON string. Runs of plain characters are copied as they are.
+/// Writes the text as a Python JSON string. It copies runs of plain characters without changes.
 pub(crate) fn python_string_into(out: &mut String, text: &str) {
     out.push('"');
     let (bytes, mut run, mut index) = (text.as_bytes(), 0, 0);

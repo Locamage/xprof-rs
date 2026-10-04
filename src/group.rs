@@ -184,7 +184,7 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
             _ => (event, job.base + index as u32),
         });
     }
-    // Chunks decode their events in parallel. Only the nesting of the events needs them in order, and it needs one flag per event.
+    // Chunks decode their events in parallel. Only the nested structure of the events must have them in order. It uses one flag for each event.
     let parts: Vec<(Out, Vec<bool>)> = nodes
         .par_chunks(1024)
         .map(|chunk| {
