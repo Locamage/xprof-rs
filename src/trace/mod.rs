@@ -24,6 +24,24 @@ pub const MAX_SERIAL: u32 = 256;
 const BAD_TIMESTAMP: u64 = u64::MAX / 2;
 const LEVEL_CHUNK: usize = 1 << 16;
 
+/// Strings with dense ids in the order of their first use.
+#[derive(Default)]
+pub struct Interner(indexmap::IndexSet<String, rustc_hash::FxBuildHasher>);
+
+impl Interner {
+    pub fn intern(&mut self, text: &str) -> u32 {
+        self.0.get_index_of(text).unwrap_or_else(|| self.0.insert_full(text.to_string()).0) as u32
+    }
+
+    pub fn get(&self, id: u32) -> &str {
+        &self.0[id as usize]
+    }
+
+    pub fn into_strings(self) -> Vec<String> {
+        self.0.into_iter().collect()
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct Event {
     pub ts: u64,
