@@ -159,7 +159,7 @@ impl<T: Clone + Send + Sync + 'static> Memo<T> {
         Arc::new(Self { cache, flights: Flights::new() })
     }
 
-    async fn get(self: &Arc<Self>, path: PathBuf, permits: &Arc<Semaphore>, build: fn(&Path) -> T) -> Outcome<T> {
+    async fn get(self: &Arc<Self>, path: PathBuf, permits: &Arc<Semaphore>, build: fn(&Path) -> anyhow::Result<T>) -> Outcome<T> {
         let stamp = Stamp::of(&path).ok_or_else(|| Arc::from(format!("Cannot read {}", path.display())))?;
         if let Some((cached, outcome)) = self.cache.get(&path).await
             && cached == stamp
@@ -170,7 +170,8 @@ impl<T: Clone + Send + Sync + 'static> Memo<T> {
         let flight = self.flights.join((path.clone(), stamp), move || async move {
             let _permit = permits.acquire_owned().await;
             let file = path.clone();
-            let outcome = AssertUnwindSafe(blocking(move || build(&file))).catch_unwind().await.map_err(|payload| panic_message(&*payload));
+            let outcome =
+                AssertUnwindSafe(blocking(move || build(&file))).catch_unwind().await.map_err(|payload| panic_message(&*payload)).and_then(|outcome| outcome.map_err(|error| error.to_string().into()));
             if Stamp::of(&path) == Some(stamp) && stamp.older_than(FRESH) {
                 memo.cache.insert(path, (stamp, outcome.clone())).await;
             }
@@ -259,20 +260,23 @@ fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn prepare(path: &Path, trace: bool) -> (Vec<u8>, Vec<Plane>) {
-    prepare_map(read_file(path).unwrap(), trace, false).unwrap()
+fn prepare(path: &Path, trace: bool) -> anyhow::Result<(Vec<u8>, Vec<Plane>)> {
+    let map = read_file(path)?;
+    let mut planes = xplane::parse(&map)?;
+    finish(&mut planes, &map, trace);
+    Ok((map, planes))
 }
 
-/// With `check`, a file that is not valid gives `None`. The check runs at the same time as the parse. The parse does not panic on input that is not valid.
-fn prepare_map(map: Vec<u8>, trace: bool, check: bool) -> Option<(Vec<u8>, Vec<Plane>)> {
-    let mut planes = parse_checked(&map, check)?;
+fn prepare_map(map: Vec<u8>, trace: bool) -> Option<(Vec<u8>, Vec<Plane>)> {
+    let mut planes = parse_checked(&map).ok()??;
     finish(&mut planes, &map, trace);
     Some((map, planes))
 }
 
-fn parse_checked(map: &[u8], check: bool) -> Option<Vec<Plane>> {
-    let (valid, planes) = rayon::join(|| !check || tools::counters::valid_space(map), || xplane::parse(map));
-    valid.then(|| planes.unwrap())
+/// A file that is not a valid `XSpace` gives `None`. The check runs at the same time as the parse.
+fn parse_checked(map: &[u8]) -> anyhow::Result<Option<Vec<Plane>>> {
+    let (valid, planes) = rayon::join(|| tools::counters::valid_space(map), || xplane::parse(map));
+    if valid { planes.map(Some) } else { Ok(None) }
 }
 
 /// Adds the regions, the groups, and the derived lines. Do not call it on a thread of the pool: the pool stops when all of its threads wait for the threads of this function.
@@ -293,15 +297,19 @@ fn release(garbage: impl Send + 'static) {
     });
 }
 
-fn load_host(path: &Path) -> Host {
+fn load_host(path: &Path) -> anyhow::Result<Host> {
     let begin = Instant::now();
-    let (map, mut planes) = prepare(path, true);
+    let (map, mut planes) = prepare(path, true)?;
     let name = host_name(path);
     let start = Instant::now();
     let trace = Trace::build(&planes, &name, &map);
     release(planes.iter_mut().map(|plane| std::mem::take(&mut plane.lines)).collect::<Vec<_>>());
     eprintln!("Loaded {name}: {} events. The trace took {:?}. The load took {:?}.", trace.events.len(), start.elapsed(), begin.elapsed());
-    Host { bytes: (map.len() + trace.events.len() * std::mem::size_of::<trace::Event>()) as u64, map, planes, trace }
+    Ok(Host { bytes: (map.len() + trace.events.len() * std::mem::size_of::<trace::Event>()) as u64, map, planes, trace })
+}
+
+fn shared_host(path: &Path) -> anyhow::Result<Arc<Host>> {
+    load_host(path).map(Arc::new)
 }
 
 fn host_name(path: &Path) -> String {
@@ -396,7 +404,7 @@ fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool) -> Response {
     reply
 }
 
-/// Resolves the deepest part of the path that exists. The parts after it must be plain names, and the first of them must not be a dangling symlink.
+/// Resolves the deepest part of the path that exists. The parts after it must be plain names, and the first of them must not be a symlink to a path that does not exist.
 fn confine(state: &State_, path: &Path) -> Option<PathBuf> {
     let parts: Vec<Component> = path.components().collect();
     let (found, real) = (0..=parts.len()).rev().find_map(|found| {
@@ -783,29 +791,24 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
     if tag == "trace_viewer" {
         return match select(&dir, tag, &params).map(<[PathBuf; 1]>::try_from) {
             Ok(Ok([file])) if tools::counters::corrupt(std::slice::from_ref(&file)) => not_found(),
-            Ok(Ok([file])) if params.get("format").is_some_and(|format| format == "pb") && !params.contains_key("event_name") => {
-                match state.hosts.get(file, &state.loads, |path| Arc::new(load_host(path))).await {
-                    Ok(host) => {
-                        let body = blocking(move || {
-                            let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: true };
-                            trace::delta::render(&[View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&options) }], None)
-                        });
-                        response(StatusCode::OK, "application/octet-stream", body.await)
-                    }
-                    Err(message) => internal(&message),
+            Ok(Ok([file])) if params.get("format").is_some_and(|format| format == "pb") && !params.contains_key("event_name") => match state.hosts.get(file, &state.loads, shared_host).await {
+                Ok(host) => {
+                    let body = blocking(move || {
+                        let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: true };
+                        trace::delta::render(&[View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&options) }], None)
+                    });
+                    response(StatusCode::OK, "application/octet-stream", body.await)
                 }
-            }
-            Ok(Ok([file])) => response(
-                StatusCode::OK,
-                "application/json",
-                blocking(move || {
-                    let (map, planes) = prepare(&file, true);
-                    let json = trace::legacy::render(&planes, &map);
-                    release((map, planes));
-                    json
-                })
-                .await,
-            ),
+                Err(message) => internal(&message),
+            },
+            Ok(Ok([file])) => blocking(move || {
+                let (map, planes) = prepare(&file, true)?;
+                let json = trace::legacy::render(&planes, &map);
+                release((map, planes));
+                anyhow::Ok(json)
+            })
+            .await
+            .map_or_else(|error| internal(&error.to_string()), |json| response(StatusCode::OK, "application/json", json)),
             Ok(Err(_)) => not_found(),
             Err(error) => failure(error),
         };
@@ -814,7 +817,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
         return not_found();
     }
     let files = or_fail!(select(&dir, tag, &params));
-    let hosts = match try_join_all(files.iter().map(|file| state.hosts.get(file.clone(), &state.loads, |path| Arc::new(load_host(path))))).await {
+    let hosts = match try_join_all(files.iter().map(|file| state.hosts.get(file.clone(), &state.loads, shared_host))).await {
         Ok(hosts) => hosts,
         Err(message) => return if blocking(move || tools::counters::corrupt(&files)).await { not_found() } else { internal(&message) },
     };
@@ -910,7 +913,7 @@ async fn prefetch(state: Shared) {
                 quiet().await;
                 _ = state.stats.get(key.0.clone(), &permits, tools::opstats::load).await;
                 quiet().await;
-                _ = state.hosts.get(key.0, &permits, |path| Arc::new(load_host(path))).await;
+                _ = state.hosts.get(key.0, &permits, shared_host).await;
             }
         }
         tokio::time::sleep(POLL).await;

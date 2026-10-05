@@ -23,7 +23,7 @@ fn delta_series_protobuf_matches_xprofs_response() {
     let dir = super::legacy::logdir("delta");
     let file = dir.join("run/plugins/profile/s/tpu-vm-demo-host-0.xplane.pb");
     std::fs::write(&file, include_bytes!("../../tests/data/demo.xplane.pb")).unwrap();
-    let host = crate::load_host(&file);
+    let host = crate::load_host(&file).unwrap();
     let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 8000.0, full_dma: false };
     let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&options) };
     assert_eq!(decode(&render(&[view], Some(false))), decode(include_bytes!("../../tests/data/trace_viewer_delta.pb.zst")));
