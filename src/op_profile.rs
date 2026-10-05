@@ -121,7 +121,7 @@ pub fn partial_sort(items: &mut [usize], k: usize, less: impl Fn(usize, usize) -
     let adjust = |items: &mut [usize], mut hole: usize, length: usize, value: usize| {
         let top = hole;
         let mut second = hole;
-        while second < (length - 1) / 2 {
+        while second < length.saturating_sub(1) / 2 {
             second = 2 * (second + 1);
             if less(items[second], items[second - 1]) {
                 second -= 1;
@@ -129,7 +129,7 @@ pub fn partial_sort(items: &mut [usize], k: usize, less: impl Fn(usize, usize) -
             items[hole] = items[second];
             hole = second;
         }
-        if length & 1 == 0 && second == (length - 2) / 2 {
+        if length != 0 && length & 1 == 0 && second == (length - 2) / 2 {
             second = 2 * (second + 1);
             items[hole] = items[second - 1];
             hole = second - 1;
@@ -446,3 +446,7 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
     out.push('}');
     out
 }
+
+#[cfg(test)]
+#[path = "tests/inline/op_profile.rs"]
+mod tests;

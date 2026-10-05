@@ -253,3 +253,7 @@ pub fn repr(value: f64) -> String {
     decimal(&mut out, &mantissa.replace('.', ""), exponent.parse::<i32>().unwrap() + 1, MAX_EXPONENT + 1);
     out
 }
+
+#[cfg(test)]
+#[path = "tests/inline/table.rs"]
+mod tests;

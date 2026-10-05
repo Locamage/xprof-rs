@@ -106,7 +106,7 @@ fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &HashMap<i64, Op>, ids
         for event in &line.events {
             let stat = |id: Option<usize>| event_stat(slice(map, event.raw), id);
             let key = stat(ids[2]).or_else(|| stat(ids[4])).map_or(event.meta as i64, |value| value.int().unwrap_or(0));
-            let (begin, end) = (event.ts, event.ts + event.dur);
+            let (begin, end) = (event.ts, event.ts.wrapping_add(event.dur));
             if let Some(op) = ops.get(&key) {
                 let (next, eager) = (activities.len() as u32 / 2 + 1, stat(ids[0]).is_some_and(|value| value.int().unwrap_or(0) != 0));
                 activities.extend([(begin, next, None), (end, next, Some((op.clone(), eager)))]);
@@ -148,7 +148,7 @@ fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &HashMap<i64, Op>, ids
         }
         if kind.starts_with("InfeedEnqueue") {
             if let Some((previous_start, previous_duration)) = last_enqueue {
-                enqueue = (enqueue.0 + previous_duration, enqueue.1 + start - previous_start);
+                enqueue = (enqueue.0.wrapping_add(previous_duration), enqueue.1.wrapping_add(start.wrapping_sub(previous_start)));
             }
             last_enqueue = Some((start, duration));
         }
@@ -286,3 +286,7 @@ pub fn json(stats: &OpStats) -> String {
     let device = device_tf_db(&stats.db);
     format!("[{},{}]", table(stats, &stats.host, &device, false), table(stats, &stats.host, &device, true))
 }
+
+#[cfg(test)]
+#[path = "tests/inline/framework_op_stats.rs"]
+mod tests;

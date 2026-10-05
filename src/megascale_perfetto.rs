@@ -262,7 +262,7 @@ fn event(plane: &Plane, map: &[u8], prefixes: &mut Prefixes, ev: &crate::xplane:
 }
 
 fn arg_text<'a>(event: &Event, strings: &'a Strings, key: &str) -> Option<&'a str> {
-    event.args.iter().find(|arg| strings.get(arg.key) == key && matches!(arg.value, Value::Text(_))).map(|arg| if let Value::Text(id) = arg.value { strings.get(id) } else { "" })
+    event.args.iter().find_map(|arg| if let (true, Value::Text(id)) = (strings.get(arg.key) == key, arg.value) { Some(strings.get(id)) } else { None })
 }
 
 fn arg_int(event: &Event, strings: &Strings, key: &str) -> Option<i64> {
@@ -391,9 +391,9 @@ fn group_tiny_events(trace: &mut Trace) {
         while read < events.len() {
             let start = &events[read];
             let tiny = |event: &Event| event.dur < TINY_PS && transfer(strings.get(event.name)).is_none();
-            let (mut next, mut end) = (read + 1, start.ts + start.dur);
+            let (mut next, mut end) = (read + 1, start.ts.wrapping_add(start.dur));
             while tiny(start) && events.get(next).is_some_and(|current| tiny(current) && current.ts / 1000 == start.ts / 1000 && current.run_id == start.run_id) {
-                end = end.max(events[next].ts + events[next].dur);
+                end = end.max(events[next].ts.wrapping_add(events[next].dur));
                 next += 1;
             }
             if next - read >= 2 {
@@ -403,7 +403,7 @@ fn group_tiny_events(trace: &mut Trace) {
                 track.events.push(Event {
                     name: summary_name,
                     ts: start.ts,
-                    dur: end - start.ts,
+                    dur: end.wrapping_sub(start.ts),
                     run_id: start.run_id,
                     args: vec![Arg { key: description_key, value: Value::Text(description) }, Arg { key: hidden_key, value: Value::Text(hidden) }],
                     flows: Vec::new(),
@@ -422,7 +422,7 @@ fn mark_last_dma_events(trace: &mut Trace) {
     for track in megascale.values_mut().flatten() {
         let executions: Vec<usize> = (0..track.events.len()).filter(|&index| graph_name(strings.get(track.events[index].name)).is_some()).collect();
         for index in executions {
-            let end = track.events[index].ts + track.events[index].dur;
+            let end = track.events[index].ts.wrapping_add(track.events[index].dur);
             let (mut h2d, mut d2h) = (None, None);
             for later in index + 1..track.events.len() {
                 if track.events[later].ts >= end {
@@ -528,7 +528,7 @@ fn resolve_flows(trace: &mut Trace) {
                 if d2h {
                     flows.push(&mut d2h_to_send_done, &queue_key, event);
                 } else {
-                    event.dur = (event.dur - 1000).max(0);
+                    event.dur = event.dur.wrapping_sub(1000).max(0);
                     flows.start(event);
                 }
             }
@@ -545,12 +545,12 @@ fn resolve_flows(trace: &mut Trace) {
     }
 }
 
-fn counter<T: Copy + Default + std::ops::AddAssign + PartialOrd>(mut deltas: Vec<(i64, T)>, sample: fn(T) -> Sample) -> Vec<(i64, Sample)> {
+fn counter<T: Copy + Default + PartialOrd>(mut deltas: Vec<(i64, T)>, add: fn(T, T) -> T, sample: fn(T) -> Sample) -> Vec<(i64, Sample)> {
     deltas.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mut current = T::default();
     let mut points = Vec::new();
     for (index, &(ts, delta)) in deltas.iter().enumerate() {
-        current += delta;
+        current = add(current, delta);
         if deltas.get(index + 1).is_none_or(|next| next.0 != ts) {
             points.push((ts, sample(current)));
         }
@@ -564,11 +564,11 @@ fn add_global_counters(trace: &mut Trace) {
     let strings = &trace.strings;
     for event in trace.megascale.values().flatten().flat_map(|track| &track.events) {
         let name = strings.get(event.name);
-        let end = event.ts + event.dur;
+        let end = event.ts.wrapping_add(event.dur);
         if graph_name(name).is_some() {
             count.extend([(event.ts, 1), (end, -1)]);
             if let Some(size) = arg_int(event, strings, "input_size") {
-                bytes.extend([(event.ts, size), (end, -size)]);
+                bytes.extend([(event.ts, size), (end, size.wrapping_neg())]);
             }
             continue;
         }
@@ -590,7 +590,7 @@ fn add_global_counters(trace: &mut Trace) {
             if source == destination {
                 continue;
             }
-            let start = end - window_ps * if receive { 1_000_000 } else { 1000 };
+            let start = end.wrapping_sub(window_ps.wrapping_mul(if receive { 1_000_000 } else { 1000 }));
             let (amounts, rates) = if receive { (&mut rx, &mut rx_bandwidth) } else { (&mut tx, &mut tx_bandwidth) };
             amounts.extend([(start, size), (end, -size)]);
             if window_ps > 0 {
@@ -601,13 +601,14 @@ fn add_global_counters(trace: &mut Trace) {
             }
         }
     }
-    trace.counters =
-        [counter(rx, Sample::Int), counter(tx, Sample::Int), counter(rx_bandwidth, Sample::Double), counter(tx_bandwidth, Sample::Double), counter(count, Sample::Int), counter(bytes, Sample::Int)];
+    let int = |deltas: Deltas<i64>| counter(deltas, i64::wrapping_add, Sample::Int);
+    let double = |deltas: Deltas<f64>| counter(deltas, |sum, delta| sum + delta, Sample::Double);
+    trace.counters = [int(rx), int(tx), double(rx_bandwidth), double(tx_bandwidth), int(count), int(bytes)];
 }
 
 fn rename_track(track: &mut Track) {
-    if let Some((device, part)) = graph_name(&track.name).filter(|(device, _)| device.parse::<u64>().is_ok()) {
-        track.name = format!("{part} ({})", device.parse::<u64>().unwrap());
+    if let Some((device, part)) = graph_name(&track.name).and_then(|(device, part)| Some((device.parse::<u64>().ok()?, part))) {
+        track.name = format!("{part} ({device})");
         return;
     }
     let renamed = match track.name.as_str() {
@@ -772,7 +773,7 @@ impl Writer<'_> {
         for &(id, _) in event.flows.iter().filter(|(_, sink)| !sink) {
             fixed(&mut end, 47, id as u64);
         }
-        self.emit(&Packet { timestamp: Some(((event.ts + event.dur) / 1000) as u64), event: end, ..Default::default() });
+        self.emit(&Packet { timestamp: Some((event.ts.wrapping_add(event.dur) / 1000) as u64), event: end, ..Default::default() });
     }
 
     fn track(&mut self, track: &Track, parent: u64) {
@@ -836,3 +837,7 @@ pub fn render(map: &[u8]) -> Option<Vec<u8>> {
     encoder.write_all(&proto).ok()?;
     encoder.finish().ok()
 }
+
+#[cfg(test)]
+#[path = "tests/inline/megascale_perfetto.rs"]
+mod tests;

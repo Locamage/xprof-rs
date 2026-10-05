@@ -262,13 +262,13 @@ fn instruction(module: &Module, name: &str) -> Option<Instruction> {
 }
 
 fn absolute(line: &Line, event: &Ev, origin: i64) -> (i64, i64) {
-    let offset = event.ts.wrapping_sub(((line.timestamp_ns - origin) as u64).wrapping_mul(1000)) as i64;
+    let offset = event.ts.wrapping_sub((line.timestamp_ns.wrapping_sub(origin) as u64).wrapping_mul(1000)) as i64;
     let timestamp_ps = line.timestamp_ns.wrapping_mul(1000).wrapping_add(offset);
     (timestamp_ps, (line.timestamp_ns as f64 + (offset as u64) as f64 / 1e3) as i64)
 }
 
-fn metadata_text<'a>(plane: &'a Plane, map: &'a [u8], meta: u32, name: &str) -> Option<Value<'a>> {
-    let id = plane.id(name)?;
+fn metadata_text<'a>(plane: &'a Plane, map: &'a [u8], meta: u32, id: Option<usize>) -> Option<Value<'a>> {
+    let id = id?;
     stats(slice(map, plane.meta.get(meta as usize)?.raw), 5, |stat| stat == id).next().map(|stat| stat.value)
 }
 
@@ -281,16 +281,16 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
     let mut tracker = Tracker::default();
     let origin = crate::xplane::origin_ns(planes);
     let Some(module_line) = plane.lines.iter().find(|line| line.name == "XLA Modules") else { return averaged(tracker.summaries) };
-    let mut current: Option<usize> = None;
+    let (mut current, category_id, info_id) = (None, plane.id("hlo_category"), plane.id("dcn_collective_info"));
     for line in plane.lines.iter().filter(|line| line.name == "XLA Ops") {
         for event in &line.events {
-            let category = metadata_text(plane, map, event.meta, "hlo_category").map(|value| plane.text(&value)).unwrap_or_default();
+            let category = metadata_text(plane, map, event.meta, category_id).map(|value| plane.text(&value)).unwrap_or_default();
             let (timestamp_ps, timestamp_ns) = absolute(line, event, origin);
-            let span = (timestamp_ps, timestamp_ps + event.dur as i64);
+            let span = (timestamp_ps, timestamp_ps.wrapping_add(event.dur as i64));
             let module_span = |index: usize| {
                 let module = &module_line.events[index];
                 let begin = absolute(module_line, module, origin).0;
-                (begin, begin + module.dur as i64)
+                (begin, begin.wrapping_add(module.dur as i64))
             };
             let includes = |outer: (i64, i64)| outer.0 <= span.0 && span.1 <= outer.1;
             let mut containing = current.filter(|&index| includes(module_span(index)));
@@ -321,7 +321,7 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
                 let Some(found) = loaded.as_ref().and_then(|module| instruction(module, display)) else { continue };
                 instructions.insert(key.clone(), found);
             }
-            let info = match metadata_text(plane, map, event.meta, "dcn_collective_info") {
+            let info = match metadata_text(plane, map, event.meta, info_id) {
                 Some(Value::Bytes(bytes)) => bytes,
                 _ => &[],
             };

@@ -31,6 +31,13 @@ fn ops_without_a_known_channel_are_ignored() {
 }
 
 #[test]
+fn line_time_far_from_the_origin() {
+    let line = Line { timestamp_ns: i64::MIN, ..Default::default() };
+    let event = Ev { ts: 5, dur: 0, group: 0, raw: (0, 0), meta: 0, eager: None };
+    assert_eq!(absolute(&line, &event, 1).0, 1005);
+}
+
+#[test]
 fn transfer_types_scale_the_receive_buffer() {
     assert_eq!(["ONE_TO_ONE", "ALL_GATHER", "ALL_REDUCE", "ALL_TO_ALL", "REDUCE_SCATTER", "OTHER"].map(|kind| transmitted_bytes(100, 4, kind)), [400, 75, 150, 75, 300, 0]);
     assert_eq!(transmitted_bytes(100, 0, "ONE_TO_ONE"), 0);

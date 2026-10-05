@@ -140,13 +140,13 @@ impl TpuStep {
 pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> TpuStep {
     let mut minimum: BTreeMap<u64, u64> = BTreeMap::new();
     for reduce in record.collectives.values().flatten() {
-        let duration = reduce.2 - reduce.1;
+        let duration = reduce.2.wrapping_sub(reduce.1);
         minimum.entry(reduce.0).and_modify(|value| *value = (*value).min(duration)).or_insert(duration);
     }
     let all_reduce = |core: u32| {
         record.collectives.get(&core).into_iter().flatten().fold((0u64, 0u64), |(compute, sync), reduce| {
-            let (duration, min) = (reduce.2 - reduce.1, minimum.get(&reduce.0).copied().unwrap_or(0));
-            (compute + min, sync + duration - min)
+            let (duration, min) = (reduce.2.wrapping_sub(reduce.1), minimum.get(&reduce.0).copied().unwrap_or(0));
+            (compute.wrapping_add(min), sync.wrapping_add(duration - min))
         })
     };
     let mut step = TpuStep { step_number: if record.cores.is_empty() { -1 } else { record.num as i32 }, ..Default::default() };
@@ -180,7 +180,7 @@ pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> Tpu
         max_scv0 = max_scv0.max(wait_scv0);
         outfeed_sum = outfeed_sum.wrapping_add(outfeed);
         let breakdown = all_reduce(core);
-        if breakdown.0 + breakdown.1 > max_all_reduce.0 + max_all_reduce.1 {
+        if breakdown.0.wrapping_add(breakdown.1) > max_all_reduce.0.wrapping_add(max_all_reduce.1) {
             max_all_reduce = breakdown;
         }
         infeed_percent.push(100.0 * infeed as f64 / info.duration as f64);
@@ -442,3 +442,7 @@ pub fn json(stats: &OpStats) -> String {
     recommendation.rows = RECOMMENDATIONS.iter().map(|detail| vec![Cell::Text(detail.to_string())]).collect();
     format!("[{},{},{},{},{}]", analysis.cores.json(), analysis.steps.json(), analysis.host.json(), recommendation.json(), diagnostics_table(&analysis.warnings, &[]).json())
 }
+
+#[cfg(test)]
+#[path = "tests/inline/input_pipeline_analyzer.rs"]
+mod tests;
