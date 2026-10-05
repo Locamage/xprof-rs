@@ -20,7 +20,7 @@ pub const NONE_GROUP: i64 = i64::MIN;
 const EPOCH_NS: i64 = 1_000_000_000_000_000;
 const INTERNAL_EVENTS: &str = "MemoryAllocation MemoryDeallocation PrefetchProduce PrefetchConsume ParallelInterleaveProduce ParallelInterleaveConsume ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce MapAndBatchConsume ParseExampleProduce ParseExampleConsume";
 const QUEUE_CONSUMERS: &str = "RunProgramRequest HostCallbackRequest TransferH2DRequest TransferPreprocessedH2DRequest TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti OnDeviceRecvRequestMulti PjrtAsyncWait";
-pub const INTERNAL_STATS: [&str; 8] = ["_pt", "_p", "_ct", "_c", "_r", "flops", "program_id", "symbol_id"];
+const INTERNAL_STATS: [&str; 8] = ["_pt", "_p", "_ct", "_c", "_r", "flops", "program_id", "symbol_id"];
 macro_rules! kinds {
     ($($kind:ident: $text:literal),*) => {
         const STATS: [&str; [$($text),*].len()] = [$($text),*];
@@ -599,6 +599,12 @@ impl Plane {
 
     pub fn stat<'a>(&self, map: &'a [u8], meta: u32, raw: (u32, u32), name: &str) -> Option<Value<'a>> {
         self.find(map, meta, raw, self.id(name))
+    }
+
+    pub fn named_stats<'a>(&'a self, map: &'a [u8], meta: u32, raw: (u32, u32)) -> impl Iterator<Item = (u32, &'a Box<str>, Stat<'a>)> {
+        [(self.meta[meta as usize].raw, 5), (raw, 4)].into_iter().flat_map(move |(raw, field)| {
+            stats(slice(map, raw), field, |_| true).filter_map(move |stat| Some((field, self.stat_names.get(stat.id).filter(|name| !INTERNAL_STATS.contains(&&***name))?, stat)))
+        })
     }
 
     pub fn text(&self, value: &Value) -> String {

@@ -109,8 +109,7 @@ impl Row {
             if is_flow {
                 self.last_flow = Some(ts + dur);
             }
-            let depth = self.depth(ts);
-            self.push(depth, ts + dur);
+            self.push(self.depth(ts), ts + dur);
         }
     }
 }
@@ -220,10 +219,11 @@ fn layout<'a>(planes: &'a [Plane], host: &str) -> Layout<'a> {
         if plane.lines.is_empty() {
             continue;
         }
-        devices.entry(device).or_default().name = format!("{host} {}", plane.name);
+        let entry = devices.entry(device).or_default();
+        entry.name = format!("{host} {}", plane.name);
         for line in plane.lines.iter().filter(|line| !line.events.is_empty()) {
             if line.name != COUNTERS {
-                devices.get_mut(&device).unwrap().resources.insert(line.resource_id(), (if line.display_name.is_empty() { &line.name } else { &line.display_name }).clone());
+                entry.resources.insert(line.resource_id(), (if line.display_name.is_empty() { &line.name } else { &line.display_name }).clone());
             }
             steps.extend(line.steps.iter().map(|(&index, step)| (line.events[index].raw, step.clone())));
             let label_base = names.len() as u32;
@@ -489,17 +489,14 @@ fn assign_levels(events: &[Event], by_track: &[Vec<u32>], flow_count: usize) -> 
     }
     let levels: Vec<AtomicU8> = (0..events.len()).map(|_| AtomicU8::new(0)).collect();
     by_track.par_iter().for_each(|indices| {
-        let compact: Vec<(u64, u64, u8)> = indices
-            .iter()
-            .map(|&index| (events[index as usize].ts, events[index as usize].dur, ((events[index as usize].flow != NONE_FLOW) as u8) << 1 | (events[index as usize].resource == NONE_RESOURCE) as u8))
-            .collect();
-        let mut assigned: Vec<usize> = indices
-            .iter()
-            .map(|&index| {
-                let event = &events[index as usize];
-                if event.flow == NONE_FLOW { usize::MAX } else { (0..SPLIT).find(|&level| flow_visible[level][event.flow as usize] == Some(true) || event.dur >= LAYER_PS[level]).unwrap_or(SPLIT) }
-            })
-            .collect();
+        let track = || indices.iter().map(|&index| &events[index as usize]);
+        let compact: Vec<(u64, u64, u8)> = track().map(|event| (event.ts, event.dur, u8::from(event.flow != NONE_FLOW) << 1 | u8::from(event.resource == NONE_RESOURCE))).collect();
+        let mut assigned: Vec<usize> =
+            track()
+                .map(|event| {
+                    if event.flow == NONE_FLOW { usize::MAX } else { (0..SPLIT).find(|&level| flow_visible[level][event.flow as usize] == Some(true) || event.dur >= LAYER_PS[level]).unwrap_or(SPLIT) }
+                })
+                .collect();
         // The passes after all events have a level change nothing.
         let mut remaining = assigned.iter().filter(|&&level| level == usize::MAX).count();
         for (level, &resolution) in LAYER_PS[..SPLIT].iter().enumerate() {
