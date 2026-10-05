@@ -1,6 +1,7 @@
 use crate::server::run_tools::python_string_into;
 use rayon::prelude::*;
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+use std::cell::Cell;
 use std::fmt::{self, Write};
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -382,86 +383,36 @@ fn insert(entries: &mut Vec<(String, J)>, key: String, value: J) {
     }
 }
 
-/// Gives what `serde_json` gives. It also parses JSON that is deeper than the recursion limit of `serde_json`.
+/// Gives what `serde_json` gives. The depth limit is that of `J`, not that of `serde_json`.
 fn whole(text: &str) -> Option<J> {
-    match serde_json::from_str(text) {
-        Ok(value) => Some(value),
-        Err(error) if error.to_string().starts_with("recursion limit exceeded") => {
-            let mut deep = Deep { text, at: 0 };
-            let value = deep.value(0)?;
-            deep.space();
-            (deep.at == text.len()).then_some(value)
-        }
-        Err(_) => None,
+    let mut deserializer = serde_json::Deserializer::from_str(text);
+    deserializer.disable_recursion_limit();
+    let value = J::deserialize(&mut deserializer).ok()?;
+    deserializer.end().ok().map(|()| value)
+}
+
+thread_local! {
+    static DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+/// One level of nesting while `J` deserializes. It fails at `MAX_DEPTH`.
+struct Level;
+
+impl Level {
+    fn enter<E: serde::de::Error>() -> Result<Self, E> {
+        DEPTH.with(|depth| {
+            if depth.get() == MAX_DEPTH {
+                return Err(E::custom("recursion limit exceeded"));
+            }
+            depth.set(depth.get() + 1);
+            Ok(Self)
+        })
     }
 }
 
-/// Parses the structure of JSON with a depth limit. `serde_json` parses each string and each other scalar, so the values are the same.
-struct Deep<'a> {
-    text: &'a str,
-    at: usize,
-}
-
-impl Deep<'_> {
-    fn space(&mut self) {
-        while matches!(self.text.as_bytes().get(self.at), Some(b' ' | b'\t' | b'\n' | b'\r')) {
-            self.at += 1;
-        }
-    }
-
-    fn eat(&mut self, byte: u8) -> bool {
-        self.space();
-        let found = self.text.as_bytes().get(self.at) == Some(&byte);
-        self.at += usize::from(found);
-        found
-    }
-
-    fn string(&mut self) -> Option<String> {
-        self.space();
-        let start = self.at;
-        if self.text.as_bytes().get(start) != Some(&b'"') {
-            return None;
-        }
-        self.at = string_end(self.text.as_bytes(), start)?;
-        serde_json::from_str(&self.text[start..self.at]).ok()
-    }
-
-    fn value(&mut self, depth: usize) -> Option<J> {
-        self.space();
-        let bytes = self.text.as_bytes();
-        match *bytes.get(self.at)? {
-            b'"' => self.string().map(J::Str),
-            open @ (b'[' | b'{') if depth < MAX_DEPTH => {
-                self.at += 1;
-                let close = if open == b'[' { b']' } else { b'}' };
-                let (mut items, mut entries) = (Vec::new(), Vec::new());
-                if !self.eat(close) {
-                    loop {
-                        if open == b'[' {
-                            items.push(self.value(depth + 1)?);
-                        } else {
-                            let key = self.string()?;
-                            let value = self.eat(b':').then(|| self.value(depth + 1))??;
-                            insert(&mut entries, key, value);
-                        }
-                        if self.eat(close) {
-                            break;
-                        }
-                        if !self.eat(b',') {
-                            return None;
-                        }
-                    }
-                }
-                Some(if open == b'[' { J::List(items) } else { J::Map(entries) })
-            }
-            _ => {
-                let start = self.at;
-                while bytes.get(self.at).is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')) {
-                    self.at += 1;
-                }
-                serde_json::from_str(&self.text[start..self.at]).ok()
-            }
-        }
+impl Drop for Level {
+    fn drop(&mut self) {
+        DEPTH.with(|depth| depth.set(depth.get() - 1));
     }
 }
 
@@ -523,6 +474,7 @@ impl<'de> Deserialize<'de> for J {
                 Ok(J::Str(value.to_string()))
             }
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<J, A::Error> {
+                let _level = Level::enter()?;
                 let mut items = Vec::new();
                 while let Some(item) = seq.next_element()? {
                     items.push(item);
@@ -530,6 +482,7 @@ impl<'de> Deserialize<'de> for J {
                 Ok(J::List(items))
             }
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<J, A::Error> {
+                let _level = Level::enter()?;
                 let mut entries = Vec::new();
                 while let Some((key, value)) = map.next_entry::<String, J>()? {
                     insert(&mut entries, key, value);
