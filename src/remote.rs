@@ -25,6 +25,33 @@ const CACHE_DIR: &str = "XPROF_CACHE_DIR";
 const CACHE_BYTES: &str = "XPROF_CACHE_BYTES";
 const SESSION_PARAMS: [&str; 3] = ["run", "session_path", "run_path"];
 
+type Locks = Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>;
+
+/// Removes the lock of a directory when no other sync holds or waits for it.
+struct Unlock<'a> {
+    locks: &'a Locks,
+    dir: &'a Path,
+    lock: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl Drop for Unlock<'_> {
+    fn drop(&mut self) {
+        let mut locks = self.locks.lock().unwrap();
+        if Arc::strong_count(&self.lock) == 2 {
+            locks.remove(self.dir);
+        }
+    }
+}
+
+/// Removes the file of a download that did not complete, also when the sync stops before the end.
+struct Partial(PathBuf);
+
+impl Drop for Partial {
+    fn drop(&mut self) {
+        _ = std::fs::remove_file(&self.0);
+    }
+}
+
 #[derive(Debug)]
 pub struct Remote {
     pub url: String,
@@ -34,7 +61,7 @@ pub struct Remote {
     store: Arc<dyn ObjectStore>,
     root: Key,
     checked: Mutex<HashMap<PathBuf, Instant>>,
-    locks: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
+    locks: Locks,
 }
 
 impl PartialEq for Remote {
@@ -78,8 +105,8 @@ impl Remote {
         if touch {
             self.used.lock().unwrap().insert(dir.to_path_buf(), Instant::now());
         }
-        let lock = self.locks.lock().unwrap().entry(dir.to_path_buf()).or_default().clone();
-        let _held = lock.lock().await;
+        let unlock = Unlock { locks: &self.locks, dir, lock: self.locks.lock().unwrap().entry(dir.to_path_buf()).or_default().clone() };
+        let _held = unlock.lock.lock().await;
         if self.checked.lock().unwrap().get(dir).is_some_and(|at| at.elapsed() < RECHECK) {
             return Ok(());
         }
@@ -122,9 +149,9 @@ impl Remote {
                 std::fs::create_dir_all(dir).map_err(unwritable)?;
             }
             let fetch = async |path: PathBuf, object: ObjectMeta| {
-                let partial = path.with_file_name(format!(".{}.partial", object.location.filename().unwrap_or_default()));
-                let file = Arc::new(std::fs::File::create(&partial).and_then(|file| file.set_len(object.size).map(|()| file)).map_err(unwritable)?);
-                let fetched = stream::iter((0..object.size).step_by(PART_BYTES as usize))
+                let partial = Partial(path.with_file_name(format!(".{}.partial", object.location.filename().unwrap_or_default())));
+                let file = Arc::new(std::fs::File::create(&partial.0).and_then(|file| file.set_len(object.size).map(|()| file)).map_err(unwritable)?);
+                stream::iter((0..object.size).step_by(PART_BYTES as usize))
                     .map(|start| {
                         let (file, location) = (file.clone(), &object.location);
                         async move {
@@ -135,11 +162,7 @@ impl Remote {
                     .buffer_unordered(PARALLEL_PARTS)
                     .try_collect::<Vec<()>>()
                     .await
-                    .and_then(|_| file.set_modified(SystemTime::from(object.last_modified)).and_then(|()| std::fs::rename(&partial, &path)).map_err(unwritable));
-                if fetched.is_err() {
-                    _ = std::fs::remove_file(&partial);
-                }
-                fetched
+                    .and_then(|_| file.set_modified(SystemTime::from(object.last_modified)).and_then(|()| std::fs::rename(&partial.0, &path)).map_err(unwritable))
             };
             stream::iter(wanted).map(|(path, object)| fetch(path, object)).buffer_unordered(PARALLEL_FILES).try_collect::<Vec<()>>().await?;
             let used = self.used.lock().unwrap().clone();
@@ -161,9 +184,12 @@ impl Remote {
                     total -= if std::fs::remove_file(file).is_ok() { len } else { 0 };
                 }
                 self.checked.lock().unwrap().remove(&session);
+                self.used.lock().unwrap().remove(&session);
             }
         }
-        self.checked.lock().unwrap().insert(dir.to_path_buf(), Instant::now());
+        let mut checked = self.checked.lock().unwrap();
+        checked.retain(|_, at| at.elapsed() < RECHECK);
+        checked.insert(dir.to_path_buf(), Instant::now());
         Ok(())
     }
 
@@ -198,7 +224,7 @@ pub async fn mirror(State(state): State<Shared>, request: Request, next: Next) -
         (None, Some(path), None) => list(&state.logdir.join(path), |entry| entry.file_type().is_ok_and(|kind| kind.is_dir())),
         (None, None, run) => run.and_then(|run| run_dir(&state, run)).into_iter().collect(),
     };
-    match try_join_all(dirs.into_iter().filter_map(|dir| confine(&state, dir)).filter(|dir| dir.is_dir()).map(async |dir| remote.sync(&dir, true).await)).await {
+    match try_join_all(dirs.into_iter().filter_map(|dir| confine(&state, &dir)).filter(|dir| dir.is_dir()).map(async |dir| remote.sync(&dir, true).await)).await {
         Ok(_) => next.run(request).await,
         Err(message) => response(StatusCode::BAD_GATEWAY, "text/plain", message),
     }

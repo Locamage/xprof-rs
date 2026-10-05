@@ -16,6 +16,9 @@ const NO_LABEL: [&str; 4] = ["IDLE", "idle", "unknown", ""];
 const SUMMARY_LIMIT: usize = 10;
 const CUSTOM_CALL_GUIDANCE: &str = "Op-level metrics unavailable for custom calls. Use get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events for Pallas kernels.";
 const NO_PROFILE: &str = "No HLO op_profile found in trace. For JAX traces, ensure compilation is captured in the trace or pass XLA_FLAGS='--xla_dump_to=<path> --xla_dump_hlo_as_proto'.";
+/// The default `max_recursion_depth` of `json_format.Parse` in protobuf.
+const MAX_MESSAGE_DEPTH: usize = 100;
+const TOO_DEEP: &str = "Message too deep. Max recursion depth is 100";
 static TARGET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"custom_call_target="([^"]+)""#).unwrap());
 static OP_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"%([^%=]+) =").unwrap());
 
@@ -51,6 +54,10 @@ fn total(values: impl Iterator<Item = J>) -> J {
     if values.iter().all(|value| matches!(value, J::Int(_))) { J::Int(values.iter().filter_map(J::int).sum()) } else { J::Float(fsum(values.iter().map(|value| value.float().unwrap_or(0.0)))) }
 }
 
+fn label(node: &J, default: &str) -> String {
+    Some(field(node, "name")).filter(|name| **name != J::Null).map(J::text).filter(|name| !name.is_empty()).unwrap_or_else(|| default.into())
+}
+
 fn children(node: &J) -> &[J] {
     field(node, "children").items()
 }
@@ -79,11 +86,16 @@ impl Drop for Parsed {
     }
 }
 
+fn too_deep() -> Error {
+    Error::new(Kind::Value, format!("Failed to parse op_profile proto: ParseError('{TOO_DEEP}')"))
+}
+
 fn profile(client: &dyn Client, session: &str, params: &[(&str, String)], missing: String, wrap: &str) -> Result<Parsed, Error> {
     let fetched = (|| {
         let data = client.fetch_either("op_profile", "hlo_op_profile.json", session, params)?;
         let data = data.ok_or_else(|| Error::new(Kind::FileNotFound, missing))?;
-        J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse op_profile proto: ParseError('Failed to load JSON')"))
+        let parsed = J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse op_profile proto: ParseError('Failed to load JSON')"))?;
+        if parsed.object_depth() > MAX_MESSAGE_DEPTH { Err(too_deep()) } else { Ok(parsed) }
     })();
     fetched.map(Parsed).map_err(|error| rethrow(error, |error| format!("{wrap}{}", error.repr())))
 }
@@ -110,7 +122,7 @@ pub fn get_profile_summary(client: &dyn Client, args: &Args) -> Result<Out, Erro
     }
     descending(&mut nodes, |node| number(node, "raw_time"));
     for node in nodes {
-        let name = Some(field(node, "name").text()).filter(|name| !name.is_empty() && *field(node, "name") != J::Null).unwrap_or_else(|| "Unknown".into());
+        let name = label(node, "Unknown");
         let time = number(node, "raw_time");
         let fraction = if total == 0.0 { 0.0 } else { time / total };
         lines.push(format!("| {} | {:.4} | {:.1}% |", name.replace('|', "\\|"), time / 1e12, fraction * 100.0));
@@ -166,7 +178,7 @@ fn leaves(node: &J, prefix: &str, out: &mut Vec<J>) {
 }
 
 fn tree(node: &J, depth: i64, limit: i64, prefix: &str) -> J {
-    let name = Some(field(node, "name").text()).filter(|name| !name.is_empty() && *field(node, "name") != J::Null).unwrap_or_else(|| "root".into());
+    let name = label(node, "root");
     let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
     let mut sorted: Vec<&J> = children(node).iter().collect();
     descending(&mut sorted, |child| number(child, "raw_time"));
@@ -335,7 +347,7 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
 }
 
 fn tree_view(root: &J, path: Option<String>, depth: i64) -> Result<Out, Error> {
-    let root_name = Some(field(root, "name").text()).filter(|name| !name.is_empty() && *field(root, "name") != J::Null).unwrap_or_else(|| "root".into());
+    let root_name = label(root, "root");
     let (mut target, mut target_path) = (root, root_name.clone());
     if let Some(path) = path.filter(|path| !path.is_empty()) {
         let mut parts: Vec<&str> = path.trim_matches('/').split('/').filter(|part| !part.is_empty()).collect();
@@ -351,7 +363,7 @@ fn tree_view(root: &J, path: Option<String>, depth: i64) -> Result<Out, Error> {
             });
             let Some(found) = found else { return fail(Kind::FileNotFound, format!("Path '{path}' not found in HLO op profile tree.")) };
             target = found;
-            matched.push(Some(field(found, "name").text()).filter(|name| !name.is_empty() && *field(found, "name") != J::Null).unwrap_or_else(|| "node".into()));
+            matched.push(label(found, "node"));
         }
         target_path = matched.join("/");
     }
@@ -419,7 +431,10 @@ pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let mut params = vec![("format", "pb".to_string())];
     params.extend(args.flag("bypass_cache", false).then(|| bypass(true)));
-    let profile = profile(client, &session, &params, NO_PROFILE.into(), &format!("Error fetching top HLO ops for session {session}: "))?;
+    let profile = match profile(client, &session, &params, NO_PROFILE.into(), &format!("Error fetching top HLO ops for session {session}: ")) {
+        Err(error) if error == too_deep() => return Ok(obj! {"error" => format!("Failed to parse JSON proto: {TOO_DEEP}")}.into()),
+        other => other?,
+    };
     let by_category = field(&profile, "by_category");
     let mut flat = Vec::new();
     if *by_category != J::Null && number(by_category, "raw_time") > 0.0 {

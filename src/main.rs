@@ -427,11 +427,16 @@ fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool) -> Response {
     reply
 }
 
-fn confine(state: &State_, path: PathBuf) -> Option<PathBuf> {
-    match path.canonicalize() {
-        Ok(real) => real.starts_with(&state.logdir).then_some(real),
-        Err(_) => Some(path),
-    }
+/// Resolves the deepest part of the path that exists. The parts after it must be plain names, and the first of them must not be a dangling symlink.
+fn confine(state: &State_, path: &Path) -> Option<PathBuf> {
+    let parts: Vec<Component> = path.components().collect();
+    let (found, real) = (0..=parts.len()).rev().find_map(|found| {
+        let prefix: PathBuf = parts[..found].iter().collect();
+        Some((found, if prefix.as_os_str().is_empty() { Path::new(".") } else { &prefix }.canonicalize().ok()?))
+    })?;
+    let missing = &parts[found..];
+    let plain = missing.iter().all(|part| matches!(part, Component::Normal(_))) && missing.first().is_none_or(|first| real.join(first).symlink_metadata().is_err());
+    (plain && real.starts_with(&state.logdir)).then(|| missing.iter().fold(real, |dir, part| dir.join(part)))
 }
 
 fn run_dir(state: &State_, run: &str) -> Option<PathBuf> {
@@ -440,18 +445,18 @@ fn run_dir(state: &State_, run: &str) -> Option<PathBuf> {
         return None;
     }
     let (prefix, session) = run.rsplit_once('/').unwrap_or((".", run));
-    confine(state, state.logdir.join(prefix).join("plugins/profile").join(session))
+    confine(state, &state.logdir.join(prefix).join("plugins/profile").join(session))
 }
 
 fn session_map(state: &State_, params: &Params) -> Result<Option<Sessions>, Failure> {
     let is_dir = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_dir());
     let name = |dir: &Path| dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
     if let Some(path) = params.get("session_path").filter(|path| !path.is_empty()) {
-        let dir = confine(state, state.logdir.join(path)).ok_or_else(outside)?;
+        let dir = confine(state, &state.logdir.join(path)).ok_or_else(outside)?;
         return Ok(Some(if xplanes(&dir).is_empty() { Vec::new() } else { vec![(name(Path::new(path)), dir, path.clone())] }));
     }
     let Some(path) = params.get("run_path").filter(|path| !path.is_empty()) else { return Ok(None) };
-    let dir = confine(state, state.logdir.join(path)).ok_or_else(outside)?;
+    let dir = confine(state, &state.logdir.join(path)).ok_or_else(outside)?;
     Ok(Some(
         list(&dir, is_dir)
             .into_iter()
@@ -632,7 +637,7 @@ async fn generate_cache(State(state): State<Shared>, method: Method, Query(param
         return response(StatusCode::METHOD_NOT_ALLOWED, "text/plain", "Method Not Allowed");
     }
     let Some(path) = params.get("session_path").filter(|path| !path.is_empty()) else { return response(StatusCode::BAD_REQUEST, "text/plain", "Missing \"session_path\" parameter") };
-    let Some(dir) = confine(&state, state.logdir.join(path)) else { return failure(outside()) };
+    let Some(dir) = confine(&state, &state.logdir.join(path)) else { return failure(outside()) };
     if xplanes(&dir).is_empty() {
         return response(StatusCode::NOT_FOUND, "text/plain", "No XPlane files found in session_path");
     }
