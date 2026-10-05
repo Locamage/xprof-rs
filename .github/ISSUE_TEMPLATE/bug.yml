@@ -1,0 +1,36 @@
+name: Bug
+description: A crash, an error, a hang, or a slow page.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach private profiles. To report a security problem, follow `SECURITY.md` and do not open a public issue.
+  - type: input
+    id: version
+    attributes:
+      label: xprof-rs version
+      description: The release tag or the commit.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: The operating system, the CPU, and the size of the profile.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: The command line of the server or the CLI, and the request or the command that fails.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Result
+      description: The error message, the log of the server, or the time that the page takes.
+      render: text
+    validations:
+      required: true

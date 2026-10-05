@@ -2,6 +2,8 @@
 
 xprof-rs is a fast backend for the [XProf](https://github.com/openxla/xprof) profile viewer. It is one Rust binary. It replaces the XProf server and the XProf agent CLI, and it serves the same user interface. Its responses are the same as the responses of XProf 2.23.2. The tests compare them with the output of XProf.
 
+xprof-rs is an independent project. Google and the OpenXLA project do not maintain or endorse it.
+
 On a 279 MB TPU v4 profile with 2.95 M events, the trace viewer opens in 0.73 s (XProf: 12 s). The overview page opens in 1.3 s (XProf: 18 s). The [server](#server) and [command line](#command-line) sections have more times.
 
 We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores. More cores make xprof-rs faster. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
@@ -15,10 +17,10 @@ XProf converts the `.xplane.pb` file again for each cold request. xprof-rs does 
 
 ## Install and start
 
-The [releases](https://github.com/Locamage/xprof-rs/releases) have binaries for Linux on `x86_64` and `aarch64`. They need glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04, or newer). You do not need Python.
+The [releases](https://github.com/Locamage/xprof-rs/releases) have binaries for Linux on `x86_64` and `aarch64`, and for macOS on Apple silicon. The Linux binaries need glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04, or newer). You do not need Python.
 
 ```bash
-version=v0.1.0 target=x86_64-linux   # or aarch64-linux
+version=v0.1.0 target=x86_64-linux   # or aarch64-linux, aarch64-macos
 curl -LO https://github.com/Locamage/xprof-rs/releases/download/$version/xprof-rs-$version-$target.tar.gz
 tar -xzf xprof-rs-$version-$target.tar.gz
 xprof-rs-$version-$target/xprof-rs --logdir ~/logs          # open http://localhost:8791
@@ -28,8 +30,7 @@ xprof-rs-$version-$target/xprof-rs get_overview ~/logs/run1 # the same binary ru
 To build from source, you need Rust 1.95 or newer, a C compiler, and a 64-bit Unix system. You do not need a C++ toolchain or `protoc`.
 
 ```bash
-git clone https://github.com/Locamage/xprof-rs && cd xprof-rs
-cargo install --locked --path .
+cargo install --locked --git https://github.com/Locamage/xprof-rs
 ```
 
 The release profile uses fat LTO and one codegen unit. A full build takes about 80 s on a machine with 240 cores. It uses about 10 CPU minutes. For a quick build, set `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`.
@@ -163,7 +164,7 @@ xprof-rs replaces the backend. It does not replace the complete XProf distributi
 
 - There is no distributed worker mode. There is no worker gRPC service. `/capture_profile` is a client.
 - There is no TLS. There is no authentication. There is no TensorBoard plugin loader.
-- xprof-rs runs on 64-bit Unix. CI tests Linux on x86_64 and aarch64. There is no Windows build.
+- xprof-rs runs on 64-bit Unix. CI tests Linux on x86_64 and aarch64, and macOS on Apple silicon. There is no Windows build.
 
 **Tools**
 
@@ -231,7 +232,7 @@ cargo clippy --release --all-targets -- -D warnings
 cargo test --release
 ```
 
-A tag that starts with `v` makes a draft release with `x86_64-linux` and `aarch64-linux` archives and SHA-256 files. The steps are in `RELEASING.md`.
+A tag that starts with `v` makes a draft release with `x86_64-linux`, `aarch64-linux`, and `aarch64-macos` archives and SHA-256 files. The steps are in `RELEASING.md`.
 
 The code is in `src/`:
 

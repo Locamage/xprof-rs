@@ -14,7 +14,7 @@ Each release of xprof-rs is a GitHub release with prebuilt binaries. We do not p
 7. Make the tag: `git tag vX.Y.Z`. Push the commit and the tag: `git push origin main vX.Y.Z`.
 8. The `release` workflow does these steps:
    - It checks that the tag and the `Cargo.toml` version are the same, and that `CHANGELOG.md` has a section for the version.
-   - It builds `x86_64-linux` and `aarch64-linux` binaries in the `manylinux_2_28` image. The binaries need glibc 2.28 or newer.
+   - It builds `x86_64-linux` and `aarch64-linux` binaries in the `manylinux_2_28` image. These binaries need glibc 2.28 or newer. It builds the `aarch64-macos` binary on a macOS runner.
    - It makes a draft GitHub release with the archives, the SHA-256 files, and the changelog section.
 9. Download an archive from the draft. Check it with `sha256sum -c`, and run it on a profile. Then publish the draft: `gh release edit vX.Y.Z --draft=false`.
 
