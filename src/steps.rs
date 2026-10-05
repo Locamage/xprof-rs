@@ -385,8 +385,7 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
             (memcpy.unwrap_or(if collective { DEVICE_COLLECTIVES } else { UNKNOWN_TIME }), name.contains("half") || name.contains("fp16"))
         })
         .collect();
-    let mut events: StepEvents = HashMap::new();
-    for (line_index, line) in lines() {
+    let mut events = combined_steps(lines().map(|(line_index, line)| {
         let mut stream: StepEvents = HashMap::new();
         for (index, event) in line.events.iter().enumerate() {
             let Some(group) = groups[line_index][index].filter(|&group| group >= 0 && scanner.scan(event).int(crate::gpu::CORRELATION).is_some()) else { continue };
@@ -405,10 +404,8 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
                 details.collectives.entry(plane.id as u32).or_default().push((0, span.begin, end_offset));
             }
         }
-        for (group, details) in stream {
-            events.entry(group).or_default().combine(details);
-        }
-    }
+        stream
+    }));
     if !events.is_empty() {
         intersect(markers, &mut events, Details::combine);
     }
@@ -480,11 +477,19 @@ pub fn host_steps(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
             result
         })
         .collect();
+    combined_steps(per_line)
+}
+
+fn combined_steps(parts: impl IntoIterator<Item = StepEvents>) -> StepEvents {
     let mut combined: StepEvents = HashMap::new();
-    for (step, details) in per_line.into_iter().flatten() {
+    for (step, details) in parts.into_iter().flatten() {
         combined.entry(step).or_default().combine(details);
     }
     combined
+}
+
+fn without_overlaps(events: StepEvents) -> StepEvents {
+    events.into_iter().map(|(step, details)| (step, Details { events: non_overlapped(&details.events), ..details })).collect()
 }
 
 pub fn non_overlapped(events: &[(u32, Span)]) -> Vec<(u32, Span)> {
@@ -668,11 +673,7 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
         extra.hbm = plane.own_double("hbm_utilization_percent");
     }
     if !gpus.is_empty() {
-        let mut combined: StepEvents = HashMap::new();
-        for (step, details) in gpu_events.into_iter().flatten() {
-            combined.entry(step).or_default().combine(details);
-        }
-        let nonoverlapped: StepEvents = combined.into_iter().map(|(step, details)| (step, Details { events: non_overlapped(&details.events), ..details })).collect();
+        let nonoverlapped = without_overlaps(combined_steps(gpu_events));
         for (kind, span) in nonoverlapped.values().flat_map(|details| &details.events) {
             match *kind {
                 DEVICE_COMPUTE_32 => extra.precision[0] += span.duration,
@@ -683,8 +684,7 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
         extra.steps = step_db(&nonoverlapped, true);
     } else if devices.is_empty() {
         extra.cores.insert(1, Core { hostname, ..Default::default() });
-        let nonoverlapped: StepEvents = host_events.unwrap_or_default().into_iter().map(|(step, details)| (step, Details { events: non_overlapped(&details.events), ..details })).collect();
-        extra.steps = step_db(&nonoverlapped, false);
+        extra.steps = step_db(&without_overlaps(host_events.unwrap_or_default()), false);
     } else {
         extra.steps = step_db(&step_events, true);
         let input = |details: &Details| details.events.iter().filter(|(kind, _)| *kind == HOST_WAIT_INPUT || *kind == HOST_TO_DEVICE).map(|(_, span)| span.duration).sum();
