@@ -713,6 +713,7 @@ pub fn attach_fused(modules: &[(u64, Module)], db: &mut Db) {
     }
     let printers: HashMap<u64, (Printer, FxHashMap<&str, usize>)> = modules
         .iter()
+        .filter(|(_, module)| module.valid)
         .map(|(id, module)| {
             let found: Vec<(&str, usize)> = match wanted.get(id) {
                 Some(wanted) => module.nodes.par_iter().enumerate().filter(|(_, node)| wanted.contains(node.name.as_str())).map(|(index, node)| (node.name.as_str(), index)).collect(),

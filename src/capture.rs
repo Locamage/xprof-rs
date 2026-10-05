@@ -137,8 +137,12 @@ async fn call<Req: prost::Message + Send + Sync + 'static, Rep: prost::Message +
     message: Req,
     deadline: Duration,
 ) -> Result<Rep, Status> {
-    let channel =
-        Endpoint::from_shared(format!("http://{address}")).map_err(|error| Status::unavailable(error.to_string()))?.connect().await.map_err(|error| Status::unavailable(error.to_string()))?;
+    let channel = Endpoint::from_shared(format!("http://{address}"))
+        .map_err(|error| Status::unavailable(error.to_string()))?
+        .connect_timeout(deadline)
+        .connect()
+        .await
+        .map_err(|error| Status::unavailable(error.to_string()))?;
     let mut request = Request::new(message);
     request.set_timeout(deadline);
     let mut client = Grpc::new(channel).max_decoding_message_size(i32::MAX as usize);
@@ -199,7 +203,7 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
     let repository_root = format!("{repository}/plugins/profile");
     let mut remaining = attempts;
     let status = loop {
-        let start = unix_ns() + delay_ms * 1_000_000;
+        let start = unix_ns().saturating_add(delay_ms.saturating_mul(1_000_000));
         remaining -= 1;
         let options = ProfileOptions {
             version: 1,

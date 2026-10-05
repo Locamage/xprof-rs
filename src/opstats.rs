@@ -165,7 +165,8 @@ fn breakdown(data: &[u8]) -> Vec<(u8, u64, u64)> {
         .collect()
 }
 
-fn from_metadata(plane: &Plane, map: &[u8], meta: usize) -> (Option<(u64, u64)>, Metrics) {
+fn from_metadata(plane: &Plane, map: &[u8], meta: usize, path: &mut Vec<usize>) -> (Option<(u64, u64)>, Metrics) {
+    path.push(meta);
     let (meta, mut out, mut key) = (&plane.meta[meta], Metrics::default(), (None, None));
     if meta.display.is_empty() {
         out.name = meta.name.as_ref().into();
@@ -202,9 +203,13 @@ fn from_metadata(plane: &Plane, map: &[u8], meta: usize) -> (Option<(u64, u64)>,
             _ => {}
         }
     }
-    for child in children(raw).into_iter().filter(|&child| child < plane.meta.len()) {
-        out.children.metrics.push(Metrics { occurrences: 1, ..from_metadata(plane, map, child).1 });
+    for child in children(raw) {
+        if child >= plane.meta.len() || path.contains(&child) {
+            continue;
+        }
+        out.children.metrics.push(Metrics { occurrences: 1, ..from_metadata(plane, map, child, path).1 });
     }
+    path.pop();
     (key.0.zip(key.1), out)
 }
 
@@ -223,7 +228,7 @@ pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
             *slot = true;
         }
     }
-    let metas: Vec<Template> = used.par_iter().enumerate().map(|(meta, &used)| used.then(|| from_metadata(plane, map, meta))).collect();
+    let metas: Vec<Template> = used.par_iter().enumerate().map(|(meta, &used)| used.then(|| from_metadata(plane, map, meta, &mut Vec::new()))).collect();
     let key = |template: &Template| template.as_ref().and_then(|(key, _)| key.filter(|key| key.1 != 0));
     let mut keys: Vec<(u64, u64)> = metas.iter().filter_map(key).collect();
     keys.sort_unstable();

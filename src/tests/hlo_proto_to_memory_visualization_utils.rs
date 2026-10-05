@@ -890,3 +890,13 @@ fn memory_viewer_matches_xprof_on_synthetic_modules() {
         assert_eq!(crate::memory_viewer::serve(&dir, &params).unwrap().0, case["body"].as_str().unwrap(), "{params:?}");
     }
 }
+
+#[test]
+fn test_heap_simulator_trace_share_with_cycle() {
+    for trace in [
+        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 1 share_with_canonical_id: 1 }\nevents { kind: FREE buffer_id: 1 }",
+        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 1 share_with_canonical_id: 2 }\nevents { kind: FREE buffer_id: 1 }",
+    ] {
+        preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
+    }
+}

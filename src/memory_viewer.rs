@@ -119,7 +119,7 @@ fn introsort(mut items: &mut [usize], mut depth: usize, less: &impl Fn(usize, us
 fn source_info(stack: &StackFrameIndexProto, metadata: &OpMetadata) -> Option<SourceInfo> {
     let mut frames = Vec::new();
     let mut frame = metadata.stack_frame_id;
-    while frame > 0 && frame as usize <= stack.stack_frames.len() {
+    while frame > 0 && frame as usize <= stack.stack_frames.len() && frames.len() < stack.stack_frames.len() {
         let entry = stack.stack_frames[frame as usize - 1];
         frame = entry.parent_frame_id;
         let (mut file, mut line, mut column) = ("", -1, -1);
@@ -309,6 +309,9 @@ fn simulate(model: &mut Model, color: i64) -> Option<Simulation> {
             }
             2 => {
                 let Some(canonical) = model.buffers.get_index_of(&event.share_with_canonical_id) else { continue };
+                if std::iter::successors(Some(canonical), |&at| model.buffers[at].canonical).any(|at| at == index) {
+                    continue;
+                }
                 model.buffers[index].canonical = Some(canonical);
                 let root = model.root(canonical);
                 model.buffers[root].refs += 1;

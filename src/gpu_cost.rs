@@ -724,23 +724,24 @@ impl<'c, 'm> Analysis<'c, 'm> {
             (true, Some(false)) => 2,
             (true, Some(true)) => 3,
         };
-        let groups: Vec<i64> = match (replica_groups(inst), &inst.replica_group_list) {
-            (legacy, _) if !legacy.is_empty() => legacy.iter().map(|group| group.replica_ids.len() as i64).collect(),
-            (_, Some(ReplicaGroupList::IotaCollectiveDeviceList(list))) => vec![list.num_devices_per_group; list.num_replica_groups.max(0) as usize],
+        let largest: Option<i64> = match (replica_groups(inst), &inst.replica_group_list) {
+            (legacy, _) if !legacy.is_empty() => legacy.iter().map(|group| group.replica_ids.len() as i64).max(),
+            (_, Some(ReplicaGroupList::IotaCollectiveDeviceList(list))) => (list.num_replica_groups > 0).then_some(list.num_devices_per_group),
             (_, Some(ReplicaGroupList::MeshAxesReplicaGroupList(list))) => {
                 let axes = list.mesh.as_ref().map_or(&[][..], |mesh| &mesh.axes[..]);
-                let devices: i64 = axes.iter().map(|axis| axis.size).product();
-                let size: i64 = list.axes.iter().map(|axis| axis.sub_axis_info.map_or_else(|| axes.get(axis.mesh_axis_index as usize).map_or(1, |mesh_axis| mesh_axis.size), |sub| sub.size)).product();
-                if size > 0 { vec![size; (devices / size).max(0) as usize] } else { Vec::new() }
+                let devices = axes.iter().try_fold(1i64, |product, axis| product.checked_mul(axis.size));
+                let size = list.axes.iter().try_fold(1i64, |product, axis| {
+                    product.checked_mul(axis.sub_axis_info.map_or_else(|| axes.get(axis.mesh_axis_index as usize).map_or(1, |mesh_axis| mesh_axis.size), |sub| sub.size))
+                });
+                devices.zip(size).filter(|&(devices, size)| size > 0 && devices / size > 0).map(|(_, size)| size)
             }
-            (_, Some(ReplicaGroupList::CollectiveDeviceList(list))) => list.replica_groups.iter().map(|group| group.replica_ids.len() as i64).collect(),
-            (_, None) => Vec::new(),
+            (_, Some(ReplicaGroupList::CollectiveDeviceList(list))) => list.replica_groups.iter().map(|group| group.replica_ids.len() as i64).max(),
+            (_, None) => None,
         };
-        if groups.is_empty() && mode == 3 {
+        if largest.is_none() && mode == 3 {
             return Err("RET_CHECK failure !replica_groups.empty() replica groups cannot be empty for kFlattenedID mode".into());
         }
-        let groups = if groups.is_empty() { vec![1] } else { groups };
-        Ok(groups.into_iter().fold(1, i64::max))
+        Ok(largest.map_or(1, |largest| largest.max(1)))
     }
 
     fn all_gather(&mut self, node: usize, skip: Option<i64>) -> Status {

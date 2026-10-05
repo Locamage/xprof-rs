@@ -50,10 +50,12 @@ mod inference_stats_sampler;
 mod json_parse;
 mod kernel_stats_db;
 mod kernel_stats_utils;
+
 mod layout;
 mod layout_util;
 pub mod legacy;
 mod literal;
+mod malformed_input;
 mod memory_bound_rule;
 mod memory_profile;
 mod mock_tool_data_provider;

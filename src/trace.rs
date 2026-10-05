@@ -35,7 +35,7 @@ pub struct Event {
     pub meta: u32,
     pub eager: Option<bool>,
     pub level: u8,
-    pub plane: u16,
+    pub plane: u32,
     pub flow_entry: u8,
     pub flow_cat: u8,
 }
@@ -177,8 +177,8 @@ fn device_planes(planes: &[Plane]) -> Vec<(usize, u32)> {
     let mut selected: Vec<(usize, u32)> = hosts.into_iter().zip(701..).collect();
     let gpus = with_prefix("/device:GPU:");
     let devices = if gpus.is_empty() { with_prefix("/device:TPU:") } else { gpus };
-    selected.extend(devices.into_iter().map(|index| (index, if 1 + planes[index].id > 500 { 1 } else { 1 + planes[index].id as u32 })));
-    selected.extend(with_prefix("/device:CUSTOM:").into_iter().map(|index| (index, 501 + planes[index].id as u32)));
+    selected.extend(devices.into_iter().map(|index| (index, Some(1u32.wrapping_add(planes[index].id as u32)).filter(|&pid| pid <= 500).unwrap_or(1))));
+    selected.extend(with_prefix("/device:CUSTOM:").into_iter().map(|index| (index, 501u32.wrapping_add(planes[index].id as u32))));
     selected
 }
 
@@ -282,7 +282,7 @@ fn convert(planes: &[Plane], map: &[u8], layout: &Layout) -> (Vec<Event>, Vec<Bo
                 track,
                 meta: if derived { DERIVED_META } else { event.meta },
                 eager: event.eager,
-                plane: plane_index as u16,
+                plane: plane_index as u32,
                 flow_entry,
                 flow_cat,
                 ..Default::default()

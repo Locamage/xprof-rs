@@ -92,8 +92,7 @@ pub fn cache_path(dir: &Path) -> PathBuf {
     }
     let key: String = Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>()[..16].to_string();
     let temp = ["TMPDIR", "TEMP", "TMP"].iter().filter_map(std::env::var_os).map(PathBuf::from).find(|path| path.is_dir()).unwrap_or_else(|| PathBuf::from("/tmp"));
-    let folder = temp.join(format!("xprof_{}", unsafe { libc::getuid() }));
-    _ = std::fs::create_dir_all(&folder);
+    let Ok(folder) = crate::private_dir(&temp.join(format!("xprof_{}", unsafe { libc::getuid() }))) else { return dir.join(CACHE_FILE) };
     folder.join(format!("xprof_{key}_{CACHE_FILE}"))
 }
 
