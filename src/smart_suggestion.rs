@@ -143,19 +143,11 @@ fn input_percent(data: &dyn ToolData) -> Data<f64> {
     data.input_pipeline().map(|input| input.input_percent)
 }
 
-fn enqueue_split(data: &dyn ToolData) -> Data<(f64, f64)> {
+fn percent_of_input(data: &dyn ToolData, enqueue: bool) -> Data<f64> {
     let input = data.input_pipeline()?;
-    Ok((input.enqueue_us, input.demanded_file_read_us + input.advanced_file_read_us + input.preprocessing_us + input.unclassified_non_enqueue_us))
-}
-
-fn enqueue_percent_of_input(data: &dyn ToolData) -> Data<f64> {
-    let (enqueue, other) = enqueue_split(data)?;
-    Ok(if enqueue + other == 0.0 { 0.0 } else { enqueue / (enqueue + other) * 100.0 })
-}
-
-fn non_enqueue_percent_of_input(data: &dyn ToolData) -> Data<f64> {
-    let (enqueue, other) = enqueue_split(data)?;
-    Ok(if other + enqueue == 0.0 { 0.0 } else { other / (other + enqueue) * 100.0 })
+    let other = input.demanded_file_read_us + input.advanced_file_read_us + input.preprocessing_us + input.unclassified_non_enqueue_us;
+    let total = input.enqueue_us + other;
+    Ok(if total == 0.0 { 0.0 } else { (if enqueue { input.enqueue_us } else { other }) / total * 100.0 })
 }
 
 fn step_fractions(data: &dyn ToolData, categories: &[&str]) -> Data<Vec<f32>> {
@@ -183,18 +175,10 @@ fn data_shuffle_percent(data: &dyn ToolData) -> Data<f64> {
     step_fractions(data, &DATA_SHUFFLE).map(|fractions| average_percent(&fractions))
 }
 
-fn tpu_breakdown_percent(data: &dyn ToolData, pick: fn((f64, f64)) -> f64) -> Data<f64> {
+fn tpu_percent(data: &dyn ToolData, sparse_core: bool) -> Data<f64> {
     let input = data.input_pipeline()?;
-    let value = pick(input.tpu.ok_or_else(|| "Failed to unpack TpuStepTimeBreakdown.".to_string())?);
-    Ok(if input.step_time_ms == 0.0 { 0.0 } else { value / input.step_time_ms * 100.0 })
-}
-
-fn tensor_core_idle_percent(data: &dyn ToolData) -> Data<f64> {
-    tpu_breakdown_percent(data, |(idle, _)| idle)
-}
-
-fn sparse_core_percent(data: &dyn ToolData) -> Data<f64> {
-    tpu_breakdown_percent(data, |(_, sparse)| sparse)
+    let (idle, sparse) = input.tpu.ok_or_else(|| "Failed to unpack TpuStepTimeBreakdown.".to_string())?;
+    Ok(if input.step_time_ms == 0.0 { 0.0 } else { (if sparse_core { sparse } else { idle }) / input.step_time_ms * 100.0 })
 }
 
 fn event_percent(data: &dyn ToolData, event: &str) -> Data<f64> {
@@ -299,7 +283,7 @@ fn data_shuffle_bound(data: &dyn ToolData) -> Data<String> {
 }
 
 fn data_transfer_bound(data: &dyn ToolData) -> Data<String> {
-    let (input, enqueue) = (input_percent(data)?, enqueue_percent_of_input(data)?);
+    let (input, enqueue) = (input_percent(data)?, percent_of_input(data, true)?);
     Ok(format!(
         "<p>Your program is likely bottlenecked by <b>data transfer</b> between Host and Device: <b>{}% of the total step time</b> is spent on enqueuing data to the device. Please consider the following optimizations:</p><ul><li><b>Combine small data chunks:</b> Transferring many small chunks of data can be inefficient. Try to batch them into fewer, larger transfers.</li><li><b>Check transfer size:</b> Ensure the size of data being transferred in each batch is optimal for the hardware.</li><li><b>Use prefetching:</b> Overlap data transfer with computation.</li></ul>",
         one(input * enqueue / 100.0)
@@ -317,7 +301,7 @@ fn debug_print(data: &dyn ToolData) -> Data<String> {
 }
 
 fn host_processing_bound(data: &dyn ToolData) -> Data<String> {
-    let (input, other) = (input_percent(data)?, non_enqueue_percent_of_input(data)?);
+    let (input, other) = (input_percent(data)?, percent_of_input(data, false)?);
     Ok(format!(
         "<p>Your program is likely bottlenecked by <b>Host-side Processing</b> in the input pipeline: <b>{}% of the total step time</b> is spent on host-side input data processing. Please consider the following optimizations:</p><ul><li><b>Optimize Data Reading:</b> Ensure efficient file reading patterns. Use prefetching and interleaving to load data in parallel and in advance.</li><li><b>Parallelize Data Preprocessing:</b> Utilize parallel processing techniques for CPU-bound preprocessing steps.</li><li><b>Offline Preprocessing:</b> For static datasets, consider performing expensive preprocessing steps offline and saving the results.</li><li><b>Tuning Parameters:</b> Experiment with buffer sizes, the number of parallel threads, and prefetch distances in your input pipeline to find the best settings.</li></ul>",
         one(input * other / 100.0)
@@ -343,14 +327,14 @@ fn memory_bound(data: &dyn ToolData) -> Data<String> {
 fn tensor_core_idle_bound(data: &dyn ToolData) -> Data<String> {
     Ok(format!(
         "<p>Your program is likely bottlenecked by <b>TensorCore Idle Time</b>: High TensorCore idle time percentage of <b>{}%</b> indicates that TensorCores are spending a significant amount of time waiting, not working. Please consider the following optimizations: </p><ul><li><b>Reduce Kernel Launch Overhead:</b> Batch small operations into larger ones to reduce the number of kernel launches.</li><li><b>Minimize Python Overhead:</b> Enclose more operations within compiled graphs or functions to reduce Python interpreter overhead between steps.</li><li><b>Avoid Small CPU Ops:</b> Shift small, frequent operations from the CPU to the device if possible.</li><li><b>Use Asynchronous Operations:</b> Employ asynchronous execution for tasks like checkpointing or metric logging to prevent blocking device execution.</li></ul>",
-        one(tensor_core_idle_percent(data)?)
+        one(tpu_percent(data, false)?)
     ))
 }
 
 fn sparse_core_bound(data: &dyn ToolData) -> Data<String> {
     Ok(format!(
         "<p>Your program is likely bottlenecked by <b>SparseCore Operations</b> in the TPU: <b>{}% of the total step time </b> is spent on SparseCore. Please consider the following optimizations: </p><ul><li><b>Refine Sparse Data Representation:</b> Ensure your sparse tensors are in the most performant format for your hardware (e.g., CSR/CSC if suitable). Pre-process data to improve memory access patterns on the SparseCore, like sorting indices or grouping related features.</li><li><b>Streamline Embedding Tables:</b> For large embedding tables, consider quantization (reducing precision like int8) or pruning to significantly cut down their memory footprint and processing load on the SparseCore.</li><li><b>Utilize Framework-Specific Sparse APIs:</b> Employ specialized APIs designed for sparse operations on your platform (e.g., tf.tpu.experimental.embedding.TPU Embedding for TensorFlow/TPU). These are highly optimized for direct SparseCore interaction.</li></ul>",
-        one(sparse_core_percent(data)?)
+        one(tpu_percent(data, true)?)
     ))
 }
 
@@ -368,27 +352,19 @@ pub(crate) const RULES: [Rule; 12] = [
     Rule { name: "CollectiveBoundRule", meets: |data| collective_percent(data).is_ok_and(|percent| percent >= COLLECTIVE_PERCENT), generate: collective_bound },
     Rule { name: "ComputeBoundRule", meets: |data| matches!((hbm(data), mxu(data)), (Ok(hbm), Ok(mxu)) if mxu > MXU_HIGH && hbm < HBM_LOW), generate: compute_bound },
     Rule { name: "DataShuffleBoundRule", meets: |data| data_shuffle_percent(data).is_ok_and(|percent| percent >= DATA_SHUFFLE_PERCENT), generate: data_shuffle_bound },
-    Rule { name: "DataTransferBoundRule", meets: |data| input_bound(data) && enqueue_percent_of_input(data).is_ok_and(|percent| percent >= DATA_TRANSFER_PERCENT), generate: data_transfer_bound },
+    Rule { name: "DataTransferBoundRule", meets: |data| input_bound(data) && percent_of_input(data, true).is_ok_and(|percent| percent >= DATA_TRANSFER_PERCENT), generate: data_transfer_bound },
     Rule { name: "DebugPrintRule", meets: |data| host_event_percents(data, DEBUG_PRINT).is_ok_and(|hosts| hosts.iter().any(|(_, percent)| *percent >= DEBUG_PRINT_PERCENT)), generate: debug_print },
-    Rule {
-        name: "HostProcessingBoundRule",
-        meets: |data| input_bound(data) && non_enqueue_percent_of_input(data).is_ok_and(|percent| percent >= HOST_PROCESSING_PERCENT),
-        generate: host_processing_bound,
-    },
+    Rule { name: "HostProcessingBoundRule", meets: |data| input_bound(data) && percent_of_input(data, false).is_ok_and(|percent| percent >= HOST_PROCESSING_PERCENT), generate: host_processing_bound },
     Rule {
         name: "InputBoundRule",
         meets: |data| {
-            input_bound(data) && matches!((non_enqueue_percent_of_input(data), enqueue_percent_of_input(data)), (Ok(other), Ok(enqueue)) if other.abs() < ZERO_EPSILON && enqueue.abs() < ZERO_EPSILON)
+            input_bound(data) && matches!((percent_of_input(data, false), percent_of_input(data, true)), (Ok(other), Ok(enqueue)) if other.abs() < ZERO_EPSILON && enqueue.abs() < ZERO_EPSILON)
         },
         generate: input_bound_text,
     },
     Rule { name: "MemoryBoundRule", meets: |data| matches!((hbm(data), mxu(data)), (Ok(hbm), Ok(mxu)) if hbm > HBM_HIGH && mxu < MXU_LOW), generate: memory_bound },
-    Rule {
-        name: "TensorCoreIdleBoundRule",
-        meets: |data| latency_bound(data) && tensor_core_idle_percent(data).is_ok_and(|percent| percent > TENSOR_CORE_IDLE_PERCENT),
-        generate: tensor_core_idle_bound,
-    },
-    Rule { name: "SparseCoreBoundRule", meets: |data| latency_bound(data) && sparse_core_percent(data).is_ok_and(|percent| percent > SPARSE_CORE_PERCENT), generate: sparse_core_bound },
+    Rule { name: "TensorCoreIdleBoundRule", meets: |data| latency_bound(data) && tpu_percent(data, false).is_ok_and(|percent| percent > TENSOR_CORE_IDLE_PERCENT), generate: tensor_core_idle_bound },
+    Rule { name: "SparseCoreBoundRule", meets: |data| latency_bound(data) && tpu_percent(data, true).is_ok_and(|percent| percent > SPARSE_CORE_PERCENT), generate: sparse_core_bound },
     Rule {
         name: "SparseCoreOffloadRule",
         meets: |data| matches!((async_done_percent(data), peak_memory_percent(data)), (Ok(async_done), Ok(memory)) if async_done > ASYNC_DONE_PERCENT && memory < MEMORY_HIGH),

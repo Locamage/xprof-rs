@@ -500,9 +500,10 @@ fn device_events(planes: &[Plane], map: &[u8], events: &Events, ids: &StatIds) -
         }
     }
     for plane in planes.iter().filter(|plane| is_tensor_core(&plane.name)) {
+        let (group_id, program_id) = (plane.id("group_id"), plane.id("program_id"));
         for (line, event) in plane.lines.iter().filter(|line| line.name == XLA_MODULES).flat_map(|line| line.events.iter().map(move |event| (line, event))) {
-            let Some(group) = event_group(slice(map, event.raw), event.group, plane.id("group_id")) else { continue };
-            let program = plane.stat(map, event.meta, event.raw, "program_id").map(|value| value.int().unwrap_or(0) as u64);
+            let Some(group) = event_group(slice(map, event.raw), event.group, group_id) else { continue };
+            let program = plane.find(map, event.meta, event.raw, program_id).map(|value| value.int().unwrap_or(0) as u64);
             found.push((group, (DEVICE_COMPUTE_32, Span { begin: line.absolute_ps(event.ts, plane.origin_ns), duration: event.dur }), program));
         }
     }
@@ -791,15 +792,15 @@ fn throughput_and_latency(spans: &[(u64, u64)]) -> (f64, f64) {
 
 fn add_request(sum: &mut RequestDetail, request: &RequestDetail) {
     sum.end_time_ps = sum.end_time_ps.wrapping_add(request.end_time_ps.wrapping_sub(request.start_time_ps));
-    sum.device_time_ps += request.device_time_ps;
-    sum.read_from_device_time_ps += request.read_from_device_time_ps;
-    sum.write_to_device_time_ps += request.write_to_device_time_ps;
+    sum.device_time_ps = sum.device_time_ps.wrapping_add(request.device_time_ps);
+    sum.read_from_device_time_ps = sum.read_from_device_time_ps.wrapping_add(request.read_from_device_time_ps);
+    sum.write_to_device_time_ps = sum.write_to_device_time_ps.wrapping_add(request.write_to_device_time_ps);
     sum.batching_request_delay_ps = sum.batching_request_delay_ps.wrapping_add(request.batching_request_delay_ps);
     sum.batching_request_size = sum.batching_request_size.wrapping_add(request.batching_request_size);
-    sum.host_preprocessing_ps += request.host_preprocessing_ps;
-    sum.host_batch_formation_ps += request.host_batch_formation_ps;
-    sum.host_runtime_ps += request.host_runtime_ps;
-    sum.host_postprocessing_ps += request.host_postprocessing_ps;
+    sum.host_preprocessing_ps = sum.host_preprocessing_ps.wrapping_add(request.host_preprocessing_ps);
+    sum.host_batch_formation_ps = sum.host_batch_formation_ps.wrapping_add(request.host_batch_formation_ps);
+    sum.host_runtime_ps = sum.host_runtime_ps.wrapping_add(request.host_runtime_ps);
+    sum.host_postprocessing_ps = sum.host_postprocessing_ps.wrapping_add(request.host_postprocessing_ps);
     sum.idle_time_ps += request.idle_time_ps;
 }
 
@@ -830,7 +831,7 @@ fn add_batch(sum: &mut BatchDetail, batch: &BatchDetail) {
     sum.batch_delay_ps = sum.batch_delay_ps.wrapping_add(batch.batch_delay_ps);
     sum.padding_amount = sum.padding_amount.wrapping_add(batch.padding_amount);
     sum.batch_size_after_padding = sum.batch_size_after_padding.wrapping_add(batch.batch_size_after_padding);
-    sum.device_time_ps += batch.device_time_ps;
+    sum.device_time_ps = sum.device_time_ps.wrapping_add(batch.device_time_ps);
 }
 
 fn average_batch(sum: &BatchDetail, size: usize) -> BatchDetail {

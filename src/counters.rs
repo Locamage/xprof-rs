@@ -199,21 +199,12 @@ fn line(bytes: &[u8]) -> Line<'_> {
 }
 
 fn chunks(bytes: &[u8]) -> Vec<&[u8]> {
-    let (mut pieces, mut start, mut pos, mut count) = (Vec::new(), 0, 0, 0);
-    while pos < bytes.len() {
-        let key = varint(bytes, &mut pos).unwrap_or_default();
-        match key & 7 {
-            0 => {
-                varint(bytes, &mut pos);
-            }
-            1 => pos += 8,
-            2 => pos += varint(bytes, &mut pos).unwrap_or_default() as usize,
-            _ => pos += 4,
-        }
+    let (mut pieces, mut start, mut count, mut items) = (Vec::new(), 0, 0, fields(bytes));
+    while items.next().is_some() {
         count += 1;
         if count == FIELDS_PER_CHUNK {
-            pieces.push(&bytes[start..pos]);
-            (start, count) = (pos, 0);
+            pieces.push(&bytes[start..items.pos]);
+            (start, count) = (items.pos, 0);
         }
     }
     if start < bytes.len() {

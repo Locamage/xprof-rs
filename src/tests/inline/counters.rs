@@ -105,6 +105,15 @@ fn validates_wire_format() {
 }
 
 #[test]
+fn chunks_of_a_truncated_line() {
+    let mut line = [0x08, 0x00].repeat(FIELDS_PER_CHUNK - 1);
+    line.extend([0x09, 0x01, 0x02]);
+    assert_eq!(chunks(&line).concat(), line);
+    let long = [0x0a, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
+    assert_eq!(chunks(&long).concat(), long);
+}
+
+#[test]
 fn grouping_needs_group_id_on_every_plane() {
     assert!(sorted_samples(&planes(&space(false), |_| true)));
     assert!(!sorted_samples(&planes(&space(true), |_| true)));

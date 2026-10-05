@@ -84,11 +84,11 @@ fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
         let allocator = allocators.entry(memory_id).or_default();
         let summary = &mut allocator.summary;
         summary.lifetime = stats_.peak_bytes_in_use;
-        let in_use = stats_.stack_reserved_bytes + stats_.heap_allocated_bytes;
+        let in_use = stats_.stack_reserved_bytes.wrapping_add(stats_.heap_allocated_bytes);
         if in_use >= summary.peak.peak_bytes_in_use {
             summary.peak = Stats { peak_bytes_in_use: in_use, ..stats_ };
             summary.peak_time = time;
-            summary.capacity = in_use + stats_.free_memory_bytes;
+            summary.capacity = in_use.wrapping_add(stats_.free_memory_bytes);
         }
         allocator.snapshots.push(Snapshot { time, stats: stats_, meta });
     }
@@ -96,16 +96,16 @@ fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
 }
 
 fn key(meta: &Activity) -> (i64, i64, &str, &str, &str, &str) {
-    (-meta.allocation_bytes, -meta.requested_bytes, &meta.tf_op_name, &meta.region_type, &meta.data_type, &meta.tensor_shape)
+    (meta.allocation_bytes.wrapping_neg(), meta.requested_bytes.wrapping_neg(), &meta.tf_op_name, &meta.region_type, &meta.data_type, &meta.tensor_shape)
 }
 
 fn process(allocator: &mut Allocator) {
     let snapshots = &mut allocator.snapshots;
     snapshots.sort_by_key(|snapshot| snapshot.time);
-    let mut last_step = -1;
+    let mut last_step = -1i64;
     for snapshot in snapshots.iter_mut() {
         if snapshot.meta.step_id == -1 {
-            snapshot.meta.step_id = last_step + 1;
+            snapshot.meta.step_id = last_step.wrapping_add(1);
         } else {
             last_step = snapshot.meta.step_id;
         }
@@ -124,7 +124,7 @@ fn process(allocator: &mut Allocator) {
         }
     }
     let count = snapshots.len();
-    let in_use = |snapshot: &Snapshot| snapshot.stats.heap_allocated_bytes + snapshot.stats.stack_reserved_bytes;
+    let in_use = |snapshot: &Snapshot| snapshot.stats.heap_allocated_bytes.wrapping_add(snapshot.stats.stack_reserved_bytes);
     allocator.sampled = if count > MAX_SNAPSHOTS {
         let width = count / MAX_SNAPSHOTS;
         let first = MAX_SNAPSHOTS * (width + 1) - count;
@@ -151,15 +151,15 @@ fn process(allocator: &mut Allocator) {
         }
         if snapshot.meta.memory_activity == ALLOCATION {
             active.insert(snapshot.meta.address, index);
-            unmapped -= snapshot.meta.allocation_bytes;
+            unmapped = unmapped.wrapping_sub(snapshot.meta.allocation_bytes);
         } else {
             if active.remove(&snapshot.meta.address).is_none() {
-                unmapped_free += snapshot.meta.allocation_bytes;
+                unmapped_free = unmapped_free.wrapping_add(snapshot.meta.allocation_bytes);
             }
-            unmapped += snapshot.meta.allocation_bytes;
+            unmapped = unmapped.wrapping_add(snapshot.meta.allocation_bytes);
         }
     }
-    unmapped -= unmapped_free;
+    unmapped = unmapped.wrapping_sub(unmapped_free);
     let mut order: Vec<usize> = active.into_values().collect();
     order.sort_unstable();
     let mut entries: Vec<(i64, &Activity)> = order.into_iter().map(|index| (index as i64, &snapshots[index].meta)).collect();
@@ -242,3 +242,7 @@ pub fn json(planes: &[Plane], map: &[u8]) -> String {
         .collect();
     crate::pbtext::json("tensorflow.profiler.MemoryProfile", &MemoryProfile { memory_profile_per_allocator, num_hosts: 1, memory_ids, version: 1, hlo_modules }, true)
 }
+
+#[cfg(test)]
+#[path = "tests/inline/memory_profile.rs"]
+mod tests;
