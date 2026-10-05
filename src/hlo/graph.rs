@@ -383,7 +383,7 @@ impl Dumper<'_> {
         if !self.backend_config || config.is_empty() {
             return String::new();
         }
-        format!("backend_config=\"{}\"", crate::xplane::lossy(&config))
+        format!("backend_config=\"{}\"", String::from_utf8_lossy(&config))
     }
 
     fn extra_info(&mut self, node: usize) -> String {
@@ -422,7 +422,7 @@ impl Dumper<'_> {
         self.printer.extra(node, &module.inst(node), true, &mut attributes);
         for line in attributes {
             if (line.starts_with("replica_groups=") || line.starts_with("source_target_pairs=") || line.starts_with("control-predecessors=")) && line.len() > 128 {
-                lines.push(sanitize_html(&format!("{}...", crate::xplane::lossy(&line.as_bytes()[..125]))));
+                lines.push(sanitize_html(&format!("{}...", String::from_utf8_lossy(&line.as_bytes()[..125]))));
             } else if line.starts_with("feature_group_count=") {
                 lines.push(format!("<b>{}</b>", sanitize_html(&line)));
             } else {

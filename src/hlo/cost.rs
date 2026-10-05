@@ -1032,7 +1032,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
         }
         self.current.set(Key::Flops, value);
         self.bottleneck = false;
-        let raw = crate::xplane::lossy(&context.module.backend_config(inst).unwrap_or_default()).into_owned();
+        let raw = String::from_utf8_lossy(&context.module.backend_config(inst).unwrap_or_default()).into_owned();
         if raw.contains("cost_estimate_json") {
             if let Some(flops) = cost_estimate(&raw, "flops").filter(|value| *value >= 0) {
                 self.current.set(Key::Flops, flops as f32);

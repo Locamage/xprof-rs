@@ -838,11 +838,11 @@ impl<'a> Printer<'a> {
                 }
             }
             "cholesky" => flag(attributes, "lower", msg(&inst.cholesky_options).lower),
-            "infeed" if !inst.infeed_config.is_empty() => attributes.push(format!("infeed_config=\"{}\"", escaped(&crate::xplane::lossy(&inst.infeed_config)))),
+            "infeed" if !inst.infeed_config.is_empty() => attributes.push(format!("infeed_config=\"{}\"", escaped(&String::from_utf8_lossy(&inst.infeed_config)))),
             "outfeed" => {
                 attributes.push(format!("outfeed_shape={}", msg(&inst.outfeed_shape).text(true)));
                 if !inst.outfeed_config.is_empty() {
-                    attributes.push(format!("outfeed_config=\"{}\"", escaped(&crate::xplane::lossy(&inst.outfeed_config))));
+                    attributes.push(format!("outfeed_config=\"{}\"", escaped(&String::from_utf8_lossy(&inst.outfeed_config))));
                 }
             }
             "domain" => {
@@ -1022,7 +1022,7 @@ impl<'a> Printer<'a> {
             None => self.fail("backend config payload id"),
             Some(config) if !config.is_empty() => {
                 out.push_str(", backend_config=");
-                let text = crate::xplane::lossy(&config);
+                let text = String::from_utf8_lossy(&config);
                 if lexes_as_json_dict(&text) {
                     out.push_str(&text);
                 } else {

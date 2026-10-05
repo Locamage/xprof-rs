@@ -555,7 +555,7 @@ pub fn get_hlo_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     params.extend(args.flag("bypass_cache", false).then(|| bypass(true)));
     let data = client.fetch("hlo_stats.json", &session, &params).map_err(|error| Error::new(Kind::Runtime, format!("Error fetching HLO stats for session {session}: {}", error.repr())))?;
     let data = data.ok_or_else(|| Error::new(Kind::Runtime, "Unexpected data type returned: <class 'NoneType'>"))?;
-    let text = crate::xplane::lossy(&data);
+    let text = String::from_utf8_lossy(&data);
     let table = J::parse(text.trim()).filter(|table| table.has("cols")).ok_or_else(|| Error::new(Kind::Value, "Failed to parse HloStatsDatabase proto: ParseError('Failed to load JSON')"))?;
     let mut records = stats_records(&table, args.text("category_filter").as_deref().filter(|filter| !filter.is_empty()));
     crate::release(table);

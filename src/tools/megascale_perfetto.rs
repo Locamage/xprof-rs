@@ -207,7 +207,7 @@ fn add_args(plane: &Plane, raw: &[u8], field: u32, strings: &mut Interner, args:
             Raw::Int(number) => Value::Int(number),
             Raw::Uint(number) => Value::Uint(number),
             Raw::Double(number) => Value::Double(number),
-            Raw::Str(text) => Value::Text(strings.intern(&crate::xplane::lossy(text))),
+            Raw::Str(text) => Value::Text(strings.intern(&String::from_utf8_lossy(text))),
             Raw::Bytes(_) => Value::Text(strings.intern("")),
             Raw::Ref(reference) => Value::Text(strings.intern(stat_name(plane, reference as usize))),
         };
@@ -269,7 +269,7 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
         for line in &plane.lines {
             for ev in &line.events {
                 let key = raw_stats(slice(map, ev.raw), 4).into_iter().rfind(|(id, _)| stat_name(plane, *id) == "graph_key").map_or(String::new(), |(_, value)| match value {
-                    Raw::Str(text) => crate::xplane::lossy(text).into_owned(),
+                    Raw::Str(text) => String::from_utf8_lossy(text).into_owned(),
                     Raw::Ref(reference) => stat_name(plane, reference as usize).to_string(),
                     _ => String::new(),
                 });

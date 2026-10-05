@@ -79,7 +79,7 @@ pub trait Client {
     }
 
     fn fetch_text(&self, tool: &str, session: &str, params: &Params) -> Result<Option<String>, Error> {
-        Ok(self.fetch(tool, session, params)?.filter(|data| !data.is_empty()).map(|data| crate::xplane::lossy(&data).into_owned()))
+        Ok(self.fetch(tool, session, params)?.filter(|data| !data.is_empty()).map(|data| String::from_utf8_lossy(&data).into_owned()))
     }
 
     fn fetch_either(&self, first: &str, second: &str, session: &str, params: &Params) -> Result<Option<String>, Error> {

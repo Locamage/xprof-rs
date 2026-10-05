@@ -87,7 +87,7 @@ pub fn split(buf: &[u8], number: u32) -> (Vec<u8>, Vec<&[u8]>) {
 pub fn general(value: f64, precision: usize) -> String {
     let mut buffer = [0u8; 64];
     let length = unsafe { libc::snprintf(buffer.as_mut_ptr().cast(), buffer.len(), c"%.*g".as_ptr(), precision as libc::c_int, value) };
-    crate::xplane::lossy(&buffer[..length as usize]).into_owned()
+    String::from_utf8_lossy(&buffer[..length as usize]).into_owned()
 }
 
 /// Writes `%.15g` when it gives back `value`, and `%.17g` if not. For a normal `value`, a shortest form of 15 or fewer digits is equal to `%.15g`.
@@ -699,7 +699,7 @@ pub fn protos<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, &'a [u8])> {
 }
 
 pub fn module_name(proto: &[u8]) -> String {
-    crate::xplane::lossy(last_bytes(last_bytes(proto, 1), 1)).into_owned()
+    String::from_utf8_lossy(last_bytes(last_bytes(proto, 1), 1)).into_owned()
 }
 
 /// Shared fused graphs expand as a tree. The depth and the budget limit the size of that tree.

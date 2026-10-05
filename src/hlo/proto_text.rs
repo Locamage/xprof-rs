@@ -174,7 +174,7 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
             out.extend(std::iter::repeat_n("  ", depth));
             out.push('}');
         }
-        (Field::Bytes(_, bytes), _) if json => json_string(out, &crate::xplane::lossy(bytes)),
+        (Field::Bytes(_, bytes), _) if json => json_string(out, &String::from_utf8_lossy(bytes)),
         (Field::Bytes(_, bytes), _) => {
             out.push_str(": \"");
             c_escape(out, bytes);
@@ -299,7 +299,7 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                 out.push('{');
                 for (index, ((number, text), bytes)) in entries.iter().enumerate() {
                     let name = match key_kind {
-                        Kind::String => crate::xplane::lossy(text).into_owned(),
+                        Kind::String => String::from_utf8_lossy(text).into_owned(),
                         Kind::Bool => (*number != 0).to_string(),
                         _ => number.to_string(),
                     };

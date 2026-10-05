@@ -371,7 +371,7 @@ fn fitting_label(label: &str, width: f64, height: f64, fontsize: f64) -> String 
     if label.len() as i64 <= max_chars {
         return label.to_string();
     }
-    if max_chars >= 4 { format!("{}...", crate::xplane::lossy(&label.as_bytes()[..max_chars as usize - 3])) } else { String::new() }
+    if max_chars >= 4 { format!("{}...", String::from_utf8_lossy(&label.as_bytes()[..max_chars as usize - 3])) } else { String::new() }
 }
 
 fn logical_buffers(module: &Module, bodies: &[&[u8]]) -> Option<Vec<Logical>> {

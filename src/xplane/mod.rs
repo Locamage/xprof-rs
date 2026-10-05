@@ -86,10 +86,6 @@ pub fn varint(buf: &[u8], pos: &mut usize) -> Option<u64> {
     None
 }
 
-pub fn lossy(bytes: &[u8]) -> Cow<'_, str> {
-    std::str::from_utf8(bytes).map_or_else(|_| String::from_utf8_lossy(bytes), Cow::Borrowed)
-}
-
 pub struct Fields<'a> {
     buf: &'a [u8],
     pub pos: usize,
@@ -204,7 +200,7 @@ pub struct Meta {
 
 impl Meta {
     pub fn long_name<'a>(&self, map: &'a [u8]) -> Cow<'a, str> {
-        lossy(slice(map, self.long))
+        String::from_utf8_lossy(slice(map, self.long))
     }
 
     pub fn full_name<'a>(&'a self, map: &'a [u8]) -> Cow<'a, str> {
@@ -339,8 +335,8 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
         match (tag, field) {
             (1, Field::Num(id)) => line.id = id as i64,
             (10, Field::Num(id)) => line.display_id = id as i64,
-            (2, Field::Bytes(_, name)) => line.name = lossy(name).into(),
-            (11, Field::Bytes(_, name)) => line.display_name = lossy(name).into(),
+            (2, Field::Bytes(_, name)) => line.name = String::from_utf8_lossy(name).into(),
+            (11, Field::Bytes(_, name)) => line.display_name = String::from_utf8_lossy(name).into(),
             (3, Field::Num(nanos)) => line.timestamp_ns = nanos as i64,
             (4, Field::Bytes(start, body)) => bodies.push((start as u32, body.len() as u32)),
             _ => {}
@@ -417,7 +413,7 @@ impl Plane {
         for (tag, field) in &mut entries {
             match (tag, field) {
                 (1, Field::Num(id)) => plane.id = id as i64,
-                (2, Field::Bytes(_, name)) => plane.name = lossy(name).into(),
+                (2, Field::Bytes(_, name)) => plane.name = String::from_utf8_lossy(name).into(),
                 (3, Field::Bytes(start, body)) => spans.push((offset + start, body)),
                 (4 | 5, Field::Bytes(entry_start, entry)) => {
                     let (mut parts, mut key) = (fields(entry), None);
@@ -432,12 +428,12 @@ impl Plane {
                         };
                         let (id, long, display) = named(value).context("The metadata is not valid")?;
                         let id = key.unwrap_or(id);
-                        let name: Box<str> = if display.is_empty() { lossy(long).into() } else { Box::default() };
+                        let name: Box<str> = if display.is_empty() { String::from_utf8_lossy(long).into() } else { Box::default() };
                         if tag == 4 {
                             let raw = ((offset + entry_start + value_start) as u32, value.len() as u32);
                             let long = if long.is_empty() { (0, 0) } else { ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32) };
                             let (internal, root) = (NAMES.get(&*name).is_some_and(|known| known.0), ROOTS.iter().find(|root| root.0 == &*name).map(|root| (root.1, root.2)));
-                            metas.push((id, Meta { internal, root, name, display: lossy(display).into(), raw, long, ..Default::default() }));
+                            metas.push((id, Meta { internal, root, name, display: String::from_utf8_lossy(display).into(), raw, long, ..Default::default() }));
                         } else {
                             names.push((id, name));
                         }
@@ -618,7 +614,7 @@ impl Plane {
 
     pub fn text_cow<'a>(&'a self, value: &Value<'a>) -> Cow<'a, str> {
         match value {
-            Value::Str(bytes) => lossy(bytes),
+            Value::Str(bytes) => String::from_utf8_lossy(bytes),
             Value::Ref(id) => Cow::Borrowed(self.stat_names.get(*id as usize).map_or("", |name| name)),
             _ => Cow::Borrowed(""),
         }

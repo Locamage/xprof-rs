@@ -37,7 +37,7 @@ impl Visit<'_> {
     }
 
     fn stats(&self) -> Vec<(String, String)> {
-        let text = |bytes: &[u8]| crate::xplane::lossy(bytes).into_owned();
+        let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
         stats(self.event.raw, 4, |_| true)
             .map(|stat| {
                 let name = self.plane.stat_names.get(&(stat.id as u64)).map_or_else(|| stat.id.to_string(), |name| text(name));
@@ -55,7 +55,7 @@ impl Visit<'_> {
     }
 
     fn raw_name(&self) -> String {
-        self.plane.metadata.get(&self.event.meta).map_or_else(|| self.event.meta.to_string(), |(name, _)| crate::xplane::lossy(name).into_owned())
+        self.plane.metadata.get(&self.event.meta).map_or_else(|| self.event.meta.to_string(), |(name, _)| String::from_utf8_lossy(name).into_owned())
     }
 
     fn name(&self) -> String {
@@ -88,7 +88,7 @@ fn visit(plane: &Plane, mut each: impl FnMut(&Visit) -> bool) -> bool {
         let (mut line, mut timestamp) = (String::new(), 0);
         for (tag, field) in fields(bytes) {
             match (tag, field) {
-                (2, Field::Bytes(_, name)) => line = crate::xplane::lossy(name).into_owned(),
+                (2, Field::Bytes(_, name)) => line = String::from_utf8_lossy(name).into_owned(),
                 (3, Field::Num(value)) => timestamp = value as i64,
                 _ => {}
             }
