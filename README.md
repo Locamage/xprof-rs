@@ -211,6 +211,7 @@ xprof-rs cannot copy these outputs.
 - The synthetic inference sessions cover TensorFlow, request batches, TFRT, Pathways, and Orbax. No real inference profile was available.
 - These traces are not in the repository.
 - The real-world coverage is small. If a response is different from XProf 2.23.2, open an issue. Do not include private data.
+- To report a security problem, follow `SECURITY.md`. Do not open a public issue.
 
 ## Memory
 
