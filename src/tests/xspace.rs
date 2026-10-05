@@ -128,41 +128,8 @@ pub enum V {
     Bytes(Vec<u8>),
 }
 
-impl From<i32> for V {
-    fn from(value: i32) -> Self {
-        Self::Int(value.into())
-    }
-}
-
-impl From<i64> for V {
-    fn from(value: i64) -> Self {
-        Self::Int(value)
-    }
-}
-
-impl From<u64> for V {
-    fn from(value: u64) -> Self {
-        Self::Uint(value)
-    }
-}
-
-impl From<f64> for V {
-    fn from(value: f64) -> Self {
-        Self::Double(value)
-    }
-}
-
-impl From<&str> for V {
-    fn from(value: &str) -> Self {
-        Self::Str(value.into())
-    }
-}
-
-impl From<String> for V {
-    fn from(value: String) -> Self {
-        Self::Str(value)
-    }
-}
+macro_rules! v_from { ($($kind:ty => $variant:ident),*) => { $(impl From<$kind> for V { fn from(value: $kind) -> Self { Self::$variant(value.into()) } })* } }
+v_from!(i32 => Int, i64 => Int, u64 => Uint, f64 => Double, &str => Str, String => Str);
 
 pub fn op_stats(spaces: &[XSpace]) -> Option<Arc<OpStats>> {
     let all: Vec<Option<Arc<OpStats>>> = spaces.iter().map(|space| crate::tests::with_file(&space.encode_to_vec(), crate::opstats::load)).collect();

@@ -20,6 +20,12 @@ pub fn entry(tag: u64, id: u64, name: &str) -> Vec<u8> {
     bytes(tag, &[number(1, id), bytes(2, &[number(1, id), bytes(2, name.as_bytes())].concat())].concat())
 }
 
+fn entries(tag: u64, names: &[&str]) -> Vec<u8> {
+    names.iter().zip(1..).flat_map(|(name, id)| entry(tag, id, name)).collect()
+}
+
+const EVERYTHING: Options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false };
+
 fn event(meta: u64, offset: u64, duration: u64, stats: &[(u64, u64)]) -> Vec<u8> {
     let stats: Vec<u8> = stats.iter().flat_map(|&(id, value)| bytes(4, &[number(1, id), number(4, value)].concat())).collect();
     bytes(4, &[number(1, meta), number(2, offset), number(3, duration), stats].concat())
@@ -27,7 +33,7 @@ fn event(meta: u64, offset: u64, duration: u64, stats: &[(u64, u64)]) -> Vec<u8>
 
 fn annotated_space() -> Vec<u8> {
     let line = [number(1, 1), bytes(2, b"python"), event(1, 1_000_000, 10_000_000, &[(1, 1), (2, 7)]), event(2, 2_000_000, 1_000_000, &[])].concat();
-    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entry(4, 1, "train"), entry(4, 2, "inner"), entry(5, 1, "_r"), entry(5, 2, "step_num")].concat();
+    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entries(4, &["train", "inner"]), entries(5, &["_r", "step_num"])].concat();
     bytes(1, &plane)
 }
 
@@ -43,7 +49,7 @@ fn render_space(space: &[u8], options: &Options) -> String {
 
 #[test]
 fn root_events_name_and_group_their_descendants() {
-    let json = render_space(&annotated_space(), &Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false });
+    let json = render_space(&annotated_space(), &EVERYTHING);
     assert!(json.contains("\"name\":\"train 7\""), "{json}");
     assert!(json.contains("\"name\":\"inner\""), "{json}");
     assert_eq!(json.matches("\"group_id\":0").count(), 2, "{json}");
@@ -52,7 +58,7 @@ fn root_events_name_and_group_their_descendants() {
 
 #[test]
 fn details_always_list_the_mpmd_toggle() {
-    let json = render_space(&annotated_space(), &Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false });
+    let json = render_space(&annotated_space(), &EVERYTHING);
     assert!(json.contains("\"details\":[{\"name\":\"mpmd_pipeline_view\",\"value\":false}],"), "{json}");
 }
 
@@ -60,7 +66,7 @@ fn details_always_list_the_mpmd_toggle() {
 fn events_sharing_a_timestamp_beyond_the_serial_limit_are_dropped() {
     let events: Vec<u8> = (0..300).flat_map(|_| event(1, 5_000_000, 1_000_000, &[])).collect();
     let plane = [bytes(2, b"/host:CPU"), bytes(3, &[number(1, 1), bytes(2, b"python"), events].concat()), entry(4, 1, "tick")].concat();
-    let json = render_space(&bytes(1, &plane), &Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false });
+    let json = render_space(&bytes(1, &plane), &EVERYTHING);
     assert!(json.contains("\"returnedEventsSize\":256"), "{json}");
 }
 
@@ -86,7 +92,7 @@ fn host_ops_split_self_time_and_idle_per_thread() {
     let text = |id: u64, value: &str| bytes(4, &[number(1, id), bytes(5, value.as_bytes())].concat());
     let host_event = |meta: u64, offset: u64, duration: u64, op: &str| bytes(4, &[number(1, meta), number(2, offset), number(3, duration), text(1, op)].concat());
     let line = [number(1, 7), bytes(2, b"worker"), host_event(1, 0, 10, "a/foo:foo"), host_event(2, 2, 3, "a/bar:bar"), host_event(3, 20, 0, "dummy")].concat();
-    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entry(4, 1, "outer"), entry(4, 2, "inner"), entry(4, 3, "MemoryAllocation"), entry(5, 1, "tf_op")].concat();
+    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entries(4, &["outer", "inner", "MemoryAllocation"]), entry(5, 1, "tf_op")].concat();
     let space = bytes(1, &plane);
     let (db, _) = framework_op_stats::host_db(&xplane::parse(&space).unwrap(), &space);
     let rows: Vec<(&str, &str, u64, u64, u64)> =
@@ -383,18 +389,8 @@ fn serving_roots_take_their_graph_type_and_tensorflow_step_names() {
     let root = bytes(4, &[number(1, 1), number(2, 1_000_000), number(3, 10_000_000), text_stat(1, "train"), bytes(4, &[number(1, 2), number(4, 3)].concat())].concat());
     let named = bytes(4, &[number(1, 2), number(2, 20_000_000), number(3, 1_000_000), text_stat(3, "my step")].concat());
     let line = [number(1, 1), number(10, 9), bytes(2, b"python"), root, event(3, 2_000_000, 1_000_000, &[]), named].concat();
-    let plane = [
-        bytes(2, b"/host:CPU"),
-        bytes(3, &line),
-        entry(4, 1, "TraceContext"),
-        entry(4, 2, "other"),
-        entry(4, 3, "inner"),
-        entry(5, 1, "graph_type"),
-        entry(5, 2, "step_num"),
-        entry(5, 3, "step_name"),
-    ]
-    .concat();
-    let json = render_space(&bytes(1, &plane), &Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false });
+    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entries(4, &["TraceContext", "other", "inner"]), entries(5, &["graph_type", "step_num", "step_name"])].concat();
+    let json = render_space(&bytes(1, &plane), &EVERYTHING);
     assert!(json.contains("\"name\":\"train 3\""), "{json}");
     assert!(json.contains("\"name\":\"my step\""), "{json}");
     assert!(json.contains("\"tid\":9"), "{json}");
@@ -412,38 +408,18 @@ fn int_stat(id: u64, value: u64) -> Vec<u8> {
 fn gpu_space() -> Vec<u8> {
     let host_line =
         [number(1, 1), bytes(2, b"python"), stat_event(1, 1_000_000, 10_000_000, &[int_stat(1, 1), int_stat(2, 7)]), stat_event(2, 2_000_000, 1_000_000, &[int_stat(3, 5), int_stat(4, 0)])].concat();
-    let host = [
-        bytes(2, b"/host:CPU"),
-        bytes(3, &host_line),
-        entry(4, 1, "train"),
-        entry(4, 2, "fusion_kernel"),
-        entry(5, 1, "_r"),
-        entry(5, 2, "step_num"),
-        entry(5, 3, "correlation_id"),
-        entry(5, 4, "device_id"),
-    ]
-    .concat();
+    let host = [bytes(2, b"/host:CPU"), bytes(3, &host_line), entries(4, &["train", "fusion_kernel"]), entries(5, &["_r", "step_num", "correlation_id", "device_id"])].concat();
     let kernel = stat_event(1, 3_000_000, 2_000_000, &[int_stat(3, 5), text_stat(1, "regs:8 grid:2,1,1 block:32,1,1"), text_stat(2, "jit_f"), text_stat(4, "fusion"), int_stat(5, 3)]);
     let gpu_line = [number(1, 7), bytes(2, b"Stream #7(Compute)"), kernel].concat();
-    let gpu = [
-        number(1, 0),
-        bytes(2, b"/device:GPU:0"),
-        bytes(3, &gpu_line),
-        entry(4, 1, "fusion_kernel"),
-        entry(5, 1, "kernel_details"),
-        entry(5, 2, "hlo_module"),
-        entry(5, 3, "correlation_id"),
-        entry(5, 4, "hlo_op"),
-        entry(5, 5, "program_id"),
-    ]
-    .concat();
+    let gpu =
+        [number(1, 0), bytes(2, b"/device:GPU:0"), bytes(3, &gpu_line), entry(4, 1, "fusion_kernel"), entries(5, &["kernel_details", "hlo_module", "correlation_id", "hlo_op", "program_id"])].concat();
     [bytes(1, &gpu), bytes(1, &host)].concat()
 }
 
 #[test]
 fn gpu_kernels_join_their_launch_step_and_derive_stream_lines() {
     let host = host_of(&gpu_space());
-    let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false }) };
+    let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&EVERYTHING) };
     let json = String::from_utf8(render(&[view], false, true)).unwrap();
     for expected in [
         "/device:GPU:0\"},\"name\":\"process_name\"",
@@ -489,7 +465,7 @@ fn run_tools_list_kernel_stats_only_for_gpu_profiles_and_nothing_for_corrupt_fil
 fn utilization_and_bandwidth_doubles_print_with_two_decimals() {
     let double = |id: u64, value: f64| bytes(4, &[number(1, id), varint(2 << 3 | 1), value.to_le_bytes().to_vec()].concat());
     let line = [number(1, 1), bytes(2, b"python"), bytes(4, &[number(1, 1), number(2, 0), number(3, 10), double(1, 12.3456), double(2, 0.125)].concat())].concat();
-    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entry(4, 1, "op"), entry(5, 1, "HBM (util %)"), entry(5, 2, "ratio")].concat();
+    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entry(4, 1, "op"), entries(5, &["HBM (util %)", "ratio"])].concat();
     let host = host_of(&bytes(1, &plane));
     let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: vec![0] };
     let json = String::from_utf8(render(&[view], false, true)).unwrap();
@@ -500,7 +476,7 @@ fn utilization_and_bandwidth_doubles_print_with_two_decimals() {
 fn request_queue_producers_flow_to_their_consumers() {
     let link = |meta: u64, offset: u64| event(meta, offset, 10, &[(1, 5), (2, 6)]);
     let line = [number(1, 1), bytes(2, b"python"), link(1, 0), link(2, 100)].concat();
-    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entry(4, 1, "EnqueueRequestLocked"), entry(4, 2, "PjrtAsyncWait"), entry(5, 1, "request_id"), entry(5, 2, "queue_addr")].concat();
+    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entries(4, &["EnqueueRequestLocked", "PjrtAsyncWait"]), entries(5, &["request_id", "queue_addr"])].concat();
     let host = host_of(&bytes(1, &plane));
     let flows: Vec<(u64, u8)> = host.trace.events.iter().map(|event| (event.flow, event.flow_entry)).collect();
     assert_eq!(flows, [(0, trace::FLOW_START), (0, trace::FLOW_END)]);
@@ -510,18 +486,7 @@ fn request_queue_producers_flow_to_their_consumers() {
 fn cpu_input_waits_come_from_iterator_ops_and_pipeline_stage_roots() {
     let staged = bytes(4, &[number(1, 3), number(2, 5_000_000), number(3, 2_000_000), bytes(4, &[number(1, 3), bytes(5, b"stage")].concat())].concat());
     let line = [number(1, 1), bytes(2, b"python"), event(1, 1_000_000, 10_000_000, &[(1, 1), (2, 7)]), event(2, 2_000_000, 1_000_000, &[]), staged, event(4, 8_000_000, 1_000_000, &[])].concat();
-    let plane = [
-        bytes(2, b"/host:CPU"),
-        bytes(3, &line),
-        entry(4, 1, "train"),
-        entry(4, 2, "IteratorGetNext"),
-        entry(4, 3, "stage"),
-        entry(4, 4, "inner"),
-        entry(5, 1, "_r"),
-        entry(5, 2, "step_num"),
-        entry(5, 3, "_ipl_stage_name"),
-    ]
-    .concat();
+    let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entries(4, &["train", "IteratorGetNext", "stage", "inner"]), entries(5, &["_r", "step_num", "_ipl_stage_name"])].concat();
     let pipeline = input_pipeline_analyzer::json(&op_stats_of(&bytes(1, &plane)));
     assert!(pipeline.contains("{\"c\":[{\"v\":\"train 7\"},{\"v\":0.0},{\"v\":0.0},{\"v\":0.0},{\"v\":0.001},{\"v\":0.0},{\"v\":0.003},"), "{pipeline}");
     assert!(pipeline.contains("Your program is HIGHLY input-bound because 30.0% of the total step time"), "{pipeline}");
@@ -825,7 +790,7 @@ fn events_with_undefined_metadata_resolve_to_an_empty_entry() {
         let planes = xplane::parse(&space).unwrap();
         assert_eq!(planes[0].meta.len(), 3);
         assert!(planes[0].lines[0].events.iter().all(|event| event.meta == 2 && planes[0].meta[2].name.is_empty()));
-        render_space(&space, &Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false });
+        render_space(&space, &EVERYTHING);
         op_stats_of(&space);
     }
     let empty = bytes(1, &[bytes(2, b"/host:CPU"), bytes(3, &[number(1, 1), event(0, 1, 1, &[])].concat())].concat());
@@ -837,7 +802,7 @@ fn extreme_timestamps_saturate_at_parse() {
     let line = |timestamp: u64, offset: u64, duration: u64| bytes(3, &[number(1, 1), bytes(2, b"XLA Ops"), number(3, timestamp), event(1, offset, duration, &[])].concat());
     let spans = |lines: &[Vec<u8>]| {
         let space = bytes(1, &[bytes(2, b"/device:TPU:0"), lines.concat(), entry(4, 1, "op")].concat());
-        render_space(&space, &Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false });
+        render_space(&space, &EVERYTHING);
         op_stats_of(&space);
         xplane::parse(&space).unwrap()[0].lines.iter().map(|line| (line.events[0].ts, line.events[0].dur)).collect::<Vec<(u64, u64)>>()
     };

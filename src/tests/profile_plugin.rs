@@ -63,6 +63,14 @@ fn expected_runs(prefixes: &[&str]) -> BTreeSet<String> {
     prefixes.iter().flat_map(|prefix| RUN_TO_TOOLS.iter().map(move |(run, _)| format!("{prefix}{run}"))).collect()
 }
 
+async fn fetch_testdata(name: &str, query: &str) -> (StatusCode, axum::http::HeaderMap, String) {
+    let logdir = temp_logdir(name);
+    generate_testdata(&logdir);
+    let reply = fetch(&plugin(&logdir), &format!("{PREFIX}/data?{query}")).await;
+    std::fs::remove_dir_all(&logdir).unwrap();
+    reply
+}
+
 async fn post(state: &Shared, uri: &str) -> (StatusCode, String) {
     let reply = app(state.clone()).oneshot(axum::http::Request::builder().method("POST").uri(uri).body(Body::empty()).unwrap()).await.unwrap();
     let status = reply.status();
@@ -194,40 +202,28 @@ async fn data_names_only_missing_device_type() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_impl_trace_viewer_options() {
-    let logdir = temp_logdir("trace-viewer-options");
-    generate_testdata(&logdir);
     let query = "run=foo&tag=trace_viewer@&host=host1&full_dma=true&resolution=10000&start_time_ms=100&end_time_ms=200&search_metadata=false";
-    let (status, headers, body) = fetch(&plugin(&logdir), &format!("{PREFIX}/data?{query}")).await;
+    let (status, headers, body) = fetch_testdata("trace-viewer-options", query).await;
     assert_eq!((status, headers[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "application/json"), "{body}");
     assert!(body.contains("\"returnedEventsSize\":0,"), "{body}");
-    std::fs::remove_dir_all(&logdir).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_impl_trace_viewer_format_pb_returns_octet_stream() {
-    let logdir = temp_logdir("trace-viewer-pb");
-    generate_testdata(&logdir);
-    let (status, headers, _) = fetch(&plugin(&logdir), &format!("{PREFIX}/data?run=foo&tag=trace_viewer&host=host1&format=pb")).await;
+    let (status, headers, _) = fetch_testdata("trace-viewer-pb", "run=foo&tag=trace_viewer&host=host1&format=pb").await;
     assert_eq!((status, headers[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "application/octet-stream"));
-    std::fs::remove_dir_all(&logdir).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_impl_trace_viewer_streaming_pb_returns_octet_stream() {
-    let logdir = temp_logdir("trace-viewer-streaming-pb");
-    generate_testdata(&logdir);
-    let (status, headers, _) = fetch(&plugin(&logdir), &format!("{PREFIX}/data?run=foo&tag=trace_viewer@&host=host1&format=pb")).await;
+    let (status, headers, _) = fetch_testdata("trace-viewer-streaming-pb", "run=foo&tag=trace_viewer@&host=host1&format=pb").await;
     assert_eq!((status, headers[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "application/octet-stream"));
-    std::fs::remove_dir_all(&logdir).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_impl_trace_viewer_event_name_fallback_to_json() {
-    let logdir = temp_logdir("trace-viewer-event-name");
-    generate_testdata(&logdir);
-    let (status, headers, body) = fetch(&plugin(&logdir), &format!("{PREFIX}/data?run=foo&tag=trace_viewer&host=host1&format=pb&event_name=mock_event")).await;
+    let (status, headers, body) = fetch_testdata("trace-viewer-event-name", "run=foo&tag=trace_viewer&host=host1&format=pb&event_name=mock_event").await;
     assert_eq!((status, headers[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "application/json"), "{body}");
-    std::fs::remove_dir_all(&logdir).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
