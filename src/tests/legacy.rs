@@ -2,19 +2,10 @@ use crate::*;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-static FILES: AtomicUsize = AtomicUsize::new(0);
-
-fn varint(mut value: u64) -> Vec<u8> {
+fn varint(value: u64) -> Vec<u8> {
     let mut out = Vec::new();
-    loop {
-        let byte = (value & 0x7f) as u8;
-        value >>= 7;
-        if value == 0 {
-            out.push(byte);
-            return out;
-        }
-        out.push(byte | 0x80);
-    }
+    prost::encoding::encode_varint(value, &mut out);
+    out
 }
 
 pub fn number(tag: u64, value: u64) -> Vec<u8> {
@@ -41,11 +32,7 @@ fn annotated_space() -> Vec<u8> {
 }
 
 fn host_of(space: &[u8]) -> Host {
-    let path = crate::tests::temp_dir().join(format!("xprof-rs-test-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
-    std::fs::write(&path, space).unwrap();
-    let host = load_host(&path);
-    std::fs::remove_file(&path).unwrap();
-    host
+    crate::tests::with_file(space, load_host)
 }
 
 fn render_space(space: &[u8], options: &Options) -> String {
@@ -141,11 +128,7 @@ fn numbers_print_like_nlohmann_grisu2() {
 }
 
 fn op_stats_of(space: &[u8]) -> std::sync::Arc<OpStats> {
-    let path = crate::tests::temp_dir().join(format!("xprof-rs-test-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
-    std::fs::write(&path, space).unwrap();
-    let stats = opstats::load(&path);
-    std::fs::remove_file(&path).unwrap();
-    stats.unwrap()
+    crate::tests::with_file(space, opstats::load).unwrap()
 }
 
 #[test]
@@ -545,13 +528,12 @@ fn cpu_input_waits_come_from_iterator_ops_and_pipeline_stage_roots() {
 }
 
 pub fn logdir(name: &str) -> PathBuf {
-    let dir = crate::tests::temp_dir().join(format!("xprof-rs-server-{}-{name}", std::process::id()));
-    _ = std::fs::remove_dir_all(&dir);
+    let dir = crate::tests::scratch(&format!("server-{name}"));
     std::fs::create_dir_all(dir.join("run/plugins/profile/s")).unwrap();
     dir.canonicalize().unwrap()
 }
 
-fn settle(path: &Path) {
+pub fn settle(path: &Path) {
     std::fs::File::options().write(true).open(path).unwrap().set_modified(SystemTime::now() - Duration::from_secs(60)).unwrap();
 }
 

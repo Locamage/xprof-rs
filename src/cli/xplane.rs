@@ -67,14 +67,16 @@ impl Visit<'_> {
     }
 }
 
+fn space(path: &Path) -> Result<Vec<u8>, Error> {
+    let map = super::read(path)?;
+    if valid_space(&map) { Ok(map) } else { fail(Kind::Value, "Failed to parse XSpace protobuf data") }
+}
+
 /// Runs `scan` on every plane of every trace file. The planes run in parallel. The results keep the order of the planes.
 fn scan_planes<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane) -> R + Sync) -> Result<Vec<R>, Error> {
     let mut results = Vec::new();
     for path in paths {
-        let map = super::read(path)?;
-        if !valid_space(&map) {
-            return fail(Kind::Value, "Failed to parse XSpace protobuf data");
-        }
+        let map = space(path)?;
         results.extend(planes(&map, |_| true).par_iter().map(&scan).collect::<Vec<R>>());
     }
     Ok(results)
@@ -103,10 +105,7 @@ fn visit(plane: &Plane, mut each: impl FnMut(&Visit) -> bool) -> bool {
 /// Calls `each` on every event of every trace file, until it returns false.
 fn visit_all(paths: &[PathBuf], mut each: impl FnMut(&Visit) -> bool) -> Result<(), Error> {
     for path in paths {
-        let map = super::read(path)?;
-        if !valid_space(&map) {
-            return fail(Kind::Value, "Failed to parse XSpace protobuf data");
-        }
+        let map = space(path)?;
         if !planes(&map, |_| true).iter().all(|plane| visit(plane, &mut each)) {
             break;
         }

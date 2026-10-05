@@ -7,10 +7,8 @@ use prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, MapKey, MessageDescriptor, ReflectMessage, Value};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 
-static FILES: AtomicUsize = AtomicUsize::new(0);
 static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| DescriptorPool::decode(&include_bytes!("../../tests/data/test_descriptors.pb")[..]).unwrap());
 
 pub const HOST: &str = "/host:CPU";
@@ -167,16 +165,7 @@ impl From<String> for V {
 }
 
 pub fn op_stats(spaces: &[XSpace]) -> Option<Arc<OpStats>> {
-    let all: Vec<Option<Arc<OpStats>>> = spaces
-        .iter()
-        .map(|space| {
-            let path = crate::tests::temp_dir().join(format!("xprof-rs-op-stats-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
-            std::fs::write(&path, space.encode_to_vec()).unwrap();
-            let stats = crate::opstats::load(&path);
-            std::fs::remove_file(&path).unwrap();
-            stats
-        })
-        .collect();
+    let all: Vec<Option<Arc<OpStats>>> = spaces.iter().map(|space| crate::tests::with_file(&space.encode_to_vec(), crate::opstats::load)).collect();
     OpStats::combine(&all)
 }
 

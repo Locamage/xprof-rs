@@ -81,10 +81,7 @@ impl Drop for Parsed {
 
 fn profile(client: &dyn Client, session: &str, params: &[(&str, String)], missing: String, wrap: &str) -> Result<Parsed, Error> {
     let fetched = (|| {
-        let data = match client.fetch_text("op_profile", session, params)? {
-            Some(data) => Some(data),
-            None => client.fetch_text("hlo_op_profile.json", session, params)?,
-        };
+        let data = client.fetch_either("op_profile", "hlo_op_profile.json", session, params)?;
         let data = data.ok_or_else(|| Error::new(Kind::FileNotFound, missing))?;
         J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse op_profile proto: ParseError('Failed to load JSON')"))
     })();

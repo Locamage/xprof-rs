@@ -1,5 +1,5 @@
-use super::cli_support::{Fake, args, json, parse, run, scratch};
-use super::e2e_oracles::{DEMO, TRAINING_STEP_PS, demo, session, training_trace};
+use super::cli_support::{Fake, args, json, ok, parse, run, scratch};
+use super::e2e_oracles::{DEMO, TRAINING_STEP_PS, demo, demo_query, session, training_trace};
 use crate::cli::client::{Client, Local};
 use crate::cli::json::J;
 use crate::cli::{Kind, hlo, xplane};
@@ -10,24 +10,13 @@ const SHORT_TXT_GRAPH: &str = "ENTRY entry {\n  x = f32[10] parameter(0)\n  w = 
 const SESSION_ID: &str = "2026_08_24_06_33_12";
 
 fn overview(target: &Path) -> J {
-    let (code, out, _) = run(&["get_overview", target.to_str().unwrap()]);
-    assert_eq!(code, 0, "{out}");
-    parse(&out)
+    ok(&["get_overview", target.to_str().unwrap()])
 }
 
 fn swap_preserving_mtime(source: &str, target: &Path) {
     let modified = std::fs::metadata(target).unwrap().modified().unwrap();
     std::fs::copy(source, target).unwrap();
     std::fs::File::options().write(true).open(target).unwrap().set_modified(modified).unwrap();
-}
-
-fn demo_query(name: &str, argv: &[&str]) -> J {
-    let dir = scratch(name);
-    let path = demo(&dir);
-    let argv: Vec<&str> = [argv[0], path.to_str().unwrap()].into_iter().chain(argv[1..].iter().copied()).collect();
-    let (code, out, _) = run(&argv);
-    assert_eq!(code, 0, "{out}");
-    parse(&out)
 }
 
 #[test]
@@ -37,9 +26,7 @@ fn test_d01_d02_stale_cache_and_bypass_cache() {
     let first = overview(&path);
     assert!(!first.has("error"));
     swap_preserving_mtime(DEMO, &path);
-    let (code, out, _) = run(&["get_overview", path.to_str().unwrap(), "--bypass_cache"]);
-    assert_eq!(code, 0);
-    let second = parse(&out);
+    let second = ok(&["get_overview", path.to_str().unwrap(), "--bypass_cache"]);
     assert!(!second.has("error"));
     assert_ne!(first, second);
 }
@@ -56,14 +43,14 @@ fn test_d03_d04_error_on_empty_or_corrupt_trace() {
 
 #[test]
 fn test_d05_silent_truncation_resolved() {
-    let result = demo_query("d05", &["list_xplane_events", "--max_events=10"]);
+    let result = demo_query("d05", "list_xplane_events", &["--max_events=10"]);
     assert!(result.has("total_matched") && result.has("truncated"));
     assert_eq!(result.at("events").items().len() as i128, result.at("returned").int().unwrap());
 }
 
 #[test]
 fn test_d08_empty_category_filter_returns_empty_list() {
-    let result = demo_query("d08", &["get_top_hlo_ops", "--category_filter=non_existent_category_xyz"]);
+    let result = demo_query("d08", "get_top_hlo_ops", &["--category_filter=non_existent_category_xyz"]);
     assert!(!result.has("error"));
     assert_eq!(result.at("top_by_time"), &J::List(Vec::new()));
     assert_eq!(result.at("total_matched").int(), Some(0));
@@ -71,21 +58,21 @@ fn test_d08_empty_category_filter_returns_empty_list() {
 
 #[test]
 fn test_d09_limit_negative_one_returns_all() {
-    let all = demo_query("d09", &["get_top_hlo_ops", "--limit=-1"]);
+    let all = demo_query("d09", "get_top_hlo_ops", &["--limit=-1"]);
     assert!(!all.at("top_by_time").items().is_empty());
     assert_eq!(all.at("top_by_time").items().len() as i128, all.at("total_matched").int().unwrap());
 }
 
 #[test]
 fn test_d12_canonical_join_keys() {
-    let records = demo_query("d12", &["get_kernel_stats", "--limit=5"]);
+    let records = demo_query("d12", "get_kernel_stats", &["--limit=5"]);
     let top = &records.items()[0];
     assert!(top.has("canonical_name") && top.has("short_name") && top.has("hlo_op_name"));
 }
 
 #[test]
 fn test_d13_utilization_viewer_clean_status() {
-    let result = demo_query("d13", &["get_utilization_viewer"]);
+    let result = demo_query("d13", "get_utilization_viewer", &[]);
     assert!(matches!(result, J::Map(_)));
     assert!(result.has("status") || result.has("reason") || result.has("message"));
     assert!(!result.has("error"));
@@ -94,7 +81,7 @@ fn test_d13_utilization_viewer_clean_status() {
 #[test]
 fn test_d14_llo_tools_unavailable_status() {
     for command in ["get_llo_analysis", "get_llo_debug_string"] {
-        let result = demo_query(command, &[command]);
+        let result = demo_query(command, command, &[]);
         assert_eq!(result.at("status").str(), Some("UNAVAILABLE"));
         assert_eq!(result.at("reason").str(), Some("LLO_DATA_ABSENT"));
         assert!(result.at("error").text().contains("not available"));
@@ -103,7 +90,7 @@ fn test_d14_llo_tools_unavailable_status() {
 
 #[test]
 fn test_d15_roofline_bottleneck_intensity_and_deduplication() {
-    let result = demo_query("d15", &["get_roofline_model"]);
+    let result = demo_query("d15", "get_roofline_model", &[]);
     assert!(!result.has("error"));
     let program = result.at("program");
     for key in [
@@ -142,7 +129,7 @@ fn test_d16_perf_counters_non_null_payload() {
 
 #[test]
 fn test_d17_llo_analysis_opcode_resolution_and_multi_module() {
-    let result = demo_query("d17", &["get_llo_analysis"]);
+    let result = demo_query("d17", "get_llo_analysis", &[]);
     assert_eq!(result.at("status").str(), Some("UNAVAILABLE"));
     assert!(result.at("error").text().contains("not available"));
 }
@@ -300,15 +287,11 @@ fn test_d23_upload_trace_import_roundtrip() {
     let source = session(&dir.join("source"), "host.xplane.pb", &training_trace(TRAINING_STEP_PS));
     let logdir = dir.join("logdir");
     let logdir_flag = format!("--logdir={}", logdir.display());
-    let (code, out, _) = run(&["upload_trace", source.to_str().unwrap(), &logdir_flag, "--run_name=imported_step_100"]);
-    assert_eq!(code, 0, "{out}");
-    let result = parse(&out);
+    let result = ok(&["upload_trace", source.to_str().unwrap(), &logdir_flag, "--run_name=imported_step_100"]);
     assert_eq!(result.at("status").str(), Some("success"));
     assert!(Path::new(result.at("run_path").str().unwrap()).is_dir());
     let imported = Path::new(result.at("imported_file").str().unwrap());
     assert!(imported.exists());
     assert_eq!(imported.file_name(), source.file_name());
-    let (code, out, _) = run(&["get_overview", "imported_step_100", &logdir_flag]);
-    assert_eq!(code, 0, "{out}");
-    assert_eq!(parse(&out).at("performance_summary").at("steptime_ms_average").str(), Some("20.00"));
+    assert_eq!(ok(&["get_overview", "imported_step_100", &logdir_flag]).at("performance_summary").at("steptime_ms_average").str(), Some("20.00"));
 }

@@ -173,33 +173,40 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
     (steps, Some(section.at("p").clone()).filter(J::truthy))
 }
 
+fn totals(total_steps: J, step: f64, [min, max, stddev]: [f64; 3], [compute, communication, infeed, outfeed, idle]: [f64; 5], percents: [f64; 5], primary: J, aggregate: bool) -> J {
+    let [compute_percent, communication_percent, infeed_percent, outfeed_percent, idle_percent] = percents;
+    obj! {
+        "total_steps" => total_steps,
+        "step_time_ms_average" => step,
+        "step_time_ms_min" => min,
+        "step_time_ms_max" => max,
+        "step_time_ms_stddev" => stddev,
+        "compute_time_ms_average" => compute,
+        "compute_percent" => compute_percent,
+        "communication_time_ms_average" => communication,
+        "communication_percent" => communication_percent,
+        "infeed_time_ms_average" => infeed,
+        "infeed_percent" => infeed_percent,
+        "outfeed_time_ms_average" => outfeed,
+        "outfeed_percent" => outfeed_percent,
+        "primary_bottleneck" => primary,
+        "idle_time_ms_average" => idle,
+        "idle_percent" => idle_percent,
+        "is_aggregate" => aggregate,
+    }
+}
+
 fn summarize(steps: &[J], props: Option<&J>) -> J {
     let column = |key: &str| steps.iter().map(|step| step.at(key).float().unwrap_or(0.0)).collect::<Vec<f64>>();
     let average = |key: &str| round(fsum(column(key)) / steps.len() as f64, 4);
     let times = column("step_time_ms");
-    let (step, compute, communication, infeed, outfeed, idle) =
-        (average("step_time_ms"), average("compute_time_ms"), average("communication_time_ms"), average("infeed_time_ms"), average("outfeed_time_ms"), average("idle_time_ms"));
+    let step = average("step_time_ms");
+    let parts @ [compute, communication, ..] = ["compute_time_ms", "communication_time_ms", "infeed_time_ms", "outfeed_time_ms", "idle_time_ms"].map(average);
     let named: Vec<String> = steps.iter().map(|step| step.at("bottleneck").text()).filter(|name| !name.is_empty()).collect();
     let primary = most_common(&named).unwrap_or_else(|| if communication > compute { "Communication" } else { "Compute" }.into());
-    let mut summary = obj! {
-        "total_steps" => steps.len(),
-        "step_time_ms_average" => step,
-        "step_time_ms_min" => round(times.iter().copied().fold(f64::INFINITY, f64::min), 4),
-        "step_time_ms_max" => round(times.iter().copied().fold(f64::NEG_INFINITY, f64::max), 4),
-        "step_time_ms_stddev" => if steps.len() > 1 { round(stdev(&times), 4) } else { 0.0 },
-        "compute_time_ms_average" => compute,
-        "compute_percent" => percent(compute, step),
-        "communication_time_ms_average" => communication,
-        "communication_percent" => percent(communication, step),
-        "infeed_time_ms_average" => infeed,
-        "infeed_percent" => percent(infeed, step),
-        "outfeed_time_ms_average" => outfeed,
-        "outfeed_percent" => percent(outfeed, step),
-        "primary_bottleneck" => primary,
-        "idle_time_ms_average" => idle,
-        "idle_percent" => percent(idle, step),
-        "is_aggregate" => false,
-    };
+    let spread =
+        [round(times.iter().copied().fold(f64::INFINITY, f64::min), 4), round(times.iter().copied().fold(f64::NEG_INFINITY, f64::max), 4), if steps.len() > 1 { round(stdev(&times), 4) } else { 0.0 }];
+    let mut summary = totals(steps.len().into(), step, spread, parts, parts.map(|part| percent(part, step)), primary.into(), false);
     if let Some(conclusion) = props.and_then(|props| props.get("summary_conclusion")).filter(|value| **value != J::Null) {
         summary.set("conclusion", conclusion.clone());
     }
@@ -233,26 +240,19 @@ fn overview_steps(raw: &str) -> Option<J> {
         "Aggregated overview statistics (individual step breakdown and step count not available)."
     };
     let bound = |key: &str| if all.has(key) { finite(all.at(key)) } else { step };
-    Some(obj! {
-        "total_steps" => total_steps,
-        "step_time_ms_average" => round(step, 4),
-        "step_time_ms_min" => round(bound("steptime_ms_min"), 4),
-        "step_time_ms_max" => round(bound("steptime_ms_max"), 4),
-        "step_time_ms_stddev" => round(finite(all.at("steptime_ms_standard_deviation")), 4),
-        "compute_time_ms_average" => round(compute, 4),
-        "compute_percent" => percent(compute, step),
-        "communication_time_ms_average" => 0.0,
-        "communication_percent" => 0.0,
-        "infeed_time_ms_average" => round(infeed, 4),
-        "infeed_percent" => infeed_percent,
-        "outfeed_time_ms_average" => round(outfeed, 4),
-        "outfeed_percent" => percent(outfeed, step),
-        "primary_bottleneck" => if infeed_percent > 50.0 { "Input / Infeed" } else { "Compute" },
-        "idle_time_ms_average" => round(idle, 4),
-        "idle_percent" => percent(idle, step),
-        "is_aggregate" => true,
-        "note" => note,
-    })
+    let spread = [round(bound("steptime_ms_min"), 4), round(bound("steptime_ms_max"), 4), round(finite(all.at("steptime_ms_standard_deviation")), 4)];
+    let parts = [compute, 0.0, infeed, outfeed, idle];
+    let mut summary = totals(
+        total_steps.into(),
+        round(step, 4),
+        spread,
+        parts.map(|part| round(part, 4)),
+        parts.map(|part| percent(part, step)),
+        (if infeed_percent > 50.0 { "Input / Infeed" } else { "Compute" }).into(),
+        true,
+    );
+    summary.set("note", note);
+    Some(summary)
 }
 
 fn first_available(client: &dyn Client, session: &str, tools: &[&str], params: &[(&str, String)]) -> Result<Option<String>, Error> {
@@ -260,8 +260,7 @@ fn first_available(client: &dyn Client, session: &str, tools: &[&str], params: &
         match client.fetch_text(tool, session, params) {
             Ok(Some(data)) => return Ok(Some(data)),
             Ok(None) => {}
-            Err(error) if error.kind == Kind::Value => {}
-            Err(error) if matches!(error.kind, Kind::Runtime | Kind::NotImplemented) => {}
+            Err(error) if matches!(error.kind, Kind::Value | Kind::Runtime | Kind::NotImplemented) => {}
             Err(error) => return Err(error),
         }
     }

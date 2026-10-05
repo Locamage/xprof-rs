@@ -1,28 +1,9 @@
 pub mod fixture {
-    use prost::encoding::encode_varint;
+    use crate::tests::legacy::{bytes, entry, number};
 
     pub enum Stat<'a> {
         Int(u64),
         Text(&'a str),
-    }
-
-    fn key(tag: u64, wire: u64) -> Vec<u8> {
-        let mut out = Vec::new();
-        encode_varint(tag << 3 | wire, &mut out);
-        out
-    }
-
-    pub fn number(tag: u64, value: u64) -> Vec<u8> {
-        let mut out = key(tag, 0);
-        encode_varint(value, &mut out);
-        out
-    }
-
-    pub fn bytes(tag: u64, body: &[u8]) -> Vec<u8> {
-        let mut out = key(tag, 2);
-        encode_varint(body.len() as u64, &mut out);
-        out.extend_from_slice(body);
-        out
     }
 
     pub fn event(meta: u64, offset: u64, duration: u64, stats: &[(u64, Stat)]) -> Vec<u8> {
@@ -44,8 +25,8 @@ pub mod fixture {
     }
 
     pub fn plane(name: &str, lines: &[Vec<u8>], events: &[&str], stats: &[&str]) -> Vec<u8> {
-        let entry = |tag: u64, id: usize, name: &str| bytes(tag, &[number(1, id as u64 + 1), bytes(2, &[number(1, id as u64 + 1), bytes(2, name.as_bytes())].concat())].concat());
-        let metadata: Vec<u8> = events.iter().enumerate().map(|(id, name)| entry(4, id, name)).chain(stats.iter().enumerate().map(|(id, name)| entry(5, id, name))).flatten().collect();
+        let metadata: Vec<u8> =
+            events.iter().enumerate().map(|(id, name)| entry(4, id as u64 + 1, name)).chain(stats.iter().enumerate().map(|(id, name)| entry(5, id as u64 + 1, name))).flatten().collect();
         bytes(1, &[bytes(2, name.as_bytes()), lines.concat(), metadata].concat())
     }
 }

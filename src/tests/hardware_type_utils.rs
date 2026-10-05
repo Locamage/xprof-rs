@@ -36,80 +36,32 @@ fn giga_to_uni(giga: f64) -> u64 {
     (giga * 1e9) as u64
 }
 
-#[test]
-fn b200_peak_comput_t_flops() {
-    let space = device(&[
-        ("clock_rate", 1830000.into()),
-        ("core_count", 148.into()),
-        ("memory_bandwidth", giga_to_uni(7.68 * 1024.0).into()),
+fn nvidia(clock: i64, cores: i64, bandwidth_tib: f64, major: i64, minor: i64) -> XSpace {
+    device(&[
+        ("clock_rate", clock.into()),
+        ("core_count", cores.into()),
+        ("memory_bandwidth", giga_to_uni(bandwidth_tib * 1024.0).into()),
         ("device_vendor", "Nvidia".into()),
-        ("compute_cap_major", 10.into()),
-        ("compute_cap_minor", 0.into()),
-    ]);
-    near(peak_tflops(&space), 2218.0, 1.0);
+        ("compute_cap_major", major.into()),
+        ("compute_cap_minor", minor.into()),
+    ])
 }
 
-#[test]
-fn future_blackwell_peak_comput_t_flops() {
-    let space = device(&[
-        ("clock_rate", 1830000.into()),
-        ("core_count", 148.into()),
-        ("memory_bandwidth", giga_to_uni(7.68 * 1024.0).into()),
-        ("device_vendor", "Nvidia".into()),
-        ("compute_cap_major", 10.into()),
-        ("compute_cap_minor", 9.into()),
-    ]);
-    near(peak_tflops(&space), 2218.0, 1.0);
+fn amd(clock: i64, cores: i64, arch: &str) -> XSpace {
+    device(&[("clock_rate", clock.into()), ("core_count", cores.into()), ("device_vendor", "AMD".into()), ("gpu_device_name", arch.into())])
 }
 
-#[test]
-fn h100_peak_comput_t_flops() {
-    let space = device(&[
-        ("clock_rate", 1620000.into()),
-        ("core_count", 114.into()),
-        ("memory_bandwidth", giga_to_uni(2.04 * 1024.0).into()),
-        ("device_vendor", "Nvidia".into()),
-        ("compute_cap_major", 9.into()),
-        ("compute_cap_minor", 0.into()),
-    ]);
-    near(peak_tflops(&space), 756.0, 1.0);
-}
+macro_rules! peaks { ($($name:ident: $space:expr => $peak:expr;)*) => { $(#[test] fn $name() { near(peak_tflops(&$space), $peak, 1.0); })* } }
 
-#[test]
-fn a100_peak_comput_t_flops() {
-    let space = device(&[
-        ("clock_rate", 1410000.into()),
-        ("core_count", 108.into()),
-        ("memory_bandwidth", giga_to_uni(2.04 * 1024.0).into()),
-        ("device_vendor", "Nvidia".into()),
-        ("compute_cap_major", 8.into()),
-        ("compute_cap_minor", 0.into()),
-    ]);
-    near(peak_tflops(&space), 312.0, 1.0);
-}
-
-#[test]
-fn mi300_x_peak_compute_t_flops() {
-    let space = device(&[("clock_rate", 2100000.into()), ("core_count", 304.into()), ("device_vendor", "AMD".into()), ("gpu_device_name", "gfx942".into())]);
-    near(peak_tflops(&space), 1307.4, 1.0);
-}
-
-#[test]
-fn mi100_peak_compute_t_flops() {
-    let space = device(&[("clock_rate", 1502000.into()), ("core_count", 120.into()), ("device_vendor", "AMD".into()), ("gpu_device_name", "gfx908".into())]);
-    near(peak_tflops(&space), 184.6, 1.0);
-}
-
-#[test]
-fn mi250_peak_compute_t_flops_per_gcd() {
-    let space = device(&[("clock_rate", 1700000.into()), ("core_count", 104.into()), ("device_vendor", "AMD".into()), ("gpu_device_name", "gfx90a".into())]);
-    near(peak_tflops(&space), 181.0, 1.0);
-}
-
-#[test]
-fn mi355_x_peak_compute_t_flops() {
-    let space = device(&[("clock_rate", 2400000.into()), ("core_count", 256.into()), ("device_vendor", "AMD".into()), ("gpu_device_name", "gfx950".into())]);
-    near(peak_tflops(&space), 2516.6, 1.0);
+peaks! {
+    b200_peak_comput_t_flops: nvidia(1830000, 148, 7.68, 10, 0) => 2218.0;
+    future_blackwell_peak_comput_t_flops: nvidia(1830000, 148, 7.68, 10, 9) => 2218.0;
+    h100_peak_comput_t_flops: nvidia(1620000, 114, 2.04, 9, 0) => 756.0;
+    a100_peak_comput_t_flops: nvidia(1410000, 108, 2.04, 8, 0) => 312.0;
+    mi300_x_peak_compute_t_flops: amd(2100000, 304, "gfx942") => 1307.4;
+    mi100_peak_compute_t_flops: amd(1502000, 120, "gfx908") => 184.6;
+    mi250_peak_compute_t_flops_per_gcd: amd(1700000, 104, "gfx90a") => 181.0;
+    mi355_x_peak_compute_t_flops: amd(2400000, 256, "gfx950") => 2516.6;
 }
 
 #[test]
@@ -120,13 +72,13 @@ fn ambiguous_amd_compute_capability_reports_no_peak() {
 
 #[test]
 fn mi300_x_shared_memory_bandwidth() {
-    let space = device(&[("clock_rate", 2100000.into()), ("core_count", 304.into()), ("device_vendor", "AMD".into()), ("gpu_device_name", "gfx942".into())]);
+    let space = amd(2100000, 304, "gfx942");
     near(aggregate_shared_memory_giga_bytes_per_second(&space), 81715.2, 1.0);
 }
 
 #[test]
 fn mi355_x_shared_memory_bandwidth_doubles() {
-    let space = device(&[("clock_rate", 2400000.into()), ("core_count", 256.into()), ("device_vendor", "AMD".into()), ("gpu_device_name", "gfx950".into())]);
+    let space = amd(2400000, 256, "gfx950");
     near(aggregate_shared_memory_giga_bytes_per_second(&space), 157286.4, 1.0);
 }
 

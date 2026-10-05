@@ -1,10 +1,10 @@
-use super::legacy::{bytes, fetch, number};
+use super::legacy::{bytes, fetch, number, settle};
 use crate::{Settings, Shared, app, state};
 use axum::body::Body;
 use axum::http::{StatusCode, header};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use tower::ServiceExt;
 
 const PREFIX: &str = "/data/plugin/profile";
@@ -21,10 +21,7 @@ const RUN_TO_HOSTS: [(&str, &[Option<&str>]); 6] =
 const XPLANE_TOOLS: [&str; 5] = ["trace_viewer", "trace_viewer@", "overview_page", "op_profile", "input_pipeline_analyzer"];
 
 fn temp_logdir(name: &str) -> PathBuf {
-    let dir = crate::tests::temp_dir().join(format!("xprof-rs-plugin-{}-{name}", std::process::id()));
-    _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.canonicalize().unwrap()
+    crate::tests::scratch(&format!("plugin-{name}")).canonicalize().unwrap()
 }
 
 fn generate_testdata(logdir: &Path) {
@@ -70,10 +67,6 @@ async fn post(state: &Shared, uri: &str) -> (StatusCode, String) {
     let reply = app(state.clone()).oneshot(axum::http::Request::builder().method("POST").uri(uri).body(Body::empty()).unwrap()).await.unwrap();
     let status = reply.status();
     (status, String::from_utf8_lossy(&axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap()).into_owned())
-}
-
-fn settle(path: &Path) {
-    std::fs::File::options().write(true).open(path).unwrap().set_modified(SystemTime::now() - Duration::from_secs(60)).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

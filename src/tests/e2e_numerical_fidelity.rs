@@ -1,4 +1,4 @@
-use super::cli_support::{parse, run, scratch};
+use super::cli_support::{ok, scratch};
 use super::e2e_oracles::{MEDIUM_STEP_PS, TRAINING_STEP_PS, datasheet_violations, demo, oracle_duty_cycle, oracle_ridge_point, oracle_step_time_ms, session, training_trace};
 use crate::cli::json::J;
 use std::path::{Path, PathBuf};
@@ -11,10 +11,8 @@ fn training(name: &str, step_ps: i64) -> PathBuf {
 
 fn query(command: &str, path: &Path, flags: &[&str]) -> J {
     let argv: Vec<&str> = [command, path.to_str().unwrap()].into_iter().chain(flags.iter().copied()).collect();
-    let (code, out, _) = run(&argv);
-    assert_eq!(code, 0, "{out}");
-    let result = parse(&out);
-    assert!(!result.has("error"), "{out}");
+    let result = ok(&argv);
+    assert!(!result.has("error"), "{result:?}");
     result
 }
 

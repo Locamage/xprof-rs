@@ -1,15 +1,6 @@
 use super::cli_support::{parse, run, scratch};
-use super::e2e_oracles::demo;
+use super::e2e_oracles::{demo, demo_query as query};
 use crate::cli::json::J;
-
-fn query(name: &str, command: &str, flags: &[&str]) -> J {
-    let dir = scratch(name);
-    let path = demo(&dir);
-    let argv: Vec<&str> = [command, path.to_str().unwrap()].into_iter().chain(flags.iter().copied()).collect();
-    let (code, out, _) = run(&argv);
-    assert_eq!(code, 0, "{out}");
-    parse(&out)
-}
 
 #[test]
 fn test_a01_steptime_and_duty_cycle_rubric() {
