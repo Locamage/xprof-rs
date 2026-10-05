@@ -1,4 +1,4 @@
-use crate::{Params, RENDERED_FROM, Shared, blocking, confine, list, response, run_dir, sessions};
+use crate::{Params, RENDERED_FROM, Shared, blocking, confine, list, response, run_dir, sessions, xplanes};
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
@@ -105,14 +105,19 @@ impl Remote {
         } else {
             let unchanged =
                 |path: &Path, object: &ObjectMeta| std::fs::metadata(path).is_ok_and(|meta| meta.len() == object.size && meta.modified().ok() == Some(SystemTime::from(object.last_modified)));
-            let wanted: Vec<(PathBuf, ObjectMeta)> = listing(&key)
+            let mut wanted: Vec<(PathBuf, ObjectMeta)> = listing(&key)
                 .await?
                 .objects
                 .into_iter()
                 .filter(|object| object.location.filename().is_some_and(|name| RENDERED_FROM.iter().any(|suffix| name.ends_with(suffix))))
                 .filter_map(|object| Some((self.local(&object.location)?, object)))
-                .filter(|(path, object)| !unchanged(path, object))
                 .collect();
+            for stale in xplanes(dir) {
+                if !wanted.iter().any(|(path, _)| *path == stale) {
+                    std::fs::remove_file(stale).map_err(unwritable)?;
+                }
+            }
+            wanted.retain(|(path, object)| !unchanged(path, object));
             if !wanted.is_empty() {
                 std::fs::create_dir_all(dir).map_err(unwritable)?;
             }
