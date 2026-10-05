@@ -1,7 +1,7 @@
 use crate::framework_op_stats::{is_jax_op_type, is_tf_op_name, is_tf_op_type};
 use crate::gpu;
 use crate::hlo::xla::HloInstructionMeta;
-use crate::xplane::{Ev, Line, NONE_GROUP, Plane, Value, slice, stats};
+use crate::xplane::{Ev, Line, NONE_GROUP, Plane, Value, event_group, slice, stats};
 use prost::Message;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -91,7 +91,7 @@ const STREAM_LINES: [(i64, &str, &[usize]); 5] =
     [(1, "Framework Ops", &[]), (0, "Framework Name Scope", &[TF_OPS]), (3, "XLA Ops", &[]), (2, "XLA Modules", &[SCOPES, HLO_OPS]), (5, "Source code", &[])];
 const PS_PER_NS: u64 = 1000;
 const HOST: &str = "/host:CPU";
-const STEP_LINE: i64 = 0xdead_beef;
+pub const STEP_LINE: i64 = 0xdead_beef;
 const LAUNCH_LINE: i64 = STEP_LINE + 1;
 const DEVICE_DERIVED: i64 = STEP_LINE + 290;
 const DEVICE_DERIVED_MAX: i64 = DEVICE_DERIVED + 99;
@@ -307,17 +307,6 @@ fn sorted(plane: &Plane, lines: &[usize]) -> Vec<(usize, usize)> {
     order.into_iter().map(|(_, _, line, index)| (line, index)).collect()
 }
 
-fn int_value(value: &Value) -> i64 {
-    if let Value::Int(value) = value { *value } else { 0 }
-}
-
-fn group_of(map: &[u8], event: &Ev, group_id: Option<usize>) -> Option<i64> {
-    if event.group != NONE_GROUP {
-        return Some(event.group);
-    }
-    stats(slice(map, event.raw), 4, |id| Some(id) == group_id).next().map(|stat| int_value(&stat.value))
-}
-
 fn symbols(planes: &[Plane], map: &[u8]) -> Symbols {
     crate::hlo::protos(planes, map)
         .into_par_iter()
@@ -417,7 +406,7 @@ fn steps(plane: &mut Plane, map: &[u8], names: &HashMap<i64, String>) {
     let mut key = String::new();
     for (line, index) in sorted(plane, &lines) {
         let event = &mut plane.lines[line].events[index];
-        if let Some(group) = group_of(map, event, group_id) {
+        if let Some(group) = event_group(slice(map, event.raw), event.group, group_id) {
             last = Some(group);
         } else {
             let Some(group) = last else { continue };
@@ -509,7 +498,7 @@ fn launch_lines(planes: &[Plane], map: &[u8], devices: usize, names: &HashMap<i6
                     match ids.iter().position(|id| *id == Some(stat.id)).unwrap() {
                         0 => device = stat.value.int(),
                         1 => correlation = stat.value.int(),
-                        _ => group = Some(int_value(&stat.value)),
+                        _ => group = Some(stat.value.signed()),
                     }
                 }
                 let group = if event.group == NONE_GROUP { group } else { Some(event.group) };

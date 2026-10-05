@@ -1,6 +1,6 @@
 use crate::table::{Cell, Table, number, string};
 use crate::utilization::{Device, Metric, compute};
-use crate::xplane::{Field, Value, fields, stats, varint};
+use crate::xplane::{Field, Value, fields, nested, stats, varint};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use serde_json::{Value as Json, json};
@@ -167,8 +167,8 @@ fn entry(bytes: &[u8]) -> (u64, &[u8]) {
 }
 
 pub fn planes(map: &[u8], keep: impl Fn(&[u8]) -> bool) -> Vec<Plane<'_>> {
-    let named = |bytes| fields(bytes).filter_map(|(tag, field)| if let (2, Field::Bytes(_, name)) = (tag, field) { Some(name) } else { None }).last().unwrap_or(&[]);
-    let bodies: Vec<&[u8]> = fields(map).filter_map(|(tag, field)| if let (1, Field::Bytes(_, bytes)) = (tag, field) { Some(bytes) } else { None }).filter(|bytes| keep(named(bytes))).collect();
+    let named = |bytes| nested(bytes, 2).last().unwrap_or(&[]);
+    let bodies: Vec<&[u8]> = nested(map, 1).filter(|bytes| keep(named(bytes))).collect();
     bodies
         .into_par_iter()
         .map(|bytes| {
@@ -223,8 +223,7 @@ fn chunks(bytes: &[u8]) -> Vec<&[u8]> {
 }
 
 pub fn events(bytes: &[u8]) -> impl Iterator<Item = Event<'_>> {
-    fields(bytes).filter_map(|(tag, field)| {
-        let (4, Field::Bytes(_, raw)) = (tag, field) else { return None };
+    nested(bytes, 4).map(|raw| {
         let mut event = Event { meta: 0, offset_ps: 0, duration_ps: 0, raw };
         for (tag, field) in fields(raw) {
             match (tag, field) {
@@ -235,7 +234,7 @@ pub fn events(bytes: &[u8]) -> impl Iterator<Item = Event<'_>> {
                 _ => {}
             }
         }
-        Some(event)
+        event
     })
 }
 

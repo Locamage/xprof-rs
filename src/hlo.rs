@@ -1,6 +1,6 @@
 use crate::hlo_text::{Printer, Style};
 use crate::opstats::{Db, Metrics};
-use crate::xplane::{Field, Plane, Value, fields, slice, stats};
+use crate::xplane::{Field, Plane, Value, fields, nested, slice, stats};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use prost::Message;
@@ -58,7 +58,7 @@ pub fn msg<T: Default + Clone>(value: &Option<T>) -> Cow<'_, T> {
 }
 
 pub fn last_bytes(buf: &[u8], number: u32) -> &[u8] {
-    fields(buf).filter_map(|(field, value)| if let (true, Field::Bytes(_, bytes)) = (field == number, value) { Some(bytes) } else { None }).last().unwrap_or_default()
+    nested(buf, number).last().unwrap_or_default()
 }
 
 pub fn split(buf: &[u8], number: u32) -> (Vec<u8>, Vec<&[u8]>) {

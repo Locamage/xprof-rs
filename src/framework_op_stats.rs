@@ -1,7 +1,8 @@
+use crate::derive::is_derived;
 use crate::hlo_stats::roofline;
 use crate::opstats::{Db, IDLE, Metrics, OpStats, add, pico_to_micro, safe_divide};
 use crate::table::{Cell, Table};
-use crate::xplane::{Line, Plane, slice, stats};
+use crate::xplane::{Line, Plane, event_stat, slice};
 use arcstr::ArcStr;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -10,8 +11,6 @@ use std::collections::HashMap;
 const MAX_OPS: usize = 500;
 const HOST_PLANE: &str = "/host:CPU";
 const UNKNOWN: &str = "Unknown";
-const DERIVED_MIN: i32 = 0xdead_beef_u32 as i32;
-const DERIVED_MAX: i32 = DERIVED_MIN + 389;
 const MEMCPY: [&str; 4] = ["MemcpyHToD", "MemcpyDToH", "MemcpyDToD", "MemcpyHToH"];
 const COLUMNS: [(&str, &str, &str); 19] = [
     ("rank", "number", "Rank"),
@@ -103,9 +102,9 @@ fn shared(op: TfOp) -> Op {
 
 fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &HashMap<i64, Op>, ids: &[Option<usize>; 6]) -> (Db, (u64, u64)) {
     let mut activities: Vec<Activity> = Vec::new();
-    if !(DERIVED_MIN..=DERIVED_MAX).contains(&(line.id as i32)) {
+    if !is_derived(line.id) {
         for event in &line.events {
-            let stat = |id: Option<usize>| stats(slice(map, event.raw), 4, |stat| Some(stat) == id).next().map(|stat| stat.value);
+            let stat = |id: Option<usize>| event_stat(slice(map, event.raw), id);
             let key = stat(ids[2]).or_else(|| stat(ids[4])).map_or(event.meta as i64, |value| value.int().unwrap_or(0));
             let (begin, end) = (event.ts, event.ts + event.dur);
             if let Some(op) = ops.get(&key) {
@@ -171,7 +170,7 @@ pub fn host_db(planes: &[Plane], map: &[u8]) -> (Db, (u64, u64)) {
         if meta.name.is_empty() {
             continue;
         }
-        let find = |id: Option<usize>| stats(slice(map, event.raw), 4, |stat| Some(stat) == id).next().map(|stat| stat.value);
+        let find = |id: Option<usize>| event_stat(slice(map, event.raw), id);
         if let Some(stage) = find(ids[2]).or_else(|| find(ids[4])) {
             if let Some(category) = find(ids[3]).or_else(|| find(ids[5])) {
                 let (id, kind) = (stage.int().unwrap_or(0), plane.text(&category));

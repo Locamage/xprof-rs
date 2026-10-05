@@ -5,7 +5,7 @@ use crate::hlo::{Module, msg, protos};
 use crate::hlo_text::{Printer, Style};
 use crate::opstats::{Db, Perf, READ, Source, WRITE, combine_memory};
 use crate::table::{Cell, Table};
-use crate::xplane::{Ev, NONE_GROUP, Own, Plane, Value, slice, stats};
+use crate::xplane::{Ev, NONE_GROUP, Own, Plane, Value, event_stat, slice, stats};
 use arcstr::ArcStr;
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -183,19 +183,6 @@ pub fn devices(planes: &[Plane]) -> Vec<&Plane> {
     planes.iter().filter(|plane| plane.name.starts_with(PREFIX)).collect()
 }
 
-pub fn text<'a>(plane: &'a Plane, value: &Value<'a>) -> Cow<'a, str> {
-    match value {
-        Value::Str(bytes) => crate::xplane::lossy(bytes),
-        Value::Ref(id) => Cow::Borrowed(plane.stat_names.get(*id as usize).map_or("", |name| name)),
-        _ => Cow::Borrowed(""),
-    }
-}
-
-pub fn event_name<'a>(plane: &'a Plane, map: &'a [u8], meta: u32) -> Cow<'a, str> {
-    let meta = &plane.meta[meta as usize];
-    if meta.display.is_empty() { Cow::Borrowed(&meta.name) } else { meta.long_name(map) }
-}
-
 impl<'a> Scanner<'a> {
     pub fn new(plane: &'a Plane, map: &'a [u8]) -> Self {
         let mut slots = vec![UNWANTED; plane.stat_names.len()];
@@ -222,7 +209,7 @@ impl<'a> Stats<'a> {
     }
 
     pub fn text(&self, slot: usize) -> Cow<'a, str> {
-        self.values[slot].as_ref().map_or(Cow::Borrowed(""), |value| text(self.plane, value))
+        self.values[slot].as_ref().map_or(Cow::Borrowed(""), |value| self.plane.text_cow(value))
     }
 
     pub fn int(&self, slot: usize) -> Option<i64> {
@@ -230,7 +217,7 @@ impl<'a> Stats<'a> {
     }
 
     pub fn signed(&self, slot: usize) -> Option<i64> {
-        self.values[slot].as_ref().map(|value| if let Value::Int(value) = value { *value } else { 0 })
+        self.values[slot].as_ref().map(Value::signed)
     }
 
     pub fn unsigned(&self, slot: usize) -> Option<u64> {
@@ -252,7 +239,7 @@ impl<'a> Stats<'a> {
 pub fn groups(plane: &Plane, map: &[u8]) -> Vec<Vec<Option<i64>>> {
     let id = plane.id("group_id");
     let own = |event: &Ev| {
-        if event.group == NONE_GROUP { stats(slice(map, event.raw), 4, |stat| Some(stat) == id).next().and_then(|stat| stat.value.int()) } else { Some(event.group) }
+        if event.group == NONE_GROUP { event_stat(slice(map, event.raw), id).and_then(|value| value.int()) } else { Some(event.group) }
     };
     let mut result: Vec<Vec<Option<i64>>> = plane.lines.iter().map(|line| line.events.iter().map(own).collect()).collect();
     if id.is_none() && result.iter().flatten().all(Option::is_none) {
@@ -611,7 +598,7 @@ pub fn device_plane(plane: &Plane, map: &[u8], infos: &Infos, origin: i64) -> (D
                         builder.hlo_op(info, name, &stats, *group, map, event);
                     }
                 }
-                None if !stats.text(TF_OP).is_empty() => builder.tf_op(&stats.text(TF_OP), &event_name(plane, map, event.meta), &stats, event),
+                None if !stats.text(TF_OP).is_empty() => builder.tf_op(&stats.text(TF_OP), &plane.meta[event.meta as usize].full_name(map), &stats, event),
                 None => {}
             }
         }
@@ -654,7 +641,7 @@ pub(crate) fn launch_params(details: &str, key: &mut KernelKey, occupancy: &mut 
 fn kernel_reports(plane: &Plane, map: &[u8], infos: &Infos, launches: Vec<(Launch, [u64; 4])>) -> Vec<KernelReport> {
     let mut reports = Vec::with_capacity(launches.len());
     for ((meta, details, tf_op, equation, program, hlo_op), [total_ns, min_ns, max_ns, occurrences]) in launches {
-        let name = event_name(plane, map, meta).into_owned();
+        let name = plane.meta[meta as usize].full_name(map).into_owned();
         let mut key = KernelKey { tensor_core: TENSOR_CORE_KERNELS.split(' ').any(|pattern| name.contains(pattern)), name, ..Default::default() };
         let mut occupancy = 0.0;
         launch_params(&details, &mut key, &mut occupancy);

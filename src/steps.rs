@@ -1,10 +1,10 @@
-use crate::derive::is_tensor_core;
+use crate::derive::{STEP_LINE, is_derived, is_tensor_core};
 use crate::framework_op_stats::{is_jax_op_type, is_tf_op_name, is_tf_op_type, parse_tf_op};
 use crate::group::is_sparse_core;
 use crate::input_pipeline_analyzer::{TC_IDLE, tpu_step_details};
 use crate::opstats::{Builder, Db, EventReader, IDLE, Metrics, Templates, safe_divide};
 use crate::roofline::accumulate;
-use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, fields, slice, stats};
+use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, event_stat, fields, nested, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -29,8 +29,6 @@ pub const DEVICE_COMPUTE_16: u32 = 150;
 pub const DEVICE_WAIT_DEVICE: u32 = 160;
 pub const DEVICE_WAIT_HOST: u32 = 170;
 const LAST_EVENT_TYPE: usize = 170;
-const DERIVED_MIN: i32 = 0xdeadbeef_u32 as i32;
-const DERIVED_MAX: i32 = DERIVED_MIN + 389;
 const TPU_PREFIX: &str = "/device:TPU:";
 const HOST_PLANE: &str = "/host:CPU";
 const OFF_DUTY: [&str; 8] = ["infeed", "outfeed", "host send", "host send-done", "host recv", "host recv-done", "async-done", "megacore fusion"];
@@ -186,11 +184,7 @@ fn scan<'a>(plane: &'a Plane, raw: &'a [u8], field: u32, ids: &[Option<usize>; 1
     for stat in stats(raw, field, |_| true) {
         match ids.iter().position(|&id| id == Some(stat.id)) {
             Some(CATEGORY) => {
-                out.1 = Some(match stat.value {
-                    Value::Str(bytes) => crate::xplane::lossy(bytes),
-                    Value::Ref(id) => Cow::Borrowed(plane.stat_names.get(id as usize).map_or("", |name| &**name)),
-                    _ => Cow::Borrowed(""),
-                });
+                out.1 = Some(plane.text_cow(&stat.value));
             }
             Some(index) => out.0[index] = stat.value.int().or(out.0[index]),
             None => {}
@@ -271,8 +265,8 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
     let mut markers: StepEvents = HashMap::new();
     for line in &plane.lines {
         let name = line.name.as_str();
-        let step_line = line.id as i32 == DERIVED_MIN || (tensor && name == "Steps") || (sparse && name == "Sparse Core Steps");
-        let derived = (DERIVED_MIN..=DERIVED_MAX).contains(&(line.id as i32));
+        let step_line = line.id as i32 == STEP_LINE as i32 || (tensor && name == "Steps") || (sparse && name == "Sparse Core Steps");
+        let derived = is_derived(line.id);
         let op_line = !step_line && !derived && ((tensor && matches!(name, "XLA Ops" | "Framework Ops" | "Sparse Core Ops")) || (sparse && name == "Sparse Core Ops"));
         if matches!(name, "XLA Ops" | "Sparse Core Ops" | "XLA Modules" | "Sparse Core Modules") {
             for event in &line.events {
@@ -384,7 +378,7 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
     let (scanner, shapes) = (crate::gpu::Scanner::new(plane, map), plane.id("tensor_shapes"));
     let kinds: Vec<(u32, bool)> = (0..plane.meta.len() as u32)
         .map(|meta| {
-            let name = crate::gpu::event_name(plane, map, meta);
+            let name = plane.meta[meta as usize].full_name(map);
             let op = parse_tf_op(&name);
             let memcpy = GPU_MEMCPY.iter().find(|(kind, _)| op.kind == *kind && !name.contains(':')).map(|memcpy| memcpy.1);
             let collective = name.len() >= 4 && name.as_bytes()[..4].eq_ignore_ascii_case(b"nccl");
@@ -398,7 +392,7 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
             let Some(group) = groups[line_index][index].filter(|&group| group >= 0 && scanner.scan(event).int(crate::gpu::CORRELATION).is_some()) else { continue };
             let kind = match kinds[event.meta as usize] {
                 (UNKNOWN_TIME, half) => {
-                    let shape = shapes.and_then(|id| stats(slice(map, event.raw), 4, |stat| stat == id).next()).map_or(Cow::Borrowed(""), |stat| crate::gpu::text(plane, &stat.value));
+                    let shape = shapes.and_then(|id| stats(slice(map, event.raw), 4, |stat| stat == id).next()).map_or(Cow::Borrowed(""), |stat| plane.text_cow(&stat.value));
                     if (shape.is_empty() && half) || shape.contains("half") { DEVICE_COMPUTE_16 } else { DEVICE_COMPUTE_32 }
                 }
                 (kind, _) => kind,
@@ -430,14 +424,10 @@ fn merged_active(mut intervals: Vec<(u64, u64)>) -> u64 {
     sum.wrapping_add(stop.wrapping_sub(start))
 }
 
-fn nested(data: &[u8], wanted: u32) -> impl Iterator<Item = &[u8]> {
-    fields(data).filter_map(move |(tag, field)| if let (true, Field::Bytes(_, body)) = (tag == wanted, field) { Some(body) } else { None })
-}
-
 pub fn host_steps(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
     let id = |name| plane.id(name);
     let (group_id, step_name, stage_name, consumer_type, consumer_id, producer_type, producer_id) = (id("group_id"), id("step_name"), id("_ipl_stage_name"), id("_ct"), id("_c"), id("_pt"), id("_p"));
-    let find = |event: &Ev, id: Option<usize>| stats(slice(map, event.raw), 4, |stat| Some(stat) == id).next().map(|stat| stat.value);
+    let find = |event: &Ev, id: Option<usize>| event_stat(slice(map, event.raw), id);
     let number = |event: &Ev, id: Option<usize>| find(event, id).and_then(|value| value.int());
     let parents: HashSet<(i64, i64)> = if producer_type.is_some() && producer_id.is_some() {
         plane.lines.iter().flat_map(|line| &line.events).filter_map(|event| number(event, producer_type).zip(number(event, producer_id))).collect()
@@ -749,13 +739,6 @@ fn alignment(subordinate: &[Span], chief: &[Span]) -> (u32, u32, u32) {
     (begin_sub, begin_chief, (subordinate.len() as u32 - begin_sub).min(chief.len() as u32 - begin_chief))
 }
 
-fn add_program(total: &mut [Metrics; 2], part: &[Metrics; 2]) {
-    for (total, part) in total.iter_mut().zip(part) {
-        accumulate(total, part);
-        total.time_ps = total.time_ps.wrapping_add(part.time_ps);
-    }
-}
-
 pub fn combine(all: &[&Extra]) -> Extra {
     let has_device = |extra: &Extra| extra.device_type.contains("GPU") || (extra.device_type != "CPU" && extra.device_type.contains("TPU"));
     let no_accelerator = !all.iter().any(|extra| has_device(extra));
@@ -826,14 +809,14 @@ pub fn combine(all: &[&Extra]) -> Extra {
             let mut sums: [Metrics; 2] = Default::default();
             for &host in &workers {
                 if let Some((_, part)) = all[host].program_steps.get(first_steps[host] as usize + index) {
-                    add_program(&mut sums, part);
+                    add_metrics(&mut sums, part, [part[0].time_ps, part[1].time_ps]);
                 }
             }
             (combined.steps[index].num as i64, sums)
         })
         .collect();
     for (_, sums) in &combined.program_steps {
-        add_program(&mut combined.program_total, sums);
+        add_metrics(&mut combined.program_total, sums, [sums[0].time_ps, sums[1].time_ps]);
     }
     combined.mxu /= all.len() as f64;
     combined.hbm /= all.len() as f64;
