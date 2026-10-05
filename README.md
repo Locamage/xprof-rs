@@ -2,12 +2,7 @@
 
 xprof-rs is a fast backend for the [XProf](https://github.com/openxla/xprof) profile viewer. It is one Rust binary. It replaces the XProf server and the XProf agent CLI, and it serves the same user interface. Its responses are the same as the responses of XProf 2.23.2. The tests compare them with the output of XProf.
 
-| 279 MB TPU v4 profile, 2.95 M events | XProf | xprof-rs |
-|---|---|---|
-| Open the trace viewer | 12 s | 0.73 s |
-| Open the overview page | 18 s | 1.3 s |
-| Open the op profile after the overview | 4.0 s | 0.13 s |
-| `get_overview` in the CLI | 18 s | 1.0 s |
+On a 279 MB TPU v4 profile with 2.95 M events, the trace viewer opens in 0.73 s (XProf: 12 s). The overview page opens in 1.3 s (XProf: 18 s). The [server](#server) and [command line](#command-line) sections have more times.
 
 We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores. More cores make xprof-rs faster. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
 
@@ -176,6 +171,7 @@ xprof-rs replaces the backend. It does not replace the complete XProf distributi
 - `verify_numerical_parity` returns the error of XProf for dependencies that are not installed. XProf runs Python callables for this command.
 - The `detect_*` commands from the README of XProf are not available. XProf 2.23.2 does not register them.
 - `mpmd_pipeline_view=true` has no effect. XProf has the same behavior.
+- `perf_counters` with `names_only` and `utilization_viewer` support only TPU v6e and v7x. XProf 2.23.2 has counter tables only for these two chips. The tables are in `src/tpu_counters_v6e.txt` and `src/tpu_counters_v7x.txt`.
 
 **Python part of the XProf package**
 
