@@ -1,5 +1,5 @@
 use crate::trace::{DERIVED_META, Device, Event, FLOW_END, FLOW_MID, FLOW_START, NONE_FLOW, NONE_RESOURCE, Trace};
-use crate::xplane::{Meta, NONE_GROUP, Plane, Value, lossy, slice, stats};
+use crate::xplane::{Meta, NONE_GROUP, Plane, Value, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::collections::HashMap;
@@ -63,7 +63,7 @@ pub fn double(value: f64) -> String {
 }
 
 fn long_text(text: &str) -> String {
-    if text.len() > LONG_NAME_LIMIT { format!("{}...<truncated>", lossy(&text.as_bytes()[..LONG_NAME_LIMIT])) } else { text.to_string() }
+    if text.len() > LONG_NAME_LIMIT { format!("{}...<truncated>", String::from_utf8_lossy(&text.as_bytes()[..LONG_NAME_LIMIT])) } else { text.to_string() }
 }
 
 fn fingerprint(text: &str) -> u64 {

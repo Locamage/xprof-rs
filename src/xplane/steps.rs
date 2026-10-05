@@ -559,7 +559,7 @@ fn is_training(planes: &[Plane], map: &[u8]) -> bool {
     let modules = crate::hlo::protos(planes, map);
     let instructions: Vec<&[u8]> = modules.iter().flat_map(|(_, proto)| nested(proto, 1)).flat_map(|module| nested(module, 3)).flat_map(|computation| nested(computation, 2)).collect();
     instructions.par_iter().flat_map_iter(|instruction| nested(instruction, 7)).any(|metadata| {
-        let text = |wanted: u32| nested(metadata, wanted).last().map(|bytes| crate::xplane::lossy(bytes).into_owned()).unwrap_or_default();
+        let text = |wanted: u32| nested(metadata, wanted).last().map(|bytes| String::from_utf8_lossy(bytes).into_owned()).unwrap_or_default();
         let (kind, name) = (text(1), text(2));
         if is_tf_op_type(&kind) && is_tf_op_name(&name) {
             let scopes: Vec<&str> = name.split('/').collect();
@@ -582,7 +582,7 @@ fn add_metrics(total: &mut [Metrics; 2], part: &[Metrics; 2], times: [u64; 2]) {
 pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
     let texts = |tag: u32| {
         let mut seen = HashSet::new();
-        nested(map, tag).map(|bytes| crate::xplane::lossy(bytes).into_owned()).filter(|text| seen.insert(text.clone())).collect::<Vec<String>>()
+        nested(map, tag).map(|bytes| String::from_utf8_lossy(bytes).into_owned()).filter(|text| seen.insert(text.clone())).collect::<Vec<String>>()
     };
     let raw_planes: Vec<&[u8]> = nested(map, 1).collect();
     let hostname = texts(4).into_iter().next().unwrap_or_else(|| "localhost".into());
