@@ -141,3 +141,22 @@ async fn an_unreadable_store_answers_bad_gateway() {
     std::fs::remove_dir_all(&bucket).unwrap();
     std::fs::remove_dir_all(&settings.remote.unwrap().mirror).unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_download_leaves_no_partial_file_and_no_lock() {
+    let (store, remote) = memory("partial");
+    put(&store, "logs/plugins/profile/s/a.xplane.pb", vec![1; PART_BYTES as usize * 3]).await;
+    put(&store, "logs/plugins/profile/s/b.xplane.pb", vec![2; 10]).await;
+    remote.sync(&remote.mirror, false).await.unwrap();
+    let dir = remote.mirror.join("plugins/profile/s");
+    std::fs::create_dir_all(dir.join(".b.xplane.pb.partial")).unwrap();
+    let stale = remote.mirror.join("plugins");
+    remote.checked.lock().unwrap().insert(stale.clone(), Instant::now().checked_sub(RECHECK * 2).unwrap());
+    assert!(remote.sync(&dir, true).await.is_err());
+    assert!(!dir.join(".a.xplane.pb.partial").exists() && !dir.join("a.xplane.pb").exists());
+    std::fs::remove_dir(dir.join(".b.xplane.pb.partial")).unwrap();
+    remote.sync(&dir, true).await.unwrap();
+    assert_eq!(std::fs::read(dir.join("b.xplane.pb")).unwrap(), [2; 10]);
+    assert!(remote.locks.lock().unwrap().is_empty() && !remote.checked.lock().unwrap().contains_key(&stale));
+    std::fs::remove_dir_all(&remote.mirror).unwrap();
+}

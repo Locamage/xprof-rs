@@ -65,11 +65,20 @@ impl<T: Into<Self>> From<Option<T>> for J {
 impl J {
     pub fn parse(text: &str) -> Option<Self> {
         if text.len() >= SPLIT
-            && let Some(value) = split_parse(text)
+            && let Some(value) = split_parse(text, 0)
         {
             return Some(value);
         }
-        serde_json::from_str(text).ok()
+        whole(text)
+    }
+
+    /// The deepest nesting of objects, which is the nesting of messages that protobuf counts.
+    pub fn object_depth(&self) -> usize {
+        match self {
+            Self::List(items) => items.iter().map(Self::object_depth).max().unwrap_or(0),
+            Self::Map(entries) => 1 + entries.iter().map(|(_, value)| value.object_depth()).max().unwrap_or(0),
+            _ => 0,
+        }
     }
 
     pub fn get(&self, key: &str) -> Option<&Self> {
@@ -276,6 +285,8 @@ pub fn py_repr(text: &str) -> String {
 
 /// The code splits a container of this length or more at its top-level commas. It parses the parts in parallel.
 const SPLIT: usize = 1 << 16;
+/// The code splits containers only at this many levels or fewer. Each level scans its text again.
+const SPLIT_LEVELS: usize = 8;
 
 fn trim(text: &str) -> &str {
     text.trim_matches([' ', '\t', '\n', '\r'])
@@ -361,12 +372,105 @@ fn parts(text: &str) -> Option<Vec<&str>> {
     (depth == 0).then_some(parts)
 }
 
+/// Python refuses JSON that nests deeper than about this.
+const MAX_DEPTH: usize = 1000;
+
+fn insert(entries: &mut Vec<(String, J)>, key: String, value: J) {
+    match entries.iter_mut().find(|(name, _)| *name == key) {
+        Some(slot) => slot.1 = value,
+        None => entries.push((key, value)),
+    }
+}
+
+/// Gives what `serde_json` gives. It also parses JSON that is deeper than the recursion limit of `serde_json`.
+fn whole(text: &str) -> Option<J> {
+    match serde_json::from_str(text) {
+        Ok(value) => Some(value),
+        Err(error) if error.to_string().starts_with("recursion limit exceeded") => {
+            let mut deep = Deep { text, at: 0 };
+            let value = deep.value(0)?;
+            deep.space();
+            (deep.at == text.len()).then_some(value)
+        }
+        Err(_) => None,
+    }
+}
+
+/// Parses the structure of JSON with a depth limit. `serde_json` parses each string and each other scalar, so the values are the same.
+struct Deep<'a> {
+    text: &'a str,
+    at: usize,
+}
+
+impl Deep<'_> {
+    fn space(&mut self) {
+        while matches!(self.text.as_bytes().get(self.at), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+            self.at += 1;
+        }
+    }
+
+    fn eat(&mut self, byte: u8) -> bool {
+        self.space();
+        let found = self.text.as_bytes().get(self.at) == Some(&byte);
+        self.at += usize::from(found);
+        found
+    }
+
+    fn string(&mut self) -> Option<String> {
+        self.space();
+        let start = self.at;
+        if self.text.as_bytes().get(start) != Some(&b'"') {
+            return None;
+        }
+        self.at = string_end(self.text.as_bytes(), start)?;
+        serde_json::from_str(&self.text[start..self.at]).ok()
+    }
+
+    fn value(&mut self, depth: usize) -> Option<J> {
+        self.space();
+        let bytes = self.text.as_bytes();
+        match *bytes.get(self.at)? {
+            b'"' => self.string().map(J::Str),
+            open @ (b'[' | b'{') if depth < MAX_DEPTH => {
+                self.at += 1;
+                let close = if open == b'[' { b']' } else { b'}' };
+                let (mut items, mut entries) = (Vec::new(), Vec::new());
+                if !self.eat(close) {
+                    loop {
+                        if open == b'[' {
+                            items.push(self.value(depth + 1)?);
+                        } else {
+                            let key = self.string()?;
+                            let value = self.eat(b':').then(|| self.value(depth + 1))??;
+                            insert(&mut entries, key, value);
+                        }
+                        if self.eat(close) {
+                            break;
+                        }
+                        if !self.eat(b',') {
+                            return None;
+                        }
+                    }
+                }
+                Some(if open == b'[' { J::List(items) } else { J::Map(entries) })
+            }
+            _ => {
+                let start = self.at;
+                while bytes.get(self.at).is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')) {
+                    self.at += 1;
+                }
+                serde_json::from_str(&self.text[start..self.at]).ok()
+            }
+        }
+    }
+}
+
 /// Gives what `serde_json` gives, or `None` when the text is not valid JSON.
-fn split_parse(text: &str) -> Option<J> {
+fn split_parse(text: &str, level: usize) -> Option<J> {
     let text = trim(text);
     let (open, close) = (*text.as_bytes().first()?, *text.as_bytes().last()?);
-    if text.len() < SPLIT || !matches!((open, close), (b'[', b']') | (b'{', b'}')) {
-        return serde_json::from_str(text).ok();
+    if text.len() < SPLIT || level == SPLIT_LEVELS || !matches!((open, close), (b'[', b']') | (b'{', b'}')) {
+        return whole(text);
     }
     let parts = parts(&text[1..text.len() - 1])?;
     if let [only] = parts[..]
@@ -375,22 +479,19 @@ fn split_parse(text: &str) -> Option<J> {
         return Some(if open == b'[' { J::List(Vec::new()) } else { J::Map(Vec::new()) });
     }
     if open == b'[' {
-        return parts.into_par_iter().map(split_parse).collect::<Option<_>>().map(J::List);
+        return parts.into_par_iter().map(|part| split_parse(part, level + 1)).collect::<Option<_>>().map(J::List);
     }
     let members: Vec<(String, J)> = parts
         .into_par_iter()
         .map(|part| {
             let part = trim(part);
             let end = string_end(part.as_bytes(), 0).filter(|_| part.starts_with('"'))?;
-            Some((serde_json::from_str(&part[..end]).ok()?, split_parse(trim(&part[end..]).strip_prefix(':')?)?))
+            Some((serde_json::from_str(&part[..end]).ok()?, split_parse(trim(&part[end..]).strip_prefix(':')?, level + 1)?))
         })
         .collect::<Option<_>>()?;
-    let mut entries: Vec<(String, J)> = Vec::with_capacity(members.len());
+    let mut entries = Vec::with_capacity(members.len());
     for (key, value) in members {
-        match entries.iter_mut().find(|(name, _)| *name == key) {
-            Some(slot) => slot.1 = value,
-            None => entries.push((key, value)),
-        }
+        insert(&mut entries, key, value);
     }
     Some(J::Map(entries))
 }
@@ -429,12 +530,9 @@ impl<'de> Deserialize<'de> for J {
                 Ok(J::List(items))
             }
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<J, A::Error> {
-                let mut entries: Vec<(String, J)> = Vec::new();
+                let mut entries = Vec::new();
                 while let Some((key, value)) = map.next_entry::<String, J>()? {
-                    match entries.iter_mut().find(|(name, _)| *name == key) {
-                        Some(slot) => slot.1 = value,
-                        None => entries.push((key, value)),
-                    }
+                    insert(&mut entries, key, value);
                 }
                 Ok(J::Map(entries))
             }

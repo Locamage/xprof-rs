@@ -214,3 +214,75 @@ fn memory_viewer_with_many_live_buffers() {
     assert_eq!(ids, (2..=count).collect::<Vec<_>>());
     assert_eq!(result["peakHeapSizePosition"].as_i64(), Some(count));
 }
+
+#[test]
+fn json_deeper_than_the_serde_limit() {
+    use crate::cli::json::J;
+    let wrap = |text: &str, depth: usize| format!("{}{text}{}", "[ ".repeat(depth), "\n]".repeat(depth));
+    let nest = |value: J, depth: usize| (0..depth).fold(value, |inner, _| J::List(vec![inner]));
+    for text in [
+        "null",
+        "true",
+        "-0",
+        "12345678901234567890123",
+        "1.5e300",
+        "-7",
+        "1e400",
+        "01",
+        "1.",
+        "-",
+        "nul",
+        "\"\\ud83d\\ude00\"",
+        "\"\\ud800\"",
+        "\"a\\\"b\\\\\"",
+        "\"\\x\"",
+        "\"\n\"",
+        "{\"k\": 1, \"j\": [], \"k\": {\"x\": 2}}",
+        "{\"k\" 1}",
+        "{1: 2}",
+        "[1, 2,]",
+        "[1 2]",
+        "{}",
+        "[]",
+        "1 2",
+        "[1]]",
+    ] {
+        let expected = serde_json::from_str::<J>(text).ok();
+        assert_eq!(J::parse(&wrap(text, 300)), expected.map(|value| nest(value, 300)), "{text}");
+    }
+    assert!(J::parse(&wrap("1", 1000)).is_some() && J::parse(&wrap("1", 1001)).is_none());
+    let big = format!("{}{}", "[".repeat(1 << 20), "]".repeat(1 << 20));
+    assert_eq!(std::thread::Builder::new().stack_size(2 << 20).spawn(move || J::parse(&big)).unwrap().join().unwrap(), None);
+}
+
+#[test]
+fn op_profile_deeper_than_the_serde_limit() {
+    use crate::cli::json::J;
+    use crate::cli::ops::{get_hlo_op_profile, get_top_hlo_ops};
+    use crate::tests::cli_support::{Fake, args, json};
+    let chain = |nodes: usize| {
+        let open = "{\"name\": \"n\", \"metrics\": {\"rawTime\": 1}, \"xla\": {\"category\": \"c\"}, \"children\": [".repeat(nodes);
+        format!("{{\"byCategory\": {}}}{}}}", &open[..open.len() - ", \"children\": [".len()], "]}".repeat(nodes - 1))
+    };
+    let flat = json(get_hlo_op_profile(&Fake::fixed(&chain(98)), &args("s", &[("view", J::from("flat"))])));
+    assert_eq!(flat.items()[0].at("name").text(), vec!["n"; 98].join("/"));
+    let error = get_hlo_op_profile(&Fake::fixed(&chain(99)), &args("s", &[])).unwrap_err();
+    assert_eq!(error.message, "Failed to parse op_profile proto: ParseError('Message too deep. Max recursion depth is 100')");
+    let top = json(get_top_hlo_ops(&Fake::fixed(&chain(99)), &args("s", &[])));
+    assert_eq!(top, J::Map(vec![("error".into(), J::from("Failed to parse JSON proto: Message too deep. Max recursion depth is 100"))]));
+}
+
+#[test]
+fn request_paths_that_do_not_exist() {
+    let (dir, outside) = (crate::tests::legacy::logdir("confine-missing"), crate::tests::legacy::logdir("confine-missing-outside"));
+    std::os::unix::fs::symlink(outside.join("later"), dir.join("dangling")).unwrap();
+    std::os::unix::fs::symlink(&outside, dir.join("out")).unwrap();
+    let state = crate::state(&crate::Settings { logdir: dir.clone(), ..Default::default() });
+    assert_eq!(crate::confine(&state, &dir.join("run/missing/s")), Some(dir.join("run/missing/s")));
+    assert_eq!(crate::confine(&state, &dir.join("run/plugins/profile/s")), Some(dir.join("run/plugins/profile/s")));
+    for path in ["dangling/s", "dangling", "out/missing", "missing/../run", "../missing"] {
+        assert_eq!(crate::confine(&state, &dir.join(path)), None, "{path}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&outside).unwrap();
+}
