@@ -494,6 +494,7 @@ async fn cached(state: &Shared, key: String, dir: &Path, accepts_gzip: bool, ren
                         let chunk = &body[(index * GZIP_CHUNK).min(body.len())..((index + 1) * GZIP_CHUNK).min(body.len())];
                         let flush = if index + 1 == chunks { flate2::FlushCompress::Finish } else { flate2::FlushCompress::Sync };
                         let (mut deflate, mut out) = (flate2::Compress::new(flate2::Compression::fast(), false), Vec::with_capacity(chunk.len() / 2 + 128));
+                        // The writer of flate2 can stop a sync flush when its buffer is full. This loop gives more space until the flush is complete.
                         loop {
                             let consumed = deflate.total_in() as usize;
                             let status = deflate.compress_vec(&chunk[consumed..], &mut out, flush).unwrap();
