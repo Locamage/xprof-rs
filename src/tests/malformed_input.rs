@@ -286,3 +286,55 @@ fn request_paths_that_do_not_exist() {
     std::fs::remove_dir_all(&dir).unwrap();
     std::fs::remove_dir_all(&outside).unwrap();
 }
+
+#[test]
+fn fused_children_of_deep_or_shared_fusions() {
+    use crate::hlo::cost::tests::{calling, chained};
+    use crate::hlo::xla::{HloModuleProto, HloProto, ProgramShapeProto};
+    use crate::tools::opstats::{Db, Metrics};
+    let fused = |computations: Vec<_>| {
+        let entry_computation_id = computations.len() as i64;
+        let proto = HloProto {
+            hlo_module: Some(HloModuleProto { name: "m".into(), entry_computation_id, computations, host_program_shape: Some(ProgramShapeProto::default()), ..Default::default() }),
+            ..Default::default()
+        };
+        let modules = [(1, crate::tests::hlo_fixture::module(&proto))];
+        let name = format!("fusion.{}", entry_computation_id * 10 + 1);
+        let mut db = Db { metrics: vec![Metrics { module: 1, name: name.as_str().into(), ..Default::default() }], ..Default::default() };
+        crate::hlo::attach_fused(&modules, &mut db);
+        db.metrics.remove(0)
+    };
+    let (mut metrics, mut depth) = (fused(chained(20_000, |id| vec![calling(id, 1, "fusion")])), 0);
+    while let Some(child) = metrics.children.metrics.pop() {
+        (metrics, depth) = (child, depth + 1);
+    }
+    assert_eq!(depth, 256);
+    let count = |metrics: &Metrics| -> usize {
+        let mut stack = vec![metrics];
+        let mut count = 0;
+        while let Some(metrics) = stack.pop() {
+            count += metrics.children.metrics.len();
+            stack.extend(&metrics.children.metrics);
+        }
+        count
+    };
+    assert_eq!(count(&fused(chained(40, |id| vec![calling(id, 1, "fusion"), calling(id, 2, "fusion")]))), 1 << 16);
+    assert_eq!(count(&fused(chained(4, |id| vec![calling(id, 1, "fusion"), calling(id, 2, "fusion")]))), 2 + 4 + 4);
+}
+
+#[test]
+fn text_of_a_deep_async_start_chain() {
+    use crate::hlo::cost::tests::{calling, chained};
+    use crate::hlo::xla::{HloModuleProto, HloProto, ProgramShapeProto};
+    let hlo_module = HloModuleProto {
+        name: "m".into(),
+        entry_computation_id: 1000,
+        computations: chained(1000, |id| vec![calling(id, 1, "async-start")]),
+        host_program_shape: Some(ProgramShapeProto::default()),
+        ..Default::default()
+    };
+    let module = crate::tests::hlo_fixture::module(&HloProto { hlo_module: Some(hlo_module), ..Default::default() });
+    let printer = crate::hlo::text::Printer::new(&module, crate::hlo::text::Style::Long, false);
+    let text = std::thread::scope(|scope| std::thread::Builder::new().stack_size(1 << 18).spawn_scoped(scope, || printer.module_text()).unwrap().join().unwrap()).unwrap();
+    assert!(text.contains("async-start.10001"));
+}

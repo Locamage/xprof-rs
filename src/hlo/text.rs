@@ -718,11 +718,9 @@ impl<'a> Printer<'a> {
                 if !inst.async_execution_thread.is_empty() && inst.async_execution_thread != "main" {
                     attributes.push(format!("async_execution_thread=\"{}\"", inst.async_execution_thread));
                 }
-                if let Some(graph) = self.sugar(node) {
-                    let root = module.graphs[graph].root;
-                    self.extra(root, &module.inst(root), msg(&inst.frontend_attributes).map.is_empty(), attributes);
+                if self.sugar(node).is_none() {
+                    aliasing(inst, attributes);
                 }
-                aliasing(inst, attributes);
             }
             "async-update" | "call" => aliasing(inst, attributes),
             "copy-start" => match inst.optional_cross_program_prefetch_index {
@@ -909,10 +907,28 @@ impl<'a> Printer<'a> {
         }
     }
 
+    /// An async-start with sugar writes the attributes of its wrapped root before its own aliasing.
     pub fn extra(&self, node: usize, inst: &Inst, print_frontend: bool, attributes: &mut Vec<String>) {
         let module = self.module;
+        let (mut node, mut inst, mut print_frontend, mut starts) = (node, Cow::Borrowed(inst), print_frontend, Vec::new());
+        loop {
+            self.implementation(node, &inst, attributes);
+            let Some(graph) = self.sugar(node).filter(|_| module.nodes[node].opcode == "async-start") else { break };
+            let root = module.graphs[graph].root;
+            let frontend = msg(&inst.frontend_attributes).map.is_empty();
+            starts.push((node, std::mem::replace(&mut inst, Cow::Owned(module.inst(root))), print_frontend));
+            (node, print_frontend) = (root, frontend);
+        }
+        self.calls(node, &inst, print_frontend, attributes);
+        while let Some((node, inst, print_frontend)) = starts.pop() {
+            aliasing(&inst, attributes);
+            self.calls(node, &inst, print_frontend, attributes);
+        }
+    }
+
+    fn calls(&self, node: usize, inst: &Inst, print_frontend: bool, attributes: &mut Vec<String>) {
+        let module = self.module;
         let entry = &module.nodes[node];
-        self.implementation(node, inst, attributes);
         let names = |graphs: &[usize]| graphs.iter().map(|&graph| self.graph_name(graph)).join(", ");
         let called: &[usize] = if self.style == Style::Graph { &[] } else { &entry.called };
         match entry.opcode.as_str() {

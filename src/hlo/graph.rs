@@ -305,28 +305,33 @@ impl Dumper<'_> {
         node
     }
 
-    fn color(&self, node: usize) -> &'static str {
+    fn color(&self, mut node: usize) -> &'static str {
         let module = self.module;
-        let entry = &module.nodes[node];
-        let parameter_color = if is_small(module, node) { "orange" } else { "dark_orange" };
-        if entry.operands.iter().any(|&operand| module.nodes[operand].opcode == "parameter" && self.merge_into_users(operand) && self.parameter_constant(operand).is_none()) {
-            return parameter_color;
-        }
-        match entry.opcode.as_str() {
-            "broadcast" | "dynamic-update-slice" => "yellow",
-            "concatenate" | "dynamic-slice" | "reshape" | "dynamic-reshape" | "reverse" | "transpose" | "copy" | "copy-start" | "copy-done" => "green",
-            "bitcast" if self.fused(node) => "green",
-            "async-start" | "async-update" | "async-done" => match self.printer.wrapped(node) {
-                Some(graph) => self.color(module.graphs[graph].root),
-                None => "white",
-            },
-            "convolution" | "dot" | "ragged-dot" | "scaled-dot" | "fft" | "triangular-solve" | "cholesky" => "dark_blue",
-            "parameter" => parameter_color,
-            "batch-norm-grad" | "batch-norm-inference" | "batch-norm-training" | "reduce" | "reduce-window" | "scan" | "scatter" | "select-and-scatter" | "gather" => "purple",
-            "domain" | "fusion" | "map" | "get-dimension-size" | "set-dimension-size" => "gray",
-            opcode if BROWN.split(' ').any(|name| name == opcode) => "brown",
-            "call" | "conditional" | "custom-call" | "while" => "dark_green",
-            _ => "white",
+        loop {
+            let entry = &module.nodes[node];
+            let parameter_color = if is_small(module, node) { "orange" } else { "dark_orange" };
+            if entry.operands.iter().any(|&operand| module.nodes[operand].opcode == "parameter" && self.merge_into_users(operand) && self.parameter_constant(operand).is_none()) {
+                return parameter_color;
+            }
+            return match entry.opcode.as_str() {
+                "broadcast" | "dynamic-update-slice" => "yellow",
+                "concatenate" | "dynamic-slice" | "reshape" | "dynamic-reshape" | "reverse" | "transpose" | "copy" | "copy-start" | "copy-done" => "green",
+                "bitcast" if self.fused(node) => "green",
+                "async-start" | "async-update" | "async-done" => match self.printer.wrapped(node) {
+                    Some(graph) => {
+                        node = module.graphs[graph].root;
+                        continue;
+                    }
+                    None => "white",
+                },
+                "convolution" | "dot" | "ragged-dot" | "scaled-dot" | "fft" | "triangular-solve" | "cholesky" => "dark_blue",
+                "parameter" => parameter_color,
+                "batch-norm-grad" | "batch-norm-inference" | "batch-norm-training" | "reduce" | "reduce-window" | "scan" | "scatter" | "select-and-scatter" | "gather" => "purple",
+                "domain" | "fusion" | "map" | "get-dimension-size" | "set-dimension-size" => "gray",
+                opcode if BROWN.split(' ').any(|name| name == opcode) => "brown",
+                "call" | "conditional" | "custom-call" | "while" => "dark_green",
+                _ => "white",
+            };
         }
     }
 
@@ -581,7 +586,8 @@ impl Dumper<'_> {
         format!("{} [label=<{body}>, shape={shape}, tooltip=\"{metadata}\", {}];\n", instruction_id(node), statistic_attributes(scheme, statistic))
     }
 
-    fn subcomputation(&mut self, graph: usize, parent: usize) -> String {
+    /// Writes the start of the cluster. Returns `false` when the cluster is already written.
+    fn subcomputation(&mut self, graph: usize, parent: usize, out: &mut String) -> bool {
         let module = self.module;
         let parent_entry = &module.nodes[parent];
         if parent_entry.opcode != "fusion" {
@@ -598,7 +604,7 @@ impl Dumper<'_> {
             self.edges.push((from, Some(parent), text));
         }
         if self.cluster_ids.contains_key(&graph) {
-            return String::new();
+            return false;
         }
         self.cluster_ids.insert(graph, self.cluster_ids.len() as i64 + 1);
         let (label, style) = if parent_entry.opcode == "fusion" {
@@ -614,26 +620,35 @@ impl Dumper<'_> {
         } else {
             (format!("Subcomputation for <b>{}</b><br/>{}", sanitize_html(&parent_entry.name), sanitize_html(&module.graphs[graph].name)), "style=rounded; color=black;".to_string())
         };
-        let body = self.computation_body(graph);
-        let id = computation_id(graph);
-        format!("subgraph {id} {{\n{style}\nlabel = <{label}>;\nlabelloc = t;\ntooltip = \" \";\n{body}\n}}  // {id}\n\n")
+        write!(out, "subgraph {} {{\n{style}\nlabel = <{label}>;\nlabelloc = t;\ntooltip = \" \";\n", computation_id(graph)).unwrap();
+        true
     }
 
     fn computation_body(&mut self, graph: usize) -> String {
         let module = self.module;
         let mut out = String::new();
-        for &node in &module.graphs[graph].nodes {
-            if !self.shown(node) {
-                continue;
-            }
-            for &called in &module.nodes[node].called {
-                if self.show_subcomputation(called) {
-                    let text = self.subcomputation(called, node);
-                    out.push_str(&text);
+        let mut stack = vec![(graph, 0, 0)];
+        while let Some(&(graph, position, call)) = stack.last() {
+            let top = stack.len() - 1;
+            let Some(&node) = module.graphs[graph].nodes.get(position) else {
+                if top > 0 {
+                    write!(out, "\n}}  // {}\n\n", computation_id(graph)).unwrap();
                 }
+                stack.pop();
+                continue;
+            };
+            if !self.shown(node) {
+                stack[top] = (graph, position + 1, 0);
+            } else if let Some(&called) = module.nodes[node].called.get(call) {
+                stack[top].2 += 1;
+                if self.show_subcomputation(called) && self.subcomputation(called, node, &mut out) {
+                    stack.push((called, 0, 0));
+                }
+            } else {
+                let text = self.instruction(node);
+                out.push_str(&text);
+                stack[top] = (graph, position + 1, 0);
             }
-            let text = self.instruction(node);
-            out.push_str(&text);
         }
         out
     }
@@ -838,7 +853,7 @@ fn render(module: &Module, node_name: &str, radius: i64, backend_config: bool, f
     let mut callers: Vec<Vec<usize>> = vec![Vec::new(); module.graphs.len()];
     for (index, node) in module.nodes.iter().enumerate() {
         for &graph in &node.called {
-            if !callers[graph].contains(&index) {
+            if callers[graph].last() != Some(&index) {
                 callers[graph].push(index);
             }
         }

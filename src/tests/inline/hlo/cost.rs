@@ -191,3 +191,34 @@ fn reduce_window_with_a_padded_dimension_that_is_not_in_the_shape() {
     assert!(reduce_window(vec![unit, padded(3, 1)], &[4]).is_some());
     assert!(reduce_window(vec![padded(-1, -1)], &[0]).is_some());
 }
+
+/// Builds `depth` graphs. Each graph after the first holds a parameter and the instructions that `link` makes, and they call the graph before it.
+pub fn chained(depth: i64, link: impl Fn(i64) -> Vec<HloInstructionProto>) -> Vec<HloComputationProto> {
+    let mut computations = vec![computation(1, vec![parameter(10, 0, shape(F32, &[4])), inst(11, "cosine", shape(F32, &[4]), &[10])])];
+    for id in 2..=depth {
+        computations.push(computation(id, [vec![parameter(id * 10, 0, shape(F32, &[4]))], link(id)].concat()));
+    }
+    computations
+}
+
+fn chain(depth: i64, link: impl Fn(i64) -> Vec<HloInstructionProto>) -> Option<Vec<Cost>> {
+    analyze(chained(depth, link))
+}
+
+pub fn calling(id: i64, offset: i64, opcode: &str) -> HloInstructionProto {
+    HloInstructionProto { called_computation_ids: vec![id - 1], fusion_kind: "kLoop".into(), ..inst(id * 10 + offset, opcode, shape(F32, &[4]), &[id * 10]) }
+}
+
+#[test]
+fn deep_call_chains_do_not_overflow_the_stack() {
+    let result = chain(20_000, |id| vec![calling(id, 1, "call")]).unwrap();
+    assert_eq!(result.last().unwrap().model_flops, 2648);
+    assert!(chain(20_000, |id| vec![calling(id, 1, "fusion")]).is_some());
+    assert!(chain(20_000, |id| vec![calling(id, 1, "async-start")]).is_some());
+}
+
+#[test]
+fn graphs_that_many_callers_share_are_analyzed_one_time() {
+    let result = chain(40, |id| vec![calling(id, 1, "call"), calling(id, 2, "call")]).unwrap();
+    assert_eq!(result.last().unwrap().model_flops, 2648 << 38);
+}

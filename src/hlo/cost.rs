@@ -1,8 +1,9 @@
 use crate::hlo::xla::hlo_instruction_proto::ReplicaGroupList;
 use crate::hlo::{BUFFER, ELEMENTWISE, Inst, Module, OPAQUE, Shape, TOKEN, TUPLE, all_subshapes};
-use rustc_hash::FxHashMap;
-use std::cell::OnceCell;
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 const FMA_FLOPS: i64 = 2;
 const DEFAULT_FLOPS_PER_ELEMENT: i64 = 3;
@@ -29,6 +30,7 @@ const PROFILE: [(&str, &[(i32, i64)]); 16] = [
 pub const CUBLAS_LT: [&str; 4] = ["__cublas$lt$matmul", "__cublas$lt$matmul$f8", "__cublas$lt$matmul$mx", "__cublas$lt$groupedMatmul"];
 pub const DNN_CONVOLUTION: [&str; 5] = ["__cudnn$convForward", "__cudnn$convForwardGraph", "__cudnn$convBackwardInput", "__cudnn$convBackwardFilter", "__cudnn$convBiasActivationForward"];
 const CALL_MARKERS: [&str; 2] = ["__xla_internal_call_marker_before", "__xla_internal_call_marker_after"];
+const SUBCOMPUTATIONS: [&str; 10] = ["map", "reduce", "scan", "reduce-window", "select-and-scatter", "fusion", "call", "while", "conditional", "scatter"];
 const QUOTES: [&str; 8] = ["\"", "22", "x22", "X22", "u0022", "U0022", "u00000022", ""];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -205,15 +207,124 @@ fn json_dimensions(value: &serde_json::Value) -> Vec<i64> {
     value.as_array().map_or_else(Vec::new, |items| items.iter().filter_map(|item| item.as_i64().or_else(|| item.as_str().and_then(|text| text.parse().ok()))).collect())
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Op {
+    Node(usize),
+    Graph(usize),
+}
+
+/// The result of the analysis of one graph. `properties` holds the writes of this analysis and the properties of the nodes of each fused graph that it calls.
+/// `log` keeps the order of the writes and of the calls. The properties of a call are the properties of all the graphs under it.
+struct Nested {
+    sum: Props,
+    properties: FxHashMap<usize, Props>,
+    log: Vec<Op>,
+}
+
+type Cached = Rc<Result<Nested, String>>;
+
 struct Context<'m> {
     module: &'m Module<'m>,
     insts: Vec<OnceCell<Inst>>,
     successors: Vec<bool>,
+    elementwise_fusions: OnceCell<Vec<bool>>,
+    nested: RefCell<Vec<Option<Cached>>>,
+    /// The number of nodes that analyze or enter each graph.
+    callers: Vec<usize>,
+    /// Tells that more than one analysis can visit a node. This occurs only when the entry has a caller or a wrapped graph has more than one.
+    revisits: bool,
 }
 
 impl<'m> Context<'m> {
+    fn new(module: &'m Module<'m>) -> Self {
+        let (mut successors, mut entered, mut callers) = (vec![false; module.nodes.len()], vec![false; module.graphs.len()], vec![0usize; module.graphs.len()]);
+        for node in &module.nodes {
+            for &predecessor in &node.predecessors {
+                successors[predecessor] = true;
+            }
+            if node.opcode == "async-start"
+                && let Some(&graph) = node.called.first()
+            {
+                entered[graph] = true;
+                callers[graph] += 1;
+            }
+            if SUBCOMPUTATIONS.contains(&node.opcode.as_str()) {
+                for &graph in &node.called {
+                    callers[graph] += 1;
+                }
+            }
+        }
+        let revisits = callers[module.entry] > 0 || (0..module.graphs.len()).any(|graph| entered[graph] && callers[graph] > 1);
+        let insts = (0..module.nodes.len()).map(|_| OnceCell::new()).collect();
+        Context { module, insts, successors, elementwise_fusions: OnceCell::new(), nested: RefCell::new(vec![None; module.graphs.len()]), callers, revisits }
+    }
+
     fn inst(&self, node: usize) -> &Inst {
         self.insts[node].get_or_init(|| self.module.inst(node))
+    }
+
+    /// The analysis of a graph does not depend on the caller, so one result serves all the callers. Before the analysis of `graph`, it
+    /// analyzes the graphs under it from the lowest index up. Callees have a lower index than their callers, so no analysis recurses.
+    fn nested(&self, graph: usize) -> Cached {
+        if let Some(found) = self.nested.borrow()[graph].clone() {
+            return found;
+        }
+        let module = self.module;
+        let (mut wanted, mut walked, mut stack) = (FxHashSet::default(), FxHashSet::from_iter([graph]), vec![graph]);
+        while let Some(current) = stack.pop() {
+            for node in module.graphs[current].nodes.iter().map(|&node| &module.nodes[node]) {
+                let analyzed = SUBCOMPUTATIONS.contains(&node.opcode.as_str());
+                let calls = match node.opcode.as_str() {
+                    "async-start" => &node.called[..node.called.len().min(1)],
+                    _ if analyzed => &node.called[..],
+                    _ => &[],
+                };
+                for &called in calls.iter().filter(|&&called| self.nested.borrow()[called].is_none()) {
+                    if analyzed {
+                        wanted.insert(called);
+                    }
+                    if walked.insert(called) {
+                        stack.push(called);
+                    }
+                }
+            }
+        }
+        let mut wanted: Vec<usize> = wanted.into_iter().collect();
+        wanted.sort_unstable();
+        let analyze = |graph: usize| {
+            let mut analysis = Analysis::new(self);
+            let nested = Rc::new(analysis.accept(graph).map(|()| analysis.into_nested()));
+            self.nested.borrow_mut()[graph] = Some(nested.clone());
+            nested
+        };
+        for callee in wanted {
+            analyze(callee);
+        }
+        analyze(graph)
+    }
+
+    /// Gives the properties of each node after the analysis of `top`. A later call of a graph hides all the earlier writes under that graph,
+    /// so a walk from the last entry of the log back reads each graph one time.
+    fn resolve<'a>(&self, top: &'a Nested, cache: &'a [Option<Cached>]) -> Vec<Option<&'a Props>> {
+        let (mut found, mut seen) = (vec![None; self.module.nodes.len()], vec![false; self.module.graphs.len()]);
+        let mut stack = vec![(top, top.log.len())];
+        while let Some((nested, position)) = stack.last_mut() {
+            let Some(next) = position.checked_sub(1) else {
+                stack.pop();
+                continue;
+            };
+            *position = next;
+            match nested.log[next] {
+                Op::Node(node) => found[node] = found[node].or_else(|| nested.properties.get(&node)),
+                Op::Graph(graph) if !std::mem::replace(&mut seen[graph], true) => {
+                    if let Some(Ok(called)) = cache[graph].as_deref() {
+                        stack.push((called, called.log.len()));
+                    }
+                }
+                Op::Graph(_) => {}
+            }
+        }
+        found
     }
 
     fn shape(&self, node: usize) -> &'m Shape {
@@ -249,6 +360,28 @@ impl<'m> Context<'m> {
     }
 
     fn is_elementwise(&self, node: usize) -> bool {
+        if self.opcode(node) != "fusion" {
+            return self.elementwise_with(node, &[]);
+        }
+        let graphs = self.elementwise_fusions.get_or_init(|| {
+            let mut fused = vec![false; self.module.graphs.len()];
+            for node in self.module.nodes.iter().filter(|node| node.opcode == "fusion") {
+                if let Some(&graph) = node.called.first() {
+                    fused[graph] = true;
+                }
+            }
+            let mut graphs = Vec::with_capacity(fused.len());
+            for (graph, fused) in self.module.graphs.iter().zip(fused) {
+                let elementwise = fused && graph.nodes.iter().all(|&child| self.opcode(child) == "parameter" || self.elementwise_with(child, &graphs));
+                graphs.push(elementwise);
+            }
+            graphs
+        });
+        self.elementwise_with(node, graphs)
+    }
+
+    /// Reads the fusion results of the called graphs from `graphs`. Callees come before their callers in a valid module.
+    fn elementwise_with(&self, node: usize, graphs: &[bool]) -> bool {
         let opcode = self.opcode(node);
         match opcode {
             "bitcast-convert" => self.operands(node).first().is_some_and(|&operand| storage_bit_width(self.shape(node).element_type) == storage_bit_width(self.shape(operand).element_type)),
@@ -256,9 +389,7 @@ impl<'m> Context<'m> {
                 let dimensions = &self.inst(node).dimensions;
                 dimensions.is_empty() || (dimensions.len() == self.shape(node).dimensions.len() && dimensions.iter().enumerate().all(|(position, &dimension)| dimension == position as i64))
             }
-            "fusion" => {
-                self.module.nodes[node].called.first().is_some_and(|&graph| self.module.graphs[graph].nodes.iter().all(|&child| self.opcode(child) == "parameter" || self.is_elementwise(child)))
-            }
+            "fusion" => self.module.nodes[node].called.first().is_some_and(|&graph| graphs.get(graph) == Some(&true)),
             _ => ELEMENTWISE.split(' ').any(|name| name == opcode),
         }
     }
@@ -283,6 +414,7 @@ struct Analysis<'c, 'm> {
     current: Props,
     bottleneck: bool,
     properties: FxHashMap<usize, Props>,
+    log: Vec<Op>,
     sum: Props,
     state: FxHashMap<usize, u8>,
     use_roots: FxHashMap<usize, Vec<usize>>,
@@ -296,6 +428,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
             current: Props::default(),
             bottleneck: true,
             properties: FxHashMap::default(),
+            log: Vec::new(),
             sum: Props::default(),
             state: FxHashMap::default(),
             use_roots: FxHashMap::default(),
@@ -308,7 +441,28 @@ impl<'c, 'm> Analysis<'c, 'm> {
     }
 
     fn slot(&mut self, node: usize, key: Key) -> &mut f32 {
+        if self.log.last() != Some(&Op::Node(node)) {
+            self.log.push(Op::Node(node));
+        }
         self.properties.entry(node).or_default().slot(key)
+    }
+
+    /// Tells if a call in the log so far has properties for `node`.
+    fn called_has(&self, node: usize) -> bool {
+        let cache = self.context.nested.borrow();
+        let (mut seen, mut stack) = (vec![false; cache.len()], self.log.clone());
+        while let Some(op) = stack.pop() {
+            let Op::Graph(graph) = op else { continue };
+            if !std::mem::replace(&mut seen[graph], true)
+                && let Some(Ok(nested)) = cache[graph].as_deref()
+            {
+                if nested.properties.contains_key(&node) {
+                    return true;
+                }
+                stack.extend_from_slice(&nested.log);
+            }
+        }
+        false
     }
 
     fn set_output(&mut self, index: &[i64], value: f32) {
@@ -340,9 +494,15 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.dfs(root)
     }
 
+    fn wrapped(&self, node: usize) -> Option<usize> {
+        let context = self.context;
+        context.module.nodes[node].called.first().filter(|_| context.opcode(node) == "async-start").map(|&graph| context.root(graph))
+    }
+
+    /// Visits the root of the graph that an async-start wraps as its last child. When this visit does the work, the async-start keeps the state that the root leaves.
     fn dfs(&mut self, root: usize) -> Status {
         let context = self.context;
-        let mut stack = vec![root];
+        let (mut stack, mut last) = (vec![root], None);
         while let Some(&current) = stack.last() {
             match self.state.get(&current).copied().unwrap_or(0) {
                 2 => {
@@ -351,17 +511,20 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 }
                 1 => {
                     stack.pop();
-                    self.preprocess(current);
+                    if self.wrapped(current).is_none_or(|wrapped| last != Some(wrapped)) {
+                        self.preprocess(current);
+                    }
                     self.visit(current)?;
                     self.state.insert(current, 2);
                     self.postprocess(current)?;
+                    last = Some(current);
                     continue;
                 }
                 _ => {}
             }
             self.state.insert(current, 1);
             let start = stack.len();
-            for &child in context.operands(current).iter().chain(&context.module.nodes[current].predecessors) {
+            for &child in context.operands(current).iter().chain(&context.module.nodes[current].predecessors).chain(&self.wrapped(current)) {
                 match self.state.get(&child).copied().unwrap_or(0) {
                     1 => return Err(format!("cycle at {}", context.module.nodes[current].name)),
                     2 => {}
@@ -403,18 +566,41 @@ impl<'c, 'm> Analysis<'c, 'm> {
         }
         let current = std::mem::take(&mut self.current);
         self.sum.merge(&current, |sum, value| sum + value);
-        if self.properties.contains_key(&node) {
+        if self.properties.contains_key(&node) || (context.revisits && self.called_has(node)) {
             return Err(format!("{} already exists in hlo_properties_", context.module.nodes[node].name));
         }
         self.properties.insert(node, current);
+        self.log.push(Op::Node(node));
         Ok(())
     }
 
+    fn into_nested(self) -> Nested {
+        Nested { sum: self.sum, properties: self.properties, log: self.log }
+    }
+
+    /// The log keeps the call in place of a copy of the properties under `graph`.
     fn subcomputation(&mut self, graph: usize) -> Result<Props, String> {
-        let mut nested = Analysis::new(self.context);
-        nested.accept(graph)?;
-        self.properties.extend(nested.properties);
-        Ok(nested.sum)
+        let nested = self.context.nested(graph);
+        let nested = nested.as_ref().as_ref().map_err(String::clone)?;
+        self.log.push(Op::Graph(graph));
+        Ok(nested.sum.clone())
+    }
+
+    /// Copies the properties of the nodes of a fused graph, because the fusion reads them. The fusion writes all of them again, so when
+    /// only this visit of the fusion calls the graph, it moves them.
+    fn copy_fused(&mut self, graph: usize) {
+        let context = self.context;
+        let nodes = &context.module.graphs[graph].nodes;
+        let mut cache = context.nested.borrow_mut();
+        let Some(entry) = cache[graph].as_mut() else { return };
+        if !context.revisits
+            && context.callers[graph] == 1
+            && let Some(Ok(nested)) = Rc::get_mut(entry)
+        {
+            self.properties.extend(nodes.iter().filter_map(|node| Some((*node, nested.properties.remove(node)?))));
+        } else if let Ok(nested) = entry.as_ref() {
+            self.properties.extend(nodes.iter().filter_map(|node| Some((*node, nested.properties.get(node)?.clone()))));
+        }
     }
 
     fn copy_scaled(&mut self, sub: &Props, factor: i64, accumulate: bool) {
@@ -530,7 +716,6 @@ impl<'c, 'm> Analysis<'c, 'm> {
             "collective-permute" | "collective-permute-start" => *self.current.slot(Key::Transferred) += byte_size(context.shape(context.operand(node, 0)?)) as f32,
             "async-start" => {
                 let wrapped = context.root(context.called(node, 0)?);
-                self.dfs(wrapped)?;
                 match context.opcode(wrapped) {
                     "reduce-scatter" => self.reduce_scatter(wrapped)?,
                     "all-to-all" => self.current.set(Key::Transferred, ring_shape_size(context.shape(wrapped), None) as f32),
@@ -872,6 +1057,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
             }
         }
         self.current = self.subcomputation(graph)?;
+        self.copy_fused(graph);
         self.current.set(Key::Bytes, 0.0);
         self.fusion_outputs(node, graph)?;
         self.fusion_utilizations(graph)?;
@@ -1084,19 +1270,16 @@ pub fn costs(module: &Module) -> Option<Vec<Cost>> {
     if !module.valid {
         return None;
     }
-    let mut successors = vec![false; module.nodes.len()];
-    for node in &module.nodes {
-        for &predecessor in &node.predecessors {
-            successors[predecessor] = true;
-        }
-    }
-    let context = Context { module, insts: (0..module.nodes.len()).map(|_| OnceCell::new()).collect(), successors };
+    let context = Context::new(module);
     let mut analysis = Analysis::new(&context);
     analysis.accept(module.entry).ok()?;
+    let top = analysis.into_nested();
+    let cache = context.nested.borrow();
+    let found = context.resolve(&top, &cache);
     Some(
         (0..module.nodes.len())
             .map(|node| {
-                let props = analysis.properties.get(&node);
+                let props = found[node];
                 let get = |key: Key| props.map_or(0.0, |props| props.get(&key));
                 let flops = get(Key::Flops) as i64;
                 let bytes_accessed = valid(get(Key::Bytes) as i64);
