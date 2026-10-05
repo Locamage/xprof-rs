@@ -59,9 +59,8 @@ fn plane_steps(plane: &Plane, map: &[u8]) -> HashMap<i64, u64> {
 pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fractions {
     let mut fractions: BTreeMap<i64, BTreeMap<String, f64>> = BTreeMap::new();
     let mut durations: HashMap<i64, u64> = HashMap::new();
-    let steps: HashMap<&str, HashMap<i64, u64>> = planes.iter().map(|plane| (plane.name.as_str(), plane_steps(plane, map))).collect();
     for plane in planes {
-        let plane_steps = &steps[plane.name.as_str()];
+        let plane_steps = plane_steps(plane, map);
         let wanted: HashSet<u32> = (0..plane.meta.len()).filter(|&meta| plane.meta[meta].full_name(map).contains(target)).map(|meta| meta as u32).collect();
         let (group_id, duration_id) = (plane.id("group_id"), plane.id("device_duration_ps"));
         for event in plane.lines.iter().flat_map(|line| &line.events).filter(|event| wanted.contains(&event.meta)) {

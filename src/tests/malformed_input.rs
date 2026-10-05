@@ -19,6 +19,18 @@ fn metadata_that_is_its_own_child() {
 }
 
 #[test]
+fn metadata_with_a_very_deep_child_chain() {
+    let mut space = tpu_space();
+    let plane = &mut space.planes[0];
+    let first = plane.event_metadata("fusion.1").id;
+    for id in first..first + 200_000 {
+        plane.event_metadata.entry(id).or_default().child_id = vec![id + 1];
+        plane.event_metadata.insert(id + 1, XEventMetadata { id: id + 1, name: format!("child.{id}"), ..Default::default() });
+    }
+    assert!(op_stats(&[space]).is_some());
+}
+
+#[test]
 fn metadata_with_a_display_name_and_no_name() {
     let mut space = tpu_space();
     let plane = &mut space.planes[0];

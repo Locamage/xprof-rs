@@ -22,6 +22,8 @@ const DEVICE_OFFSET: u8 = 6;
 const DEVICE_DURATION: u8 = 7;
 const TIME_SCALE: u8 = 8;
 const UNREAD: u8 = u8::MAX;
+/// The code that reads the child tree is recursive, so a deeper tree can overflow the stack.
+const MAX_DEPTH: usize = 256;
 pub const TENSOR_CORE: u8 = 1;
 pub const SPARSE_CORE: u8 = 2;
 pub const HBM: u64 = 1;
@@ -206,10 +208,9 @@ fn from_metadata(plane: &Plane, map: &[u8], meta: usize, path: &mut Vec<usize>) 
         }
     }
     for child in children(raw) {
-        if child >= plane.meta.len() || path.contains(&child) {
-            continue;
+        if child < plane.meta.len() && path.len() < MAX_DEPTH && !path.contains(&child) {
+            out.children.metrics.push(Metrics { occurrences: 1, ..from_metadata(plane, map, child, path).1 });
         }
-        out.children.metrics.push(Metrics { occurrences: 1, ..from_metadata(plane, map, child, path).1 });
     }
     path.pop();
     (key.0.zip(key.1), out)
