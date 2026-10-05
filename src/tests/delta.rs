@@ -3,12 +3,9 @@ use crate::trace::delta::{CounterValue, Response, render};
 use crate::trace::json::View;
 use crate::trace::{Options, Trace};
 use prost::Message;
-use std::io::Read;
 
 fn decode(compressed: &[u8]) -> Response {
-    let mut raw = Vec::new();
-    ruzstd::decoding::StreamingDecoder::new(compressed).unwrap().read_to_end(&mut raw).unwrap();
-    let mut response = Response::decode(&raw[..]).unwrap();
+    let mut response = Response::decode(&zstd::decode_all(compressed).unwrap()[..]).unwrap();
     let metadata = response.metadata.as_mut().unwrap();
     metadata.processes.sort_by_key(|process| process.id);
     metadata.processes.iter_mut().for_each(|process| process.threads.sort_by_key(|thread| thread.id));
@@ -38,9 +35,7 @@ fn response(space: &XSpace, full_dma: Option<bool>) -> Response {
     let trace = Trace::build(&planes, "localhost", &map);
     let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: true };
     let view = View { trace: &trace, map: &map, planes: &planes, events: trace.load(&options) };
-    let mut raw = Vec::new();
-    ruzstd::decoding::StreamingDecoder::new(&render(&[view], full_dma)[..]).unwrap().read_to_end(&mut raw).unwrap();
-    Response::decode(&raw[..]).unwrap()
+    Response::decode(&zstd::decode_all(&render(&[view], full_dma)[..]).unwrap()[..]).unwrap()
 }
 
 fn async_flow(id: u64) -> V {

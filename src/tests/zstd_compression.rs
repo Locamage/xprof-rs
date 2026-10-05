@@ -1,16 +1,9 @@
-use ruzstd::encoding::{CompressionLevel, compress};
-use std::io::Read;
-
 fn compressed(original: &str) -> Vec<u8> {
-    let mut out = Vec::new();
-    compress(original.as_bytes(), &mut out, CompressionLevel::Fastest);
-    out
+    zstd::bulk::compress(original.as_bytes(), 1).unwrap()
 }
 
 fn decompressed(compressed: &[u8]) -> std::io::Result<String> {
-    let mut out = String::new();
-    ruzstd::decoding::StreamingDecoder::new(compressed).map_err(std::io::Error::other)?.read_to_string(&mut out)?;
-    Ok(out)
+    String::from_utf8(zstd::decode_all(compressed)?).map_err(std::io::Error::other)
 }
 
 #[test]
