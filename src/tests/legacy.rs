@@ -38,7 +38,7 @@ fn annotated_space() -> Vec<u8> {
 }
 
 fn host_of(space: &[u8]) -> Host {
-    crate::tests::with_file(space, load_host)
+    crate::tests::with_file(space, |path| load_host(path).unwrap())
 }
 
 fn render_space(space: &[u8], options: &Options) -> String {
@@ -134,7 +134,7 @@ fn numbers_print_like_nlohmann_grisu2() {
 }
 
 fn op_stats_of(space: &[u8]) -> std::sync::Arc<OpStats> {
-    crate::tests::with_file(space, tools::opstats::load).unwrap()
+    crate::tests::with_file(space, tools::opstats::load).unwrap().unwrap()
 }
 
 #[test]
@@ -325,7 +325,7 @@ fn demo_trace_matches_xprof_outputs() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("tpu-vm-demo-host-0.xplane.pb");
     std::fs::write(&path, demo).unwrap();
-    let host = load_host(&path);
+    let host = load_host(&path).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
     let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&Options { start_ms: 0.0, end_ms: 0.0, resolution: 8000.0, full_dma: false }) };
     let produced: serde_json::Value = serde_json::from_slice(&render(&[view], false, false)).unwrap();
@@ -638,19 +638,19 @@ fn hosts_match_exactly_like_xprof() {
 static SLOW_BUILDS: AtomicUsize = AtomicUsize::new(0);
 static FRESH_BUILDS: AtomicUsize = AtomicUsize::new(0);
 
-fn slow_build(path: &Path) -> usize {
+fn slow_build(path: &Path) -> anyhow::Result<usize> {
     std::thread::sleep(Duration::from_millis(300));
     SLOW_BUILDS.fetch_add(1, Ordering::SeqCst);
-    path.as_os_str().len()
+    Ok(path.as_os_str().len())
 }
 
-fn fresh_build(_: &Path) -> usize {
-    FRESH_BUILDS.fetch_add(1, Ordering::SeqCst)
+fn fresh_build(_: &Path) -> anyhow::Result<usize> {
+    Ok(FRESH_BUILDS.fetch_add(1, Ordering::SeqCst))
 }
 
 static BROKEN_BUILDS: AtomicUsize = AtomicUsize::new(0);
 
-fn broken_build(_: &Path) -> usize {
+fn broken_build(_: &Path) -> anyhow::Result<usize> {
     BROKEN_BUILDS.fetch_add(1, Ordering::SeqCst);
     panic!("corrupt profile")
 }
@@ -925,7 +925,7 @@ fn non_streaming_trace_viewer_matches_xprofs_json_stream() {
     let dir = logdir("legacy-trace");
     let file = dir.join("run/plugins/profile/s/tpu-vm-demo-host-0.xplane.pb");
     std::fs::write(&file, include_bytes!("../../tests/data/demo.xplane.pb")).unwrap();
-    let (map, planes) = prepare(&file, true);
+    let (map, planes) = prepare(&file, true).unwrap();
     let mut golden = String::new();
     flate2::read::GzDecoder::new(&include_bytes!("../../tests/data/trace_viewer_legacy.json.gz")[..]).read_to_string(&mut golden).unwrap();
     let flow = |text: &str| {

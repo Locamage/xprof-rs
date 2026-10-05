@@ -575,8 +575,8 @@ impl Kept {
 }
 
 /// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
-pub fn load_kept(map: Vec<u8>, fused: bool) -> Option<(Arc<OpStats>, Kept)> {
-    let mut planes = crate::parse_checked(&map, true)?;
+pub fn load_kept(map: Vec<u8>, fused: bool) -> anyhow::Result<Option<(Arc<OpStats>, Kept)>> {
+    let Some(mut planes) = crate::parse_checked(&map)? else { return Ok(None) };
     // The modules come from the metadata plane only, so they parse at the same time as the other planes change.
     let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
     let modules = std::thread::scope(|scope| {
@@ -587,13 +587,13 @@ pub fn load_kept(map: Vec<u8>, fused: bool) -> Option<(Arc<OpStats>, Kept)> {
     let stats = op_stats(&planes, &map, &modules);
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
     let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
-    Some((Arc::new(stats), Kept { modules, fused, map, planes }))
+    Ok(Some((Arc::new(stats), Kept { modules, fused, map, planes })))
 }
 
-pub fn load(path: &std::path::Path) -> Option<Arc<OpStats>> {
-    let (stats, kept) = load_kept(crate::read_file(path).unwrap(), true)?;
+pub fn load(path: &std::path::Path) -> anyhow::Result<Option<Arc<OpStats>>> {
+    let Some((stats, kept)) = load_kept(crate::read_file(path)?, true)? else { return Ok(None) };
     crate::release(kept);
-    Some(stats)
+    Ok(Some(stats))
 }
 
 impl OpStats {

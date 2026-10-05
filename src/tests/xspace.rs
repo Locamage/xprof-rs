@@ -132,7 +132,7 @@ macro_rules! v_from { ($($kind:ty => $variant:ident),*) => { $(impl From<$kind> 
 v_from!(i32 => Int, i64 => Int, u64 => Uint, f64 => Double, &str => Str, String => Str);
 
 pub fn op_stats(spaces: &[XSpace]) -> Option<Arc<OpStats>> {
-    let all: Vec<Option<Arc<OpStats>>> = spaces.iter().map(|space| crate::tests::with_file(&space.encode_to_vec(), crate::tools::opstats::load)).collect();
+    let all: Vec<Option<Arc<OpStats>>> = spaces.iter().map(|space| crate::tests::with_file(&space.encode_to_vec(), crate::tools::opstats::load).unwrap()).collect();
     OpStats::combine(&all)
 }
 

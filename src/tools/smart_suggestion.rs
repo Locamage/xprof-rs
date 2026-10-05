@@ -409,7 +409,7 @@ impl ToolData for Session {
 fn session_fractions(paths: &[PathBuf]) -> Option<Results> {
     let mut fractions = Results::new();
     for path in paths {
-        let (map, planes) = crate::prepare_map(crate::read_file(path).ok()?, true, true)?;
+        let (map, planes) = crate::prepare_map(crate::read_file(path).ok()?, true)?;
         let hostname = crate::xplane::fields(&map).find_map(|(tag, field)| match (tag, field) {
             (4, crate::xplane::Field::Bytes(_, name)) => Some(String::from_utf8_lossy(name).into_owned()),
             _ => None,

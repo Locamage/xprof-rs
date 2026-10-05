@@ -149,12 +149,12 @@ pub struct Local {
 
 impl Local {
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
-    fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> T {
+    fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> Option<T> {
         if let Some(kept) = self.kept.read().unwrap().get(path).filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))) {
-            return read(&kept.planes, kept.map());
+            return Some(read(&kept.planes, kept.map()));
         }
-        let (map, planes) = crate::prepare(path, true);
-        read(&planes, &map)
+        let (map, planes) = crate::prepare(path, true).ok()?;
+        Some(read(&planes, &map))
     }
 }
 
@@ -173,7 +173,7 @@ impl Client for Local {
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
         let [path] = <[PathBuf; 1]>::try_from(self.xspace_paths(&self.run_dir(session).ok()?).ok()?).ok()?;
-        Some(self.prepared(&path, crate::trace::legacy::barrier_durations))
+        self.prepared(&path, crate::trace::legacy::barrier_durations)
     }
 
     fn run_dir(&self, session: &str) -> Result<PathBuf, Error> {
@@ -221,7 +221,7 @@ impl Client for Local {
             }
             let mut kept = self.kept.write().unwrap();
             let stats = loaded.entry(paths[0].clone()).or_insert_with(|| {
-                let (stats, found) = load_kept(crate::read_file(&paths[0]).ok()?, fused || self.fused)?;
+                let (stats, found) = load_kept(crate::read_file(&paths[0]).ok()?, fused || self.fused).ok()??;
                 kept.insert(paths[0].clone(), found);
                 Some(stats)
             });
@@ -250,7 +250,7 @@ impl Client for Local {
                 known.or_else(|| crate::tools::counters::serve(name, &paths))
             }
             "kernel_utilization" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| kernel_utilization(&path, option)),
-            "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone()).ok().map(|[path]| self.prepared(&path, crate::trace::legacy::render)),
+            "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| self.prepared(&path, crate::trace::legacy::render)),
             _ => None,
         };
         Ok(rendered.map(String::into_bytes))
