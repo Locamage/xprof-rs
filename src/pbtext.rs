@@ -205,8 +205,24 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
     }
 }
 
-pub fn print_hlo(out: &mut String, buf: &[u8]) {
-    print(out, 0, "xla.HloProto", buf, Format::Text);
+/// Gives `None` for a proto that C++ protobuf does not parse: a message is malformed or nests more than 100 levels.
+pub fn print_hlo(buf: &[u8]) -> Option<String> {
+    if !parses("xla.HloProto", buf, 100) {
+        return None;
+    }
+    let mut out = String::new();
+    print(&mut out, 0, "xla.HloProto", buf, Format::Text);
+    Some(out)
+}
+
+fn parses(message: &str, buf: &[u8], levels: usize) -> bool {
+    let specs = &MESSAGES[message].1;
+    let mut walk = fields(buf);
+    let nested = walk.by_ref().all(|(number, value)| match (specs.binary_search_by_key(&number, |spec| spec.number), value) {
+        (Ok(index), Field::Bytes(_, bytes)) if specs[index].kind.as_message().is_some() => levels > 0 && parses(message_name(&specs[index].kind), bytes, levels - 1),
+        _ => true,
+    });
+    nested && walk.complete()
 }
 
 pub fn json(message: &str, value: &impl Message, always_print_defaults: bool) -> String {

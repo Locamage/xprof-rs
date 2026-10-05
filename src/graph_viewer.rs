@@ -66,22 +66,22 @@ pub fn serve(dir: &Path, params: &HashMap<String, String>) -> Result<(Vec<u8>, &
     let kind = params.get("type").map(String::as_str);
     let positional = matches!(kind, Some("graph" | "adj_nodes"));
     let node = if positional { text("node_name").unwrap_or("") } else { "" };
+    let unparsable = |module: &str| format!("Can't parse {} as binary proto", dir.join(format!("{module}.hlo_proto.pb")).display());
+    let missing = || match (text("module_name"), text("program_id")) {
+        (Some(module), _) if dir.join(format!("{module}.hlo_proto.pb")).is_file() => unparsable(module),
+        (Some(module), _) => format!("{}; No such file or directory", dir.join(format!("{module}.hlo_proto.pb")).display()),
+        (None, Some(program)) => match hlo::modules(dir).into_iter().find(|module| module.contains(program)) {
+            Some(module) => unparsable(&module),
+            None => format!("HLO proto file containing program ID {program} not found in {}", dir.display()),
+        },
+        (None, None) => "Can not load hlo proto from options.".into(),
+    };
     let module = if let Some(module) = hlo::by_options(dir, params) {
         module
     } else {
-        let unparsable = |module: &str| format!("Can't parse {} as binary proto", dir.join(format!("{module}.hlo_proto.pb")).display());
-        let missing = match (text("module_name"), text("program_id")) {
-            (Some(module), _) if dir.join(format!("{module}.hlo_proto.pb")).is_file() => unparsable(module),
-            (Some(module), _) => format!("{}; No such file or directory", dir.join(format!("{module}.hlo_proto.pb")).display()),
-            (None, Some(program)) => match hlo::modules(dir).into_iter().find(|module| module.contains(program)) {
-                Some(module) => unparsable(&module),
-                None => format!("HLO proto file containing program ID {program} not found in {}", dir.display()),
-            },
-            (None, None) => "Can not load hlo proto from options.".into(),
-        };
         let valid = kind.is_some_and(|kind| VIEWS.contains(&kind));
         if !valid || node.is_empty() {
-            return Err(missing);
+            return Err(missing());
         }
         let by_node = hlo::modules(dir).iter().filter_map(|module| hlo::load(dir, module)).find(|module| (0..module.nodes.len()).any(|index| module.inst(index).name == node));
         by_node.ok_or_else(|| format!("HLO proto file containing node name {node} not found in {}", dir.display()))?
@@ -94,11 +94,7 @@ pub fn serve(dir: &Path, params: &HashMap<String, String>) -> Result<(Vec<u8>, &
     let not_found = || format!("Couldn't find HloInstruction or HloComputation named {node}.");
     match kind {
         "pb" => Ok((module.data.to_vec(), DOWNLOAD)),
-        "pbtxt" => {
-            let mut out = String::new();
-            crate::pbtext::print_hlo(&mut out, &module.data);
-            Ok((out.into_bytes(), DOWNLOAD))
-        }
+        "pbtxt" => crate::pbtext::print_hlo(&module.data).map(|out| (out.into_bytes(), DOWNLOAD)).ok_or_else(missing),
         "json" => Err("Not implemented".into()),
         _ if !module.valid => Err(module.error()),
         "short_txt" | "long_txt" => {
