@@ -106,3 +106,15 @@ fn test_upload_trace_ignores_extra_kwargs() {
     assert_eq!(result.at("status").str(), Some("success"));
     assert_eq!(result.at("run_name").str(), Some("tagged_run"));
 }
+
+#[test]
+fn test_upload_trace_onto_itself_keeps_the_file() {
+    let (logdir, _) = setup("itself");
+    let run = logdir.join("plugins/profile/same_run");
+    std::fs::create_dir_all(&run).unwrap();
+    std::fs::write(run.join("test_trace.xplane.pb"), TRACE).unwrap();
+    let error = upload(Some(&logdir), &run.join("test_trace.xplane.pb"), Some("same_run")).unwrap_err();
+    assert_eq!(error.kind, Kind::Os);
+    assert!(error.message.ends_with("are the same file"), "{}", error.message);
+    assert_eq!(std::fs::read(run.join("test_trace.xplane.pb")).unwrap(), TRACE);
+}

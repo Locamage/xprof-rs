@@ -57,3 +57,13 @@ fn test_server_subcommand_starts_server() {
     assert_eq!(run(&["server", "--port", "1234"]), Ok(Settings { port: 1234, ..Default::default() }));
     assert!(crate::cli::execute(&["server".into()]).is_none());
 }
+
+#[test]
+fn test_value_flag_does_not_take_the_next_flag() {
+    assert_eq!(run(&["--logdir", "--port", "1234"]), Err("argument --logdir: expected one argument".into()));
+    assert_eq!(run(&["--src_prefix"]), Err("argument --src_prefix: expected one argument".into()));
+    assert_eq!(run(&["--src_prefix", "-1.5"]).map(|settings| settings.src_prefix), Ok(Some("-1.5".into())));
+    assert_eq!(run(&["--src_prefix", "-a b"]).map(|settings| settings.src_prefix), Ok(Some("-a b".into())));
+    assert_eq!(run(&["--src_prefix", "-"]).map(|settings| settings.src_prefix), Ok(Some("-".into())));
+    assert_eq!(run(&["--src_prefix=--x"]).map(|settings| settings.src_prefix), Ok(Some("--x".into())));
+}

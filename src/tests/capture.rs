@@ -86,6 +86,7 @@ async fn capture_reports_invalid_requests_like_xprof() {
         assert!(code == status && body.contains(message), "{pairs:?}: {code} {body}");
     }
     assert_eq!(capture(&logdir, &[("service_addr", "h:1"), ("duration", "x")]).await.0, 500);
+    assert!(capture(&logdir, &[("service_addr", "127.0.0.1:1"), ("duration", " 1_0 "), ("num_retry", "-1")]).await.1.contains("UNAVAILABLE"));
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 

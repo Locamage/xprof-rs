@@ -356,3 +356,15 @@ async fn hlo_module_list_impl_sorts_module_names() {
     assert_eq!(body, "jit__where(2141868631891211743),jit_add(3326385976583000095),jit_add(8254229641153238180),jit_train_step(4869159985936022652)");
     std::fs::remove_dir_all(&logdir).unwrap();
 }
+
+#[tokio::test]
+async fn static_files_are_gzip_only_for_clients_that_accept_gzip() {
+    let packed = axum::body::Bytes::from_static(crate::ASSETS.get_file("runtime.js.gz").unwrap().contents());
+    let reply = |accepts| crate::negotiate(crate::response(StatusCode::OK, "application/javascript", Body::empty()), packed.clone(), accepts);
+    let (plain, gzipped) = (reply(false), reply(true));
+    assert!(plain.headers().get(header::CONTENT_ENCODING).is_none());
+    assert_eq!(gzipped.headers()[header::CONTENT_ENCODING], "gzip");
+    assert_eq!(axum::body::to_bytes(gzipped.into_body(), usize::MAX).await.unwrap(), packed);
+    let plain = axum::body::to_bytes(plain.into_body(), usize::MAX).await.unwrap();
+    assert!(!plain.is_empty() && !plain.starts_with(&[0x1f, 0x8b]));
+}

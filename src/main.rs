@@ -369,8 +369,8 @@ fn not_found() -> Response {
     failure((StatusCode::NOT_FOUND, NO_DATA.into()))
 }
 
-fn outside() -> Response {
-    failure((StatusCode::BAD_REQUEST, OUTSIDE.into()))
+fn outside() -> Failure {
+    (StatusCode::BAD_REQUEST, OUTSIDE.into())
 }
 
 macro_rules! or_fail {
@@ -409,8 +409,21 @@ async fn assets(request: Request) -> Response {
             None => response(StatusCode::NOT_FOUND, "text/plain", "Fail to read the files."),
         };
     }
-    let mut reply = response(StatusCode::OK, content_type, file.contents());
-    reply.headers_mut().insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+    negotiate(response(StatusCode::OK, content_type, Body::empty()), Bytes::from_static(file.contents()), accepts_gzip(request.headers()))
+}
+
+/// Sets a gzip body without changes when the client accepts gzip, and decoded when it does not.
+fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool) -> Response {
+    let headers = reply.headers_mut();
+    headers.insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+    if accepts_gzip {
+        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        *reply.body_mut() = Body::from(body);
+    } else {
+        let mut raw = Vec::new();
+        flate2::read::GzDecoder::new(&body[..]).read_to_end(&mut raw).unwrap();
+        *reply.body_mut() = Body::from(raw);
+    }
     reply
 }
 
@@ -431,7 +444,6 @@ fn run_dir(state: &State_, run: &str) -> Option<PathBuf> {
 }
 
 fn session_map(state: &State_, params: &Params) -> Result<Option<Sessions>, Failure> {
-    let outside = || (StatusCode::BAD_REQUEST, OUTSIDE.into());
     let is_dir = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_dir());
     let name = |dir: &Path| dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
     if let Some(path) = params.get("session_path").filter(|path| !path.is_empty()) {
@@ -458,7 +470,7 @@ fn session(state: &State_, params: &Params) -> Result<PathBuf, Failure> {
         });
     }
     match run {
-        Some(run) => run_dir(state, run).ok_or((StatusCode::BAD_REQUEST, OUTSIDE.into())),
+        Some(run) => run_dir(state, run).ok_or_else(outside),
         None => Err((StatusCode::INTERNAL_SERVER_ERROR, "'NoneType' object has no attribute 'rstrip'".into())),
     }
 }
@@ -536,23 +548,10 @@ async fn cached(state: &Shared, key: String, dir: &Path, accepts_gzip: bool, ren
         Ok(rendered) => rendered,
         Err(message) => return internal(&message),
     };
-    let body = if gzipped && !accepts_gzip {
-        let mut raw = Vec::new();
-        flate2::read::GzDecoder::new(&body[..]).read_to_end(&mut raw).unwrap();
-        raw.into()
-    } else {
-        body
-    };
-    let mut reply = Response::new(Body::from(body));
+    let mut reply = Response::new(Body::from(body.clone()));
     *reply.status_mut() = status;
     *reply.headers_mut() = headers;
-    if gzipped {
-        reply.headers_mut().insert(header::VARY, HeaderValue::from_static("accept-encoding"));
-    }
-    if gzipped && accepts_gzip {
-        reply.headers_mut().insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
-    }
-    reply
+    if gzipped { negotiate(reply, body, accepts_gzip) } else { reply }
 }
 
 async fn run_tools(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
@@ -633,7 +632,7 @@ async fn generate_cache(State(state): State<Shared>, method: Method, Query(param
         return response(StatusCode::METHOD_NOT_ALLOWED, "text/plain", "Method Not Allowed");
     }
     let Some(path) = params.get("session_path").filter(|path| !path.is_empty()) else { return response(StatusCode::BAD_REQUEST, "text/plain", "Missing \"session_path\" parameter") };
-    let Some(dir) = confine(&state, state.logdir.join(path)) else { return outside() };
+    let Some(dir) = confine(&state, state.logdir.join(path)) else { return failure(outside()) };
     if xplanes(&dir).is_empty() {
         return response(StatusCode::NOT_FOUND, "text/plain", "No XPlane files found in session_path");
     }
@@ -726,7 +725,7 @@ async fn counter_tool(dir: &Path, tag: &str, params: &Params) -> Option<Response
 
 async fn module_list(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
     let Some(run) = params.get("run").filter(|_| !params.contains_key("session_path") && !params.contains_key("run_path")) else { return not_found() };
-    let Some(dir) = run_dir(&state, run) else { return outside() };
+    let Some(dir) = run_dir(&state, run) else { return failure(outside()) };
     let mut names = hlo::modules(&dir);
     let files = xplanes(&dir);
     if names.is_empty() && !files.is_empty() {
@@ -773,16 +772,14 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
         "perf_counters" | "utilization_viewer" | "kernel_utilization" => return counter_tool(&dir, tag, &params).await.unwrap_or_else(not_found),
         "memory_viewer" | "graph_viewer" => {
             if params.get("module_name").is_some_and(|name| name.contains(['/', '\0'])) {
-                return outside();
+                return failure(outside());
             }
             or_fail!(select(&dir, tag, &params));
-            let (tag, params) = (tag.to_string(), params.clone());
-            let ok = |(body, content_type): (Vec<u8>, &'static str)| response(StatusCode::OK, content_type, body);
-            if tag == "memory_viewer" {
-                let rendered = blocking(move || memory_viewer::serve(&dir, &params)).await;
-                return rendered.map_or_else(not_found, |(body, content_type)| ok((body.into_bytes(), content_type)));
+            let (memory, params) = (tag == "memory_viewer", params.clone());
+            if memory {
+                return blocking(move || memory_viewer::serve(&dir, &params)).await.map_or_else(not_found, |(body, content_type)| response(StatusCode::OK, content_type, body));
             }
-            return blocking(move || graph_viewer::serve(&dir, &params)).await.map_or_else(|message| internal(&message), ok);
+            return blocking(move || graph_viewer::serve(&dir, &params)).await.map_or_else(|message| internal(&message), |(body, content_type)| response(StatusCode::OK, content_type, body));
         }
         "megascale_stats" => {
             let paths = or_fail!(listed_hosts(&dir, tag, &params));
@@ -950,6 +947,8 @@ async fn prefetch(state: Shared) {
 
 fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String> {
     let (mut list, mut values, mut switches) = (list.into_iter().peekable(), HashMap::new(), Vec::new());
+    let digits = |text: &str| text.bytes().all(|byte| byte.is_ascii_digit());
+    let negative = |text: &str| text.strip_prefix('-').map(|rest| rest.split_once('.').unwrap_or(("", rest))).is_some_and(|(whole, part)| digits(whole) && !part.is_empty() && digits(part));
     list.next_if(|first| first == "server");
     while let Some(argument) = list.next() {
         let (flag, inline) = match argument.split_once('=') {
@@ -963,7 +962,8 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
         if !VALUE_FLAGS.contains(&flag.as_str()) {
             return Err(format!("unrecognized argument: {argument}"));
         }
-        let value = inline.or_else(|| list.next()).ok_or_else(|| format!("argument {flag}: expected one argument"))?;
+        let value =
+            inline.or_else(|| list.next_if(|next| !next.starts_with('-') || next == "-" || next.contains(' ') || negative(next))).ok_or_else(|| format!("argument {flag}: expected one argument"))?;
         values.insert(flag, value);
     }
     let remote = values.get("--logdir").filter(|logdir| logdir.contains("://")).map(|url| Remote::open(url).map(Arc::new)).transpose()?;
@@ -1063,15 +1063,16 @@ fn main() -> anyhow::Result<()> {
     let purge_delay = unsafe { libmimalloc_sys::mi_option_get(PURGE_DELAY) };
     // A command exits right after its output. To give freed memory back to the system before the exit only costs time.
     unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, -1) };
-    if let Some(code) = cli::run(&std::env::args().skip(1).collect::<Vec<_>>()) {
+    let argv: Vec<String> = std::env::args_os().skip(1).map(|argument| argument.to_string_lossy().into_owned()).collect();
+    if let Some(code) = cli::run(&argv) {
         std::process::exit(code);
     }
     unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, purge_delay) };
-    if std::env::args().any(|argument| argument == "--help" || argument == "-h") {
+    if argv.iter().any(|argument| argument == "--help" || argument == "-h") {
         println!("{USAGE}");
         return Ok(());
     }
-    let settings = arguments(std::env::args().skip(1)).unwrap_or_else(|error| {
+    let settings = arguments(argv).unwrap_or_else(|error| {
         eprintln!("{USAGE}\nxprof-rs: error: {error}");
         std::process::exit(2);
     });

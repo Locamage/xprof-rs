@@ -112,13 +112,8 @@ fn timestamp() -> String {
 
 fn status_text(status: &Status) -> String {
     let name = format!("{:?}", status.code());
-    let mut shouted = String::new();
-    for (index, character) in name.chars().enumerate() {
-        if index > 0 && character.is_ascii_uppercase() {
-            shouted.push('_');
-        }
-        shouted.push(character.to_ascii_uppercase());
-    }
+    let shouted: String =
+        name.chars().enumerate().flat_map(|(index, character)| (index > 0 && character.is_ascii_uppercase()).then_some('_').into_iter().chain([character.to_ascii_uppercase()])).collect();
     format!("{shouted}: {}", status.message())
 }
 
@@ -127,8 +122,7 @@ fn retryable(status: &Status) -> bool {
 }
 
 fn valid_host_port(address: &str) -> bool {
-    let parts: Vec<&str> = address.split(':').collect();
-    parts.len() == 2 && parts[1].parse::<u32>().is_ok() && !parts[0].contains('/') && !parts[0].is_empty()
+    address.split_once(':').is_some_and(|(host, port)| !host.is_empty() && !host.contains('/') && port.parse::<u32>().is_ok())
 }
 
 async fn call<Req: prost::Message + Send + Sync + 'static, Rep: prost::Message + Default + Send + Sync + 'static>(
@@ -169,7 +163,7 @@ fn save(root: &Path, session: &str, address: &str, reply: &ProfileResponse) -> s
 }
 
 pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> Response {
-    let int = |key: &str, default: i64| params.get(key).map_or(Some(default), |value| value.trim().parse::<i64>().ok());
+    let int = |key: &str, default: i64| params.get(key).map_or(Some(default), |value| crate::cli::json::py_int(value).and_then(|number| i64::try_from(number).ok()));
     let (Some(duration), Some(retries), Some(host_level), Some(device_level), Some(python_level), Some(delay)) =
         (int("duration", 1000), int("num_retry", 0), int("host_tracer_level", 2), int("device_tracer_level", 1), int("python_tracer_level", 0), int("delay", 0))
     else {

@@ -82,3 +82,22 @@ fn literals_that_are_not_valid() {
     printer.literal(&LiteralProto { shape: Some(shape(11, vec![2], Some(vec![0]))), f32s: vec![1.0, 2.0], ..Default::default() }, true, &mut text);
     assert_eq!(text, "{1, 2}");
 }
+
+#[test]
+fn cli_values_with_deep_brackets_or_many_signs_stay_text() {
+    use crate::cli::{json::J, literal};
+    let nested = |depth: usize| format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
+    assert_eq!(literal(&nested(200)), J::Int(1));
+    for text in [nested(201), nested(100_000), format!("{}1", "-".repeat(100_000)), "-True".into(), "--1".into(), "-(-1)".into(), "+-1".into(), "[1, --2]".into()] {
+        assert_eq!(literal(&text), J::Str(text.clone()));
+    }
+    assert_eq!(literal("-( 1)"), J::Int(-1));
+}
+
+#[test]
+fn cli_trace_that_cannot_be_read() {
+    use crate::cli::client::{Client, Local};
+    let dir = crate::tests::scratch("cli-unreadable-trace");
+    std::os::unix::fs::symlink(dir.join("missing"), dir.join("h.xplane.pb")).unwrap();
+    assert_eq!(Local::default().fetch("overview_page", &dir.to_string_lossy(), &[]), Ok(None));
+}
