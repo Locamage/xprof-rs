@@ -38,23 +38,15 @@ fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, trimmed: 
                 if meta.is_some_and(|meta| meta.internal) {
                     return None;
                 }
-                if let Some(only) = skip_others.filter(|_| !line.steps.contains_key(&index)) {
-                    let name = match meta {
-                        None => &*line.labels[event.meta as usize],
-                        Some(meta) if meta.display.is_empty() => &*meta.name,
-                        Some(meta) => &*meta.display,
-                    };
-                    if name != only {
-                        return None;
-                    }
-                }
-                let all = only.is_none();
-                let mut args = BTreeMap::new();
-                let mut name = match meta {
-                    None => line.labels[event.meta as usize].to_string(),
-                    Some(meta) if meta.display.is_empty() => meta.name.to_string(),
-                    Some(meta) => meta.display.to_string(),
+                let label = match meta {
+                    None => &*line.labels[event.meta as usize],
+                    Some(meta) if meta.display.is_empty() => &*meta.name,
+                    Some(meta) => &*meta.display,
                 };
+                if skip_others.is_some_and(|only| !line.steps.contains_key(&index) && label != only) {
+                    return None;
+                }
+                let (all, mut args, mut name) = (only.is_none(), BTreeMap::new(), label.to_string());
                 if let Some(meta) = meta {
                     if all && !meta.display.is_empty() {
                         args.insert("long_name".into(), meta.long_name(map).into_owned());

@@ -1,4 +1,3 @@
-use crate::event_fractions::raw_name;
 use crate::hlo::{Module, Shape, module_name, protos};
 use crate::opstats::safe_divide;
 use crate::table::{number, string};
@@ -314,7 +313,7 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
                 continue;
             }
             let module_meta = module_line.events[index].meta as usize;
-            let module = if module_meta < plane.meta.len() { raw_name(plane, map, module_meta) } else { Cow::Borrowed("") };
+            let module = if module_meta < plane.meta.len() { plane.meta[module_meta].full_name(map) } else { Cow::Borrowed("") };
             let display = plane.meta.get(event.meta as usize).map_or("", |meta| &meta.display);
             let key = format!("{module}_{display}");
             if !instructions.contains_key(&key) {

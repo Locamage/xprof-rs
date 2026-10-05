@@ -136,21 +136,27 @@ fn table(views: &[View]) -> Vec<String> {
     sorted_texts(texts)
 }
 
-fn frames_json(frames: &[String], start: usize) -> String {
-    let mut out = String::new();
-    for (index, frame) in frames.iter().enumerate() {
-        write!(out, "{}\"{}\":{{\"name\":", if start + index > 0 { "," } else { "" }, start + index + 1).unwrap();
-        push_quoted(&mut out, frame);
-        out.push('}');
-    }
-    out
+fn frames_json(frames: &[String]) -> Vec<String> {
+    let chunk = |(chunk, frames): (usize, &[String])| {
+        let mut out = String::new();
+        for (index, frame) in (chunk * FRAME_CHUNK..).zip(frames) {
+            write!(out, "{}\"{}\":{{\"name\":", if index > 0 { "," } else { "" }, index + 1).unwrap();
+            push_quoted(&mut out, frame);
+            out.push('}');
+        }
+        out
+    };
+    frames.par_chunks(FRAME_CHUNK).enumerate().map(chunk).collect()
+}
+
+fn stat_double(name: &str, v: f64) -> String {
+    if (name.ends_with("(util %)") || name.ends_with(" (MB/sec)")) && v.is_finite() { format!("{v:.2}") } else { double(v) }
 }
 
 pub fn stack_frames(planes: &[Plane], map: &[u8], events: &[Event], long_names: &HashMap<u32, Box<str>>) -> String {
     let mut texts = FxHashMap::<u64, String>::default();
     add_texts(&mut texts, planes, map, events, long_names);
-    let frames = sorted_texts(texts);
-    frames.par_chunks(FRAME_CHUNK).enumerate().map(|(chunk, part)| frames_json(part, chunk * FRAME_CHUNK)).collect()
+    frames_json(&sorted_texts(texts)).concat()
 }
 
 fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &mut Vec<String>) -> (Vec<String>, Option<usize>) {
@@ -198,8 +204,7 @@ fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &m
             if let Some(v) = number {
                 args.push(format!("{}:{}", quoted(name), if v.unsigned_abs() > IEEE_LIMIT as u128 { format!("\"{v}\"") } else { v.to_string() }));
             } else if let Value::Double(v) = stat.value {
-                let text = if (name.ends_with("(util %)") || name.ends_with(" (MB/sec)")) && v.is_finite() { format!("{v:.2}") } else { double(v) };
-                args.push(format!("{}:{text}", quoted(name)));
+                args.push(format!("{}:{}", quoted(name), stat_double(name, v)));
             } else if matches!(stat.value, Value::Str(_) | Value::Ref(_)) {
                 let text = if &**name == "step_name" { step.map_or_else(|| plane.text(&stat.value), |step| step.name.clone()) } else { plane.text(&stat.value) };
                 if &**name == "step_name" {
@@ -263,8 +268,7 @@ pub fn counter_values(plane: &Plane, event: &Event, map: &[u8]) -> (Option<Box<s
             let value = match stat.value {
                 Value::Int(v) => v.to_string(),
                 Value::Uint(v) => v.to_string(),
-                Value::Double(v) if (name.ends_with("(util %)") || name.ends_with(" (MB/sec)")) && v.is_finite() => format!("{v:.2}"),
-                Value::Double(v) => double(v),
+                Value::Double(v) => stat_double(name, v),
                 Value::Str(_) | Value::Ref(_) => quoted(&plane.text(&stat.value)),
                 Value::Bytes(_) => continue,
             };
@@ -448,7 +452,7 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
         pieces.par_iter().map(|chunk| write_chunk(chunk, None)).collect()
     };
     out.push_str("\"stackFrames\":{");
-    let listed: Vec<String> = if reused { Vec::new() } else { frames.par_chunks(FRAME_CHUNK).enumerate().map(|(chunk, part)| frames_json(part, chunk * FRAME_CHUNK)).collect() };
+    let listed: Vec<String> = if reused { Vec::new() } else { frames_json(&frames) };
     let middle = format!("}},\"traceEvents\":[{body}");
     let tail = format!("], \"showCounterMessage\": \"\" ,\"totalCounterEvents\":{counters}}}");
     let mut pieces: Vec<&[u8]> = vec![out.as_bytes()];

@@ -373,6 +373,15 @@ fn outside() -> Response {
     failure((StatusCode::BAD_REQUEST, OUTSIDE.into()))
 }
 
+macro_rules! or_fail {
+    ($result:expr) => {
+        match $result {
+            Ok(value) => value,
+            Err(error) => return failure(error),
+        }
+    };
+}
+
 fn failure((status, message): Failure) -> Response {
     response(status, "text/plain", message)
 }
@@ -547,18 +556,12 @@ async fn cached(state: &Shared, key: String, dir: &Path, accepts_gzip: bool, ren
 }
 
 async fn run_tools(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
-    let dir = match session(&state, &params) {
-        Ok(dir) => dir,
-        Err(error) => return failure(error),
-    };
+    let dir = or_fail!(session(&state, &params));
     response(StatusCode::OK, "application/json", blocking(move || run_tools::json(&dir)).await)
 }
 
 async fn hosts(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
-    let dir = match session(&state, &params) {
-        Ok(dir) => dir,
-        Err(error) => return failure(error),
-    };
+    let dir = or_fail!(session(&state, &params));
     let mut names: Vec<String> = xplanes(&dir).iter().map(|path| host_name(path)).collect();
     let tool = params.get("tag").map_or("", String::as_str);
     if names.len() > 1 && ALL_HOSTS_ONLY.contains(&tool) {
@@ -572,10 +575,7 @@ async fn hosts(State(state): State<Shared>, Query(params): Query<Params>) -> Res
 }
 
 async fn data_csv(State(state): State<Shared>, Query(params): Query<Params>, uri: Uri, headers: HeaderMap) -> Response {
-    let dir = match session(&state, &params) {
-        Ok(dir) => dir,
-        Err(error) => return failure(error),
-    };
+    let dir = or_fail!(session(&state, &params));
     let (shared, target) = (state.clone(), dir.clone());
     let render = async move {
         let reply = serve(shared, target, params.clone()).await;
@@ -664,10 +664,7 @@ async fn generate_cache(State(state): State<Shared>, method: Method, Query(param
 
 async fn runs(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
     let logdir = state.logdir.clone();
-    let mapped = match session_map(&state, &params) {
-        Ok(mapped) => mapped,
-        Err(error) => return failure(error),
-    };
+    let mapped = or_fail!(session_map(&state, &params));
     let names: BTreeSet<String> =
         blocking(move || mapped.map_or_else(|| sessions(&logdir).into_iter().map(|(name, _)| name).collect(), |map| map.into_iter().map(|(name, _, _)| name).collect())).await;
     response(StatusCode::OK, "application/json", format!("[{}]", names.iter().rev().map(|name| quoted(name)).collect::<Vec<_>>().join(", ")))
@@ -752,10 +749,8 @@ async fn data(State(state): State<Shared>, Query(params): Query<Params>, uri: Ur
             ),
         };
     }
-    match session(&state, &params) {
-        Ok(dir) => cached(&state, format!("data?{}", uri.query().unwrap_or("")), &dir, accepts_gzip(&headers), serve(state.clone(), dir.clone(), params)).await,
-        Err(error) => failure(error),
-    }
+    let dir = or_fail!(session(&state, &params));
+    cached(&state, format!("data?{}", uri.query().unwrap_or("")), &dir, accepts_gzip(&headers), serve(state.clone(), dir.clone(), params)).await
 }
 
 async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
@@ -780,9 +775,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             if params.get("module_name").is_some_and(|name| name.contains(['/', '\0'])) {
                 return outside();
             }
-            if let Err(error) = select(&dir, tag, &params) {
-                return failure(error);
-            }
+            or_fail!(select(&dir, tag, &params));
             let (tag, params) = (tag.to_string(), params.clone());
             let ok = |(body, content_type): (Vec<u8>, &'static str)| response(StatusCode::OK, content_type, body);
             if tag == "memory_viewer" {
@@ -792,10 +785,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             return blocking(move || graph_viewer::serve(&dir, &params)).await.map_or_else(|message| internal(&message), ok);
         }
         "megascale_stats" => {
-            let paths = match listed_hosts(&dir, tag, &params) {
-                Ok(paths) => paths,
-                Err(error) => return failure(error),
-            };
+            let paths = or_fail!(listed_hosts(&dir, tag, &params));
             let Some(host) = params.get("host").filter(|host| !host.is_empty()).cloned() else { return not_found() };
             let perfetto = params.get("perfetto").is_some_and(|value| value.eq_ignore_ascii_case("true"));
             let own = paths.iter().find(|path| path.file_name().is_some_and(|name| name.to_string_lossy() == format!("{host}.xplane.pb"))).cloned().filter(|_| perfetto);
@@ -809,10 +799,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             return body.await.map_or_else(not_found, |body| response(StatusCode::OK, if perfetto { "application/octet-stream" } else { "application/json" }, body));
         }
         "inference_profile" | "smart_suggestion" => {
-            let paths = match listed_hosts(&dir, tag, &params) {
-                Ok(paths) => paths,
-                Err(error) => return failure(error),
-            };
+            let paths = or_fail!(listed_hosts(&dir, tag, &params));
             let smart = tag == "smart_suggestion";
             let body = blocking(move || if smart { smart_suggestion::json(&paths) } else { inference_profile::json(&paths) }).await;
             return body.map_or_else(not_found, |body| response(StatusCode::OK, "application/json", body));
@@ -820,10 +807,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
         _ => None,
     };
     if let Some(renderer) = renderer {
-        return match listed_hosts(&dir, tag, &params) {
-            Ok(paths) => tool(&state, paths, renderer, tag == "memory_profile").await,
-            Err(error) => failure(error),
-        };
+        return tool(&state, or_fail!(listed_hosts(&dir, tag, &params)), renderer, tag == "memory_profile").await;
     }
     if tag == "trace_viewer" {
         return match select(&dir, tag, &params).map(<[PathBuf; 1]>::try_from) {
@@ -858,10 +842,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
     if tag != "trace_viewer@" {
         return not_found();
     }
-    let files = match select(&dir, tag, &params) {
-        Ok(files) => files,
-        Err(error) => return failure(error),
-    };
+    let files = or_fail!(select(&dir, tag, &params));
     let hosts = match try_join_all(files.iter().map(|file| state.hosts.get(file.clone(), &state.loads, |path| Arc::new(load_host(path))))).await {
         Ok(hosts) => hosts,
         Err(message) => return if blocking(move || counters::corrupt(&files)).await { not_found() } else { internal(&message) },

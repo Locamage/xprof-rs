@@ -7,7 +7,7 @@ use crate::memory_viewer::std_sort;
 use crate::opstats::safe_divide;
 use crate::steps::{DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_HOST, HOST_TO_DEVICE, Span, UNKNOWN_TIME, non_overlapped};
 use crate::table::{Cell, Table};
-use crate::xplane::{self, NONE_GROUP, Plane, Value, slice, stats};
+use crate::xplane::{self, Plane, Value, event_group, event_stat, slice, stats};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
@@ -287,18 +287,6 @@ fn ms(ps: u64) -> f64 {
     ps as f64 / 1e9
 }
 
-fn event_stat(raw: &[u8], id: Option<usize>) -> Option<Value<'_>> {
-    stats(raw, 4, |stat| Some(stat) == id).next().map(|stat| stat.value)
-}
-
-fn int64(value: &Value) -> i64 {
-    if let Value::Int(value) = value { *value } else { 0 }
-}
-
-fn group_of(raw: &[u8], group: i64, id: Option<usize>) -> Option<i64> {
-    if group == NONE_GROUP { event_stat(raw, id).map(|value| int64(&value)) } else { Some(group) }
-}
-
 fn targets(relatives: &Metadata, group: i64) -> impl Iterator<Item = i64> + '_ {
     once(group).chain(relatives.get(&group).into_iter().flat_map(|relative| relative.parents.iter().copied()))
 }
@@ -360,7 +348,7 @@ impl<'a> Events<'a> {
             .flat_map(|line| line.events.iter().map(move |event| (line, event)))
             .map(|(line, event)| {
                 let raw = slice(map, event.raw);
-                HostEvent { name: &names[event.meta as usize], ts: line.absolute_ps(event.ts, host.origin_ns), dur: event.dur, group: group_of(raw, event.group, ids.group), raw }
+                HostEvent { name: &names[event.meta as usize], ts: line.absolute_ps(event.ts, host.origin_ns), dur: event.dur, group: event_group(raw, event.group, ids.group), raw }
             })
             .collect();
         let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
@@ -463,7 +451,7 @@ fn stamp_schedules(events: &Events, relatives: &Metadata, ids: &StatIds, request
     for (event, group) in events.grouped(&SCHEDULE_EVENTS) {
         stamp(requests, relatives, group, &|stamps| stamps.schedule = Some(event.ts));
         if let (Some(request), Some(size)) = (requests.get_mut(&group), event_stat(event.raw, ids.task_size)) {
-            request.size = int64(&size) as i32;
+            request.size = size.signed() as i32;
         }
     }
 }
@@ -480,7 +468,7 @@ fn build_batches<'a>(events: &Events, relatives: &Metadata, ids: &StatIds, reque
     for (event, group) in events.grouped(&PADDING_EVENTS) {
         stamp(requests, relatives, group, &|stamps| stamps.concat = Some(event.ts));
         if let (Some(batch), Some(padding), Some(size)) = (batches.get_mut(&group), event_stat(event.raw, ids.padding), event_stat(event.raw, ids.padded_size)) {
-            (batch.detail.batch_size_after_padding, batch.detail.padding_amount) = (int64(&size) as i32, int64(&padding) as i32);
+            (batch.detail.batch_size_after_padding, batch.detail.padding_amount) = (size.signed() as i32, padding.signed() as i32);
         }
     }
     for batch in batches.values_mut() {
@@ -500,7 +488,7 @@ fn device_events(planes: &[Plane], map: &[u8], events: &Events, ids: &StatIds) -
     }
     for (start, end, kind) in SYSTEM_TRANSFERS {
         let mut transfers: HashMap<i64, (&HostEvent, Option<&HostEvent>)> = HashMap::new();
-        let consumer = |event: &HostEvent| event.group.and(event_stat(event.raw, ids.consumer)).map(|value| int64(&value));
+        let consumer = |event: &HostEvent| event.group.and(event_stat(event.raw, ids.consumer)).map(|value| value.signed());
         for event in events.named(start) {
             if let Some(id) = consumer(event) {
                 transfers.insert(id, (event, None));
@@ -517,7 +505,7 @@ fn device_events(planes: &[Plane], map: &[u8], events: &Events, ids: &StatIds) -
     }
     for plane in planes.iter().filter(|plane| is_tensor_core(&plane.name)) {
         for (line, event) in plane.lines.iter().filter(|line| line.name == XLA_MODULES).flat_map(|line| line.events.iter().map(move |event| (line, event))) {
-            let Some(group) = group_of(slice(map, event.raw), event.group, plane.id("group_id")) else { continue };
+            let Some(group) = event_group(slice(map, event.raw), event.group, plane.id("group_id")) else { continue };
             let program = plane.stat(map, event.meta, event.raw, "program_id").map(|value| value.int().unwrap_or(0) as u64);
             found.push((group, (DEVICE_COMPUTE_32, Span { begin: line.absolute_ps(event.ts, plane.origin_ns), duration: event.dur }), program));
         }
@@ -689,7 +677,7 @@ fn batching_parameters(planes: &[Plane], map: &[u8], models: &mut ModelIdDatabas
         });
         let Some(model) = found else { continue };
         let Some(field) = BATCHING_PARAMS.iter().position(|param| detail.starts_with(param)) else { continue };
-        let (entry, value) = (params.entry(model.to_string()).or_default(), int64(&stat.value));
+        let (entry, value) = (params.entry(model.to_string()).or_default(), stat.value.signed());
         match field {
             0 => entry.num_batch_threads = value,
             1 => entry.batch_timeout_micros = value,

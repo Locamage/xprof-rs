@@ -308,16 +308,22 @@ impl Walker<'_> {
         true
     }
 
-    fn context(&self, root: u32, name: &str) -> Option<Value<'_>> {
+    fn ancestor<T>(&self, root: u32, mut hit: impl FnMut(u32) -> Option<T>) -> Option<T> {
         let (mut queue, mut seen) = (VecDeque::from([root]), FxHashSet::from_iter([root]));
         while let Some(node) = queue.pop_front() {
-            let (plane, _, event) = self.event(node);
-            if let Some(value) = plane.stat(self.map, event.meta, event.raw, name) {
-                return Some(value);
+            if let Some(found) = hit(node) {
+                return Some(found);
             }
             queue.extend(neighbors(&self.graph.parents, node).iter().copied().filter(|&parent| seen.insert(parent)));
         }
         None
+    }
+
+    fn context(&self, root: u32, name: &str) -> Option<Value<'_>> {
+        self.ancestor(root, |node| {
+            let (plane, _, event) = self.event(node);
+            plane.stat(self.map, event.meta, event.raw, name)
+        })
     }
 
     fn process(&mut self, group: i64, root: u32) {
@@ -472,16 +478,11 @@ fn classify_eager(walker: &Walker, outs: &[Out]) -> Vec<(u32, bool)> {
     outs.par_iter()
         .flat_map(|out| out.candidates.par_iter())
         .map(|&node| {
-            let (mut queue, mut seen) = (VecDeque::from([node]), FxHashSet::from_iter([node]));
-            while let Some(current) = queue.pop_front() {
-                if eager_nodes.contains(&current) {
-                    let (plane, _, event) = walker.event(current);
-                    let is_func = stats(slice(walker.map, event.raw), 4, |id| Some(id) == plane.id("is_func")).find_map(|stat| stat.value.int());
-                    return (node, is_func == Some(0));
-                }
-                queue.extend(neighbors(&walker.graph.parents, current).iter().copied().filter(|&parent| seen.insert(parent)));
-            }
-            (node, false)
+            let eager = walker.ancestor(node, |current| {
+                let (plane, _, event) = eager_nodes.contains(&current).then(|| walker.event(current))?;
+                Some(stats(slice(walker.map, event.raw), 4, |id| Some(id) == plane.id("is_func")).find_map(|stat| stat.value.int()) == Some(0))
+            });
+            (node, eager == Some(true))
         })
         .collect()
 }

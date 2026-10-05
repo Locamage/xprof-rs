@@ -245,6 +245,10 @@ impl Value<'_> {
             _ => None,
         }
     }
+
+    pub fn signed(&self) -> i64 {
+        if let Value::Int(value) = self { *value } else { 0 }
+    }
 }
 
 pub struct Stat<'a> {
@@ -279,10 +283,20 @@ pub fn stat(body: &[u8], keep: impl Fn(usize) -> bool) -> Option<Stat<'_>> {
 }
 
 pub fn stats(raw: &[u8], field: u32, keep: impl Fn(usize) -> bool) -> impl Iterator<Item = Stat<'_>> {
-    fields(raw).filter(move |(tag, _)| *tag == field).filter_map(move |(_, body)| match body {
-        Field::Bytes(_, body) => stat(body, &keep),
-        Field::Num(_) => None,
-    })
+    nested(raw, field).filter_map(move |body| stat(body, &keep))
+}
+
+pub fn nested(data: &[u8], wanted: u32) -> impl Iterator<Item = &[u8]> {
+    fields(data).filter_map(move |(tag, field)| if let (true, Field::Bytes(_, body)) = (tag == wanted, field) { Some(body) } else { None })
+}
+
+pub fn event_stat(raw: &[u8], id: Option<usize>) -> Option<Value<'_>> {
+    let id = id?;
+    stats(raw, 4, |stat| stat == id).next().map(|stat| stat.value)
+}
+
+pub fn event_group(raw: &[u8], group: i64, id: Option<usize>) -> Option<i64> {
+    if group == NONE_GROUP { event_stat(raw, id).map(|value| value.signed()) } else { Some(group) }
 }
 
 fn table<T: Default>(entries: Vec<(u64, T)>) -> Option<Vec<T>> {
@@ -588,10 +602,14 @@ impl Plane {
     }
 
     pub fn text(&self, value: &Value) -> String {
+        self.text_cow(value).into_owned()
+    }
+
+    pub fn text_cow<'a>(&'a self, value: &Value<'a>) -> Cow<'a, str> {
         match value {
-            Value::Str(bytes) => lossy(bytes).into_owned(),
-            Value::Ref(id) => self.stat_names.get(*id as usize).map(std::string::ToString::to_string).unwrap_or_default(),
-            _ => String::new(),
+            Value::Str(bytes) => lossy(bytes),
+            Value::Ref(id) => Cow::Borrowed(self.stat_names.get(*id as usize).map_or("", |name| name)),
+            _ => Cow::Borrowed(""),
         }
     }
 
