@@ -1,0 +1,6 @@
+HloModule IsFiniteR1F32s_module, entry_computation_layout={()->pred[6]{0}}
+
+ENTRY %IsFiniteR1F32s.v2 () -> pred[6] {
+  %constant = f32[6]{0} constant({nan, 7, nan, -1, inf, -inf})
+  ROOT %is-finite = pred[6]{0} is-finite(f32[6]{0} %constant)
+}

@@ -1,0 +1,5 @@
+HloModule ParseC128Literal, entry_computation_layout={()->c128[2]{0}}
+
+ENTRY %ParseC128Literal () -> c128[2] {
+  ROOT %c = c128[2]{0} constant({(1, 2), (-inf, nan)})
+}

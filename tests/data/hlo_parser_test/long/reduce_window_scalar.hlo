@@ -1,0 +1,13 @@
+HloModule reduce_window_scalar, entry_computation_layout={()->f32[]}
+
+%add_F32.v3 (lhs: f32[], rhs: f32[]) -> f32[] {
+  %lhs = f32[] parameter(0)
+  %rhs = f32[] parameter(1)
+  ROOT %add = f32[] add(f32[] %lhs, f32[] %rhs)
+}
+
+ENTRY %R4UnitWindowScalar () -> f32[] {
+  %constant = f32[] constant(42)
+  %constant.1 = f32[] constant(1)
+  ROOT %reduce-window = f32[] reduce-window(f32[] %constant, f32[] %constant.1), to_apply=%add_F32.v3
+}

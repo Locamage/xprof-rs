@@ -1,0 +1,9 @@
+HloModule test, entry_computation_layout={(f32[10]{0}, f32[10]{0})->(f32[10]{0}, f32[10]{0}, f32[10]{0})}
+
+ENTRY test {
+  parameter.anon = f32[10]{0} parameter(0)
+  parameter.anon.1 = f32[10]{0} parameter(1)
+  add = f32[10]{0} add(parameter.anon, parameter.anon.1)
+  add.anon = f32[10]{0} add(add, add)
+  ROOT root = (f32[10]{0}, f32[10]{0}, f32[10]{0}) tuple(add, add.anon, add)
+}

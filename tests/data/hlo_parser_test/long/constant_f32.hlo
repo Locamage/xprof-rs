@@ -1,0 +1,5 @@
+HloModule ConstantF32_module, entry_computation_layout={()->f32[]}
+
+ENTRY %ConstantF32.v4 () -> f32[] {
+  ROOT %constant = f32[] constant(42), backend_config="this is a configuration"
+}

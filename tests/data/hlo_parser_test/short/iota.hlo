@@ -1,0 +1,5 @@
+HloModule iota, entry_computation_layout={()->f32[100]{0}}
+
+ENTRY Iota {
+  ROOT iota = f32[100]{0} iota(), iota_dimension=0
+}

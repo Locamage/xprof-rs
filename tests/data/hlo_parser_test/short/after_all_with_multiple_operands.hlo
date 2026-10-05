@@ -1,0 +1,8 @@
+HloModule AfterAllWithMultipleOperands, entry_computation_layout={(f32[])->token[]}
+
+ENTRY AfterAllWithMultipleOperands {
+  p0 = f32[] parameter(0)
+  token0 = token[] after-all()
+  token1 = token[] after-all()
+  ROOT after-all = token[] after-all(p0, token0, token1)
+}

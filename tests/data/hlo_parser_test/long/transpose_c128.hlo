@@ -1,0 +1,6 @@
+HloModule TransposeC128_module, entry_computation_layout={(c128[1,2,3]{2,1,0})->c128[1,2,3]{2,1,0}}
+
+ENTRY %Transpose.v3 (input: c128[1,2,3]) -> c128[1,2,3] {
+  %input = c128[1,2,3]{2,1,0} parameter(0)
+  ROOT %transpose = c128[1,2,3]{2,1,0} transpose(c128[1,2,3]{2,1,0} %input), dimensions={0,1,2}
+}

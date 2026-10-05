@@ -1,0 +1,8 @@
+HloModule DynamicSlice_module, entry_computation_layout={(s32[2,2,258]{2,1,0}, s32[])->s32[2,2,258]{2,1,0}}
+
+ENTRY %DynamicSlice.v5 (original_parameter: s32[2,2,258], start_index: s32[]) -> s32[2,2,258] {
+  %original_parameter = s32[2,2,258]{2,1,0} parameter(0)
+  %constant = s32[] constant(0)
+  %start_index = s32[] parameter(1)
+  ROOT %dynamic-slice = s32[2,2,258]{2,1,0} dynamic-slice(s32[2,2,258]{2,1,0} %original_parameter, s32[] %constant, s32[] %constant, s32[] %start_index), dynamic_slice_sizes={2,2,258}
+}

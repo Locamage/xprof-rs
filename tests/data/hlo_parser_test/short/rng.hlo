@@ -1,0 +1,7 @@
+HloModule rng_module, entry_computation_layout={()->f32[8]{0}}
+
+ENTRY Rng {
+  constant = f32[] constant(0)
+  constant.1 = f32[] constant(1)
+  ROOT rng = f32[8]{0} rng(constant, constant.1), distribution=rng_uniform
+}

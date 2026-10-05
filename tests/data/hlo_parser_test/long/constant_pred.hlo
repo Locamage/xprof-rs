@@ -1,0 +1,5 @@
+HloModule constant_pred_module, entry_computation_layout={()->pred[]}
+
+ENTRY %constant_pred () -> pred[] {
+  ROOT %constant = pred[] constant(true), metadata={op_type="const" op_name="\"it\'s not a problem\n" source_file="path/to/test.cc" source_line=68}, backend_config="foo\" bar"
+}

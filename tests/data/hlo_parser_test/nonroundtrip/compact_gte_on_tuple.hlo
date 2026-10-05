@@ -1,0 +1,9 @@
+HloModule test, entry_computation_layout={(f32[10]{0}, f16[10]{0})->f32[10]{0}}
+
+ENTRY test {
+  p0 = f32[10]{0} parameter(0)
+  p1 = f16[10]{0} parameter(1)
+  t = (f32[10]{0}, f16[10]{0}) tuple(p0, p1)
+  t_0 = f32[10]{0} get-tuple-element(t), index=0
+  ROOT root = f32[10]{0} negate(t_0)
+}

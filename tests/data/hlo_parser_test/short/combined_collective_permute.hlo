@@ -1,0 +1,7 @@
+HloModule CombinedCollectivePermute, entry_computation_layout={(f32[128,32]{0,1}, f32[128,32]{0,1})->(f32[128,32]{0,1}, f32[128,32]{0,1})}, replica_count=4
+
+ENTRY CollectivePermute {
+  input.0 = f32[128,32]{0,1} parameter(0)
+  input.1 = f32[128,32]{0,1} parameter(1)
+  ROOT root = (f32[128,32]{0,1}, f32[128,32]{0,1}) collective-permute(input.0, input.1), source_target_pairs={{0,1},{1,2},{2,3}}
+}

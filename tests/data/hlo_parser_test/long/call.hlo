@@ -1,0 +1,10 @@
+HloModule CallR0F32IdentityScalar_module, entry_computation_layout={()->f32[]}
+
+%Identity.v1 (x: f32[]) -> f32[] {
+  ROOT %x = f32[] parameter(0)
+}
+
+ENTRY %CallR0F32IdentityScalar.v2 () -> f32[] {
+  %constant = f32[] constant(42)
+  ROOT %call = f32[] call(f32[] %constant), to_apply=%Identity.v1
+}

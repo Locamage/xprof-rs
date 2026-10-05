@@ -1,0 +1,7 @@
+HloModule ConvolveR2_module, entry_computation_layout={(f32[1,2]{1,0}, f32[2,2]{1,0})->f32[1,2]{0,1}}
+
+ENTRY %ConvolveR2.v3 (input: f32[1,2], filter: f32[2,2]) -> f32[1,2] {
+  %input = f32[1,2]{1,0} parameter(0)
+  %filter = f32[2,2]{1,0} parameter(1)
+  ROOT %convolution = f32[1,2]{0,1} convolution(f32[1,2]{1,0} %input, f32[2,2]{1,0} %filter), dim_labels=bf_io->bf
+}

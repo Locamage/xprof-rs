@@ -1,0 +1,5 @@
+HloModule constant_s32_module, entry_computation_layout={()->s32[]}
+
+ENTRY %constant_s32 () -> s32[] {
+  ROOT %constant = s32[] constant(-42)
+}

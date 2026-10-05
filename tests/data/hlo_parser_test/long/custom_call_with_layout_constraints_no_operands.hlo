@@ -1,0 +1,5 @@
+HloModule CustomCallWithLayoutConstraintsNoOperands, entry_computation_layout={()->f32[1,2,3]{0,2,1}}
+
+ENTRY %CustomCallWithLayoutConstraints () -> f32[1,2,3] {
+  ROOT %custom-call = f32[1,2,3]{0,2,1} custom-call(), custom_call_target="baz", operand_layout_constraints={}
+}

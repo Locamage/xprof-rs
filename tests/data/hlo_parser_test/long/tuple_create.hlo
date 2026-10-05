@@ -1,0 +1,8 @@
+HloModule TupleCreate_module, entry_computation_layout={(f32[], f32[3]{0}, f32[2,3]{1,0})->(f32[], f32[3]{0}, f32[2,3]{1,0})}
+
+ENTRY %TupleCreate.v4 (v1: f32[], v2: f32[3], v3: f32[2,3]) -> (f32[], f32[3], f32[2,3]) {
+  %v1 = f32[] parameter(0)
+  %v2 = f32[3]{0} parameter(1)
+  %v3 = f32[2,3]{1,0} parameter(2)
+  ROOT %tuple = (f32[], f32[3]{0}, f32[2,3]{1,0}) tuple(f32[] %v1, f32[3]{0} %v2, f32[2,3]{1,0} %v3)
+}

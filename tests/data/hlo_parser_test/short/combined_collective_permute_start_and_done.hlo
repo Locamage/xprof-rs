@@ -1,0 +1,8 @@
+HloModule CombinedCollectivePermuteStartAndDone, entry_computation_layout={(f32[128,32]{0,1}, f32[128,32]{0,1})->(f32[128,32]{0,1}, f32[128,32]{0,1})}, replica_count=4
+
+ENTRY CombinedCollectivePermuteStartAndDone {
+  input.0 = f32[128,32]{0,1} parameter(0)
+  input.1 = f32[128,32]{0,1} parameter(1)
+  collective-permute-start.1 = ((f32[128,32]{0,1}, f32[128,32]{0,1}), (f32[128,32]{0,1}, f32[128,32]{0,1})) collective-permute-start(input.0, input.1), source_target_pairs={{0,1},{1,2},{2,3}}
+  ROOT collective-permute-done.1 = (f32[128,32]{0,1}, f32[128,32]{0,1}) collective-permute-done(collective-permute-start.1)
+}

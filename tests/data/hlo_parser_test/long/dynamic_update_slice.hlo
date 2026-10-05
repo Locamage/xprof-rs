@@ -1,0 +1,8 @@
+HloModule DynamicSlice_module, entry_computation_layout={(s32[1,1,25,1]{3,2,1,0}, s32[1,1,2,1]{3,2,1,0}, s32[4]{0})->s32[1,1,25,1]{3,2,1,0}}
+
+ENTRY %DynamicUpdateSlice.v4 (input: s32[1,1,25,1], update: s32[1,1,2,1], start_indices: s32[4]) -> s32[1,1,25,1] {
+  %input = s32[1,1,25,1]{3,2,1,0} parameter(0)
+  %update = s32[1,1,2,1]{3,2,1,0} parameter(1)
+  %start_indices = s32[4]{0} parameter(2)
+  ROOT %dynamic-update-slice = s32[1,1,25,1]{3,2,1,0} dynamic-update-slice(s32[1,1,25,1]{3,2,1,0} %input, s32[1,1,2,1]{3,2,1,0} %update, s32[4]{0} %start_indices)
+}

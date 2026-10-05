@@ -1,0 +1,5 @@
+HloModule rng_get_and_update_state, entry_computation_layout={()->u64[2]{0}}
+
+ENTRY %RngGetAndUpdateState () -> u64[2] {
+  ROOT %rng-get-and-update-state = u64[2]{0} rng-get-and-update-state(), delta=4096
+}

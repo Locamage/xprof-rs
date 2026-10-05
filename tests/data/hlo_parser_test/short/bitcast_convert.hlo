@@ -1,0 +1,6 @@
+HloModule BitcastConvert, entry_computation_layout={(f32[100]{0})->u32[100]{0}}
+
+ENTRY BitcastConvertUsage {
+  p = f32[100]{0} parameter(0)
+  ROOT out = u32[100]{0} bitcast-convert(p)
+}

@@ -1,0 +1,7 @@
+HloModule test, entry_computation_layout={(f32[])->f32[10,10]{1,0}}
+
+ENTRY test {
+  parameter.anon = f32[] parameter(0)
+  broadcast.anon = f32[10,10]{1,0} broadcast(parameter.anon), dimensions={}
+  ROOT root = f32[10,10]{1,0} sqrt(broadcast.anon)
+}

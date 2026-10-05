@@ -1,0 +1,5 @@
+HloModule CustomCallWithUnknownDimLabels, entry_computation_layout={()->f32[100]{0}}
+
+ENTRY Computation {
+  ROOT r = f32[100]{0} custom-call(), window={size=2x2}, dim_labels=?b01f_0?1io->b01?f, custom_call_target="target"
+}

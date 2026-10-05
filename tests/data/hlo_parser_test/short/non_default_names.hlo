@@ -1,0 +1,6 @@
+HloModule add_constants_module, entry_computation_layout={()->f32[]}
+
+ENTRY add_constants {
+  foo = f32[] constant(3.14)
+  ROOT bar = f32[] add(foo, foo)
+}

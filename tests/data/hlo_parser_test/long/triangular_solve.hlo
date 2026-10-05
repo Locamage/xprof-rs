@@ -1,0 +1,7 @@
+HloModule TriangularSolve_module, entry_computation_layout={(f32[4,4]{1,0}, f32[3,4]{1,0})->f32[3,4]{1,0}}
+
+ENTRY %SimpleRightLowerNotranspose.4 (a.1: f32[4,4], b.2: f32[3,4]) -> f32[3,4] {
+  %a.1 = f32[4,4]{1,0} parameter(0)
+  %b.2 = f32[3,4]{1,0} parameter(1)
+  ROOT %triangular-solve.3 = f32[3,4]{1,0} triangular-solve(f32[4,4]{1,0} %a.1, f32[3,4]{1,0} %b.2), lower=true, transpose_a=NO_TRANSPOSE
+}
