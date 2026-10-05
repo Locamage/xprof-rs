@@ -248,9 +248,12 @@ fn is_flag(argument: &str) -> bool {
 }
 
 pub fn literal(text: &str) -> J {
+    /// Python refuses more nested brackets than this.
+    const MAX_DEPTH: usize = 200;
     struct Parser<'a> {
         bytes: &'a [u8],
         at: usize,
+        depth: usize,
     }
     impl Parser<'_> {
         fn skip(&mut self) {
@@ -284,7 +287,12 @@ pub fn literal(text: &str) -> J {
             match first {
                 b'(' | b'[' => {
                     self.at += 1;
+                    self.depth += 1;
+                    if self.depth > MAX_DEPTH {
+                        return None;
+                    }
                     let (items, comma) = self.sequence(if first == b'(' { b')' } else { b']' })?;
+                    self.depth -= 1;
                     Some(if first == b'(' && items.len() == 1 && !comma { items.into_iter().next()? } else { J::List(items) })
                 }
                 b'\'' | b'"' => {
@@ -313,10 +321,12 @@ pub fn literal(text: &str) -> J {
                 }
                 b'-' | b'+' => {
                     self.at += 1;
+                    if matches!(self.bytes[self.at..].iter().find(|byte| !matches!(byte, b' ' | b'\t' | b'(')), Some(b'-' | b'+')) {
+                        return None;
+                    }
                     match self.value()? {
                         J::Int(number) => Some(J::Int(if first == b'-' { -number } else { number })),
                         J::Float(number) => Some(J::Float(if first == b'-' { -number } else { number })),
-                        J::Bool(flag) => Some(J::Int(i128::from(flag) * if first == b'-' { -1 } else { 1 })),
                         _ => None,
                     }
                 }
@@ -353,7 +363,7 @@ pub fn literal(text: &str) -> J {
             }
         }
     }
-    let mut parser = Parser { bytes: text.as_bytes(), at: 0 };
+    let mut parser = Parser { bytes: text.as_bytes(), at: 0, depth: 0 };
     let parsed = (|| {
         let first = parser.value()?;
         if !parser.eat(b',') {

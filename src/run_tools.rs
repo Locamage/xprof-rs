@@ -91,8 +91,7 @@ pub fn cache_path(dir: &Path) -> PathBuf {
         return dir.join(CACHE_FILE);
     }
     let key: String = Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>()[..16].to_string();
-    let temp = ["TMPDIR", "TEMP", "TMP"].iter().filter_map(std::env::var_os).map(PathBuf::from).find(|path| path.is_dir()).unwrap_or_else(|| PathBuf::from("/tmp"));
-    let Ok(folder) = crate::private_dir(&temp.join(format!("xprof_{}", unsafe { libc::getuid() }))) else { return dir.join(CACHE_FILE) };
+    let Ok(folder) = crate::private_dir(&crate::cli::client::temp_dir().join(format!("xprof_{}", unsafe { libc::getuid() }))) else { return dir.join(CACHE_FILE) };
     folder.join(format!("xprof_{key}_{CACHE_FILE}"))
 }
 
@@ -171,7 +170,7 @@ fn load(cache: &Path, dir: &Path) -> Option<Vec<Value>> {
 fn save(cache: &Path, dir: &Path, tools: &[String]) {
     let Some(states) = file_states(dir) else { return };
     let mut out = String::new();
-    pretty(&mut out, &json!({"files": states, "tools": tools, "version": CACHE_VERSION}), 0, |out, text| out.push_str(&python_string(text)));
+    pretty(&mut out, &json!({"files": states, "tools": tools, "version": CACHE_VERSION}), 0, python_string_into);
     _ = std::fs::write(cache, out);
 }
 

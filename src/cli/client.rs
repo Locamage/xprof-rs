@@ -29,7 +29,7 @@ const KNOWN_TOOLS: [&str; 20] = [
     "trace_viewer",
     "trace_viewer@",
 ];
-const TRACE_SUFFIXES: [&str; 2] = [".xplane.pb", ".xspace.pb"];
+pub const TRACE_SUFFIXES: [&str; 2] = [".xplane.pb", ".xspace.pb"];
 
 pub type Params<'a> = [(&'a str, String)];
 
@@ -115,6 +115,17 @@ pub fn traces(dir: &Path) -> Vec<PathBuf> {
         return if TRACE_SUFFIXES.iter().any(|suffix| dir.to_string_lossy().ends_with(suffix)) { vec![dir.to_path_buf()] } else { Vec::new() };
     }
     find(dir, &TRACE_SUFFIXES, true)
+}
+
+pub fn kernel_utilization<'a>(path: &Path, option: impl Fn(&str) -> Option<&'a str>) -> Option<String> {
+    let map = crate::read_file(path).ok().filter(|map| crate::counters::valid_space(map))?;
+    let filter = crate::counters::Filter {
+        kernel: option("kernel").or(option("kernel_name")).unwrap_or_default().to_string(),
+        duration_us: option("duration_us").and_then(|value| value.trim().parse().ok()).unwrap_or(0.0),
+        force: option("force_duration").is_some_and(|value| matches!(value, "True" | "true" | "1" | "yes" | "t" | "y")),
+        device: option("device_id").and_then(|value| value.trim().parse().ok()).unwrap_or(-1),
+    };
+    Some(crate::counters::kernel_utilization(&map, &filter))
 }
 
 pub fn temp_dir() -> PathBuf {
@@ -210,7 +221,7 @@ impl Client for Local {
             }
             let mut kept = self.kept.write().unwrap();
             let stats = loaded.entry(paths[0].clone()).or_insert_with(|| {
-                let (stats, found) = load_kept(crate::read_file(&paths[0]).unwrap(), fused || self.fused)?;
+                let (stats, found) = load_kept(crate::read_file(&paths[0]).ok()?, fused || self.fused)?;
                 kept.insert(paths[0].clone(), found);
                 Some(stats)
             });
@@ -237,16 +248,7 @@ impl Client for Local {
                 let known = (name == "utilization_viewer" && paths.len() == 1).then(|| self.kept.read().unwrap().get(&paths[0]).map(|kept| crate::counters::utilization_viewer(&kept.map))).flatten();
                 known.or_else(|| crate::counters::serve(name, &paths))
             }
-            "kernel_utilization" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| {
-                let map = crate::read_file(&path).ok().filter(|map| crate::counters::valid_space(map))?;
-                let filter = crate::counters::Filter {
-                    kernel: option("kernel").or(option("kernel_name")).unwrap_or_default().to_string(),
-                    duration_us: option("duration_us").and_then(|value| value.trim().parse().ok()).unwrap_or(0.0),
-                    force: option("force_duration").is_some_and(|value| matches!(value, "True" | "true" | "1" | "yes" | "t" | "y")),
-                    device: option("device_id").and_then(|value| value.trim().parse().ok()).unwrap_or(-1),
-                };
-                Some(crate::counters::kernel_utilization(&map, &filter))
-            }),
+            "kernel_utilization" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| kernel_utilization(&path, option)),
             "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone()).ok().map(|[path]| self.prepared(&path, crate::legacy_trace::render)),
             _ => None,
         };

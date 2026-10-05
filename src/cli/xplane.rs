@@ -1,4 +1,4 @@
-use super::client::{Client, traces};
+use super::client::{Client, TRACE_SUFFIXES, traces};
 use super::json::{J, py_repr};
 use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round, stdev};
 use crate::counters::{Event, Plane, events, planes, valid_space};
@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use regex::Regex;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 const MAX_SCANNED: usize = 5_000_000;
@@ -16,7 +17,6 @@ const NAME_STATS: [&str; 4] = ["msg", "message", "annotation", "label"];
 const DEVICE_LINES: [&str; 3] = ["XLA OPS", "PALLAS", "LLO OPS"];
 const EXCLUDED_LINES: [&str; 5] = ["COUNTER", "MODULES", "OVERLAY", "SYNC FLAG", "SENSOR"];
 const XSPACE_SPILL_BYTES: usize = 10 * 1024 * 1024;
-const TRACE_SUFFIXES: [&str; 2] = [".xplane.pb", ".xspace.pb"];
 const LLO_REMEDIATION: &str = "To enable LLO tracing, ensure the workload is executed with LIBTPU_INIT_ARGS=\"--xla_xprof_enable_custom_call_tracing=true --xla_xprof_register_llo_debug_info=true\" exported strictly BEFORE 'import jax'. Prerequisites: Python 3.11+ (Python 3.12 recommended via uv), JAX >= 0.11.0 (default Cloud TPU VM images running Python 3.10 cap JAX at 0.6.2 and lack LLO flag support), and xprof-nightly.";
 const NUMERICAL_DEPENDENCIES: &str = "Required numerical dependencies are not installed in current environment: No module named 'ml_dtypes'. Please install numpy and ml_dtypes (e.g. 'pip install numpy ml_dtypes') to use verify_numerical_parity.";
 
@@ -514,16 +514,7 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
             return fail(Kind::FileNotFound, format!("No .xplane.pb or .xspace.pb files found in directory: {}", py_repr(&session)));
         }
         let option = |key: &str| params.iter().find(|(name, _)| *name == key).map(|(_, value)| value.as_str());
-        let rendered = <[PathBuf; 1]>::try_from(files).ok().and_then(|[file]| {
-            let map = super::read(&file).ok().filter(|map| valid_space(map))?;
-            let filter = crate::counters::Filter {
-                kernel: option("kernel").unwrap_or_default().to_string(),
-                duration_us: option("duration_us").and_then(|value| value.parse().ok()).unwrap_or(0.0),
-                force: option("force_duration").is_some(),
-                device: option("device_id").and_then(|value| value.parse().ok()).unwrap_or(-1),
-            };
-            Some(crate::counters::kernel_utilization(&map, &filter))
-        });
+        let rendered = <[PathBuf; 1]>::try_from(files).ok().and_then(|[file]| super::client::kernel_utilization(&file, option));
         rendered.ok_or_else(|| Error::new(Kind::Runtime, format!("Failed to compute utilization from file {}: no data returned.", py_repr(&session))))?
     } else {
         let fetched = client
@@ -609,6 +600,10 @@ pub fn upload_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let io = |error: std::io::Error| Error::new(if error.kind() == std::io::ErrorKind::NotFound { Kind::FileNotFound } else { Kind::Os }, error.to_string());
     std::fs::create_dir_all(&destination).map_err(io)?;
     let target = destination.join(&name);
+    let identity = |path: &Path| std::fs::metadata(path).ok().map(|meta| (meta.dev(), meta.ino()));
+    if identity(source).is_some_and(|source| identity(&target) == Some(source)) {
+        return fail(Kind::Os, format!("PosixPath({}) and PosixPath({}) are the same file", py_repr(&file), py_repr(&target.to_string_lossy())));
+    }
     std::fs::copy(source, &target).map_err(io)?;
     Ok(obj! {
         "status" => "success",
