@@ -1,10 +1,9 @@
 use crate::hlo::xla::hlo_instruction_proto::ReplicaGroupList;
-use crate::hlo::{ELEMENTWISE, Inst, Module, OPAQUE, Shape, TOKEN, TUPLE};
+use crate::hlo::{BUFFER, ELEMENTWISE, Inst, Module, OPAQUE, Shape, TOKEN, TUPLE, all_subshapes};
 use rustc_hash::FxHashMap;
 use std::cell::OnceCell;
 use std::collections::HashMap;
 
-const POINTER_SIZE: i64 = 8;
 const FMA_FLOPS: i64 = 2;
 const DEFAULT_FLOPS_PER_ELEMENT: i64 = 3;
 const IMMEDIATE_CONSTANT_MAX_ELEMENTS: i64 = 8;
@@ -114,52 +113,16 @@ fn storage_bit_width(kind: i32) -> i64 {
     if kind == 1 { 8 } else { bit_width(kind) }
 }
 
-fn elements_recursive(shape: &Shape) -> i64 {
-    if shape.is_tuple() {
-        shape.tuple_shapes.iter().map(elements_recursive).sum()
-    } else if shape.is_array() {
-        shape.elements()
-    } else {
-        0
-    }
-}
-
 fn has_layout(shape: &Shape) -> bool {
     if shape.is_tuple() { shape.tuple_shapes.iter().all(has_layout) } else { !shape.is_array() || shape.layout.is_some() }
 }
 
 fn byte_size(shape: &Shape) -> i64 {
-    if shape.is_tuple() {
-        return POINTER_SIZE * shape.tuple_shapes.len() as i64;
-    }
-    if shape.is_array() {
-        return match shape.layout.as_ref().map_or(0, |layout| layout.element_size_in_bits) {
-            0 => shape.elements() * ((bit_width(shape.element_type) + 7) / 8),
-            bits => (shape.elements() * bits + 7).div_euclid(8),
-        };
-    }
-    if shape.element_type == OPAQUE { POINTER_SIZE } else { 0 }
+    if shape.element_type == BUFFER { 0 } else { shape.unpadded_bytes() }
 }
 
 fn shape_size(shape: &Shape) -> i64 {
     if has_layout(shape) { byte_size(shape) } else { 0 }
-}
-
-fn subshapes<'a>(shape: &'a Shape, index: &mut Vec<i64>, out: &mut Vec<(Vec<i64>, &'a Shape)>) {
-    out.push((index.clone(), shape));
-    if shape.is_tuple() {
-        for (position, element) in shape.tuple_shapes.iter().enumerate() {
-            index.push(position as i64);
-            subshapes(element, index, out);
-            index.pop();
-        }
-    }
-}
-
-fn all_subshapes(shape: &Shape) -> Vec<(Vec<i64>, &Shape)> {
-    let mut out = Vec::new();
-    subshapes(shape, &mut Vec::new(), &mut out);
-    out
 }
 
 fn leaves(shape: &Shape) -> Vec<(Vec<i64>, &Shape)> {
@@ -185,6 +148,15 @@ fn log2_floor(value: u64) -> i64 {
 fn log2_ceiling(value: u64) -> i64 {
     let floor = log2_floor(value);
     if value == 0 || value.is_power_of_two() { floor } else { floor + 1 }
+}
+
+fn adjusted(flops: f32, width: i64) -> f32 {
+    let divisor = match width {
+        8 => 2.0,
+        4 => 4.0,
+        _ => 1.0,
+    };
+    flops - flops / divisor
 }
 
 fn profile_flops(opcode: &str, kind: i32) -> i64 {
@@ -292,9 +264,7 @@ impl<'m> Context<'m> {
     fn is_elementwise(&self, node: usize) -> bool {
         let opcode = self.opcode(node);
         match opcode {
-            "dynamic-update-slice" => false,
             "bitcast-convert" => self.operands(node).first().is_some_and(|&operand| storage_bit_width(self.shape(node).element_type) == storage_bit_width(self.shape(operand).element_type)),
-            "constant" | "rng" => true,
             "map" => {
                 let dimensions = &self.inst(node).dimensions;
                 dimensions.is_empty() || (dimensions.len() == self.shape(node).dimensions.len() && dimensions.iter().enumerate().all(|(position, &dimension)| dimension == position as i64))
@@ -359,6 +329,12 @@ impl<'c, 'm> Analysis<'c, 'm> {
 
     fn set_output(&mut self, index: &[i64], value: f32) {
         self.current.set(output_key(index), value);
+    }
+
+    fn replace_output(&mut self, size: f32) {
+        *self.current.slot(Key::Bytes) -= self.current.get(&output_key(&[]));
+        *self.current.slot(Key::Bytes) += size;
+        self.set_output(&[], size);
     }
 
     fn set_operand_bytes(&mut self, operand: usize, index: &[i64], value: f32) {
@@ -435,15 +411,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
     fn postprocess(&mut self, node: usize) -> Status {
         let context = self.context;
         if context.opcode(node) != "custom-call" {
-            let model = self.current.get(&Key::Flops);
-            let widths: Vec<i64> =
-                context.operands(node).iter().map(|&operand| context.shape(operand).element_type).filter(|kind| !matches!(*kind, 0 | TUPLE | OPAQUE | TOKEN)).map(bit_width).collect();
-            let adjustment: u32 = match widths.iter().max() {
-                Some(8) if model != 0.0 => 2,
-                Some(4) if model != 0.0 => 4,
-                _ => 1,
-            };
-            self.current.set(Key::Adjustment, model - model / adjustment as f32);
+            let width = context.operands(node).iter().map(|&operand| context.shape(operand).element_type).filter(|kind| !matches!(*kind, 0 | TUPLE | OPAQUE | TOKEN)).map(bit_width).max();
+            self.current.set(Key::Adjustment, adjusted(self.current.get(&Key::Flops), width.unwrap_or(0)));
         }
         if self.bottleneck {
             self.current.set(Key::Optimal, 0.0);
@@ -517,7 +486,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 let dimension = context.inst(node).dimensions.first().copied().unwrap_or(0);
                 let size = context.shape(context.operand(node, 0)).dimensions.get(dimension as usize).copied().unwrap_or(0);
                 let per_element = if dimension > 0 && size & 31 != 0 { 400 } else { 6 };
-                self.current.set(Key::Flops, (per_element * elements_recursive(shape)) as f32);
+                self.current.set(Key::Flops, (per_element * shape.elements_recursive()) as f32);
             }
             "dot" | "scaled-dot" => {
                 let numbers = context.inst(node).dot_dimension_numbers.clone().unwrap_or_default();
@@ -568,10 +537,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
             "all-gather-start" => self.all_gather(node, Some(0))?,
             "all-reduce" => self.all_reduce(node)?,
             "all-reduce-start" => {
-                let ranks = self.num_ranks(node, Some(context.inst(node).use_global_device_ids))?;
+                let ranks = self.num_ranks(node)?;
                 let transferred = ring_shape_size(shape, None);
                 let root = context.root(context.called(node, 0)?);
-                self.current.set(Key::Flops, (profile_flops(context.opcode(root), shape.element_type) * elements_recursive(shape)) as f32);
+                self.current.set(Key::Flops, (profile_flops(context.opcode(root), shape.element_type) * shape.elements_recursive()) as f32);
                 self.current.set(Key::Bytes, transferred as f32);
                 self.current.set(Key::Transferred, transferred as f32);
                 self.ring(ranks, 2 * (ranks - 1));
@@ -589,7 +558,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 }
             }
             "rng" => self.current.set(Key::Transcendentals, shape.elements() as f32),
-            "rng-bit-generator" => self.current.set(Key::Transcendentals, elements_recursive(shape) as f32),
+            "rng-bit-generator" => self.current.set(Key::Transcendentals, shape.elements_recursive() as f32),
             "fusion" => self.fusion(node)?,
             "call" | "while" | "conditional" => self.control_flow(node, opcode)?,
             "custom-call" => self.custom_call(node)?,
@@ -706,7 +675,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
 
     fn elementwise(&mut self, node: usize) {
         let shape = self.context.shape(node);
-        self.current.set(Key::Flops, (profile_flops(self.context.opcode(node), shape.element_type) * elements_recursive(shape)) as f32);
+        self.current.set(Key::Flops, (profile_flops(self.context.opcode(node), shape.element_type) * shape.elements_recursive()) as f32);
     }
 
     fn ring(&mut self, ranks: i64, steps: i64) {
@@ -714,16 +683,12 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.current.set(Key::ScaleRatio, if steps > 0 { ranks as f32 / steps as f32 } else { 0.0 });
     }
 
-    fn num_ranks(&self, node: usize, global: Option<bool>) -> Result<i64, String> {
+    fn num_ranks(&self, node: usize) -> Result<i64, String> {
         let inst = self.context.inst(node);
-        let has_channel = inst.channel_id > 0;
-        let mode = match (has_channel, global) {
-            (false, Some(true)) => return Err("Cannot have use_global_device_ids=true without channel_id".into()),
-            (false, _) => 0,
-            (true, None) => 1,
-            (true, Some(false)) => 2,
-            (true, Some(true)) => 3,
-        };
+        let (channel, global) = (inst.channel_id > 0, inst.use_global_device_ids);
+        if !channel && global {
+            return Err("Cannot have use_global_device_ids=true without channel_id".into());
+        }
         let largest: Option<i64> = match (replica_groups(inst), &inst.replica_group_list) {
             (legacy, _) if !legacy.is_empty() => legacy.iter().map(|group| group.replica_ids.len() as i64).max(),
             (_, Some(ReplicaGroupList::IotaCollectiveDeviceList(list))) => (list.num_replica_groups > 0).then_some(list.num_devices_per_group),
@@ -738,14 +703,14 @@ impl<'c, 'm> Analysis<'c, 'm> {
             (_, Some(ReplicaGroupList::CollectiveDeviceList(list))) => list.replica_groups.iter().map(|group| group.replica_ids.len() as i64).max(),
             (_, None) => None,
         };
-        if largest.is_none() && mode == 3 {
+        if largest.is_none() && channel && global {
             return Err("RET_CHECK failure !replica_groups.empty() replica groups cannot be empty for kFlattenedID mode".into());
         }
         Ok(largest.map_or(1, |largest| largest.max(1)))
     }
 
     fn all_gather(&mut self, node: usize, skip: Option<i64>) -> Status {
-        let ranks = self.num_ranks(node, Some(self.context.inst(node).use_global_device_ids))?;
+        let ranks = self.num_ranks(node)?;
         let transferred = ring_shape_size(self.context.shape(node), skip);
         let rank_size = transferred / ranks;
         self.current.set(Key::Bytes, (rank_size * (2 * ranks - 1) + rank_size * ranks) as f32);
@@ -756,7 +721,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
 
     fn all_reduce(&mut self, node: usize) -> Status {
         let context = self.context;
-        let ranks = self.num_ranks(node, Some(context.inst(node).use_global_device_ids))?;
+        let ranks = self.num_ranks(node)?;
         let shape = context.shape(node);
         let output: i64 = all_subshapes(shape).into_iter().filter(|(_, subshape)| subshape.is_array()).map(|(_, subshape)| shape_size(subshape)).sum();
         let bytes = output + context.operands(node).iter().map(|&operand| shape_size(context.shape(operand))).sum::<i64>();
@@ -764,21 +729,21 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.current.set(Key::Transferred, output as f32);
         self.current.set(Key::Bytes, bytes as f32);
         let root = context.root(context.called(node, 0)?);
-        self.current.set(Key::Flops, (profile_flops(context.opcode(root), shape.element_type) * elements_recursive(shape)) as f32);
+        self.current.set(Key::Flops, (profile_flops(context.opcode(root), shape.element_type) * shape.elements_recursive()) as f32);
         self.ring(ranks, 2 * (ranks - 1));
         Ok(())
     }
 
     fn reduce_scatter(&mut self, node: usize) -> Status {
         let context = self.context;
-        let ranks = self.num_ranks(node, Some(context.inst(node).use_global_device_ids))?;
+        let ranks = self.num_ranks(node)?;
         let transferred: i64 = context.operands(node).iter().map(|&operand| ring_shape_size(context.shape(operand), None)).sum();
         let rank_size = transferred / ranks;
         self.current.set(Key::Bytes, (rank_size * ranks + rank_size * (2 * ranks - 1)) as f32);
         self.current.set(Key::Transferred, transferred as f32);
         let root = context.root(context.called(node, 0)?);
         let shape = context.shape(node);
-        self.current.set(Key::Flops, (profile_flops(context.opcode(root), shape.element_type) * elements_recursive(shape)) as f32);
+        self.current.set(Key::Flops, (profile_flops(context.opcode(root), shape.element_type) * shape.elements_recursive()) as f32);
         self.ring(ranks, ranks - 1);
         Ok(())
     }
@@ -876,26 +841,15 @@ impl<'c, 'm> Analysis<'c, 'm> {
             let operand = context.shape(context.operand(node, 0));
             let flops = dot_flops(operand, &output, &lhs) as f32;
             self.current.set(Key::Flops, flops);
-            let size = byte_size(&output) as f32;
-            *self.current.slot(Key::Bytes) -= self.current.get(&output_key(&[]));
-            *self.current.slot(Key::Bytes) += size;
-            self.set_output(&[], size);
-            let adjustment: u32 = match bit_width(operand.element_type) {
-                8 => 2,
-                4 => 4,
-                _ => 1,
-            };
-            self.current.set(Key::Adjustment, flops - flops / adjustment as f32);
+            self.replace_output(byte_size(&output) as f32);
+            self.current.set(Key::Adjustment, adjusted(flops, bit_width(operand.element_type)));
             return Ok(());
         }
         if DNN_CONVOLUTION.contains(&target) {
             let flops = convolution_flops(inst, context.shape(context.operand(node, 0)), context.shape(context.operand(node, 1)), &output);
             self.current.set(Key::Flops, flops as f32);
             if shape.is_tuple() {
-                let size = byte_size(&output) as f32;
-                *self.current.slot(Key::Bytes) -= self.current.get(&output_key(&[]));
-                *self.current.slot(Key::Bytes) += size;
-                self.set_output(&[], size);
+                self.replace_output(byte_size(&output) as f32);
             }
             return Ok(());
         }
@@ -1064,7 +1018,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
                         entry.push(operand);
                     }
                     let mut operand_utilization = utilization * self.property(instruction, &Key::OperandUtilization(index));
-                    let count = elements_recursive(context.shape(operand));
+                    let count = context.shape(operand).elements_recursive();
                     operand_utilization = if count == 0 { 0.0 } else { (operand_utilization * count as f32).ceil() / count as f32 };
                     *self.root_utilizations.entry(operand).or_insert(0.0) += operand_utilization;
                     let size = ir_sizes.entry(operand).or_insert(0);

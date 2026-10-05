@@ -1,7 +1,7 @@
 use crate::opstats::{Db, IDLE, OpStats, safe_divide};
 use crate::steps::{
-    Breakdown, Core, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE, DEVICE_TO_HOST, DEVICE_WAIT_DEVICE, DEVICE_WAIT_HOST, Extra, HOST_COMPILE, HOST_COMPUTE, HOST_PREPARE,
-    HOST_TO_DEVICE, HOST_WAIT_INPUT, SPARSE_CORE_START, StepRecord, TPU, UNKNOWN_TIME,
+    Breakdown, CPU_ONLY, Core, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE, DEVICE_TO_HOST, DEVICE_WAIT_DEVICE, DEVICE_WAIT_HOST, Extra, GPU, HOST_COMPILE,
+    HOST_COMPUTE, HOST_PREPARE, HOST_TO_DEVICE, HOST_WAIT_INPUT, SPARSE_CORE_START, StepRecord, TPU, UNKNOWN_TIME,
 };
 use crate::table::{Cell, Table};
 use std::collections::BTreeMap;
@@ -78,6 +78,15 @@ const INPUT_CATEGORIES: [&str; 5] = ["Enqueue", "Demanded file read", "Advanced 
 const FILE_READERS: [&str; 6] = ["::TFRecord", "::TextLine", "::FixedLengthRecord", "::SSTable", "::RecordIO", "::ArrayRecord"];
 const ADVANCED_READERS: [&str; 5] = ["::MemoryReader", "::MemoryWriter", "::Interleave", "::Prefetch", "::ParallelMap"];
 
+pub(crate) fn hardware(device_type: &str) -> u8 {
+    match device_type {
+        kind if kind.contains("GPU") => GPU,
+        "CPU" => CPU_ONLY,
+        kind if kind.contains("TPU") => TPU,
+        _ => 0,
+    }
+}
+
 pub fn fixed(value: f64, digits: usize) -> String {
     match value {
         value if value.is_nan() => "-nan".into(),
@@ -85,7 +94,7 @@ pub fn fixed(value: f64, digits: usize) -> String {
     }
 }
 
-fn ms(ps: u64) -> f64 {
+pub(crate) fn ms(ps: u64) -> f64 {
     ps as f64 / 1e9
 }
 

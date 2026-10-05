@@ -158,11 +158,13 @@ fn tensor_core(counters: &Counters, device: Device, core: usize, metrics: &mut V
     add(metrics, core, "VPU Utilization", total(&vpu_ops) as f64, vector_peak, INSTRUCTIONS);
     add(metrics, core, "Vmem Stores", counter("VST_INSTRUCTION") as f64, cycles_f, INSTRUCTIONS);
     add(metrics, core, "Vmem Loads", total(&indexed("VLD_INSTRUCTION", 2)) as f64, cycles.wrapping_mul(2) as f64, INSTRUCTIONS);
-    let busy = [counter("MXU_BUSY_0"), counter("MXU_BUSY_1"), counter("MXU_BUSY_2")];
-    for (name, value) in ["No MXU Busy", "1 MXU Busy", "2 MXU Busy"].into_iter().zip(busy) {
-        add(metrics, core, name, value as f64, cycles_f, CYCLES);
-    }
-    add(metrics, core, "Avg MXU Busy", 0.5 * busy[1] as f64 + busy[2] as f64, cycles_f, CYCLES);
+    let busy = |metrics: &mut Vec<Metric>, values: [u64; 3], names: [&str; 4]| {
+        for (name, value) in names.into_iter().zip(values) {
+            add(metrics, core, name, value as f64, cycles_f, CYCLES);
+        }
+        add(metrics, core, names[3], 0.5 * values[1] as f64 + values[2] as f64, cycles_f, CYCLES);
+    };
+    busy(metrics, ["MXU_BUSY_0", "MXU_BUSY_1", "MXU_BUSY_2"].map(counter), ["No MXU Busy", "1 MXU Busy", "2 MXU Busy", "Avg MXU Busy"]);
     let mxu_peak = cycles.wrapping_mul(MXUS_PER_TENSOR_CORE) as f64;
     let precisions: &[(&str, &[(u64, &str)])] = if device == Device::V6e { &V6E_PRECISIONS } else { &V7X_PRECISIONS };
     let weighted = |unit: usize, terms: &[(u64, &str)]| terms.iter().fold(0u64, |sum, &(weight, name)| sum.wrapping_add(weight.wrapping_mul(counter(&format!("MATMUL_{name}_MXU_{unit}")))));
@@ -173,11 +175,7 @@ fn tensor_core(counters: &Counters, device: Device, core: usize, metrics: &mut V
         add(metrics, core, name, weighted(0, terms).wrapping_add(weighted(1, terms)) as f64, mxu_peak, CYCLES);
     }
     add(metrics, core, "MXU matpush", total(&indexed("MATPUSH_CYCLES_MXU", 2)) as f64, mxu_peak, CYCLES);
-    let xlu = [counter("XLU_BUSY_0"), counter("XLU_BUSY_1"), counter("XLU_BUSY_2")];
-    for (name, value) in ["No XLU Busy", "1 XLU Busy", "2 XLUs Busy"].into_iter().zip(xlu) {
-        add(metrics, core, name, value as f64, cycles_f, CYCLES);
-    }
-    add(metrics, core, "Avg XLU Busy", 0.5 * xlu[1] as f64 + xlu[2] as f64, cycles_f, CYCLES);
+    busy(metrics, ["XLU_BUSY_0", "XLU_BUSY_1", "XLU_BUSY_2"].map(counter), ["No XLU Busy", "1 XLU Busy", "2 XLUs Busy", "Avg XLU Busy"]);
     let xlu_peak = (cycles / if device == Device::V6e { 4 } else { 1 }) as f64;
     for unit in 0..2 {
         add(metrics, core, &format!("XLU{unit}"), total(&XLU_INSTRUCTIONS.map(|name| format!("{name}_{unit}"))) as f64, xlu_peak, INSTRUCTIONS);

@@ -1,4 +1,5 @@
-use crate::opstats::{HBM, IDLE, Metrics, OpStats, READ, SPARSE_CORE, Source, WRITE, add, combine_memory, giga_to_gibi, pico_to_nano, safe_divide};
+use crate::input_pipeline_analyzer::{HARDWARE, hardware};
+use crate::opstats::{GIBI_IN_GIGA, HBM, IDLE, Metrics, OpStats, READ, SPARSE_CORE, Source, WRITE, add, combine_memory, giga_to_gibi, pico_to_nano, safe_divide};
 use crate::pbtext::json_string;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -9,7 +10,6 @@ use std::fmt::Write;
 const CHILDREN_PER_NODE: usize = 100;
 const ROOT: usize = 0;
 const PARALLEL_LEVELS: usize = 4;
-const GIBI_IN_GIGA: f64 = (1u64 << 30) as f64 / 1.0e9;
 const PROGRAM: usize = 0;
 const CATEGORY: usize = 1;
 const PROVENANCE: usize = 2;
@@ -425,12 +425,7 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
         Some("provenance") => PROVENANCE,
         _ => PROGRAM,
     };
-    let device = match stats.extra.device_type.as_str() {
-        kind if kind.contains("GPU") => "GPU",
-        "CPU" => "CPU_ONLY",
-        kind if kind.contains("TPU") => "TPU",
-        _ => "UNKNOWN_HARDWARE",
-    };
+    let device = HARDWARE[hardware(&stats.extra.device_type) as usize];
     let key = GROUPINGS[grouping].1;
     let (all, busy) = rayon::join(|| tree(stats, grouping, false), || if with_busy { tree(stats, grouping, true) } else { String::new() });
     let mut out = String::with_capacity(all.len() + busy.len() + 256);

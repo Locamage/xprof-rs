@@ -1,5 +1,6 @@
 use crate::memory_viewer::std_sort;
 use crate::xplane::{Field, Plane, Value as Raw, fields, slice};
+use prost::encoding::encode_varint;
 use rustc_hash::FxHashMap as HashMap;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Write;
@@ -629,27 +630,19 @@ fn process(trace: &mut Trace) {
     trace.tpu.values_mut().chain(trace.megascale.values_mut()).flatten().for_each(rename_track);
 }
 
-fn varint(out: &mut Vec<u8>, mut value: u64) {
-    while value >= 0x80 {
-        out.push(value as u8 | 0x80);
-        value >>= 7;
-    }
-    out.push(value as u8);
-}
-
 fn number(out: &mut Vec<u8>, field: u64, value: u64) {
-    varint(out, field << 3);
-    varint(out, value);
+    encode_varint(field << 3, out);
+    encode_varint(value, out);
 }
 
 fn fixed(out: &mut Vec<u8>, field: u64, bits: u64) {
-    varint(out, field << 3 | 1);
+    encode_varint(field << 3 | 1, out);
     out.extend_from_slice(&bits.to_le_bytes());
 }
 
 fn bytes(out: &mut Vec<u8>, field: u64, body: &[u8]) {
-    varint(out, field << 3 | 2);
-    varint(out, body.len() as u64);
+    encode_varint(field << 3 | 2, out);
+    encode_varint(body.len() as u64, out);
     out.extend_from_slice(body);
 }
 

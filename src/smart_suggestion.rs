@@ -86,12 +86,22 @@ pub struct Node {
 }
 
 pub trait ToolData {
-    fn overview(&self) -> Data<Overview>;
-    fn input_pipeline(&self) -> Data<InputPipeline>;
+    fn overview(&self) -> Data<Overview> {
+        Err("overview is not consulted by the registered rules".into())
+    }
+    fn input_pipeline(&self) -> Data<InputPipeline> {
+        Err("input pipeline is not consulted by the registered rules".into())
+    }
     fn event_fractions(&self, event: &str) -> Data<Fractions>;
-    fn steps(&self) -> Data<Vec<Step>>;
-    fn op_profile(&self) -> Data<Node>;
-    fn memory(&self) -> Data<Vec<(f64, f64)>>;
+    fn steps(&self) -> Data<Vec<Step>> {
+        Err("op stats are not consulted by the registered rules".into())
+    }
+    fn op_profile(&self) -> Data<Node> {
+        Err("op profile is not consulted by the registered rules".into())
+    }
+    fn memory(&self) -> Data<Vec<(f64, f64)>> {
+        Err("memory profile is not consulted by the registered rules".into())
+    }
 }
 
 pub struct Suggestion {
@@ -414,29 +424,9 @@ struct Session {
 }
 
 impl ToolData for Session {
-    fn overview(&self) -> Data<Overview> {
-        Err("overview is not consulted by the registered rules".into())
-    }
-
-    fn input_pipeline(&self) -> Data<InputPipeline> {
-        Err("input pipeline is not consulted by the registered rules".into())
-    }
-
     fn event_fractions(&self, event: &str) -> Data<Fractions> {
         let fractions = self.fractions.as_ref().ok_or_else(|| "Can't parse an xspace of the session as binary proto".to_string())?;
         fractions.get(event).cloned().ok_or_else(|| format!("Event not found: {event}"))
-    }
-
-    fn steps(&self) -> Data<Vec<Step>> {
-        Err("op stats are not consulted by the registered rules".into())
-    }
-
-    fn op_profile(&self) -> Data<Node> {
-        Err("op profile is not consulted by the registered rules".into())
-    }
-
-    fn memory(&self) -> Data<Vec<(f64, f64)>> {
-        Err("memory profile is not consulted by the registered rules".into())
     }
 }
 

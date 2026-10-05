@@ -1,4 +1,4 @@
-use crate::hlo_text::{Printer, Style};
+use crate::hlo_text::{Printer, Style, separate};
 use crate::opstats::{Db, Metrics};
 use crate::xplane::{Field, Plane, Value, fields, nested, slice, stats};
 use indexmap::IndexMap;
@@ -38,13 +38,14 @@ const MAX_EXPRESSION: usize = 1_000_000;
 pub const TUPLE: i32 = 13;
 pub const OPAQUE: i32 = 14;
 pub const TOKEN: i32 = 17;
-const BUFFER: i32 = 34;
+pub const BUFFER: i32 = 34;
 const TYPE_NAMES: &str = "primitive_type_invalid pred s8 s16 s32 s64 u8 u16 u32 u64 f16 f32 f64 tuple opaque c64 bf16 token c128 f8e5m2 f8e4m3fn s4 u4 f8e4m3b11fnuz f8e5m2fnuz f8e4m3fnuz s2 u2 f8e4m3 f8e3m4 s1 u1 f4e2m1fn f8e8m0fnu buffer f6e3m2fn f6e2m3fn";
-const OPCODES: &str = "abs acos acosh add add-dependency after-all all-gather all-gather-done all-gather-start all-reduce all-reduce-done all-reduce-start all-to-all and asin asinh async-done async-start async-update atan2 atanh batch-norm-grad batch-norm-inference batch-norm-training bitcast bitcast-convert broadcast call cbrt ceil cholesky clamp count-leading-zeros collective-broadcast collective-permute collective-permute-done collective-permute-start collective-reduce compare complex concatenate conditional constant convert convolution copy copy-done copy-start cosine cosh custom-call divide domain dot dynamic-reshape dynamic-slice dynamic-update-slice erf exponential exponential-minus-one fft floor fusion gather get-dimension-size get-tuple-element imag infeed iota is-finite log log-plus-one logistic map maximum minimum mulhi multiply negate not opt-barrier or outfeed pad parameter partition-id popcnt power ragged-all-to-all ragged-dot real recv recv-done reduce reduce-precision reduce-scatter reduce-window remainder replica-id reshape reverse rng rng-bit-generator rng-get-and-update-state round-nearest-afz round-nearest-even rsqrt scaled-dot scan scatter select select-and-scatter send send-done set-dimension-size shift-left shift-right-arithmetic shift-right-logical sign sine sinh slice sort sqrt stochastic-convert subtract tan tanh topk transpose triangular-solve tuple while xor equal-to not-equal-to greater-than-or-equal-to greater-than less-than-or-equal-to less-than";
+pub const OPCODES: &str = "abs acos acosh add add-dependency after-all all-gather all-gather-done all-gather-start all-reduce all-reduce-done all-reduce-start all-to-all and asin asinh async-done async-start async-update atan2 atanh batch-norm-grad batch-norm-inference batch-norm-training bitcast bitcast-convert broadcast call cbrt ceil cholesky clamp count-leading-zeros collective-broadcast collective-permute collective-permute-done collective-permute-start collective-reduce compare complex concatenate conditional constant convert convolution copy copy-done copy-start cosine cosh custom-call divide domain dot dynamic-reshape dynamic-slice dynamic-update-slice erf exponential exponential-minus-one fft floor fusion gather get-dimension-size get-tuple-element imag infeed iota is-finite log log-plus-one logistic map maximum minimum mulhi multiply negate not opt-barrier or outfeed pad parameter partition-id popcnt power ragged-all-to-all ragged-dot real recv recv-done reduce reduce-precision reduce-scatter reduce-window remainder replica-id reshape reverse rng rng-bit-generator rng-get-and-update-state round-nearest-afz round-nearest-even rsqrt scaled-dot scan scatter select select-and-scatter send send-done set-dimension-size shift-left shift-right-arithmetic shift-right-logical sign sine sinh slice sort sqrt stochastic-convert subtract tan tanh topk transpose triangular-solve tuple while xor";
+const COMPARISONS: &str = "equal-to not-equal-to greater-than-or-equal-to greater-than less-than-or-equal-to less-than";
 pub const ELEMENTWISE: &str = "abs acos acosh asin asinh atanh round-nearest-afz round-nearest-even ceil count-leading-zeros convert bitcast-convert copy cosine cosh erf exponential exponential-minus-one floor imag is-finite log log-plus-one not negate popcnt real reduce-precision rsqrt logistic sign sine sinh sqrt cbrt tan tanh add atan2 compare complex divide maximum minimum multiply mulhi power remainder subtract and or xor shift-left shift-right-arithmetic shift-right-logical stochastic-convert select clamp constant rng";
 
 static TYPES: LazyLock<Vec<&str>> = LazyLock::new(|| TYPE_NAMES.split(' ').collect());
-static KNOWN_OPCODES: LazyLock<std::collections::HashSet<&str>> = LazyLock::new(|| OPCODES.split(' ').collect());
+static KNOWN_OPCODES: LazyLock<std::collections::HashSet<&str>> = LazyLock::new(|| OPCODES.split(' ').chain(COMPARISONS.split(' ')).collect());
 type Cached = (PathBuf, SystemTime, Arc<Module<'static>>);
 
 static CACHE: LazyLock<Mutex<Vec<Cached>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -187,11 +188,7 @@ impl Shape {
         if self.is_tuple() || self.element_type == BUFFER {
             out.push_str(if self.is_tuple() { "(" } else { "b(" });
             for (index, element) in self.tuple_shapes.iter().take(if self.is_tuple() { usize::MAX } else { 1 }).enumerate() {
-                match index {
-                    0 => {}
-                    index if index % 5 == 0 => write!(out, ", /*index={index}*/").unwrap(),
-                    _ => out.push_str(", "),
-                }
+                separate(out, index, 5);
                 element.print(out, layout);
             }
             out.push(')');
@@ -249,21 +246,39 @@ impl Shape {
             BUFFER => self.tuple_shapes.first().map_or(0, Self::unpadded_bytes),
             OPAQUE => 8,
             _ if self.is_array() => match self.layout.as_ref().map_or(0, |layout| layout.element_size_in_bits) {
-                0 => {
-                    self.elements()
-                        * match self.element_type {
-                            3 | 7 | 10 | 16 => 2,
-                            4 | 8 | 11 => 4,
-                            5 | 9 | 12 | 15 => 8,
-                            18 => 16,
-                            _ => 1,
-                        }
-                }
+                0 => self.elements() * ((crate::gpu_cost::bit_width(self.element_type) + 7) / 8),
                 bits => (self.elements() * bits + 7).div_euclid(8),
             },
             _ => 0,
         }
     }
+
+    pub fn elements_recursive(&self) -> i64 {
+        if self.is_tuple() {
+            self.tuple_shapes.iter().map(Self::elements_recursive).sum()
+        } else if self.is_array() {
+            self.elements()
+        } else {
+            0
+        }
+    }
+}
+
+fn subshapes<'a>(shape: &'a Shape, index: &mut Vec<i64>, out: &mut Vec<(Vec<i64>, &'a Shape)>) {
+    out.push((index.clone(), shape));
+    if shape.is_tuple() {
+        for (position, element) in shape.tuple_shapes.iter().enumerate() {
+            index.push(position as i64);
+            subshapes(element, index, out);
+            index.pop();
+        }
+    }
+}
+
+pub(crate) fn all_subshapes(shape: &Shape) -> Vec<(Vec<i64>, &Shape)> {
+    let mut out = Vec::new();
+    subshapes(shape, &mut Vec::new(), &mut out);
+    out
 }
 
 #[derive(Default)]

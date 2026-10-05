@@ -173,21 +173,13 @@ fn effective_scalar(shape: &Shape) -> bool {
     shape.is_array() && shape.dimensions.iter().all(|dimension| *dimension == 1)
 }
 
-fn elements_recursive(shape: &Shape) -> i64 {
-    match shape.is_tuple() {
-        true => shape.tuple_shapes.iter().map(elements_recursive).sum(),
-        false if shape.is_array() => shape.dimensions.iter().product(),
-        false => 0,
-    }
-}
-
 fn has_type(shape: &Shape, kinds: &[i32]) -> bool {
     kinds.contains(&shape.element_type) || shape.tuple_shapes.iter().any(|element| has_type(element, kinds))
 }
 
 fn is_small(module: &Module, node: usize) -> bool {
     let shape = &module.nodes[node].shape;
-    has_type(shape, &[14, 17]) || elements_recursive(shape) < 4096
+    has_type(shape, &[14, 17]) || shape.elements_recursive() < 4096
 }
 
 fn instruction_id(node: usize) -> String {
