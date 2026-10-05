@@ -1,6 +1,6 @@
 use crate::hlo::xla::hlo_instruction_proto::ReplicaGroupList;
 use crate::hlo::xla::{self, LiteralProto, MeshAxesReplicaGroupListProto, OpMetadata, OpSharding, PrecisionConfig, WindowDimension};
-use crate::hlo::{Inst, Module, Shape, general, msg};
+use crate::hlo::{Inst, Module, Shape, all_subshapes, general, msg};
 use crate::pbtext::{c_escape, enum_name};
 use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
@@ -268,7 +268,7 @@ fn leaf_count(shape: &Shape) -> usize {
     if shape.is_tuple() { shape.tuple_shapes.iter().map(leaf_count).sum() } else { 1 }
 }
 
-fn separate(out: &mut String, index: usize, interval: usize) {
+pub(crate) fn separate(out: &mut String, index: usize, interval: usize) {
     match index {
         0 => {}
         index if interval != 0 && index % interval == 0 => write!(out, ", /*index={index}*/").unwrap(),
@@ -357,21 +357,23 @@ fn window(inst: &Inst) -> String {
     format!("window={{{}}}", fields.map(|(heading, _, text)| format!("{heading}={}", dimensions.iter().map(|dimension| text(dimension)).join("x"))).join(" "))
 }
 
+fn mesh_text(mesh: &xla::MeshProto) -> String {
+    let devices = match (&mesh.iota_transform, mesh.device_ids.is_empty()) {
+        (_, false) => Some(mesh.device_ids.iter().join(",")),
+        (Some(iota), true) => {
+            let (mut dims, mut perm) = (iota.reshape_dims.clone(), iota.transpose_perm.clone());
+            canonicalize_iota(&mut dims, &mut perm);
+            (dims.len() > 1).then(|| format!("[{}]T({})", dims.iter().join(","), perm.iter().join(",")))
+        }
+        (None, true) => None,
+    };
+    let names = mesh.axes.iter().map(|axis| format!("'{}'={}", axis.name, axis.size)).join(",");
+    format!("mesh[{names}]{}", devices.map_or_else(String::new, |devices| format!(", device_ids=({devices})")))
+}
+
 fn mesh_groups(list: &MeshAxesReplicaGroupListProto) -> String {
     let mesh = msg(&list.mesh);
-    let declared = if mesh.axes.is_empty() {
-        format!("maximal_mesh[device_id={}]", mesh.device_ids.first().copied().unwrap_or(0))
-    } else {
-        let transform = msg(&mesh.iota_transform);
-        let (mut dims, mut perm) = (transform.reshape_dims.clone(), transform.transpose_perm.clone());
-        canonicalize_iota(&mut dims, &mut perm);
-        let assignment = match (mesh.device_ids.is_empty(), mesh.iota_transform.is_some() && dims.len() > 1) {
-            (false, _) => format!(", device_ids=({})", mesh.device_ids.iter().join(",")),
-            (true, true) => format!(", device_ids=([{}]T({}))", dims.iter().join(","), perm.iter().join(",")),
-            (true, false) => String::new(),
-        };
-        format!("mesh[{}]{assignment}", mesh.axes.iter().map(|axis| format!("'{}'={}", axis.name, axis.size)).join(","))
-    };
+    let declared = if mesh.axes.is_empty() { format!("maximal_mesh[device_id={}]", mesh.device_ids.first().copied().unwrap_or(0)) } else { mesh_text(&mesh) };
     let axis_text = |axis: &xla::AxisRefProto| {
         let index = axis.mesh_axis_index;
         let mut text = usize::try_from(index).ok().and_then(|index| mesh.axes.get(index)).map_or_else(|| index.to_string(), |axis| format!("'{}'", axis.name));
@@ -516,18 +518,7 @@ impl<'a> Printer<'a> {
             String::new()
         };
         let maximal = mesh.axes.is_empty() && mesh.device_ids.len() == 1;
-        let mut text = if maximal {
-            format!("{{maximal_mesh[device_id={}]", mesh.device_ids[0])
-        } else {
-            let mut devices = (!mesh.device_ids.is_empty()).then(|| mesh.device_ids.iter().join(","));
-            if let Some(iota) = mesh.iota_transform.as_ref().filter(|_| devices.is_none()) {
-                let (mut dims, mut perm) = (iota.reshape_dims.clone(), iota.transpose_perm.clone());
-                canonicalize_iota(&mut dims, &mut perm);
-                devices = (dims.len() > 1).then(|| format!("[{}]T({})", dims.iter().join(","), perm.iter().join(",")));
-            }
-            let names = mesh.axes.iter().map(|axis| format!("'{}'={}", axis.name, axis.size)).join(",");
-            format!("{{mesh[{names}]{}", devices.map_or_else(String::new, |devices| format!(", device_ids=({devices})")))
-        };
+        let mut text = if maximal { format!("{{maximal_mesh[device_id={}]", mesh.device_ids[0]) } else { format!("{{{}", mesh_text(&mesh)) };
         let no_dimensions = sharding.dim_shardings.is_empty();
         let reduction = ["", "max", "min"].get(sharding.reduction_op as usize).copied().unwrap_or("");
         if maximal {
@@ -1127,17 +1118,8 @@ impl<'a> Printer<'a> {
             aliases.insert(alias.output_shape_index.clone(), text);
         }
         if !aliases.is_empty() {
-            fn walk(shape: &Shape, prefix: &mut Vec<i64>, out: &mut Vec<Vec<i64>>) {
-                out.push(prefix.clone());
-                for (index, element) in shape.tuple_shapes.iter().enumerate().filter(|_| shape.is_tuple()) {
-                    prefix.push(index as i64);
-                    walk(element, prefix, out);
-                    prefix.pop();
-                }
-            }
-            let mut indices = Vec::new();
-            walk(&module.nodes[module.graphs[module.entry].root].shape, &mut Vec::new(), &mut indices);
-            let pieces: Vec<&String> = indices.iter().filter_map(|index| aliases.get(index)).collect();
+            let indices = all_subshapes(&module.nodes[module.graphs[module.entry].root].shape);
+            let pieces: Vec<&String> = indices.iter().filter_map(|(index, _)| aliases.get(index)).collect();
             if pieces.len() != aliases.len() {
                 return None;
             }

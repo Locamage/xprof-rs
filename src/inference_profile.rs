@@ -2,7 +2,7 @@ use crate::counters::{events, first, planes, valid_space};
 use crate::derive::{is_grouped, is_tensor_core};
 use crate::group::{Metadata, group};
 use crate::hlo::general;
-use crate::input_pipeline_analyzer::fixed;
+use crate::input_pipeline_analyzer::{fixed, ms};
 use crate::memory_viewer::std_sort;
 use crate::opstats::safe_divide;
 use crate::steps::{DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_HOST, HOST_TO_DEVICE, Span, UNKNOWN_TIME, non_overlapped};
@@ -281,10 +281,6 @@ fn serves_requests(map: &[u8]) -> bool {
 
 fn span(begin: u64, end: u64) -> Span {
     Span { begin, duration: end.saturating_sub(begin) }
-}
-
-fn ms(ps: u64) -> f64 {
-    ps as f64 / 1e9
 }
 
 fn targets(relatives: &Metadata, group: i64) -> impl Iterator<Item = i64> + '_ {

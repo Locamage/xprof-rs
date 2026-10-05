@@ -4,6 +4,7 @@ use crate::xplane::{Ev, Field, Plane, Stat, Value, fields, slice, stat, stats, v
 use arcstr::ArcStr;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -28,6 +29,7 @@ pub const CMEM: u64 = 2;
 pub const VMEM: u64 = 3;
 pub const READ: u8 = 1;
 pub const WRITE: u8 = 2;
+pub const GIBI_IN_GIGA: f64 = (1u64 << 30) as f64 / 1.0e9;
 
 macro_rules! add {
     ($to:expr, $from:expr, $($field:ident),*) => { $($to.$field += $from.$field;)* };
@@ -123,7 +125,7 @@ pub fn pico_to_nano(ps: u64) -> f64 {
 }
 
 pub fn giga_to_gibi(giga: f64) -> f64 {
-    giga / ((1u64 << 30) as f64 / 1.0e9)
+    giga / GIBI_IN_GIGA
 }
 
 fn children(raw: &[u8]) -> Vec<usize> {
@@ -408,8 +410,9 @@ impl<'a> Builder<'a> {
     }
 }
 
-pub fn combine_memory(source: &[(u8, u64, u64)], destination: &mut Vec<(u8, u64, u64)>) {
-    for &(operation, space, bytes) in source {
+pub fn combine_memory(source: impl IntoIterator<Item = impl Borrow<(u8, u64, u64)>>, destination: &mut Vec<(u8, u64, u64)>) {
+    for entry in source {
+        let &(operation, space, bytes) = entry.borrow();
         match destination.iter_mut().find(|entry| entry.0 == operation && entry.1 == space) {
             Some(entry) => entry.2 += bytes,
             None => destination.push((operation, space, bytes)),

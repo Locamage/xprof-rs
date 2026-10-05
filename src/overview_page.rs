@@ -2,10 +2,10 @@ use crate::framework_op_stats::device_tf_db;
 use crate::gpu::by_op_name;
 use crate::hlo::general;
 use crate::inference_profile::InferenceStats;
-use crate::input_pipeline_analyzer::{Analysis, BOTTLENECK_PREFIXES, HARDWARE, analyze, diagnostics_table, fixed};
+use crate::input_pipeline_analyzer::{Analysis, BOTTLENECK_PREFIXES, HARDWARE, analyze, diagnostics_table, fixed, hardware};
 use crate::memory_viewer::std_sort;
 use crate::opstats::{Db, IDLE, OpStats, safe_divide};
-use crate::steps::{CPU_ONLY, Extra, GPU, TPU};
+use crate::steps::{Extra, GPU, TPU};
 use crate::table::{Cell, Table};
 use std::path::PathBuf;
 
@@ -108,12 +108,11 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
     let [compute_32, compute_16] = extra.precision.map(|ps| ps as f64);
     let precision_percent = |part: f64| percentage(100.0 * safe_divide(part, compute_16 + compute_32));
     let host = &stats.host;
-    let host_ops: u64 = host.metrics.iter().map(|metrics| metrics.occurrences).sum();
-    let host_busy: u64 = host.metrics.iter().filter(|metrics| metrics.category != IDLE).map(|metrics| metrics.self_time_ps).sum();
-    let host_eager: u64 = host.metrics.iter().filter(|metrics| metrics.category != IDLE && metrics.is_eager).map(|metrics| metrics.self_time_ps).sum();
-    let device_ops: u64 = ops.metrics.iter().map(|op| op.occurrences).sum();
-    let device_busy: u64 = ops.metrics.iter().filter(|op| op.category != IDLE).map(|op| op.self_time_ps).sum();
-    let device_eager: u64 = ops.metrics.iter().filter(|op| op.category != IDLE && op.is_eager).map(|op| op.self_time_ps).sum();
+    let counts = |db: &Db| {
+        let busy = |eager: bool| db.metrics.iter().filter(|metrics| metrics.category != IDLE && (!eager || metrics.is_eager)).map(|metrics| metrics.self_time_ps).sum::<u64>();
+        (db.metrics.iter().map(|metrics| metrics.occurrences).sum::<u64>(), busy(false), busy(true))
+    };
+    let ((host_ops, host_busy, host_eager), (device_ops, device_busy, device_eager)) = (counts(host), counts(&ops));
     let all_ops = host_ops + device_ops;
     let tpu_only = |value: f64| percentage(if device_hardware == TPU { value } else { 0.0 });
     let duty = |index: usize| tpu_only(safe_divide(extra.busy_ps[index] as f64, extra.busy_ps[index].wrapping_add(extra.idle_ps[index]) as f64) * 100.0);
@@ -216,12 +215,7 @@ fn latency_json(extra: &Extra, paths: &[PathBuf]) -> String {
 
 pub fn json(stats: &OpStats, paths: &[PathBuf]) -> String {
     let extra = &*stats.extra;
-    let device_hardware = match extra.device_type.as_str() {
-        kind if kind.contains("GPU") => GPU,
-        "CPU" => CPU_ONLY,
-        kind if kind.contains("TPU") => TPU,
-        _ => 0,
-    };
+    let device_hardware = hardware(&extra.device_type);
     let analysis = analyze(stats);
     let mut errors = extra.errors.clone();
     errors.sort();

@@ -1,17 +1,15 @@
-use crate::hlo::general;
+use crate::hlo::{OPCODES, general};
 use crate::hlo_stats::{roofline, source_text};
 use crate::input_pipeline_analyzer::{NO_STEP_MARKER, diagnostics_table};
-use crate::opstats::{CMEM, Db, Metrics, OpStats, READ, SPARSE_CORE, VMEM, WRITE, combine_memory, giga_to_gibi, pico_to_micro, safe_divide};
+use crate::opstats::{CMEM, Db, GIBI_IN_GIGA, Metrics, OpStats, READ, SPARSE_CORE, VMEM, WRITE, combine_memory, giga_to_gibi, pico_to_micro, safe_divide};
 use crate::steps::GPU;
 use crate::table::{Cell, Table};
 use rustc_hash::FxHashSet;
 use std::sync::LazyLock;
 
 const MAX_RECORDS: usize = 1000;
-const GIBI_IN_GIGA: f64 = (1u64 << 30) as f64 / 1.0e9;
 const PROGRAM: &str = "Program";
 const MEMORIES: [&str; 5] = ["hbm", "cmem_read", "cmem_write", "vmem_read", "vmem_write"];
-const OPCODES: &str = "abs acos acosh add add-dependency after-all all-gather all-gather-done all-gather-start all-reduce all-reduce-done all-reduce-start all-to-all and asin asinh async-done async-start async-update atan2 atanh batch-norm-grad batch-norm-inference batch-norm-training bitcast bitcast-convert broadcast call cbrt ceil cholesky clamp count-leading-zeros collective-broadcast collective-permute collective-permute-done collective-permute-start collective-reduce compare complex concatenate conditional constant convert convolution copy copy-done copy-start cosine cosh custom-call divide domain dot dynamic-reshape dynamic-slice dynamic-update-slice erf exponential exponential-minus-one fft floor fusion gather get-dimension-size get-tuple-element imag infeed iota is-finite log log-plus-one logistic map maximum minimum mulhi multiply negate not opt-barrier or outfeed pad parameter partition-id popcnt power ragged-all-to-all ragged-dot real recv recv-done reduce reduce-precision reduce-scatter reduce-window remainder replica-id reshape reverse rng rng-bit-generator rng-get-and-update-state round-nearest-afz round-nearest-even rsqrt scaled-dot scan scatter select select-and-scatter send send-done set-dimension-size shift-left shift-right-arithmetic shift-right-logical sign sine sinh slice sort sqrt stochastic-convert subtract tan tanh topk transpose triangular-solve tuple while xor";
 static OPCODE_SET: LazyLock<FxHashSet<&str>> = LazyLock::new(|| OPCODES.split(' ').collect());
 const COLUMNS: [(&str, &str, &str); 37] = [
     ("step", "string", "Step"),
@@ -158,12 +156,10 @@ pub fn accumulate(sum: &mut Metrics, part: &Metrics) {
 
 pub fn program(db: &Db) -> ([Metrics; 2], u64) {
     let mut program = Default::default();
-    db.metrics.iter().for_each(|metrics| add_to_program(&mut program, metrics, metrics));
+    db.metrics
+        .iter()
+        .for_each(|metrics| add_scaled(&mut program, metrics, (metrics.core_type, metrics.time_ps), (metrics.flops_v2, metrics.model_flops_v2, metrics.bytes_accessed), &metrics.memory, 1));
     program
-}
-
-pub fn add_to_program(program: &mut ([Metrics; 2], u64), kind: &Metrics, part: &Metrics) {
-    add_scaled(program, kind, (part.core_type, part.time_ps), (part.flops_v2, part.model_flops_v2, part.bytes_accessed), &part.memory, 1);
 }
 
 /// Adds `part`, an operation of `kind`, with the given flops, model flops and bytes, and with `memory` times `scale`.
@@ -177,13 +173,7 @@ pub fn add_scaled((sums, infeed_outfeed): &mut ([Metrics; 2], u64), kind: &Metri
         sum.flops_v2 += flops;
         sum.model_flops_v2 += model;
         sum.bytes_accessed += bytes;
-        for &(operation, space, amount) in memory {
-            let amount = amount.saturating_mul(scale);
-            match sum.memory.iter_mut().find(|entry| entry.0 == operation && entry.1 == space) {
-                Some(entry) => entry.2 += amount,
-                None => sum.memory.push((operation, space, amount)),
-            }
-        }
+        combine_memory(memory.iter().map(|&(operation, space, amount)| (operation, space, amount.saturating_mul(scale))), &mut sum.memory);
     }
     if infeed {
         *infeed_outfeed += time_ps;
