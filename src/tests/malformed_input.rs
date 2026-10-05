@@ -149,3 +149,37 @@ fn provenance_with_many_parts() {
     let json = std::thread::Builder::new().stack_size(1 << 20).spawn(move || crate::op_profile::json(&stats, Some("provenance"))).unwrap().join().unwrap();
     assert_eq!(json.matches("\"name\":\"a\"").count(), 2 * 100_000);
 }
+
+#[test]
+fn hlo_text_proto_with_deep_nesting() {
+    use crate::hlo::xla::{HloComputationProto, HloInstructionProto, HloModuleProto, HloProto, ShapeProto};
+    use prost::Message;
+    use prost::encoding::{encode_varint, encoded_len_varint};
+    let wrap = |tag: Vec<u8>, inner: Vec<u8>| {
+        let mut out = vec![tag[0]];
+        encode_varint(inner.len() as u64, &mut out);
+        out.extend(inner);
+        out
+    };
+    let hlo = |shapes: usize| {
+        let tuple_shape = ShapeProto { tuple_shapes: vec![ShapeProto::default()], ..Default::default() }.encode_to_vec()[0];
+        let mut lengths = vec![0u64];
+        for _ in 1..shapes {
+            let inner = *lengths.last().unwrap();
+            lengths.push(inner + 1 + encoded_len_varint(inner) as u64);
+        }
+        let mut chain = Vec::new();
+        for &length in lengths.iter().rev().skip(1) {
+            chain.push(tuple_shape);
+            encode_varint(length, &mut chain);
+        }
+        let shape = wrap(HloInstructionProto { shape: Some(Box::default()), ..Default::default() }.encode_to_vec(), chain);
+        let instruction = wrap(HloComputationProto { instructions: vec![HloInstructionProto::default()], ..Default::default() }.encode_to_vec(), shape);
+        let computation = wrap(HloModuleProto { computations: vec![HloComputationProto::default()], ..Default::default() }.encode_to_vec(), instruction);
+        wrap(HloProto { hlo_module: Some(HloModuleProto::default()), ..Default::default() }.encode_to_vec(), computation)
+    };
+    assert!(HloProto::decode(hlo(97).as_slice()).is_ok() && HloProto::decode(hlo(98).as_slice()).is_err());
+    assert!(crate::pbtext::print_hlo(&hlo(97)).is_some_and(|text| text.matches("tuple_shapes {").count() == 96));
+    assert!(crate::pbtext::print_hlo(&hlo(98)).is_none());
+    assert!(crate::pbtext::print_hlo(&hlo(100_000)).is_none());
+}
