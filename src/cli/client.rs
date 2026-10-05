@@ -151,7 +151,7 @@ impl Local {
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
     fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> T {
         if let Some(kept) = self.kept.read().unwrap().get(path).filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))) {
-            return read(&kept.planes, &kept.map);
+            return read(&kept.planes, kept.map());
         }
         let (map, planes) = crate::prepare(path, true);
         read(&planes, &map)
@@ -246,7 +246,7 @@ impl Client for Local {
             "utilization_viewer" | "perf_counters" => {
                 // The process does not read or check a trace again after it read the trace one time.
                 let known =
-                    (name == "utilization_viewer" && paths.len() == 1).then(|| self.kept.read().unwrap().get(&paths[0]).map(|kept| crate::tools::counters::utilization_viewer(&kept.map))).flatten();
+                    (name == "utilization_viewer" && paths.len() == 1).then(|| self.kept.read().unwrap().get(&paths[0]).map(|kept| crate::tools::counters::utilization_viewer(kept.map()))).flatten();
                 known.or_else(|| crate::tools::counters::serve(name, &paths))
             }
             "kernel_utilization" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| kernel_utilization(&path, option)),
