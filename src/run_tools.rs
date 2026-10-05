@@ -191,7 +191,7 @@ fn generate(dir: &Path) -> Option<Vec<String>> {
         tools(&map)
     };
     let found: Option<Vec<Vec<&str>>> = xspaces.iter().take(if extracted { 1 } else { xspaces.len() }).map(scan).collect();
-    let found = found.filter(|_| extracted || crate::hlo::extract(dir, &xspaces).is_some());
+    let found = found.filter(|_| extracted || crate::hlo::extracted(dir, &xspaces).is_some());
     Some(found.map_or_else(Vec::new, |found| sorted(found[0].iter().copied())))
 }
 

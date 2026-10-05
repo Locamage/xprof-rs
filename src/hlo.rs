@@ -622,6 +622,18 @@ pub fn by_options(dir: &Path, params: &HashMap<String, String>) -> Option<Arc<Mo
     }
 }
 
+/// Lists the modules of a session. When there are none, it extracts them first. Two requests do not extract at the same time.
+pub fn extracted(dir: &Path, xspaces: &[PathBuf]) -> Option<Vec<String>> {
+    static EXTRACTING: Mutex<()> = Mutex::new(());
+    let _held = EXTRACTING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let existing = modules(dir);
+    if !existing.is_empty() {
+        return Some(existing);
+    }
+    extract(dir, xspaces)?;
+    Some(modules(dir))
+}
+
 pub fn extract(dir: &Path, xspaces: &[PathBuf]) -> Option<()> {
     let mut modules: IndexMap<String, Vec<u8>> = IndexMap::new();
     for path in xspaces {
@@ -646,7 +658,8 @@ pub fn extract(dir: &Path, xspaces: &[PathBuf]) -> Option<()> {
         modules.insert("NO_MODULE".into(), Vec::new());
     }
     for (name, bytes) in modules {
-        std::fs::write(dir.join(format!("{name}{SUFFIX}")), bytes).ok()?;
+        let (path, partial) = (dir.join(format!("{name}{SUFFIX}")), dir.join(format!(".{name}{SUFFIX}.partial")));
+        std::fs::write(&partial, bytes).and_then(|()| std::fs::rename(&partial, path)).ok()?;
     }
     Some(())
 }

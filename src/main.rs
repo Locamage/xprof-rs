@@ -727,12 +727,7 @@ async fn module_list(State(state): State<Shared>, Query(params): Query<Params>) 
     let files = xplanes(&dir);
     if names.is_empty() && !files.is_empty() {
         let target = dir.clone();
-        let extract = move || {
-            blocking(move || match hlo::modules(&target) {
-                existing if existing.is_empty() => hlo::extract(&target, &files).map(|()| hlo::modules(&target)).unwrap_or_default(),
-                existing => existing,
-            })
-        };
+        let extract = move || blocking(move || hlo::extracted(&target, &files).unwrap_or_default());
         names = state.extracts.join(dir, extract).await.unwrap_or_default();
     }
     names.retain(|name| !name.is_empty());
