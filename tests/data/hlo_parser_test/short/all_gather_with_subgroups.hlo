@@ -1,0 +1,6 @@
+HloModule AllGatherWithSubgroups, entry_computation_layout={(f32[128,32]{0,1})->f32[128,64]{0,1}}, replica_count=4
+
+ENTRY AllGatherWithSubgroups {
+  input = f32[128,32]{0,1} parameter(0)
+  ROOT ag = f32[128,64]{0,1} all-gather(input), replica_groups={{0,1},{2,3}}, dimensions={1}
+}

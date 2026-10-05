@@ -1,0 +1,5 @@
+HloModule TupleConstant_module, entry_computation_layout={()->(f32[2,1]{1,0}, f32[2]{0})}
+
+ENTRY %TupleConstant.v1 () -> (f32[2,1], f32[2]) {
+  ROOT %constant = (f32[2,1]{1,0}, f32[2]{0}) constant(( { {1}, {2} }, {2, 42} ))
+}

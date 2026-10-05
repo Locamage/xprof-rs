@@ -1,0 +1,5 @@
+HloModule ConstantR1F8E4M3FNs_module, entry_computation_layout={()->f8e4m3fn[3]{0}}
+
+ENTRY %IsFiniteR1F32s.v2 () -> f8e4m3fn[3] {
+  ROOT %constant = f8e4m3fn[3]{0} constant({nan, 7, -nan})
+}

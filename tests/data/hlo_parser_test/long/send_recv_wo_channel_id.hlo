@@ -1,0 +1,10 @@
+HloModule SendRecvWoChannelID_module, entry_computation_layout={()->(f32[], token[])}
+
+ENTRY %computation () -> (f32[], token[]) {
+  %token0 = token[] after-all()
+  %recv = (f32[], u32[], token[]) recv(token[] %token0)
+  ROOT %recv-done = (f32[], token[]) recv-done((f32[], u32[], token[]) %recv)
+  %constant = f32[] constant(2.1)
+  %send = (f32[], u32[], token[]) send(f32[] %constant, token[] %token0)
+  %send-done = token[] send-done((f32[], u32[], token[]) %send)
+}

@@ -1,0 +1,6 @@
+HloModule Transpose_module, entry_computation_layout={()->s32[1,2,3]{2,1,0}}
+
+ENTRY %Transpose.v2 () -> s32[1,2,3] {
+  %constant = s32[1,2,3]{2,1,0} constant({ { { 1, 2, 3 }, { 4, 5, 6 } } })
+  ROOT %transpose = s32[1,2,3]{2,1,0} transpose(s32[1,2,3]{2,1,0} %constant), dimensions={0,1,2}
+}

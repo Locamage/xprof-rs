@@ -1,0 +1,5 @@
+HloModule replica-id, entry_computation_layout={()->u32[]}
+
+ENTRY Replica-id {
+  ROOT replica-id = u32[] replica-id()
+}

@@ -1,0 +1,10 @@
+HloModule BatchNormGrad_module, entry_computation_layout={(f32[2,2,2,2]{3,2,1,0}, f32[2]{0}, f32[2]{0}, f32[2]{0}, f32[2,2,2,2]{3,2,1,0})->(f32[2,2,2,2]{3,2,1,0}, f32[2]{0}, f32[2]{0})}
+
+ENTRY %BatchNormGrad.v4 (input: f32[2,2,2,2], scale: f32[2], mean: f32[2], variance: f32[2], grad_output: f32[2,2,2,2]) -> (f32[2,2,2,2], f32[2], f32[2]) {
+  %input = f32[2,2,2,2]{3,2,1,0} parameter(0)
+  %scale = f32[2]{0} parameter(1)
+  %mean = f32[2]{0} parameter(2)
+  %variance = f32[2]{0} parameter(3)
+  %grad_output = f32[2,2,2,2]{3,2,1,0} parameter(4)
+  ROOT %batch-norm-grad = (f32[2,2,2,2]{3,2,1,0}, f32[2]{0}, f32[2]{0}) batch-norm-grad(f32[2,2,2,2]{3,2,1,0} %input, f32[2]{0} %scale, f32[2]{0} %mean, f32[2]{0} %variance, f32[2,2,2,2]{3,2,1,0} %grad_output), epsilon=0.001, feature_index=0
+}

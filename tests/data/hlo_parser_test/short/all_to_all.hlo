@@ -1,0 +1,6 @@
+HloModule AllToAll, entry_computation_layout={(f32[128,32]{0,1})->(f32[128,32]{0,1})}
+
+ENTRY AllToAll {
+  input = f32[128,32]{0,1} parameter(0)
+  ROOT a2a = (f32[128,32]{0,1}) all-to-all(input), replica_groups={}
+}

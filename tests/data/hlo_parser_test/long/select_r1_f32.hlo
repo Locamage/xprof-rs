@@ -1,0 +1,8 @@
+HloModule SelectR1F32WithCmpR1F32sFromParamsSmall_module, entry_computation_layout={(f32[4]{0}, f32[4]{0})->f32[4]{0}}
+
+ENTRY %SelectR1F32WithCmpR1F32sFromParamsSmall.v4 (v1: f32[4], v2: f32[4]) -> f32[4] {
+  %v1 = f32[4]{0} parameter(0), sharding={maximal device=1}
+  %v2 = f32[4]{0} parameter(1), sharding={maximal device=1}
+  %greater-than = pred[4]{0} compare(f32[4]{0} %v1, f32[4]{0} %v2), direction=GT, type=TOTALORDER, sharding={replicated}
+  ROOT %select = f32[4]{0} select(pred[4]{0} %greater-than, f32[4]{0} %v1, f32[4]{0} %v2), sharding={replicated}
+}

@@ -1,0 +1,18 @@
+HloModule pred_conditional, entry_computation_layout={()->f32[]}
+
+Negate {
+  x = f32[] parameter(0)
+  ROOT negate = f32[] negate(x)
+}
+
+Identity {
+  y = f32[] parameter(0)
+  ROOT copy = f32[] copy(y)
+}
+
+ENTRY Parameters1.v4 {
+  constant = pred[] constant(true)
+  constant.1 = f32[] constant(56)
+  constant.2 = f32[] constant(12)
+  ROOT conditional = f32[] conditional(constant, constant.1, constant.2), true_computation=Negate, false_computation=Identity
+}

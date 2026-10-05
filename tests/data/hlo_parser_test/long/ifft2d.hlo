@@ -1,0 +1,6 @@
+HloModule Ifft2d_module, entry_computation_layout={(c64[5,8,32]{2,1,0})->c64[5,8,32]{2,1,0}}
+
+ENTRY %Ifft2d (input: c64[5,8,32]) -> c64[5,8,32] {
+  %input = c64[5,8,32]{2,1,0} parameter(0)
+  ROOT %fft = c64[5,8,32]{2,1,0} fft(c64[5,8,32]{2,1,0} %input), fft_type=IFFT, fft_length={8,32}
+}

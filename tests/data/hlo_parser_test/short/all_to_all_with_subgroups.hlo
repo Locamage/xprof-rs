@@ -1,0 +1,7 @@
+HloModule AllToAllWithSubgroups, entry_computation_layout={(f32[128,32]{0,1}, f32[128,32]{0,1})->(f32[128,32]{0,1}, f32[128,32]{0,1})}, replica_count=4
+
+ENTRY AllToAllWithSubgroups {
+  p0 = f32[128,32]{0,1} parameter(0)
+  p1 = f32[128,32]{0,1} parameter(1)
+  ROOT a2a = (f32[128,32]{0,1}, f32[128,32]{0,1}) all-to-all(p0, p1), replica_groups={{1,2},{3,0}}
+}

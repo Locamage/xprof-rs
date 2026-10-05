@@ -1,0 +1,6 @@
+HloModule reduce_precision, entry_computation_layout={()->f32[1]{0}}
+
+ENTRY ReducePrecision {
+  constant = f32[1]{0} constant({3.14159})
+  ROOT reduce-precision = f32[1]{0} reduce-precision(constant), exponent_bits=8, mantissa_bits=10
+}

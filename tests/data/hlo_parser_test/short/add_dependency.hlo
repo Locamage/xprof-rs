@@ -1,0 +1,10 @@
+HloModule AddDependency, entry_computation_layout={(f32[])->f32[]}
+
+ENTRY AddDependency {
+  p = f32[] parameter(0)
+  neg = f32[] negate(p)
+  token0 = token[] after-all(neg)
+  p_after_token = f32[] add-dependency(p, token0)
+  exp = f32[] exponential(p_after_token)
+  ROOT sum = f32[] add(neg, exp)
+}

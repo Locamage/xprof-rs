@@ -1,0 +1,6 @@
+HloModule test, entry_computation_layout={(f32[])->f32[]}
+
+ENTRY %test (v1: f32[]) -> f32[] {
+  %v1 = f32[] parameter(0), origin={[synthetic_call]}
+  ROOT %add = f32[] add(f32[] %v1, f32[] %v1), origin={[synthetic_call]}
+}

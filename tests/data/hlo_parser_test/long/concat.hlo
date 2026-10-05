@@ -1,0 +1,7 @@
+HloModule Concat2x3With2x5_module, entry_computation_layout={()->f32[2,8]{1,0}}
+
+ENTRY %Concat2x3With2x5.v3 () -> f32[2,8] {
+  %constant = f32[2,3]{1,0} constant({ { 0, 1, 2 }, { 1000, 1001, 1002 } })
+  %constant.1 = f32[2,5]{1,0} constant({ { 64, 65, 66, 67, 68 }, { 1064, 1065, 1066, 1067, 1068 } })
+  ROOT %concatenate = f32[2,8]{1,0} concatenate(f32[2,3]{1,0} %constant, f32[2,5]{1,0} %constant.1), dimensions={1}
+}

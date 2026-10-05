@@ -1,0 +1,6 @@
+HloModule SliceR0_module, entry_computation_layout={()->s32[]}
+
+ENTRY %SliceR0.v2 () -> s32[] {
+  %constant = s32[] constant(1)
+  ROOT %slice = s32[] slice(s32[] %constant), slice={}
+}

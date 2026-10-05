@@ -1,0 +1,15 @@
+HloModule sort, entry_computation_layout={(f32[1024,16]{0,1}, s32[1024,16]{0,1})->(f32[1024,16]{0,1}, s32[1024,16]{0,1})}
+
+compare {
+  p.1.lhs = s32[] parameter(2)
+  p.1.rhs = s32[] parameter(3)
+  p.0.lhs = f32[] parameter(0)
+  p.0.rhs = f32[] parameter(1)
+  ROOT lt = pred[] compare(p.0.lhs, p.0.rhs), direction=LT
+}
+
+ENTRY Sort {
+  keys = f32[1024,16]{0,1} parameter(0)
+  values = s32[1024,16]{0,1} parameter(1)
+  ROOT sorted = (f32[1024,16]{0,1}, s32[1024,16]{0,1}) sort(keys, values), dimensions={0}, to_apply=compare
+}

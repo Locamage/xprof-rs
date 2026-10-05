@@ -1,0 +1,5 @@
+HloModule BF16, entry_computation_layout={()->bf16[]}
+
+ENTRY %BF16.v4 () -> bf16[] {
+  ROOT %constant = bf16[] constant(500)
+}

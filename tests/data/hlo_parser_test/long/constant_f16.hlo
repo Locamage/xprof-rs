@@ -1,0 +1,5 @@
+HloModule ConstantF16_module, entry_computation_layout={()->f16[]}
+
+ENTRY %ConstantF16.v4 () -> f16[] {
+  ROOT %constant = f16[] constant(500)
+}

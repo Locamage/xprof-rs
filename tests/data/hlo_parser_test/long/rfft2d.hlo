@@ -1,0 +1,6 @@
+HloModule Rfft2d_module, entry_computation_layout={(f32[5,64,32]{2,1,0})->c64[5,64,17]{2,1,0}}
+
+ENTRY %Rfft2d (input: f32[5,64,32]) -> c64[5,64,17] {
+  %input = f32[5,64,32]{2,1,0} parameter(0)
+  ROOT %fft = c64[5,64,17]{2,1,0} fft(f32[5,64,32]{2,1,0} %input), fft_type=RFFT, fft_length={64,32}
+}

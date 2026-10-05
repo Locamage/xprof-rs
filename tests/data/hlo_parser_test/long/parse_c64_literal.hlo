@@ -1,0 +1,5 @@
+HloModule ParseC64Literal, entry_computation_layout={()->c64[2]{0}}
+
+ENTRY %ParseC64Literal () -> c64[2] {
+  ROOT %c = c64[2]{0} constant({(1, 2), (-inf, nan)})
+}

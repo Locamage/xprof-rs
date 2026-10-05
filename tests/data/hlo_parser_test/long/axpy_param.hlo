@@ -1,0 +1,10 @@
+HloModule axpy_module, entry_computation_layout={(f32[], f32[2,4]{1,0}, f32[2,4]{1,0})->f32[2,4]{1,0}}
+
+ENTRY %axpy.v5 (alpha: f32[], x: f32[2,4], y: f32[2,4]) -> f32[2,4] {
+  %alpha = f32[] parameter(0)
+  %broadcast = f32[2,4]{1,0} broadcast(f32[] %alpha), dimensions={}
+  %x = f32[2,4]{1,0} parameter(1)
+  %multiply = f32[2,4]{1,0} multiply(f32[2,4]{1,0} %broadcast, f32[2,4]{1,0} %x)
+  %y = f32[2,4]{1,0} parameter(2)
+  ROOT %add = f32[2,4]{1,0} add(f32[2,4]{1,0} %multiply, f32[2,4]{1,0} %y)
+}

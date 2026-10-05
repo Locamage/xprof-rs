@@ -1,0 +1,5 @@
+HloModule ConstantF32Empty_module, entry_computation_layout={()->f32[0]{0}}
+
+ENTRY %ConstantF32Empty.v4 () -> f32[0] {
+  ROOT %constant = f32[0]{0} constant({})
+}

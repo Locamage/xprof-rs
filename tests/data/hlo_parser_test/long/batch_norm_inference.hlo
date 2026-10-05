@@ -1,0 +1,10 @@
+HloModule BatchNormInference_module, entry_computation_layout={(f32[2,2,2,2]{3,2,1,0}, f32[2]{0}, f32[2]{0}, f32[2]{0}, f32[2]{0})->f32[2,2,2,2]{3,2,1,0}}
+
+ENTRY %BatchNormInference.v6 (input: f32[2,2,2,2], offset: f32[2], scale: f32[2], mean: f32[2], variance: f32[2]) -> f32[2,2,2,2] {
+  %input = f32[2,2,2,2]{3,2,1,0} parameter(0)
+  %offset = f32[2]{0} parameter(1)
+  %scale = f32[2]{0} parameter(2)
+  %mean = f32[2]{0} parameter(3)
+  %variance = f32[2]{0} parameter(4)
+  ROOT %batch-norm-inference = f32[2,2,2,2]{3,2,1,0} batch-norm-inference(f32[2,2,2,2]{3,2,1,0} %input, f32[2]{0} %offset, f32[2]{0} %scale, f32[2]{0} %mean, f32[2]{0} %variance), epsilon=0.001, feature_index=0
+}

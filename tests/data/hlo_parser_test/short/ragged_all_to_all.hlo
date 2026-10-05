@@ -1,0 +1,11 @@
+HloModule RaggedAllToAll, entry_computation_layout={(bf16[1024,256]{1,0}, bf16[1024,256]{1,0}, s32[8]{0}, s32[8]{0}, s32[8]{0}, /*index=5*/s32[8]{0})->bf16[1024,256]{1,0}}, replica_count=8
+
+ENTRY AllToAll {
+  input = bf16[1024,256]{1,0} parameter(0)
+  output = bf16[1024,256]{1,0} parameter(1)
+  input_offsets = s32[8]{0} parameter(2)
+  send_sizes = s32[8]{0} parameter(3)
+  output_offsets = s32[8]{0} parameter(4)
+  recv_sizes = s32[8]{0} parameter(5)
+  ROOT ra2a = bf16[1024,256]{1,0} ragged-all-to-all(input, output, input_offsets, send_sizes, output_offsets, recv_sizes), replica_groups={}
+}

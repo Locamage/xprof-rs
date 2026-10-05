@@ -1,0 +1,24 @@
+HloModule indexed_conditional, entry_computation_layout={()->f32[]}
+
+%Negate (x: f32[]) -> f32[] {
+  %x = f32[] parameter(0)
+  ROOT %negate = f32[] negate(f32[] %x)
+}
+
+%Identity (y: f32[]) -> f32[] {
+  %y = f32[] parameter(0)
+  ROOT %copy = f32[] copy(f32[] %y)
+}
+
+%Floor (z: f32[]) -> f32[] {
+  %z = f32[] parameter(0)
+  ROOT %floor = f32[] floor(f32[] %z)
+}
+
+ENTRY %Parameters1.v4 () -> f32[] {
+  %constant = s32[] constant(1)
+  %constant.1 = f32[] constant(56)
+  %constant.2 = f32[] constant(12)
+  %constant.3 = f32[] constant(13)
+  ROOT %conditional = f32[] conditional(s32[] %constant, f32[] %constant.1, f32[] %constant.2, f32[] %constant.3), branch_computations={%Negate, %Identity, %Floor}
+}
