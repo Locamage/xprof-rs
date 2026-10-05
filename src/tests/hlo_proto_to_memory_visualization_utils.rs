@@ -4,225 +4,52 @@ use crate::hlo::xla::heap_simulator_trace::{Event, event::Kind};
 use crate::memory_viewer::render;
 use serde_json::Value;
 
-const HLO_BASE: &str = r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "fusion.1"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.2"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "constant.1"
-      id: 2
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
-}
+const HLO_BASE: &str = r#"hlo_module { name: "test_module" entry_computation_name: "test_computation" computations { name: "test_computation"
+  instructions { name: "fusion.1" id: 0 shape { tuple_shapes { element_type: U64 } } }
+  instructions { name: "fusion.2" id: 1 shape { tuple_shapes { element_type: U64 } } }
+  instructions { name: "constant.1" id: 2 shape { tuple_shapes { element_type: U64 } } } } }
 buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1048576
-    color: 0
-    assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
-    assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
-  }
-  buffer_allocations {
-    index: 1
-    size: 1048576
-    color: 0
-    is_constant: true
-    assigned { logical_buffer_id: 3 offset: 0 size: 1048576 }
-  }
-  logical_buffers {
-    id: 1
-    size: 524288
-    color: 0
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 524288
-    color: 0
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 3
-    size: 1048576
-    color: 0
-    defined_at { instruction_id: 2 shape_index: 0 }
-  }
-  heap_simulator_traces { %s }
-}"#;
+  buffer_allocations { index: 0 size: 1048576 color: 0 assigned { logical_buffer_id: 1 offset: 0 size: 524288 } assigned { logical_buffer_id: 2 offset: 524288 size: 524288 } }
+  buffer_allocations { index: 1 size: 1048576 color: 0 is_constant: true assigned { logical_buffer_id: 3 offset: 0 size: 1048576 } }
+  logical_buffers { id: 1 size: 524288 color: 0 defined_at { instruction_id: 0 shape_index: 0 } }
+  logical_buffers { id: 2 size: 524288 color: 0 defined_at { instruction_id: 1 shape_index: 0 } }
+  logical_buffers { id: 3 size: 1048576 color: 0 defined_at { instruction_id: 2 shape_index: 0 } }
+  heap_simulator_traces { %s } }"#;
+const ALLOC_ALLOC_FREE_FREE: &str = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
+const HALF: u64 = 524288;
 
-const HLO_CHAIN: &str = r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "fusion.1"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
+/// Gives an HLO proto text with one allocation (index 0). Instruction `i` has id `i` and defines the logical buffer with id `i + 1`.
+fn hlo_text(color: u8, allocation_size: u64, buffers: &[(&str, u64, u64)], trace: &str) -> String {
+    let (mut instructions, mut assigned, mut logical) = (String::new(), String::new(), String::new());
+    for (id, &(name, offset, size)) in buffers.iter().enumerate() {
+        instructions += &format!(r#"instructions {{ name: "{name}" id: {id} shape {{ tuple_shapes {{ element_type: U64 }} }} }} "#);
+        assigned += &format!("assigned {{ logical_buffer_id: {} offset: {offset} size: {size} }} ", id + 1);
+        logical += &format!("logical_buffers {{ id: {} size: {size} color: {color} defined_at {{ instruction_id: {id} shape_index: 0 }} }} ", id + 1);
     }
-    instructions {
-      name: "fusion.2"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.3"
-      id: 2
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
+    format!(
+        r#"hlo_module {{ name: "test_module" entry_computation_name: "test_computation" computations {{ name: "test_computation" {instructions}}} }}
+buffer_assignment {{ buffer_allocations {{ index: 0 size: {allocation_size} color: {color} {assigned}}} {logical}heap_simulator_traces {{ {trace} }} }}"#
+    )
 }
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1572864
-    color: 0
-    assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
-    assigned { logical_buffer_id: 2 offset: 0 size: 524288 }
-    assigned { logical_buffer_id: 3 offset: 0 size: 524288 }
-  }
-  logical_buffers {
-    id: 1
-    size: 524288
-    color: 0
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 524288
-    color: 0
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 3
-    size: 524288
-    color: 0
-    defined_at { instruction_id: 2 shape_index: 0 }
-  }
-  heap_simulator_traces { %s }
-}"#;
 
-const HLO_CHAIN_DISPLAY_NAME: &str = r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "fusion.1"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.2"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.3"
-      id: 2
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.4"
-      id: 3
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
+fn two_halves(color: u8, names: [&str; 2]) -> HloProto {
+    hlo_proto(&hlo_text(color, 2 * HALF, &[(names[0], 0, HALF), (names[1], HALF, HALF)], ALLOC_ALLOC_FREE_FREE))
 }
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 786432
-    color: 1
-    assigned { logical_buffer_id: 1 offset: 0 size: 262144 }
-    assigned { logical_buffer_id: 2 offset: 0 size: 262144 }
-    assigned { logical_buffer_id: 3 offset: 0 size: 262144 }
-    assigned { logical_buffer_id: 4 offset: 262144 size: 524288 }
-  }
-  logical_buffers {
-    id: 1
-    size: 262144
-    color: 1
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 262144
-    color: 1
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 3
-    size: 262144
-    color: 1
-    defined_at { instruction_id: 2 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 4
-    size: 524288
-    color: 1
-    defined_at { instruction_id: 3 shape_index: 0 }
-  }
-  heap_simulator_traces { %s }
-}"#;
 
-const HLO_VMEM_WITH_SCOPED: &str = r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "fusion.1"
-      id: 0
-      backend_config: "{\"used_scoped_memory_configs\":[{\"memory_space\":\"1\",\"size\":\"1048576\"}]}"
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.2"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
+fn chain(trace: &str) -> HloProto {
+    hlo_proto(&hlo_text(0, 3 * HALF, &[("fusion.1", 0, HALF), ("fusion.2", 0, HALF), ("fusion.3", 0, HALF)], trace))
 }
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1048576
-    color: 1
-    assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
-    assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
-  }
-  logical_buffers {
-    id: 1
-    size: 524288
-    color: 1
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 524288
-    color: 1
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  heap_simulator_traces {
-    events { kind: ALLOC buffer_id: 1 }
-    events { kind: ALLOC buffer_id: 2 }
-    events { kind: FREE buffer_id: 1 }
-    events { kind: FREE buffer_id: 2 }
-  }
-}"#;
+
+fn chain_display_name(trace: &str) -> HloProto {
+    hlo_proto(&hlo_text(1, 3 * HALF / 2, &[("fusion.1", 0, HALF / 2), ("fusion.2", 0, HALF / 2), ("fusion.3", 0, HALF / 2), ("fusion.4", HALF / 2, HALF)], trace))
+}
+
+fn scoped(mut proto: HloProto, sizes: &[u64]) -> HloProto {
+    for (instruction, size) in proto.hlo_module.as_mut().unwrap().computations[0].instructions.iter_mut().zip(sizes) {
+        instruction.backend_config = format!(r#"{{"used_scoped_memory_configs":[{{"memory_space":"1","size":"{size}"}}]}}"#).into_bytes();
+    }
+    proto
+}
 
 struct DoubleRectInfo {
     tooltip: String,
@@ -297,18 +124,11 @@ fn parse_logical_buffers_from_dot(dot: &str) -> Vec<DoubleRectInfo> {
     buffer_rects
 }
 
-fn get_top_boundary(rect: &DoubleRectInfo) -> f64 {
+fn boundary(rect: &DoubleRectInfo, sign: i32) -> f64 {
     if rect.pos_y == rect.pos_y as i32 as f64 && rect.height == rect.height as i32 as f64 {
-        return (rect.pos_y as i32 + rect.height as i32 / 2) as f64;
+        return (rect.pos_y as i32 + sign * (rect.height as i32 / 2)) as f64;
     }
-    rect.pos_y + rect.height / 2.0
-}
-
-fn get_bottom_boundary(rect: &DoubleRectInfo) -> f64 {
-    if rect.pos_y == rect.pos_y as i32 as f64 && rect.height == rect.height as i32 as f64 {
-        return (rect.pos_y as i32 - rect.height as i32 / 2) as f64;
-    }
-    rect.pos_y - rect.height / 2.0
+    rect.pos_y + f64::from(sign) * rect.height / 2.0
 }
 
 fn rects_overlap(a: &DoubleRectInfo, b: &DoubleRectInfo) -> bool {
@@ -321,10 +141,7 @@ fn rects_overlap(a: &DoubleRectInfo, b: &DoubleRectInfo) -> bool {
 
 #[test]
 fn test_heap_simulator_trace_share_with_1() {
-    let trace = r"events { kind: ALLOC buffer_id: 1 }
-events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
-events { kind: FREE buffer_id: 1 }
-events { kind: FREE buffer_id: 2 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
     assert_eq!(number(&preprocess_result, "peakUnpaddedHeapMib"), 8.0 / (1 << 20) as f64 + 1.0);
@@ -334,10 +151,7 @@ events { kind: FREE buffer_id: 2 }";
 
 #[test]
 fn test_heap_simulator_trace_share_with_2() {
-    let trace = r"events { kind: ALLOC buffer_id: 1 }
-events { kind: FREE buffer_id: 1 }
-events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
-events { kind: FREE buffer_id: 2 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 2 }";
     let proto = hlo_proto(&HLO_BASE.replace("%s", trace));
     let preprocess_result = preprocess(&proto, 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
@@ -349,28 +163,18 @@ events { kind: FREE buffer_id: 2 }";
 
 #[test]
 fn test_heap_simulator_trace_share_with_chain() {
-    let trace = r"events { kind: ALLOC buffer_id: 1 }
-events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
-events { kind: FREE buffer_id: 1 }
-events { kind: FREE buffer_id: 2 }
-events { kind: SHARE_WITH buffer_id: 3 share_with_canonical_id: 2 }
-events { kind: FREE buffer_id: 3 }";
-    let preprocess_result = preprocess(&hlo_proto(&HLO_CHAIN.replace("%s", trace)), 0);
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }
+events { kind: SHARE_WITH buffer_id: 3 share_with_canonical_id: 2 } events { kind: FREE buffer_id: 3 }";
+    let preprocess_result = preprocess(&chain(trace), 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 0.5);
     assert_eq!(list(&preprocess_result, "maxHeap").len(), 1);
 }
 
 #[test]
 fn test_share_with_chain_display_name() {
-    let trace = r"events { kind: ALLOC buffer_id: 1 }
-events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
-events { kind: FREE buffer_id: 1 }
-events { kind: FREE buffer_id: 2 }
-events { kind: ALLOC buffer_id: 4 }
-events { kind: SHARE_WITH buffer_id: 3 share_with_canonical_id: 2 }
-events { kind: FREE buffer_id: 3 }
-events { kind: FREE buffer_id: 4 }";
-    let preprocess_result = preprocess(&hlo_proto(&HLO_CHAIN_DISPLAY_NAME.replace("%s", trace)), 1);
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }
+events { kind: ALLOC buffer_id: 4 } events { kind: SHARE_WITH buffer_id: 3 share_with_canonical_id: 2 } events { kind: FREE buffer_id: 3 } events { kind: FREE buffer_id: 4 }";
+    let preprocess_result = preprocess(&chain_display_name(trace), 1);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 0.75);
     assert_eq!(list(&preprocess_result, "maxHeap").len(), 2);
     let (mut found_fusion_3, mut found_fusion_4) = (false, false);
@@ -386,8 +190,8 @@ events { kind: FREE buffer_id: 4 }";
 
 #[test]
 fn test_logical_buffers_do_not_overlap() {
-    let verify_no_overlap = |hlo_pb: &str| {
-        let timeline = allocation_timeline(&hlo_proto(hlo_pb), 0);
+    let verify_no_overlap = |buffers: &[(&str, u64, u64)], size: u64, trace: &str| {
+        let timeline = allocation_timeline(&hlo_proto(&hlo_text(0, size, buffers, trace)), 0);
         assert!(!timeline.is_empty());
         let mut rects = parse_logical_buffers_from_dot(&timeline);
         assert!(!rects.is_empty());
@@ -399,289 +203,51 @@ fn test_logical_buffers_do_not_overlap() {
         rects.sort_by_key(|rect| rect.offset);
         for pair in rects.windows(2) {
             if pair[0].offset + pair[0].size == pair[1].offset {
-                let (top, bottom) = (get_top_boundary(&pair[0]), get_bottom_boundary(&pair[1]));
+                let (top, bottom) = (boundary(&pair[0], 1), boundary(&pair[1], -1));
                 assert!((bottom - top).abs() <= 0.05, "Non-zero gap between adjacent buffers:\nPrev: {} (top: {top})\nNext: {} (bottom: {bottom})", pair[0].tooltip, pair[1].tooltip);
             }
         }
     };
+    verify_no_overlap(&[("fusion.1", 0, HALF), ("fusion.2", HALF, HALF)], 2 * HALF, ALLOC_ALLOC_FREE_FREE);
+    verify_no_overlap(&[("fusion.1", 54076112896, 134217728), ("fusion.2", 54210330624, 134217728)], 54344548352, ALLOC_ALLOC_FREE_FREE);
     verify_no_overlap(
-        r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "fusion.1"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.2"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
-}
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1048576
-    color: 0
-    assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
-    assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
-  }
-  logical_buffers {
-    id: 1
-    size: 524288
-    color: 0
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 524288
-    color: 0
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  heap_simulator_traces {
-    events { kind: ALLOC buffer_id: 1 }
-    events { kind: ALLOC buffer_id: 2 }
-    events { kind: FREE buffer_id: 1 }
-    events { kind: FREE buffer_id: 2 }
-  }
-}"#,
-    );
-    verify_no_overlap(
-        r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "fusion.1"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.2"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
-}
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 54344548352
-    color: 0
-    assigned { logical_buffer_id: 1 offset: 54076112896 size: 134217728 }
-    assigned { logical_buffer_id: 2 offset: 54210330624 size: 134217728 }
-  }
-  logical_buffers {
-    id: 1
-    size: 134217728
-    color: 0
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 134217728
-    color: 0
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  heap_simulator_traces {
-    events { kind: ALLOC buffer_id: 1 }
-    events { kind: ALLOC buffer_id: 2 }
-    events { kind: FREE buffer_id: 1 }
-    events { kind: FREE buffer_id: 2 }
-  }
-}"#,
-    );
-    verify_no_overlap(
-        r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "fusion.1"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.2"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
-}
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1048576
-    color: 0
-    assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
-    assigned { logical_buffer_id: 2 offset: 0 size: 524288 }
-  }
-  logical_buffers {
-    id: 1
-    size: 524288
-    color: 0
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 524288
-    color: 0
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  heap_simulator_traces {
-    events { kind: ALLOC buffer_id: 1 }
-    events { kind: FREE buffer_id: 1 }
-    events { kind: ALLOC buffer_id: 2 }
-    events { kind: FREE buffer_id: 2 }
-  }
-}"#,
+        &[("fusion.1", 0, HALF), ("fusion.2", 0, HALF)],
+        2 * HALF,
+        "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: FREE buffer_id: 2 }",
     );
 }
 
 #[test]
 fn scoped_vmem_allocation_single_instruction() {
-    let result = preprocess(&hlo_proto(HLO_VMEM_WITH_SCOPED), 1);
+    let result = preprocess(&scoped(two_halves(1, ["fusion.1", "fusion.2"]), &[1048576]), 1);
     assert_eq!(number(&result, "maxScopedVmemAllocationMib"), 1.0);
     assert_eq!(text(&result, "maxScopedVmemInstructionName"), "fusion.1");
 }
 
 #[test]
 fn scoped_vmem_allocation_max_across_instructions() {
-    let result = preprocess(
-        &hlo_proto(
-            r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "fusion.1"
-      id: 0
-      backend_config: "{\"used_scoped_memory_configs\":[{\"memory_space\":\"1\",\"size\":\"1048576\"}]}"
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.2"
-      id: 1
-      backend_config: "{\"used_scoped_memory_configs\":[{\"memory_space\":\"1\",\"size\":\"2097152\"}]}"
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
-}
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1048576
-    color: 1
-    assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
-    assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
-  }
-  logical_buffers {
-    id: 1
-    size: 524288
-    color: 1
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 524288
-    color: 1
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  heap_simulator_traces {
-    events { kind: ALLOC buffer_id: 1 }
-    events { kind: ALLOC buffer_id: 2 }
-    events { kind: FREE buffer_id: 1 }
-    events { kind: FREE buffer_id: 2 }
-  }
-}"#,
-        ),
-        1,
-    );
+    let result = preprocess(&scoped(two_halves(1, ["fusion.1", "fusion.2"]), &[1048576, 2097152]), 1);
     assert_eq!(number(&result, "maxScopedVmemAllocationMib"), 2.0);
     assert_eq!(text(&result, "maxScopedVmemInstructionName"), "fusion.2");
 }
 
 #[test]
 fn scoped_vmem_allocation_no_scoped_configs() {
-    let result = preprocess(
-        &hlo_proto(
-            r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "fusion.1"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "fusion.2"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
-}
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1048576
-    color: 1
-    assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
-    assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
-  }
-  logical_buffers {
-    id: 1
-    size: 524288
-    color: 1
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 524288
-    color: 1
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  heap_simulator_traces {
-    events { kind: ALLOC buffer_id: 1 }
-    events { kind: ALLOC buffer_id: 2 }
-    events { kind: FREE buffer_id: 1 }
-    events { kind: FREE buffer_id: 2 }
-  }
-}"#,
-        ),
-        1,
-    );
+    let result = preprocess(&two_halves(1, ["fusion.1", "fusion.2"]), 1);
     assert_eq!(number(&result, "maxScopedVmemAllocationMib"), 0.0);
     assert!(text(&result, "maxScopedVmemInstructionName").is_empty());
 }
 
 #[test]
 fn scoped_vmem_allocation_hbm_ignores_scoped() {
-    let trace = r"events { kind: ALLOC buffer_id: 1 }
-events { kind: ALLOC buffer_id: 2 }
-events { kind: FREE buffer_id: 1 }
-events { kind: FREE buffer_id: 2 }";
-    let mut proto = hlo_proto(&HLO_BASE.replace("%s", trace));
-    proto.hlo_module.as_mut().unwrap().computations[0].instructions[0].backend_config = br#"{"used_scoped_memory_configs":[{"memory_space":"1","size":"1048576"}]}"#.to_vec();
-    let result = preprocess(&proto, 0);
+    let result = preprocess(&scoped(hlo_proto(&HLO_BASE.replace("%s", ALLOC_ALLOC_FREE_FREE)), &[1048576]), 0);
     assert_eq!(number(&result, "maxScopedVmemAllocationMib"), 0.0);
     assert!(text(&result, "maxScopedVmemInstructionName").is_empty());
 }
 
 #[test]
 fn test_convert_allocation_timeline_buffer_blocks() {
-    let trace = r"events { kind: ALLOC buffer_id: 1 }
-events { kind: FREE buffer_id: 1 }
-events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
-events { kind: FREE buffer_id: 2 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 2 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     let blocks = list(&preprocess_result, "bufferBlocks");
     assert_eq!(blocks.len(), 2);
@@ -704,55 +270,7 @@ events { kind: FREE buffer_id: 2 }";
 
 #[test]
 fn test_allocation_timeline_labels() {
-    let result = allocation_timeline(
-        &hlo_proto(
-            r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "very_long_instruction_name_that_might_need_truncation_or_not"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "short"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
-}
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1048576
-    color: 1
-    assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
-    assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
-  }
-  logical_buffers {
-    id: 1
-    size: 524288
-    color: 1
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 524288
-    color: 1
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  heap_simulator_traces {
-    events { kind: ALLOC buffer_id: 1 }
-    events { kind: ALLOC buffer_id: 2 }
-    events { kind: FREE buffer_id: 1 }
-    events { kind: FREE buffer_id: 2 }
-  }
-}"#,
-        ),
-        1,
-    );
+    let result = allocation_timeline(&two_halves(1, ["very_long_instruction_name_that_might_need_truncation_or_not", "short"]), 1);
     assert!(!result.is_empty());
     let rects = parse_logical_buffers_from_dot(&result);
     assert_eq!(rects.len(), 2);
@@ -762,38 +280,8 @@ buffer_assignment {
 
 #[test]
 fn test_allocation_timeline_labels_truncation() {
-    let mut proto = hlo_proto(
-        r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "very_long_instruction_name_that_should_be_truncated"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
-}
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1048576
-    color: 1
-    assigned { logical_buffer_id: 1 offset: 0 size: 1048576 }
-  }
-  logical_buffers {
-    id: 1
-    size: 1048576
-    color: 1
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  heap_simulator_traces {
-    events { kind: ALLOC buffer_id: 1 }
-    events { kind: FREE buffer_id: 1 }
-  }
-}"#,
-    );
+    let mut proto =
+        hlo_proto(&hlo_text(1, 2 * HALF, &[("very_long_instruction_name_that_should_be_truncated", 0, 2 * HALF)], "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 }"));
     let trace = &mut proto.buffer_assignment.as_mut().unwrap().heap_simulator_traces[0];
     for _ in 0..49 {
         trace.events.push(Event { kind: Kind::Alloc as i32, buffer_id: 1, ..Default::default() });
@@ -808,69 +296,8 @@ buffer_assignment {
 
 #[test]
 fn test_allocation_timeline_font_size_scaling() {
-    let result = allocation_timeline(
-        &hlo_proto(
-            r#"hlo_module {
-  name: "test_module"
-  entry_computation_name: "test_computation"
-  computations {
-    name: "test_computation"
-    instructions {
-      name: "large_buffer"
-      id: 0
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "medium_buffer"
-      id: 1
-      shape { tuple_shapes { element_type: U64 } }
-    }
-    instructions {
-      name: "small_buffer"
-      id: 2
-      shape { tuple_shapes { element_type: U64 } }
-    }
-  }
-}
-buffer_assignment {
-  buffer_allocations {
-    index: 0
-    size: 1000000
-    color: 1
-    assigned { logical_buffer_id: 1 offset: 0 size: 995000 }
-    assigned { logical_buffer_id: 2 offset: 995000 size: 4000 }
-    assigned { logical_buffer_id: 3 offset: 999000 size: 1000 }
-  }
-  logical_buffers {
-    id: 1
-    size: 995000
-    color: 1
-    defined_at { instruction_id: 0 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 2
-    size: 4000
-    color: 1
-    defined_at { instruction_id: 1 shape_index: 0 }
-  }
-  logical_buffers {
-    id: 3
-    size: 1000
-    color: 1
-    defined_at { instruction_id: 2 shape_index: 0 }
-  }
-  heap_simulator_traces {
-    events { kind: ALLOC buffer_id: 1 }
-    events { kind: ALLOC buffer_id: 2 }
-    events { kind: ALLOC buffer_id: 3 }
-    events { kind: FREE buffer_id: 1 }
-    events { kind: FREE buffer_id: 2 }
-    events { kind: FREE buffer_id: 3 }
-  }
-}"#,
-        ),
-        1,
-    );
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: ALLOC buffer_id: 3 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 } events { kind: FREE buffer_id: 3 }";
+    let result = allocation_timeline(&hlo_proto(&hlo_text(1, 1000000, &[("large_buffer", 0, 995000), ("medium_buffer", 995000, 4000), ("small_buffer", 999000, 1000)], trace)), 1);
     assert!(!result.is_empty());
     let rects = parse_logical_buffers_from_dot(&result);
     assert_eq!(rects.len(), 3);
