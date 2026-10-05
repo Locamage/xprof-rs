@@ -1,6 +1,6 @@
 use crate::json::{CONTEXT_TYPES, HOST_PID_STRIDE, View, devices, ordered};
 use crate::trace::{NONE_FLOW, NONE_RESOURCE};
-use crate::xplane::{INTERNAL_STATS, NONE_GROUP, Value, slice, stats};
+use crate::xplane::{NONE_GROUP, Value};
 use prost::Message;
 use rustc_hash::FxHashMap;
 
@@ -116,22 +116,22 @@ impl Interner {
         if let Some(&id) = self.ids.get(text) {
             return id;
         }
+        let id = self.strings.len() as u32;
         self.strings.push(text.to_string());
-        self.ids.insert(text.to_string(), self.strings.len() as u32 - 1);
-        self.strings.len() as u32 - 1
+        self.ids.insert(text.to_string(), id);
+        id
     }
 }
 
 pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
     let mut interner = Interner { ids: FxHashMap::from_iter([(String::new(), 0)]), strings: vec![String::new()] };
     let mut response = Response::default();
-    let mut metadata = Metadata::default();
     let offset = if full_dma.is_some() { 0 } else { HOST_PID_STRIDE };
-    for (pid, device) in devices(views) {
+    let processes = devices(views).into_iter().map(|(pid, device)| {
         let threads = device.resources.iter().map(|(&id, name)| Thread { name: name.clone(), id, sort_index: Some(id) }).collect();
-        metadata.processes.push(Process { name: device.name.clone(), id: pid - offset, sort_index: Some(pid - offset), threads });
-    }
-    response.metadata = Some(metadata);
+        Process { name: device.name.clone(), id: pid - offset, sort_index: Some(pid - offset), threads }
+    });
+    response.metadata = Some(Metadata { processes: processes.collect() });
     let tpu = views.iter().any(|view| !view.trace.tpu_devices.is_empty());
     if let Some(full_dma) = full_dma {
         response.details.push(Detail { name: "mpmd_pipeline_view".into(), value: false });
@@ -148,14 +148,10 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
         let end = start + ordered[start..].iter().take_while(|entry| track(entry) == track(&ordered[start])).count();
         let (host, first) = (ordered[start].0, &views[ordered[start].0 as usize].trace.events[ordered[start].1 as usize]);
         let (view, pid) = (&views[host as usize], first.device + (host + 1) * HOST_PID_STRIDE - offset);
-        let mut series = Series::default();
-        let counter = first.resource == NONE_RESOURCE && first.flow == NONE_FLOW;
-        let name = view.trace.names[first.name as usize].to_string();
-        series.metadata = Some(if first.resource == NONE_RESOURCE {
-            SeriesMetadata { process_id: pid, thread_id: 0, name_ref: interner.intern(&name) }
-        } else {
-            SeriesMetadata { process_id: pid, thread_id: first.resource, name_ref: 0 }
-        });
+        let unbound = first.resource == NONE_RESOURCE;
+        let counter = unbound && first.flow == NONE_FLOW;
+        let (thread_id, name_ref) = if unbound { (0, interner.intern(&view.trace.names[first.name as usize])) } else { (first.resource, 0) };
+        let mut series = Series { metadata: Some(SeriesMetadata { process_id: pid, thread_id, name_ref }), ..Default::default() };
         let mut last = 0;
         for &(_, index) in &ordered[start..end] {
             let event = &view.trace.events[index as usize];
@@ -166,14 +162,13 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
                 metadata.counter_value = first_value(view, event);
             } else {
                 series.durations.push(event.dur);
-                if first.resource != NONE_RESOURCE {
+                if !unbound {
                     series.name_refs.push(interner.intern(&view.trace.names[event.name as usize]));
                 }
                 if event.flow != NONE_FLOW {
                     metadata.flow_id = view.trace.flow_ids[event.flow as usize] as u32;
-                    let category = CONTEXT_TYPES.split('|').nth(event.flow_cat as usize).unwrap_or("");
                     if !matches!(event.flow_cat, 0 | 1) {
-                        metadata.flow_category = interner.intern(category);
+                        metadata.flow_category = interner.intern(CONTEXT_TYPES.split('|').nth(event.flow_cat as usize).unwrap_or(""));
                     }
                 }
                 if event.group != NONE_GROUP {
@@ -183,7 +178,7 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
             }
             series.event_metadata.push(metadata);
         }
-        match (counter, first.resource == NONE_RESOURCE) {
+        match (counter, unbound) {
             (true, _) => response.counter_events.push(series),
             (false, true) => response.async_events.push(series),
             (false, false) => response.complete_events.push(series),
@@ -197,17 +192,9 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
 }
 
 fn first_value(view: &View, event: &crate::trace::Event) -> Option<CounterValue> {
-    let plane = &view.planes[event.plane as usize];
-    for (raw, field) in [(slice(view.map, plane.meta[event.meta as usize].raw), 5), (slice(view.map, event.raw), 4)] {
-        for stat in stats(raw, field, |_| true) {
-            if plane.stat_names.get(stat.id).is_some_and(|name| !INTERNAL_STATS.contains(&&**name)) {
-                return match stat.value {
-                    Value::Double(value) => Some(CounterValue::Double(value)),
-                    Value::Uint(value) => Some(CounterValue::Uint(value)),
-                    _ => None,
-                };
-            }
-        }
+    match view.planes[event.plane as usize].named_stats(view.map, event.meta, event.raw).next()?.2.value {
+        Value::Double(value) => Some(CounterValue::Double(value)),
+        Value::Uint(value) => Some(CounterValue::Uint(value)),
+        _ => None,
     }
-    None
 }

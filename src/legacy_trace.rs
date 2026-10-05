@@ -1,7 +1,7 @@
 use crate::hlo::general;
 use crate::run_tools::{python_string, python_string_into};
 use crate::table::repr;
-use crate::xplane::{INTERNAL_STATS, NONE_GROUP, Plane, Value, slice, stats};
+use crate::xplane::{NONE_GROUP, Plane, Value, slice};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -51,26 +51,23 @@ fn convert(device: i64, plane: &Plane, map: &[u8], only: Option<&str>, trimmed: 
                     if all && !meta.display.is_empty() {
                         args.insert("long_name".into(), meta.long_name(map).into_owned());
                     }
-                    for (raw, field) in [(slice(map, meta.raw), 5), (slice(map, event.raw), 4)] {
-                        for stat in stats(raw, field, |_| true) {
-                            let Some(stat_name) = plane.stat_names.get(stat.id).filter(|stat_name| !INTERNAL_STATS.contains(&&***stat_name)) else { continue };
-                            let is_step = &**stat_name == "step_name";
-                            if !all && !is_step {
-                                continue;
-                            }
-                            let text = match &stat.value {
-                                Value::Int(value) => value.to_string(),
-                                Value::Uint(value) => value.to_string(),
-                                Value::Double(value) => general(*value, 6),
-                                Value::Str(_) | Value::Ref(_) => plane.text(&stat.value),
-                                Value::Bytes(_) => "<opaque bytes>".into(),
-                            };
-                            if is_step {
-                                name.clone_from(&text);
-                            }
-                            if all {
-                                args.insert(stat_name.to_string(), text);
-                            }
+                    for (_, stat_name, stat) in plane.named_stats(map, event.meta, event.raw) {
+                        let is_step = &**stat_name == "step_name";
+                        if !all && !is_step {
+                            continue;
+                        }
+                        let text = match &stat.value {
+                            Value::Int(value) => value.to_string(),
+                            Value::Uint(value) => value.to_string(),
+                            Value::Double(value) => general(*value, 6),
+                            Value::Str(_) | Value::Ref(_) => plane.text(&stat.value),
+                            Value::Bytes(_) => "<opaque bytes>".into(),
+                        };
+                        if is_step {
+                            name.clone_from(&text);
+                        }
+                        if all {
+                            args.insert(stat_name.to_string(), text);
                         }
                     }
                     if all {

@@ -1,5 +1,5 @@
 use crate::trace::{DERIVED_META, Device, Event, FLOW_END, FLOW_MID, FLOW_START, NONE_FLOW, NONE_RESOURCE, Trace};
-use crate::xplane::{INTERNAL_STATS, Meta, NONE_GROUP, Plane, Value, lossy, slice, stats};
+use crate::xplane::{Meta, NONE_GROUP, Plane, Value, lossy, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::collections::HashMap;
@@ -11,8 +11,8 @@ const IEEE_LIMIT: u64 = 1 << 53;
 const INTERN_THRESHOLD: usize = 16;
 const ORDER_CHUNK: usize = 1 << 16;
 const FRAME_CHUNK: usize = 2048;
-const FRAME_OPEN: char = '\u{1}';
-const FRAME_CLOSE: char = '\u{2}';
+const FRAME_OPEN: &str = "\u{1}";
+const FRAME_CLOSE: &str = "\u{2}";
 const LONG_NAME_LIMIT: usize = 10_000;
 const HASH_MUL: u64 = 0xc6a4a7935bd1e995;
 const HASH_SEED: u64 = 0xc70f6907;
@@ -122,18 +122,12 @@ fn add_texts(texts: &mut FxHashMap<u64, String>, planes: &[Plane], map: &[u8], e
     events.into_iter().for_each(|text| put(texts, text));
 }
 
-fn sorted_texts(texts: FxHashMap<u64, String>) -> Vec<String> {
+fn table<'a>(sources: impl IntoIterator<Item = (&'a [Plane], &'a [u8], &'a [Event], &'a HashMap<u32, Box<str>>)>) -> Vec<String> {
+    let mut texts = FxHashMap::default();
+    sources.into_iter().for_each(|(planes, map, events, long_names)| add_texts(&mut texts, planes, map, events, long_names));
     let mut sorted: Vec<(u64, String)> = texts.into_iter().collect();
     sorted.sort_unstable_by_key(|entry| entry.0);
     sorted.into_iter().map(|entry| entry.1).collect()
-}
-
-fn table(views: &[View]) -> Vec<String> {
-    let mut texts = FxHashMap::<u64, String>::default();
-    for view in views {
-        add_texts(&mut texts, view.planes, view.map, &view.trace.events, &view.trace.long_names);
-    }
-    sorted_texts(texts)
 }
 
 fn frames_json(frames: &[String]) -> Vec<String> {
@@ -154,9 +148,7 @@ fn stat_double(name: &str, v: f64) -> String {
 }
 
 pub fn stack_frames(planes: &[Plane], map: &[u8], events: &[Event], long_names: &HashMap<u32, Box<str>>) -> String {
-    let mut texts = FxHashMap::<u64, String>::default();
-    add_texts(&mut texts, planes, map, events, long_names);
-    frames_json(&sorted_texts(texts)).concat()
+    frames_json(&table([(planes, map, events, long_names)])).concat()
 }
 
 fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &mut Vec<String>) -> (Vec<String>, Option<usize>) {
@@ -184,34 +176,31 @@ fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &m
     }
     let step = trace.steps.get(&event.raw);
     let mut used = Vec::new();
-    for (raw, field) in [(slice(map, meta.raw), 5), (slice(map, event.raw), 4)] {
-        for stat in stats(raw, field, |_| true) {
-            let Some(name) = plane.stat_names.get(stat.id).filter(|name| !INTERNAL_STATS.contains(&&***name)) else { continue };
-            if let Some(eager) = event.eager.filter(|_| field == 4 && &**name == "is_eager") {
-                args.push(format!("\"is_eager\":{}", u8::from(eager)));
-                used.push("is_eager");
-                continue;
+    for (field, name, stat) in plane.named_stats(map, event.meta, event.raw) {
+        if let Some(eager) = event.eager.filter(|_| field == 4 && &**name == "is_eager") {
+            args.push(format!("\"is_eager\":{}", u8::from(eager)));
+            used.push("is_eager");
+            continue;
+        }
+        let over = step.and_then(|step| step.stats.iter().find(|(key, _)| key == &&**name));
+        let number = match stat.value {
+            Value::Int(v) if !plane.consumes_number(stat.id) => Some(i128::from(over.map_or(v, |over| over.1))),
+            Value::Uint(v) if !plane.consumes_number(stat.id) => Some(over.map_or(i128::from(v), |over| i128::from(over.1))),
+            _ => None,
+        };
+        if over.is_some() {
+            used.push(&**name);
+        }
+        if let Some(v) = number {
+            args.push(format!("{}:{}", quoted(name), if v.unsigned_abs() > IEEE_LIMIT as u128 { format!("\"{v}\"") } else { v.to_string() }));
+        } else if let Value::Double(v) = stat.value {
+            args.push(format!("{}:{}", quoted(name), stat_double(name, v)));
+        } else if matches!(stat.value, Value::Str(_) | Value::Ref(_)) {
+            let text = if &**name == "step_name" { step.map_or_else(|| plane.text(&stat.value), |step| step.name.clone()) } else { plane.text(&stat.value) };
+            if &**name == "step_name" {
+                used.push("step_name");
             }
-            let over = step.and_then(|step| step.stats.iter().find(|(key, _)| key == &&**name));
-            let number = match stat.value {
-                Value::Int(v) if !plane.consumes_number(stat.id) => Some(i128::from(over.map_or(v, |over| over.1))),
-                Value::Uint(v) if !plane.consumes_number(stat.id) => Some(over.map_or(i128::from(v), |over| i128::from(over.1))),
-                _ => None,
-            };
-            if over.is_some() {
-                used.push(&**name);
-            }
-            if let Some(v) = number {
-                args.push(format!("{}:{}", quoted(name), if v.unsigned_abs() > IEEE_LIMIT as u128 { format!("\"{v}\"") } else { v.to_string() }));
-            } else if let Value::Double(v) = stat.value {
-                args.push(format!("{}:{}", quoted(name), stat_double(name, v)));
-            } else if matches!(stat.value, Value::Str(_) | Value::Ref(_)) {
-                let text = if &**name == "step_name" { step.map_or_else(|| plane.text(&stat.value), |step| step.name.clone()) } else { plane.text(&stat.value) };
-                if &**name == "step_name" {
-                    used.push("step_name");
-                }
-                text_arg(&mut args, name, text);
-            }
+            text_arg(&mut args, name, text);
         }
     }
     if let Some(step) = step {
@@ -262,19 +251,16 @@ pub fn devices<'a>(views: &'a [View]) -> Vec<(u32, &'a Device)> {
 
 pub fn counter_values(plane: &Plane, event: &Event, map: &[u8]) -> (Option<Box<str>>, Vec<String>) {
     let (mut first, mut values) = (None, Vec::new());
-    for (raw, field) in [(slice(map, plane.meta[event.meta as usize].raw), 5), (slice(map, event.raw), 4)] {
-        for stat in stats(raw, field, |_| true) {
-            let Some(name) = plane.stat_names.get(stat.id).filter(|name| !INTERNAL_STATS.contains(&&***name)) else { continue };
-            let value = match stat.value {
-                Value::Int(v) => v.to_string(),
-                Value::Uint(v) => v.to_string(),
-                Value::Double(v) => stat_double(name, v),
-                Value::Str(_) | Value::Ref(_) => quoted(&plane.text(&stat.value)),
-                Value::Bytes(_) => continue,
-            };
-            first.get_or_insert_with(|| name.clone());
-            values.push(value);
-        }
+    for (_, name, stat) in plane.named_stats(map, event.meta, event.raw) {
+        let value = match stat.value {
+            Value::Int(v) => v.to_string(),
+            Value::Uint(v) => v.to_string(),
+            Value::Double(v) => stat_double(name, v),
+            Value::Str(_) | Value::Ref(_) => quoted(&plane.text(&stat.value)),
+            Value::Bytes(_) => continue,
+        };
+        first.get_or_insert_with(|| name.clone());
+        values.push(value);
     }
     (first, values)
 }
@@ -335,11 +321,8 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
         out.push('}');
     }
     if let Some(frame) = frame {
-        if marked {
-            write!(out, ",\"sf\":{FRAME_OPEN}{frame}{FRAME_CLOSE}").unwrap();
-        } else {
-            write!(out, ",\"sf\":{frame}").unwrap();
-        }
+        let (open, close) = if marked { (FRAME_OPEN, FRAME_CLOSE) } else { ("", "") };
+        write!(out, ",\"sf\":{open}{frame}{close}").unwrap();
     }
     if event.serial > 0 {
         out.push_str(",\"z\":");
@@ -372,7 +355,7 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
     }
     let ordered = ordered(views);
     let reused = views.len() == 1 && !detail;
-    let mut frames = if detail || reused { Vec::new() } else { table(views) };
+    let mut frames = if detail || reused { Vec::new() } else { table(views.iter().map(|view| (view.planes, view.map, &view.trace.events[..], &view.trace.long_names))) };
     let is_counter = |&(host, index): &(u32, u32)| {
         let event = &views[host as usize].trace.events[index as usize];
         event.resource == NONE_RESOURCE && event.flow == NONE_FLOW
@@ -461,12 +444,10 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
     }
     pieces.extend(listed.iter().map(String::as_bytes));
     pieces.push(middle.as_bytes());
-    let mut first = body.is_empty();
-    for chunk in chunks.iter().filter(|chunk| !chunk.is_empty()) {
-        if !first {
+    for (index, chunk) in chunks.iter().filter(|chunk| !chunk.is_empty()).enumerate() {
+        if index > 0 || !body.is_empty() {
             pieces.push(b",");
         }
-        first = false;
         pieces.push(chunk.as_bytes());
     }
     pieces.push(tail.as_bytes());
