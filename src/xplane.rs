@@ -401,14 +401,22 @@ impl Plane {
                 (2, Field::Bytes(_, name)) => plane.name = lossy(name).into(),
                 (3, Field::Bytes(start, body)) => spans.push((offset + start, body)),
                 (4 | 5, Field::Bytes(entry_start, entry)) => {
-                    let mut parts = fields(entry);
+                    let (mut parts, mut key) = (fields(entry), None);
                     for (entry_tag, value) in &mut parts {
-                        let (2, Field::Bytes(value_start, value)) = (entry_tag, value) else { continue };
+                        let (value_start, value) = match (entry_tag, value) {
+                            (1, Field::Num(number)) => {
+                                key = Some(number);
+                                continue;
+                            }
+                            (2, Field::Bytes(value_start, value)) => (value_start, value),
+                            _ => continue,
+                        };
                         let (id, long, display) = named(value).context("The metadata is not valid")?;
+                        let id = key.unwrap_or(id);
                         let name: Box<str> = if display.is_empty() { lossy(long).into() } else { Box::default() };
                         if tag == 4 {
                             let raw = ((offset + entry_start + value_start) as u32, value.len() as u32);
-                            let long = ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32);
+                            let long = if long.is_empty() { (0, 0) } else { ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32) };
                             let (internal, root) = (NAMES.get(&*name).is_some_and(|known| known.0), ROOTS.iter().find(|root| root.0 == &*name).map(|root| (root.1, root.2)));
                             metas.push((id, Meta { internal, root, name, display: lossy(display).into(), raw, long, ..Default::default() }));
                         } else {
@@ -599,14 +607,15 @@ impl Plane {
             self.meta.push(Meta { name: REGION[2].into(), ..Default::default() });
             self.meta.len() - 1
         });
+        let origin = self.origin_ns;
         for line in &mut self.lines {
-            let (mut started, mut regions) = (0u64, Vec::new());
+            let (mut started, mut regions) = (None, Vec::new());
             for event in &line.events {
                 if event.meta as usize == start {
                     if stats(slice(map, event.raw), 4, |id| Some(id) == consumer).any(|stat| matches!(stat.value, Value::Int(_) | Value::Uint(_))) {
-                        started = event.ts;
+                        started = Some(event.ts).filter(|&ts| line.absolute_ps(ts, origin) != 0);
                     }
-                } else if event.meta as usize == stop && started != 0 {
+                } else if let Some(started) = started.filter(|_| event.meta as usize == stop) {
                     regions.push(Ev { ts: started, dur: event.ts.saturating_sub(started), group: NONE_GROUP, raw: (0, 0), meta: region as u32, eager: None });
                 }
             }

@@ -390,7 +390,10 @@ fn stack(module: &Module, mut frame: i32) -> String {
     let index = msg(&module.proto.stack_frame_index);
     let mut out = String::new();
     let get = |list: &[String], id: i32| usize::try_from(id - 1).ok().and_then(|id| list.get(id)).cloned().unwrap_or_default();
-    while frame > 0 {
+    for _ in 0..index.stack_frames.len() {
+        if frame <= 0 {
+            break;
+        }
         let Some(entry) = index.stack_frames.get(frame as usize - 1) else { break };
         let Some(location) = usize::try_from(entry.file_location_id - 1).ok().and_then(|id| index.file_locations.get(id)) else { break };
         let (file, function) = (get(&index.file_names, location.file_name_id), get(&index.function_names, location.function_name_id));

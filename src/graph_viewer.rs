@@ -39,10 +39,15 @@ pub fn wrap_dot_html(dot: &str, engine: &str) -> String {
 
 fn adjacent(module: &Module, name: &str) -> Option<String> {
     fn walk(module: &Module, node: usize, forward: bool, out: &mut Vec<String>) {
-        let next = if forward { &module.nodes[node].users } else { &module.nodes[node].operands };
-        for &other in next {
+        let next = |node: usize| if forward { module.nodes[node].users.iter() } else { module.nodes[node].operands.iter() };
+        let mut stack = vec![next(node)];
+        while let Some(top) = stack.last_mut() {
+            let Some(&other) = top.next() else {
+                stack.pop();
+                continue;
+            };
             if module.nodes[other].name.starts_with("get-tuple-element") {
-                walk(module, other, forward, out);
+                stack.push(next(other));
             } else {
                 out.push(module.nodes[other].name.clone());
             }
@@ -430,7 +435,7 @@ impl Dumper<'_> {
         self.printer.extra(node, &module.inst(node), true, &mut attributes);
         for line in attributes {
             if (line.starts_with("replica_groups=") || line.starts_with("source_target_pairs=") || line.starts_with("control-predecessors=")) && line.len() > 128 {
-                lines.push(sanitize_html(&format!("{}...", &line[..125])));
+                lines.push(sanitize_html(&format!("{}...", crate::xplane::lossy(&line.as_bytes()[..125]))));
             } else if line.starts_with("feature_group_count=") {
                 lines.push(format!("<b>{}</b>", sanitize_html(&line)));
             } else {

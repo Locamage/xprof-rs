@@ -57,7 +57,7 @@ impl Remote {
         #[cfg(test)]
         let temp_dir = crate::tests::temp_dir;
         let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}"));
-        let mirror = std::fs::create_dir_all(&mirror).and_then(|()| mirror.canonicalize()).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
+        let mirror = crate::private_dir(&mirror).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
         let budget = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
         Ok(Self { url: url.to_string(), mirror, budget, used: Mutex::default(), store, root, checked: Mutex::default(), locks: Mutex::default() })
     }
@@ -119,7 +119,7 @@ impl Remote {
             let fetch = async |path: PathBuf, object: ObjectMeta| {
                 let partial = path.with_file_name(format!(".{}.partial", object.location.filename().unwrap_or_default()));
                 let file = Arc::new(std::fs::File::create(&partial).and_then(|file| file.set_len(object.size).map(|()| file)).map_err(unwritable)?);
-                stream::iter((0..object.size).step_by(PART_BYTES as usize))
+                let fetched = stream::iter((0..object.size).step_by(PART_BYTES as usize))
                     .map(|start| {
                         let (file, location) = (file.clone(), &object.location);
                         async move {
@@ -129,8 +129,12 @@ impl Remote {
                     })
                     .buffer_unordered(PARALLEL_PARTS)
                     .try_collect::<Vec<()>>()
-                    .await?;
-                file.set_modified(SystemTime::from(object.last_modified)).and_then(|()| std::fs::rename(&partial, &path)).map_err(unwritable)
+                    .await
+                    .and_then(|_| file.set_modified(SystemTime::from(object.last_modified)).and_then(|()| std::fs::rename(&partial, &path)).map_err(unwritable));
+                if fetched.is_err() {
+                    _ = std::fs::remove_file(&partial);
+                }
+                fetched
             };
             stream::iter(wanted).map(|(path, object)| fetch(path, object)).buffer_unordered(PARALLEL_FILES).try_collect::<Vec<()>>().await?;
             let used = self.used.lock().unwrap().clone();
@@ -189,7 +193,7 @@ pub async fn mirror(State(state): State<Shared>, request: Request, next: Next) -
         (None, Some(path), None) => list(&state.logdir.join(path), |entry| entry.file_type().is_ok_and(|kind| kind.is_dir())),
         (None, None, run) => run.and_then(|run| run_dir(&state, run)).into_iter().collect(),
     };
-    match try_join_all(dirs.into_iter().filter_map(|dir| confine(&state, dir)).map(async |dir| remote.sync(&dir, true).await)).await {
+    match try_join_all(dirs.into_iter().filter_map(|dir| confine(&state, dir)).filter(|dir| dir.is_dir()).map(async |dir| remote.sync(&dir, true).await)).await {
         Ok(_) => next.run(request).await,
         Err(message) => response(StatusCode::BAD_GATEWAY, "text/plain", message),
     }

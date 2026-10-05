@@ -269,6 +269,20 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) 
     tokio::task::spawn_blocking(work).await.unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
 }
 
+/// Creates a directory that only this user can read. It refuses a directory that another user owns.
+fn private_dir(dir: &Path) -> std::io::Result<PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    let meta = std::fs::symlink_metadata(dir)?;
+    if !meta.is_dir() || meta.uid() != unsafe { libc::getuid() } {
+        return Err(std::io::Error::other("another user owns this directory"));
+    }
+    if meta.mode() & 0o077 != 0 {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    dir.canonicalize()
+}
+
 fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
     let file = std::fs::File::open(path)?;
     let mut bytes = vec![0; file.metadata()?.len() as usize];
@@ -334,6 +348,9 @@ fn xplanes(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn sessions(logdir: &Path) -> Vec<(String, PathBuf)> {
+    if logdir.as_os_str().is_empty() {
+        return Vec::new();
+    }
     let is_dir = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_dir());
     let (mut found, mut pending) = (Vec::new(), vec![(logdir.to_path_buf(), String::new())]);
     while let Some((dir, prefix)) = pending.pop() {

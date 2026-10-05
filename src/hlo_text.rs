@@ -14,6 +14,10 @@ use std::sync::Mutex;
 
 const INDEX_INTERVAL: usize = 5;
 const MAX_COMPACT_ELEMENTS: i64 = 10;
+/// The printers allocate, and the literal printer recurses, once for each dimension.
+const MAX_RANK: usize = 1024;
+/// The literal printer prints each empty sub-array.
+const MAX_EMPTY_ARRAYS: usize = 1 << 20;
 const CALLS_TO_APPLY: [&str; 11] = ["call", "map", "reduce-window", "reduce", "all-reduce", "reduce-scatter", "collective-reduce", "all-reduce-start", "scatter", "sort", "scan"];
 const CHANNEL_OPS: [&str; 4] = ["send", "send-done", "recv", "recv-done"];
 const COLLECTIVES: [&str; 9] = ["all-gather", "all-gather-start", "all-reduce", "all-reduce-start", "reduce-scatter", "collective-reduce", "all-to-all", "ragged-all-to-all", "collective-broadcast"];
@@ -198,7 +202,7 @@ fn metadata_text(metadata: &OpMetadata, frame: i64, payloads: &[Vec<u8>]) -> Str
 }
 
 fn canonicalize_iota(dims: &mut Vec<i64>, perm: &mut Vec<i64>) {
-    if dims.len() <= 1 {
+    if dims.len() <= 1 || perm.len() != dims.len() || !(0..dims.len() as i64).all(|dimension| perm.contains(&dimension)) {
         return;
     }
     loop {
@@ -274,12 +278,13 @@ fn separate(out: &mut String, index: usize, interval: usize) {
 
 fn dim_labels(numbers: &xla::ConvolutionDimensionNumbers) -> String {
     let labels = |batch: i64, feature: i64, spatial: &[i64], letters: [&str; 2]| {
-        let length = (batch.max(feature).max(spatial.iter().copied().max().unwrap_or(0)) + 1) as usize;
-        let mut out = vec!["?".to_string(); length];
-        out[batch as usize] = letters[0].into();
-        out[feature as usize] = letters[1].into();
-        for (index, dimension) in spatial.iter().enumerate() {
-            out[*dimension as usize] = index.to_string();
+        let length = (batch.max(feature).max(spatial.iter().copied().max().unwrap_or(0)) + 1).clamp(0, MAX_RANK as i64);
+        let mut out = vec!["?".to_string(); length as usize];
+        let labels = [(batch, letters[0].to_string()), (feature, letters[1].to_string())].into_iter().chain(spatial.iter().enumerate().map(|(index, &dimension)| (dimension, index.to_string())));
+        for (dimension, label) in labels {
+            if let Some(slot) = usize::try_from(dimension).ok().and_then(|dimension| out.get_mut(dimension)) {
+                *slot = label;
+            }
         }
         out.concat()
     };
@@ -455,7 +460,7 @@ impl<'a> Printer<'a> {
     pub fn wrapped(&self, node: usize) -> Option<usize> {
         let module = self.module;
         let mut current = node;
-        loop {
+        for _ in 0..module.nodes.len() {
             let entry = &module.nodes[current];
             if let Some(&graph) = entry.called.first() {
                 return Some(graph);
@@ -466,6 +471,7 @@ impl<'a> Printer<'a> {
             }
             current = operand;
         }
+        None
     }
 
     fn sugar(&self, node: usize) -> Option<usize> {
@@ -647,13 +653,22 @@ impl<'a> Printer<'a> {
             self.fail("literal element type");
             return;
         };
-        if values.len() as i64 != shape.elements() {
+        let rank = shape.dimensions.len();
+        let prefixes: Vec<Option<i64>> = shape
+            .dimensions
+            .iter()
+            .scan(Some(1i64), |product, &dimension| {
+                *product = product.and_then(|product| product.checked_mul(dimension)).filter(|_| dimension >= 0);
+                Some(*product)
+            })
+            .collect();
+        let bounded = prefixes.iter().all(|prefix| prefix.is_some_and(|prefix| prefix <= values.len().max(MAX_EMPTY_ARRAYS) as i64));
+        if rank > MAX_RANK || !bounded || prefixes.last().copied().unwrap_or(Some(1)) != Some(values.len() as i64) {
             self.fail("literal size");
             return;
         }
-        let rank = shape.dimensions.len();
         let minor_to_major = match &shape.layout {
-            Some(layout) if layout.minor_to_major.len() == rank => layout.minor_to_major.clone(),
+            Some(layout) if layout.minor_to_major.len() == rank && (0..rank as i64).all(|dimension| layout.minor_to_major.contains(&dimension)) => layout.minor_to_major.clone(),
             _ => (0..rank as i64).rev().collect(),
         };
         let mut strides = vec![1i64; rank];
@@ -1343,7 +1358,7 @@ fn literal_values(literal: &LiteralProto, element_type: i32) -> Option<Vec<Strin
             })
             .collect()
     };
-    let halves = |bytes: &[u8]| bytes.chunks(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect::<Vec<u16>>();
+    let halves = |bytes: &[u8]| bytes.as_chunks::<2>().0.iter().map(|&pair| u16::from_le_bytes(pair)).collect::<Vec<u16>>();
     Some(match element_type {
         1 => literal.preds.iter().map(bool::to_string).collect(),
         30 => narrow(&literal.s1s, 1, true),
@@ -1365,8 +1380,8 @@ fn literal_values(literal: &LiteralProto, element_type: i32) -> Option<Vec<Strin
             .iter()
             .map(|&value| float_text(f64::from(value), if general(f64::from(value), 6).parse::<f32>() == Ok(value) { 6 } else { 9 }, Some((u64::from(value.to_bits()), 23))))
             .collect(),
-        15 => literal.c64s.chunks(2).map(|pair| format!("({}, {})", float_text(f64::from(pair[0]), 6, None), float_text(f64::from(pair[1]), 6, None))).collect(),
-        18 => literal.c128s.chunks(2).map(|pair| format!("({}, {})", float_text(pair[0], 15, None), float_text(pair[1], 15, None))).collect(),
+        15 => literal.c64s.as_chunks::<2>().0.iter().map(|pair| format!("({}, {})", float_text(f64::from(pair[0]), 6, None), float_text(f64::from(pair[1]), 6, None))).collect(),
+        18 => literal.c128s.as_chunks::<2>().0.iter().map(|pair| format!("({}, {})", float_text(pair[0], 15, None), float_text(pair[1], 15, None))).collect(),
         12 => literal.f64s.iter().map(|&value| float_text(value, if general(value, 15).parse::<f64>() == Ok(value) { 15 } else { 17 }, Some((value.to_bits(), 52)))).collect(),
         16 => halves(&literal.bf16s).into_iter().map(|bits| float_text(f64::from(f32::from_bits(u32::from(bits) << 16)), 4, Some((u64::from(bits), 7)))).collect(),
         10 => halves(&literal.f16s).into_iter().map(|bits| float_text(small_float(u32::from(bits), 5, 10, 15, 0), 5, Some((u64::from(bits), 10)))).collect(),

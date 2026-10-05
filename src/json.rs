@@ -263,7 +263,7 @@ pub fn counter_values(plane: &Plane, event: &Event, map: &[u8]) -> (Option<Box<s
             let value = match stat.value {
                 Value::Int(v) => v.to_string(),
                 Value::Uint(v) => v.to_string(),
-                Value::Double(v) if name.ends_with("(util %)") || name.ends_with(" (MB/sec)") => format!("{v:.2}"),
+                Value::Double(v) if (name.ends_with("(util %)") || name.ends_with(" (MB/sec)")) && v.is_finite() => format!("{v:.2}"),
                 Value::Double(v) => double(v),
                 Value::Str(_) | Value::Ref(_) => quoted(&plane.text(&stat.value)),
                 Value::Bytes(_) => continue,
