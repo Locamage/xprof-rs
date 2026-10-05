@@ -53,3 +53,24 @@ fn hosts_combine_weighted_by_occurrences() {
     assert_eq!(human_bytes(1280), "1.2K");
     assert_eq!(table(&[]), format!("[{COLUMNS}]}}]"));
 }
+
+#[test]
+fn overlap_counts_only_ops_after_the_send_for_many_rendezvous() {
+    let op = |opcode: Opcode, channel_id: u64, rendezvous: Option<String>| Instruction { opcode, channel_id, rendezvous, transfer_type: None, size: 0 };
+    let mut tracker = Tracker::default();
+    tracker.visit(&op(Opcode::Send, 7, Some("a".into())), &visit(10_000, 4_000_000));
+    tracker.visit(&op(Opcode::Send, 8, Some("b".into())), &visit(20_000, 6_000_000));
+    tracker.visit(&op(Opcode::RecvDone, 8, None), &visit(50_000, 0));
+    tracker.visit(&op(Opcode::RecvDone, 7, None), &visit(60_000, 0));
+    let count = 50_000;
+    for channel in 0..count {
+        tracker.visit(&op(Opcode::Send, 100 + channel, Some(format!("r{channel}"))), &visit(100_000, 1000));
+    }
+    for channel in 0..count {
+        tracker.visit(&op(Opcode::RecvDone, 100 + channel, None), &visit(200_000, 1000));
+    }
+    let slack: Vec<u64> = tracker.summaries.iter().map(|summary| summary.times_us[SLACK]).collect();
+    assert_eq!(slack.len(), 2 + count as usize);
+    assert_eq!(slack[..4], [24, 40, 50, 50]);
+    assert_eq!(slack[slack.len() - 1], 50);
+}
