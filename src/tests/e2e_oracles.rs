@@ -18,6 +18,12 @@ const OP_FLOPS: i64 = 1_000_000_000_000;
 
 type Line = (String, String, Vec<(f64, f64)>);
 
+pub fn demo_query(name: &str, command: &str, flags: &[&str]) -> crate::cli::json::J {
+    let path = demo(&super::cli_support::scratch(name));
+    let argv: Vec<&str> = [command, path.to_str().unwrap()].into_iter().chain(flags.iter().copied()).collect();
+    super::cli_support::ok(&argv)
+}
+
 pub fn training_trace(step_ps: i64) -> Vec<u8> {
     let mut space = XSpace::default();
     let plane = space.tpu(0, "TPU v6 lite", V6E_PEAK_TFLOPS_BF16, V6E_PEAK_HBM_GB_S, None);

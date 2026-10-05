@@ -93,10 +93,7 @@ fn roofline_fallback(client: &dyn Client, session: &str, summary: &mut J) -> Opt
 pub fn overview(client: &dyn Client, session: &str, include_command: bool, bypass: bool) -> Result<J, Error> {
     let compute = || -> Result<J, Error> {
         let params: Vec<(&str, String)> = vec![("format", "json".to_string()), super::bypass(bypass)];
-        let data = match client.fetch_text("overview_page", session, &params)? {
-            Some(data) => Some(data),
-            None => client.fetch_text("overview_page.json", session, &params)?,
-        };
+        let data = client.fetch_either("overview_page", "overview_page.json", session, &params)?;
         let data = data.ok_or_else(|| Error::new(Kind::FileNotFound, "No overview data returned for the session"))?;
         let sections = J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
         if sections.items().is_empty() {
@@ -333,10 +330,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
     let (session, top_n) = (args.session(), args.int("top_n", 15)?);
     let params = [bypass(args.flag("bypass_cache", false))];
     let compute = || -> Result<J, Error> {
-        let data = match client.fetch_text("roofline_model.json", &session, &params)? {
-            Some(data) => Some(data),
-            None => client.fetch_text("roofline_model", &session, &params)?,
-        };
+        let data = client.fetch_either("roofline_model.json", "roofline_model", &session, &params)?;
         let Some(data) = data else {
             return Ok(obj! {"status" => "NO_DATA", "message" => format!("No roofline model data found for session {}.", py_repr(&session))});
         };

@@ -94,10 +94,7 @@ const TOOLS_1: [&str; 1] = ["tool1"];
 const TOOLS_2: [&str; 2] = ["tool1", "tool2"];
 
 fn tools_cache_dir(name: &str) -> PathBuf {
-    let dir = crate::tests::temp_dir().join(format!("xprof-rs-tools-cache-{}-{name}", std::process::id()));
-    _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    crate::tests::scratch(&format!("tools-cache-{name}"))
 }
 
 fn saved(dir: &Path, tools: &[&str]) {

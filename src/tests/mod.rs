@@ -1,15 +1,10 @@
-mod barrier_cores_rule;
 mod capture;
 mod check_host_boundness_tool;
 mod cli_support;
-mod collective_bound_rule;
-mod compute_bound_rule;
 mod compute_inference_latency;
 mod counter_extractor;
 mod csv_writer;
-mod data_shuffle_bound_rule;
 mod data_table_utils;
-mod data_transfer_bound_rule;
 mod dcn_collective_stats;
 mod delta;
 mod derived_timeline;
@@ -43,7 +38,6 @@ mod hlo_proto_to_graph_view;
 mod hlo_proto_to_memory_visualization_utils;
 mod hlo_proto_to_module;
 mod hlo_sharding;
-mod host_processing_bound_rule;
 mod inference_stats;
 mod inference_stats_grouping;
 mod inference_stats_sampler;
@@ -56,9 +50,8 @@ mod layout_util;
 pub mod legacy;
 mod literal;
 mod malformed_input;
-mod memory_bound_rule;
 mod memory_profile;
-mod mock_tool_data_provider;
+pub(crate) mod mock_tool_data_provider;
 mod multi_xspace_to_inference_stats;
 mod op_metrics_db;
 mod op_metrics_db_utils;
@@ -85,15 +78,13 @@ mod profile_io;
 mod profile_plugin;
 mod raw_to_tool_data;
 mod roofline_model_utils;
+mod rules;
 mod server;
 mod shape;
 mod source_info_utils;
-mod sparse_core_bound_rule;
-mod sparse_core_offload_rule;
 mod step_events;
 mod step_intersection;
 mod streaming_trace_viewer_processor;
-mod tensor_core_idle_bound_rule;
 mod tf_op_utils;
 mod timespan;
 mod tpu_counter_util;
@@ -151,4 +142,20 @@ pub fn temp_dir() -> std::path::PathBuf {
         root
     });
     ROOT.clone()
+}
+
+pub fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = temp_dir().join(name);
+    _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+pub fn with_file<T>(bytes: &[u8], load: impl FnOnce(&std::path::Path) -> T) -> T {
+    static FILES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let path = temp_dir().join(format!("xprof-rs-test-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    std::fs::write(&path, bytes).unwrap();
+    let value = load(&path);
+    std::fs::remove_file(&path).unwrap();
+    value
 }
