@@ -1,6 +1,5 @@
 use crate::hlo::memory::std_sort;
 use crate::xplane::{Field, Plane, Value as Raw, fields, slice};
-use prost::encoding::encode_varint;
 use rustc_hash::FxHashMap as HashMap;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Write;
@@ -631,28 +630,92 @@ fn process(trace: &mut Trace) {
     trace.tpu.values_mut().chain(trace.megascale.values_mut()).flatten().for_each(rename_track);
 }
 
-fn number(out: &mut Vec<u8>, field: u64, value: u64) {
-    encode_varint(field << 3, out);
-    encode_varint(value, out);
-}
-
-fn fixed(out: &mut Vec<u8>, field: u64, bits: u64) {
-    encode_varint(field << 3 | 1, out);
-    out.extend_from_slice(&bits.to_le_bytes());
-}
-
-fn bytes(out: &mut Vec<u8>, field: u64, body: &[u8]) {
-    encode_varint(field << 3 | 2, out);
-    encode_varint(body.len() as u64, out);
-    out.extend_from_slice(body);
-}
-
-#[derive(Default)]
-struct Packet {
+#[derive(Clone, PartialEq, prost::Message)]
+struct TracePacket {
+    #[prost(uint64, optional, tag = "8")]
     timestamp: Option<u64>,
-    event: Vec<u8>,
-    interned: [Vec<u8>; 3],
-    descriptor: Vec<u8>,
+    #[prost(uint64, tag = "10")]
+    sequence_id: u64,
+    #[prost(message, optional, tag = "11")]
+    event: Option<TrackEvent>,
+    #[prost(message, optional, tag = "12")]
+    interned: Option<InternedData>,
+    #[prost(uint64, tag = "13")]
+    flags: u64,
+    #[prost(message, optional, tag = "60")]
+    descriptor: Option<TrackDescriptor>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct TrackEvent {
+    #[prost(message, repeated, tag = "4")]
+    annotations: Vec<Annotation>,
+    #[prost(uint64, tag = "9")]
+    kind: u64,
+    #[prost(uint64, optional, tag = "10")]
+    name: Option<u64>,
+    #[prost(uint64, tag = "11")]
+    track: u64,
+    #[prost(int64, optional, tag = "30")]
+    counter: Option<i64>,
+    #[prost(double, optional, tag = "44")]
+    double_counter: Option<f64>,
+    #[prost(fixed64, repeated, packed = "false", tag = "47")]
+    flows: Vec<u64>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct Annotation {
+    #[prost(uint64, optional, tag = "1")]
+    name: Option<u64>,
+    #[prost(uint64, optional, tag = "3")]
+    uint: Option<u64>,
+    #[prost(int64, optional, tag = "4")]
+    int: Option<i64>,
+    #[prost(double, optional, tag = "5")]
+    double: Option<f64>,
+    #[prost(message, repeated, tag = "12")]
+    array: Vec<Annotation>,
+    #[prost(uint64, optional, tag = "17")]
+    text: Option<u64>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct InternedData {
+    #[prost(message, repeated, tag = "2")]
+    event_names: Vec<Interned>,
+    #[prost(message, repeated, tag = "3")]
+    annotation_names: Vec<Interned>,
+    #[prost(message, repeated, tag = "29")]
+    annotation_texts: Vec<Interned>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct Interned {
+    #[prost(uint64, tag = "1")]
+    iid: u64,
+    #[prost(string, optional, tag = "2")]
+    text: Option<String>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct TrackDescriptor {
+    #[prost(uint64, tag = "1")]
+    uuid: u64,
+    #[prost(string, optional, tag = "2")]
+    name: Option<String>,
+    #[prost(uint64, tag = "5")]
+    parent: u64,
+    #[prost(message, optional, tag = "8")]
+    counter: Option<CounterDescriptor>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct CounterDescriptor {
+    #[prost(string, tag = "6")]
+    unit: String,
+    #[prost(string, tag = "7")]
+    share: String,
 }
 
 struct Writer<'a> {
@@ -664,116 +727,71 @@ struct Writer<'a> {
 }
 
 impl Writer<'_> {
-    fn emit(&mut self, packet: &Packet) {
-        let mut body = Vec::new();
-        if let Some(timestamp) = packet.timestamp {
-            number(&mut body, 8, timestamp);
-        }
-        number(&mut body, 10, SEQUENCE_ID);
-        if !packet.event.is_empty() {
-            bytes(&mut body, 11, &packet.event);
-        }
-        if packet.interned.iter().any(|entries| !entries.is_empty()) {
-            bytes(&mut body, 12, &packet.interned.concat());
-        }
-        number(&mut body, 13, if self.out.is_empty() { INCREMENTAL_STATE_CLEARED | NEEDS_INCREMENTAL_STATE } else { NEEDS_INCREMENTAL_STATE });
-        if !packet.descriptor.is_empty() {
-            bytes(&mut body, 60, &packet.descriptor);
-        }
-        bytes(&mut self.out, 1, &body);
+    fn emit(&mut self, mut packet: TracePacket) {
+        packet.sequence_id = SEQUENCE_ID;
+        packet.flags = if self.out.is_empty() { INCREMENTAL_STATE_CLEARED | NEEDS_INCREMENTAL_STATE } else { NEEDS_INCREMENTAL_STATE };
+        packet.interned = packet.interned.filter(|data| data != &InternedData::default());
+        prost::encoding::message::encode(1, &packet, &mut self.out);
     }
 
     fn descriptor(&mut self, name: &str, parent: u64, counter: Option<(&str, &str)>) -> u64 {
         let uuid = self.next_uuid;
         self.next_uuid += 1;
-        let mut descriptor = Vec::new();
-        number(&mut descriptor, 1, uuid);
-        bytes(&mut descriptor, 2, name.as_bytes());
-        if parent != 0 {
-            number(&mut descriptor, 5, parent);
-        }
-        if let Some((unit, share)) = counter {
-            let mut body = Vec::new();
-            bytes(&mut body, 6, unit.as_bytes());
-            if !share.is_empty() {
-                bytes(&mut body, 7, share.as_bytes());
-            }
-            bytes(&mut descriptor, 8, &body);
-        }
-        self.emit(&Packet { descriptor, ..Default::default() });
+        let counter = counter.map(|(unit, share)| CounterDescriptor { unit: unit.into(), share: share.into() });
+        self.emit(TracePacket { descriptor: Some(TrackDescriptor { uuid, name: Some(name.into()), parent, counter }), ..Default::default() });
         uuid
     }
 
-    fn intern(&mut self, which: usize, id: u32, packet: &mut Packet) -> u64 {
+    fn intern(&mut self, which: usize, id: u32, data: &mut InternedData) -> u64 {
         if let Some(&iid) = self.interned[which].get(&id) {
             return iid;
         }
         let iid = self.next_iid;
         self.next_iid += 1;
         self.interned[which].insert(id, iid);
-        let mut entry = Vec::new();
-        number(&mut entry, 1, iid);
-        bytes(&mut entry, 2, self.trace.strings.get(id).as_bytes());
-        bytes(&mut packet.interned[which], [2, 3, 29][which], &entry);
+        let list = [&mut data.event_names, &mut data.annotation_names, &mut data.annotation_texts];
+        list.into_iter().nth(which).unwrap().push(Interned { iid, text: Some(self.trace.strings.get(id).into()) });
         iid
     }
 
-    fn value(&mut self, value: Value, packet: &mut Packet) -> Vec<u8> {
-        let mut out = Vec::new();
+    fn value(&mut self, value: Value, data: &mut InternedData) -> Annotation {
         match value {
-            Value::Int(number_value) => number(&mut out, 4, number_value as u64),
-            Value::Uint(number_value) => number(&mut out, 3, number_value),
-            Value::Double(double) => fixed(&mut out, 5, double.to_bits()),
-            Value::Text(id) => {
-                let iid = self.intern(2, id, packet);
-                number(&mut out, 17, iid);
-            }
+            Value::Int(int) => Annotation { int: Some(int), ..Default::default() },
+            Value::Uint(uint) => Annotation { uint: Some(uint), ..Default::default() },
+            Value::Double(double) => Annotation { double: Some(double), ..Default::default() },
+            Value::Text(id) => Annotation { text: Some(self.intern(2, id, data)), ..Default::default() },
         }
-        out
     }
 
     fn event(&mut self, event: &Event, track: u64) {
         let instant = event.dur == 0;
-        let mut packet = Packet { timestamp: Some((event.ts / 1000) as u64), ..Default::default() };
-        let name = self.intern(0, event.name, &mut packet);
+        let mut data = InternedData::default();
+        let name = Some(self.intern(0, event.name, &mut data));
         let mut keys: Vec<u32> = Vec::new();
         for arg in &event.args {
             if !keys.contains(&arg.key) {
                 keys.push(arg.key);
             }
         }
-        let mut body = Vec::new();
+        let mut annotations = Vec::new();
         for key in keys {
-            let mut annotation = Vec::new();
-            let iid = self.intern(1, key, &mut packet);
-            number(&mut annotation, 1, iid);
-            let encoded: Vec<Vec<u8>> = event.args.iter().filter(|arg| arg.key == key).map(|arg| self.value(arg.value, &mut packet)).collect();
-            match &encoded[..] {
-                [single] => annotation.extend(single),
-                many => many.iter().for_each(|value| bytes(&mut annotation, 12, value)),
-            }
-            bytes(&mut body, 4, &annotation);
+            let name = Some(self.intern(1, key, &mut data));
+            let mut values: Vec<Annotation> = event.args.iter().filter(|arg| arg.key == key).map(|arg| self.value(arg.value, &mut data)).collect();
+            annotations.push(match values.len() {
+                1 => Annotation { name, ..values.remove(0) },
+                _ => Annotation { name, array: values, ..Default::default() },
+            });
         }
-        number(&mut body, 9, if instant { INSTANT } else { SLICE_BEGIN });
-        number(&mut body, 10, name);
-        number(&mut body, 11, track);
-        for &(id, sink) in &event.flows {
-            if sink || instant {
-                fixed(&mut body, 47, id as u64);
-            }
-        }
-        packet.event = body;
-        self.emit(&packet);
+        let flows = event.flows.iter().filter(|&&(_, sink)| sink || instant).map(|&(id, _)| id as u64).collect();
+        let kind = if instant { INSTANT } else { SLICE_BEGIN };
+        let begin = TrackEvent { annotations, kind, name, track, flows, ..Default::default() };
+        self.emit(TracePacket { timestamp: Some((event.ts / 1000) as u64), event: Some(begin), interned: Some(data), ..Default::default() });
         if instant {
             return;
         }
-        let mut end = Vec::new();
-        number(&mut end, 9, SLICE_END);
-        number(&mut end, 11, track);
-        for &(id, _) in event.flows.iter().filter(|(_, sink)| !sink) {
-            fixed(&mut end, 47, id as u64);
-        }
-        self.emit(&Packet { timestamp: Some((event.ts.wrapping_add(event.dur) / 1000) as u64), event: end, ..Default::default() });
+        let flows = event.flows.iter().filter(|(_, sink)| !sink).map(|&(id, _)| id as u64).collect();
+        let end = TrackEvent { kind: SLICE_END, track, flows, ..Default::default() };
+        self.emit(TracePacket { timestamp: Some((event.ts.wrapping_add(event.dur) / 1000) as u64), event: Some(end), ..Default::default() });
     }
 
     fn track(&mut self, track: &Track, parent: u64) {
@@ -784,16 +802,14 @@ impl Writer<'_> {
     }
 
     fn counter(&mut self, (name, unit, share): (&str, &str, &str), points: &[(i64, Sample)], parent: u64) {
-        let uuid = self.descriptor(name, parent, Some((unit, share)));
+        let track = self.descriptor(name, parent, Some((unit, share)));
         for &(ts, value) in points {
-            let mut body = Vec::new();
-            number(&mut body, 9, COUNTER);
-            number(&mut body, 11, uuid);
-            match value {
-                Sample::Int(value) => number(&mut body, 30, value as u64),
-                Sample::Double(value) => fixed(&mut body, 44, value.to_bits()),
-            }
-            self.emit(&Packet { timestamp: Some((ts / 1000) as u64), event: body, ..Default::default() });
+            let (counter, double_counter) = match value {
+                Sample::Int(value) => (Some(value), None),
+                Sample::Double(value) => (None, Some(value)),
+            };
+            let event = TrackEvent { kind: COUNTER, track, counter, double_counter, ..Default::default() };
+            self.emit(TracePacket { timestamp: Some((ts / 1000) as u64), event: Some(event), ..Default::default() });
         }
     }
 
