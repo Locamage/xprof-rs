@@ -41,6 +41,8 @@ pub use xla::{HloInstructionProto as Inst, ShapeProto as Shape};
 const SUFFIX: &str = ".hlo_proto.pb";
 const CACHED_MODULES: usize = 4;
 const MAX_EXPRESSION: usize = 1_000_000;
+const MAX_FUSED_DEPTH: usize = 256;
+const MAX_FUSED_CHILDREN: usize = 1 << 16;
 pub const TUPLE: i32 = 13;
 pub const OPAQUE: i32 = 14;
 pub const TOKEN: i32 = 17;
@@ -574,7 +576,6 @@ impl<'a> Module<'a> {
                 };
                 entry.operands.first().is_some_and(|&operand| width(entry.shape.element_type) == width(self.nodes[operand].shape.element_type))
             }
-            "fusion" => entry.called.first().is_none_or(|&graph| self.graphs[graph].nodes.iter().all(|&child| self.nodes[child].opcode == "parameter" || self.is_elementwise(child))),
             "map" => {
                 let dimensions = &self.inst(node).dimensions;
                 dimensions.is_empty() || (dimensions.len() == entry.shape.dimensions.len() && dimensions.iter().enumerate().all(|(position, &dimension)| dimension == position as i64))
@@ -701,33 +702,33 @@ pub fn module_name(proto: &[u8]) -> String {
     crate::xplane::lossy(last_bytes(last_bytes(proto, 1), 1)).into_owned()
 }
 
-fn fused_children(printer: &Printer, node: usize) -> Vec<Metrics> {
+/// Shared fused graphs expand as a tree. The depth and the budget limit the size of that tree.
+fn fused_children(printer: &Printer, node: usize, depth: usize, budget: &mut usize) -> Vec<Metrics> {
     let module = printer.module;
-    let Some(&graph) = module.nodes[node].called.first().filter(|_| module.nodes[node].opcode == "fusion") else { return Vec::new() };
-    module.graphs[graph]
-        .nodes
-        .iter()
-        .filter(|&&child| !matches!(module.nodes[child].opcode.as_str(), "parameter" | "tuple"))
-        .map(|&child| {
-            let mut long_name = String::new();
-            let metadata = printer.instruction(child, &mut long_name).metadata.unwrap_or_default();
-            if long_name.len() > MAX_EXPRESSION {
-                long_name.truncate(long_name.floor_char_boundary(MAX_EXPRESSION));
-            }
-            let mut metrics = Metrics {
-                name: module.nodes[child].name.as_str().into(),
-                category: module.category(child).into(),
-                deduplicated_name: metadata.deduplicated_name.as_str().into(),
-                provenance: format!("{}:{}", metadata.op_name, metadata.op_type).into(),
-                num_cores: 1,
-                occurrences: 1,
-                long_name: long_name.into(),
-                ..Default::default()
-            };
-            metrics.children.metrics = fused_children(printer, child);
-            metrics
-        })
-        .collect()
+    let Some(&graph) = module.nodes[node].called.first().filter(|_| module.nodes[node].opcode == "fusion" && depth < MAX_FUSED_DEPTH) else { return Vec::new() };
+    let mut children = Vec::new();
+    for &child in module.graphs[graph].nodes.iter().filter(|&&child| !matches!(module.nodes[child].opcode.as_str(), "parameter" | "tuple")) {
+        let Some(left) = budget.checked_sub(1) else { break };
+        *budget = left;
+        let mut long_name = String::new();
+        let metadata = printer.instruction(child, &mut long_name).metadata.unwrap_or_default();
+        if long_name.len() > MAX_EXPRESSION {
+            long_name.truncate(long_name.floor_char_boundary(MAX_EXPRESSION));
+        }
+        let mut metrics = Metrics {
+            name: module.nodes[child].name.as_str().into(),
+            category: module.category(child).into(),
+            deduplicated_name: metadata.deduplicated_name.as_str().into(),
+            provenance: format!("{}:{}", metadata.op_name, metadata.op_type).into(),
+            num_cores: 1,
+            occurrences: 1,
+            long_name: long_name.into(),
+            ..Default::default()
+        };
+        metrics.children.metrics = fused_children(printer, child, depth + 1, budget);
+        children.push(metrics);
+    }
+    children
 }
 
 pub fn parse_modules(protos: Vec<(u64, &[u8])>) -> Vec<(u64, Module<'_>)> {
@@ -757,7 +758,7 @@ pub fn attach_fused(modules: &[(u64, Module)], db: &mut Db) {
     db.metrics.par_iter_mut().for_each(|metrics| {
         let Some((printer, names)) = printers.get(&metrics.module) else { return };
         let Some(&index) = names.get(metrics.name.as_str()) else { return };
-        let children = fused_children(printer, index);
+        let children = fused_children(printer, index, 0, &mut { MAX_FUSED_CHILDREN });
         metrics.children.metrics.extend(children);
     });
 }

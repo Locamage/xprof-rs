@@ -147,3 +147,14 @@ fn instructions_with_missing_operands_or_computations() {
     let called = built_module(vec![computation(1, vec![parameter(1, 5, f32())]), computation(2, vec![parameter(3, 0, f32()), called])]);
     assert!(render(&called, "computation.1", 3, false, true, "dot").is_ok());
 }
+
+#[test]
+fn deep_call_chains_render() {
+    use crate::hlo::cost::tests::{calling, chained};
+    for (opcode, depth) in [("call", 20_000), ("fusion", 20_000), ("async-start", 1000)] {
+        let module = built_module(chained(depth, |id| vec![calling(id, 1, opcode)]));
+        let name = format!("computation.{depth}");
+        let dot = std::thread::scope(|scope| std::thread::Builder::new().stack_size(1 << 18).spawn_scoped(scope, || render(&module, &name, 3, false, true, "dot")).unwrap().join().unwrap());
+        assert_eq!(String::from_utf8(dot.unwrap().0).unwrap().matches("subgraph cluster_").count(), usize::try_from(depth).unwrap() - 1, "{opcode}");
+    }
+}
