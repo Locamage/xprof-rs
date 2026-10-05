@@ -25,7 +25,7 @@ xprof-rs-$version-$target/xprof-rs --logdir ~/logs          # open http://localh
 xprof-rs-$version-$target/xprof-rs get_overview ~/logs/run1 # the same binary runs the XProf agent CLI
 ```
 
-To build from source, you need Rust 1.95 or newer and a 64-bit Unix system. You do not need a C++ toolchain or `protoc`.
+To build from source, you need Rust 1.95 or newer, a C compiler, and a 64-bit Unix system. You do not need a C++ toolchain or `protoc`.
 
 ```bash
 git clone https://github.com/Locamage/xprof-rs && cd xprof-rs
