@@ -1,0 +1,42 @@
+name: Output is different from XProf
+description: A tool or a CLI command gives a different response than XProf 2.23.2.
+labels: ["parity"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach private profiles. Remove host names, paths, and model names first.
+  - type: input
+    id: version
+    attributes:
+      label: xprof-rs version
+      description: The release tag or the commit.
+    validations:
+      required: true
+  - type: input
+    id: tool
+    attributes:
+      label: Tool or command
+      description: For example `op_profile`, `trace_viewer@`, or `get_overview`. Include the request parameters or the flags.
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware and framework
+      description: For example TPU v5e with JAX, or 8 H100 GPUs with PyTorch/XLA.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Output of XProf 2.23.2
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Output of xprof-rs
+      render: text
+    validations:
+      required: true

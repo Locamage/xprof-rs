@@ -84,7 +84,11 @@ pub fn split(buf: &[u8], number: u32) -> (Vec<u8>, Vec<&[u8]>) {
     (rest, matched)
 }
 
+/// Writes `%.*g` as glibc does. The C library of macOS does not write the sign of a NaN as glibc does.
 pub fn general(value: f64, precision: usize) -> String {
+    if value.is_nan() {
+        return if value.is_sign_negative() { "-nan" } else { "nan" }.into();
+    }
     let mut buffer = [0u8; 64];
     let length = unsafe { libc::snprintf(buffer.as_mut_ptr().cast(), buffer.len(), c"%.*g".as_ptr(), precision as libc::c_int, value) };
     String::from_utf8_lossy(&buffer[..length as usize]).into_owned()

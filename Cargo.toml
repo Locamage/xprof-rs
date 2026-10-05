@@ -10,6 +10,7 @@ repository = "https://github.com/Locamage/xprof-rs"
 keywords = ["profiler", "xprof", "tpu", "jax", "tracing"]
 categories = ["development-tools::profiling"]
 publish = false
+exclude = ["/tests", "/.github"]
 
 [dependencies]
 anyhow = "1.0.104"
