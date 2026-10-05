@@ -1,6 +1,6 @@
 use super::legacy::same;
 use super::xspace::XSpace;
-use crate::legacy_trace::render;
+use crate::trace::legacy::render;
 
 #[test]
 fn test_json_conversion() {

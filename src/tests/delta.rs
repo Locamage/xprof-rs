@@ -1,6 +1,6 @@
 use super::xspace::{V, XSpace};
-use crate::delta::{CounterValue, Response, render};
-use crate::json::View;
+use crate::trace::delta::{CounterValue, Response, render};
+use crate::trace::json::View;
 use crate::trace::{Options, Trace};
 use prost::Message;
 use std::io::Read;

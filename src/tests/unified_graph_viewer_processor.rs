@@ -1,5 +1,5 @@
 use super::hlo_fixture::{hlo_proto, session_dir, write_module};
-use crate::graph_viewer::serve;
+use crate::hlo::graph::serve;
 use std::collections::HashMap;
 
 const DUMMY_HLO: &str = r#"hlo_module {

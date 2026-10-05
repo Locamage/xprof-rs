@@ -1,7 +1,7 @@
-use crate::inference_profile::{
+use crate::tools::inference_profile::{
     BatchDetail, InferenceStats, ModelIdDatabase, PerBatchSizeAggregatedResult, PerHostInferenceStats, PerModelInferenceStats, RequestDetail, TensorEventDetail, TensorPatternResult,
 };
-use crate::opstats::{Db, OpStats};
+use crate::tools::opstats::{Db, OpStats};
 use crate::xplane::{self, Ev, NONE_GROUP, Plane};
 use prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, MapKey, MessageDescriptor, ReflectMessage, Value};
@@ -132,14 +132,14 @@ macro_rules! v_from { ($($kind:ty => $variant:ident),*) => { $(impl From<$kind> 
 v_from!(i32 => Int, i64 => Int, u64 => Uint, f64 => Double, &str => Str, String => Str);
 
 pub fn op_stats(spaces: &[XSpace]) -> Option<Arc<OpStats>> {
-    let all: Vec<Option<Arc<OpStats>>> = spaces.iter().map(|space| crate::tests::with_file(&space.encode_to_vec(), crate::opstats::load)).collect();
+    let all: Vec<Option<Arc<OpStats>>> = spaces.iter().map(|space| crate::tests::with_file(&space.encode_to_vec(), crate::tools::opstats::load)).collect();
     OpStats::combine(&all)
 }
 
 pub fn grouped(space: &XSpace) -> (Vec<u8>, Vec<Plane>, Option<HashMap<i64, String>>) {
     let (map, mut planes) = space.parsed();
     planes.iter_mut().for_each(|plane| plane.add_threadpool_regions(&map));
-    let names = crate::group::group(&mut planes, &map).map(|groups| groups.names);
+    let names = crate::xplane::group::group(&mut planes, &map).map(|groups| groups.names);
     (map, planes, names)
 }
 

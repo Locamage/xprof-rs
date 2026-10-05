@@ -1,6 +1,6 @@
 use super::hlo_fixture::{session_dir, write_module};
-use crate::graph_viewer::serve;
 use crate::hlo::by_options;
+use crate::hlo::graph::serve;
 use crate::hlo::xla::{HloComputationProto, HloInstructionProto, HloModuleProto, HloProto};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

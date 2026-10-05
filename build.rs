@@ -1,7 +1,7 @@
 fn main() {
-    println!("cargo:rerun-if-changed=src/hlo_descriptors.pb");
+    println!("cargo:rerun-if-changed=src/data/hlo_descriptors.pb");
     let mut pool = prost_reflect::DescriptorPool::global();
-    pool.decode_file_descriptor_set(&include_bytes!("src/hlo_descriptors.pb")[..]).unwrap();
+    pool.decode_file_descriptor_set(&include_bytes!("src/data/hlo_descriptors.pb")[..]).unwrap();
     let mut config = prost_build::Config::new();
     for field in pool.get_message_by_name("xla.HloInstructionProto").unwrap().fields().filter(|field| field.kind().as_message().is_some() && !field.is_list()) {
         config.boxed(field.full_name());

@@ -6,7 +6,7 @@ const PEAK_GIGAFLOPS_PER_SECOND: f64 = 1000.0;
 
 fn normalized_gigaflops(metrics: &str) -> f64 {
     let text = format!(r#"device_op_metrics_db {{ total_time_ps: 100 metrics_db {{ name: "op" category: "convolution" self_time_ps: 100 {metrics} }} }} perf_env {{ peak_tera_flops_per_second: 1 }}"#);
-    let profile: Value = serde_json::from_str(&crate::op_profile::json(&op_stats(&text), Some("category"))).unwrap();
+    let profile: Value = serde_json::from_str(&crate::tools::op_profile::json(&op_stats(&text), Some("category"))).unwrap();
     let op = &profile["byCategory"]["children"][0]["children"][0];
     assert_eq!(op["name"], "op");
     op["metrics"]["uncappedFlops"].as_f64().unwrap() * PEAK_GIGAFLOPS_PER_SECOND

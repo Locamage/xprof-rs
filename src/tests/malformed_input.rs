@@ -70,7 +70,7 @@ fn metadata_id_from_the_map_key() {
 fn literals_that_are_not_valid() {
     use crate::hlo::xla::{LayoutProto, LiteralProto, ShapeProto};
     let module = crate::hlo::Module::parse(std::borrow::Cow::Owned(std::fs::read(format!("{}/tests/data/literal/literals.pb", env!("CARGO_MANIFEST_DIR"))).unwrap()));
-    let printer = crate::hlo_text::Printer::new(&module, crate::hlo_text::Style::Long, false);
+    let printer = crate::hlo::text::Printer::new(&module, crate::hlo::text::Style::Long, false);
     let shape = |element_type, dimensions: Vec<i64>, layout: Option<Vec<i64>>| ShapeProto {
         element_type,
         dimensions,
@@ -116,7 +116,7 @@ fn cli_trace_that_cannot_be_read() {
 
 #[test]
 fn recovery_module_that_is_not_valid() {
-    use crate::gpu_cost::tests::{computation, parameter, shape};
+    use crate::hlo::cost::tests::{computation, parameter, shape};
     use crate::hlo::xla::original_value_recovery_table_proto::Entry;
     use crate::hlo::xla::{HloComputationProto, HloModuleProto, HloProto, OriginalValueRecoveryTableProto, ProgramShapeProto};
     let recovery = HloModuleProto {
@@ -136,7 +136,7 @@ fn recovery_module_that_is_not_valid() {
     };
     let module = crate::tests::hlo_fixture::module(&HloProto { hlo_module: Some(hlo_module), ..Default::default() });
     assert!(module.valid);
-    assert_eq!(crate::hlo_text::Printer::new(&module, crate::hlo_text::Style::Long, false).module_text(), None);
+    assert_eq!(crate::hlo::text::Printer::new(&module, crate::hlo::text::Style::Long, false).module_text(), None);
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn provenance_with_many_parts() {
         "a/".repeat(100_000)
     );
     let stats = crate::tests::opstats_adapter::op_stats(&text);
-    let json = std::thread::Builder::new().stack_size(1 << 20).spawn(move || crate::op_profile::json(&stats, Some("provenance"))).unwrap().join().unwrap();
+    let json = std::thread::Builder::new().stack_size(1 << 20).spawn(move || crate::tools::op_profile::json(&stats, Some("provenance"))).unwrap().join().unwrap();
     assert_eq!(json.matches("\"name\":\"a\"").count(), 2 * 100_000);
 }
 
@@ -179,9 +179,9 @@ fn hlo_text_proto_with_deep_nesting() {
         wrap(HloProto { hlo_module: Some(HloModuleProto::default()), ..Default::default() }.encode_to_vec(), computation)
     };
     assert!(HloProto::decode(hlo(97).as_slice()).is_ok() && HloProto::decode(hlo(98).as_slice()).is_err());
-    assert!(crate::pbtext::print_hlo(&hlo(97)).is_some_and(|text| text.matches("tuple_shapes {").count() == 96));
-    assert!(crate::pbtext::print_hlo(&hlo(98)).is_none());
-    assert!(crate::pbtext::print_hlo(&hlo(100_000)).is_none());
+    assert!(crate::hlo::proto_text::print_hlo(&hlo(97)).is_some_and(|text| text.matches("tuple_shapes {").count() == 96));
+    assert!(crate::hlo::proto_text::print_hlo(&hlo(98)).is_none());
+    assert!(crate::hlo::proto_text::print_hlo(&hlo(100_000)).is_none());
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn memory_viewer_with_many_live_buffers() {
         ..Default::default()
     };
     let module = crate::tests::hlo_fixture::module(&HloProto { hlo_module: Some(hlo_module), buffer_assignment: Some(assignment) });
-    let (body, _) = crate::memory_viewer::render(&module, 0, 16 * 1024, false).unwrap();
+    let (body, _) = crate::hlo::memory::render(&module, 0, 16 * 1024, false).unwrap();
     let result: serde_json::Value = serde_json::from_str(&body).unwrap();
     let ids: Vec<i64> = result["maxHeap"].as_array().unwrap().iter().map(|object| object["logicalBufferId"].as_i64().unwrap()).collect();
     assert_eq!(ids, (2..=count).collect::<Vec<_>>());

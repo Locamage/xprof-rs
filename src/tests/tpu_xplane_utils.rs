@@ -1,6 +1,6 @@
 use super::xspace::XSpace;
-use crate::derive::is_tensor_core;
-use crate::group::{is_sparse_core, ordinal};
+use crate::xplane::derive::is_tensor_core;
+use crate::xplane::group::{is_sparse_core, ordinal};
 
 #[test]
 fn get_tensor_core_x_planes_from_x_space() {

@@ -1,41 +1,10 @@
-mod capture;
 mod cli;
-mod counter_ids;
-mod counters;
-mod delta;
-mod derive;
-mod event_fractions;
-mod framework_op_stats;
-mod gpu;
-mod gpu_cost;
-mod graph_viewer;
-mod group;
 mod hlo;
-mod hlo_stats;
-mod hlo_text;
-mod inference_profile;
-mod input_pipeline_analyzer;
-mod json;
-mod legacy_trace;
-mod megascale;
-mod megascale_perfetto;
-mod memory_profile;
-mod memory_viewer;
-mod op_profile;
-mod opstats;
-mod overview_page;
-mod pbtext;
-mod pod_viewer;
-mod remote;
-mod roofline;
-mod run_tools;
-mod smart_suggestion;
-mod steps;
-mod table;
+mod server;
 #[cfg(test)]
 mod tests;
+mod tools;
 mod trace;
-mod utilization;
 mod xplane;
 
 #[global_allocator]
@@ -50,10 +19,8 @@ use axum::{Router, routing::any};
 use cli::json::py_repr;
 use futures_util::future::{BoxFuture, FutureExt, Shared as Joined, try_join_all};
 use include_dir::{Dir, include_dir};
-use json::{View, quoted, render};
-use opstats::OpStats;
 use rayon::prelude::*;
-use remote::Remote;
+use server::remote::Remote;
 use std::any::Any;
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
@@ -65,7 +32,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::Semaphore;
+use tools::opstats::OpStats;
 use tower_http::{CompressionLevel, catch_panic::CatchPanicLayer, compression::CompressionLayer};
+use trace::json::{View, quoted, render};
 use trace::{MAX_SERIAL, Options, Trace};
 use xplane::Plane;
 
@@ -302,18 +271,18 @@ fn prepare_map(map: Vec<u8>, trace: bool, check: bool) -> Option<(Vec<u8>, Vec<P
 }
 
 fn parse_checked(map: &[u8], check: bool) -> Option<Vec<Plane>> {
-    let (valid, planes) = rayon::join(|| !check || counters::valid_space(map), || xplane::parse(map));
+    let (valid, planes) = rayon::join(|| !check || tools::counters::valid_space(map), || xplane::parse(map));
     valid.then(|| planes.unwrap())
 }
 
 /// Adds the regions, the groups, and the derived lines. Do not call it on a thread of the pool: the pool stops when all of its threads wait for the threads of this function.
 fn finish(planes: &mut [Plane], map: &[u8], trace: bool) {
     planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
-    if !derive::is_grouped(planes) {
-        let groups = group::group(planes, map);
-        derive::derive_gpu(planes, map, groups.as_ref().map(|groups| &groups.names), trace);
+    if !xplane::derive::is_grouped(planes) {
+        let groups = xplane::group::group(planes, map);
+        xplane::derive::derive_gpu(planes, map, groups.as_ref().map(|groups| &groups.names), trace);
         // Each plane runs on a thread outside the pool, so no plane waits for the work of another that the pool stole.
-        std::thread::scope(|scope| planes.iter_mut().filter(|plane| derive::is_tensor_core(&plane.name)).for_each(|plane| _ = scope.spawn(|| derive::derive(plane, map))));
+        std::thread::scope(|scope| planes.iter_mut().filter(|plane| xplane::derive::is_tensor_core(&plane.name)).for_each(|plane| _ = scope.spawn(|| xplane::derive::derive(plane, map))));
     }
 }
 
@@ -561,7 +530,7 @@ async fn cached(state: &Shared, key: String, dir: &Path, accepts_gzip: bool, ren
 
 async fn run_tools(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
     let dir = or_fail!(session(&state, &params));
-    response(StatusCode::OK, "application/json", blocking(move || run_tools::json(&dir)).await)
+    response(StatusCode::OK, "application/json", blocking(move || server::run_tools::json(&dir)).await)
 }
 
 async fn hosts(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
@@ -604,7 +573,7 @@ async fn data_csv(State(state): State<Shared>, Query(params): Query<Params>, uri
         };
         let quote = |text: &str| format!("\"{}\"", text.replace('"', "\"\""));
         let cell = |value: &serde_json::Value| match value {
-            serde_json::Value::Number(number) if number.is_f64() => table::repr(number.as_f64().unwrap()),
+            serde_json::Value::Number(number) if number.is_f64() => tools::table::repr(number.as_f64().unwrap()),
             serde_json::Value::Number(number) => number.to_string(),
             serde_json::Value::String(text) => text.clone(),
             serde_json::Value::Bool(flag) => if *flag { "True" } else { "False" }.into(),
@@ -643,7 +612,7 @@ async fn generate_cache(State(state): State<Shared>, method: Method, Query(param
     }
     let run = Path::new(path).file_name().unwrap_or_default().to_string_lossy().into_owned();
     let tools_dir = dir.clone();
-    let available: Vec<String> = serde_json::from_str(&blocking(move || run_tools::json(&tools_dir)).await).unwrap_or_default();
+    let available: Vec<String> = serde_json::from_str(&blocking(move || server::run_tools::json(&tools_dir)).await).unwrap_or_default();
     let requested: Vec<String> = params
         .get("tools")
         .filter(|tools| !tools.is_empty())
@@ -710,9 +679,9 @@ fn listed_hosts(dir: &Path, tool: &str, params: &Params) -> Result<Vec<PathBuf>,
 }
 
 async fn tool(state: &Shared, paths: Vec<PathBuf>, render: Render, empty_ok: bool) -> Response {
-    let all = match try_join_all(paths.iter().map(|path| state.stats.get(path.clone(), &state.loads, opstats::load))).await {
+    let all = match try_join_all(paths.iter().map(|path| state.stats.get(path.clone(), &state.loads, tools::opstats::load))).await {
         Ok(all) => all,
-        Err(message) => return if blocking(move || counters::corrupt(&paths)).await { not_found() } else { internal(&message) },
+        Err(message) => return if blocking(move || tools::counters::corrupt(&paths)).await { not_found() } else { internal(&message) },
     };
     let Some(combined) = OpStats::combine(&all) else { return not_found() };
     let body = blocking(move || render(&combined)).await;
@@ -724,7 +693,7 @@ async fn counter_tool(dir: &Path, tag: &str, params: &Params) -> Option<Response
         return None;
     }
     let (paths, tag) = (listed_hosts(dir, tag, params).ok()?, tag.to_string());
-    let body = tokio::task::spawn_blocking(move || counters::serve(&tag, &paths)).await.ok()??;
+    let body = tokio::task::spawn_blocking(move || tools::counters::serve(&tag, &paths)).await.ok()??;
     Some(response(StatusCode::OK, "application/json", body))
 }
 
@@ -747,7 +716,7 @@ async fn data(State(state): State<Shared>, Query(params): Query<Params>, uri: Ur
     if params.get("tag").is_some_and(|tag| tag == "perf_counters") && params.get("names_only").is_some_and(|value| value == "1") {
         return match params.get("device_type").filter(|device_type| !device_type.is_empty()) {
             None => response(StatusCode::INTERNAL_SERVER_ERROR, "text/plain", "device_type is required for perf_counters with names_only"),
-            Some(device_type) => counter_ids::names(device_type).map_or_else(
+            Some(device_type) => tools::counter_ids::names(device_type).map_or_else(
                 || response(StatusCode::INTERNAL_SERVER_ERROR, "text/plain", format!("Unsupported device_type: {device_type}")),
                 |names| response(StatusCode::OK, "application/json", names),
             ),
@@ -762,18 +731,18 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
     let single = || select(&dir, tag, &params).is_ok_and(|files| files.len() == 1);
     let group_by = params.get("group_by").cloned();
     let renderer: Option<Render> = match tag {
-        "hlo_stats" => Some(Box::new(hlo_stats::json)),
-        "kernel_stats" => Some(Box::new(gpu::kernel_stats_json)),
-        "framework_op_stats" => Some(Box::new(framework_op_stats::json)),
+        "hlo_stats" => Some(Box::new(tools::hlo_stats::json)),
+        "kernel_stats" => Some(Box::new(xplane::gpu::kernel_stats_json)),
+        "framework_op_stats" => Some(Box::new(tools::framework_op_stats::json)),
         "memory_profile" if single() => Some(Box::new(|stats: &OpStats| stats.memory.clone())),
         "overview_page" => {
             let paths = listed_hosts(&dir, tag, &params).unwrap_or_default();
-            Some(Box::new(move |stats: &OpStats| overview_page::json(stats, &paths)))
+            Some(Box::new(move |stats: &OpStats| tools::overview_page::json(stats, &paths)))
         }
-        "input_pipeline_analyzer" => Some(Box::new(input_pipeline_analyzer::json)),
-        "op_profile" => Some(Box::new(move |stats: &OpStats| op_profile::json(stats, group_by.as_deref()))),
-        "roofline_model" => Some(Box::new(roofline::json)),
-        "pod_viewer" => Some(Box::new(pod_viewer::json)),
+        "input_pipeline_analyzer" => Some(Box::new(tools::input_pipeline_analyzer::json)),
+        "op_profile" => Some(Box::new(move |stats: &OpStats| tools::op_profile::json(stats, group_by.as_deref()))),
+        "roofline_model" => Some(Box::new(tools::roofline::json)),
+        "pod_viewer" => Some(Box::new(tools::pod_viewer::json)),
         "perf_counters" | "utilization_viewer" | "kernel_utilization" => return counter_tool(&dir, tag, &params).await.unwrap_or_else(not_found),
         "memory_viewer" | "graph_viewer" => {
             if params.get("module_name").is_some_and(|name| name.contains(['/', '\0'])) {
@@ -782,9 +751,9 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             or_fail!(select(&dir, tag, &params));
             let (memory, params) = (tag == "memory_viewer", params.clone());
             if memory {
-                return blocking(move || memory_viewer::serve(&dir, &params)).await.map_or_else(not_found, |(body, content_type)| response(StatusCode::OK, content_type, body));
+                return blocking(move || hlo::memory::serve(&dir, &params)).await.map_or_else(not_found, |(body, content_type)| response(StatusCode::OK, content_type, body));
             }
-            return blocking(move || graph_viewer::serve(&dir, &params)).await.map_or_else(|message| internal(&message), |(body, content_type)| response(StatusCode::OK, content_type, body));
+            return blocking(move || hlo::graph::serve(&dir, &params)).await.map_or_else(|message| internal(&message), |(body, content_type)| response(StatusCode::OK, content_type, body));
         }
         "megascale_stats" => {
             let paths = or_fail!(listed_hosts(&dir, tag, &params));
@@ -794,16 +763,16 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             let body = blocking(move || match own {
                 Some(path) => {
                     let map = read_file(&path).ok()?;
-                    if counters::valid_space(&map) { megascale_perfetto::render(&map) } else { None }
+                    if tools::counters::valid_space(&map) { tools::megascale_perfetto::render(&map) } else { None }
                 }
-                None => megascale::json(&paths, &host).map(String::into_bytes),
+                None => tools::megascale::json(&paths, &host).map(String::into_bytes),
             });
             return body.await.map_or_else(not_found, |body| response(StatusCode::OK, if perfetto { "application/octet-stream" } else { "application/json" }, body));
         }
         "inference_profile" | "smart_suggestion" => {
             let paths = or_fail!(listed_hosts(&dir, tag, &params));
             let smart = tag == "smart_suggestion";
-            let body = blocking(move || if smart { smart_suggestion::json(&paths) } else { inference_profile::json(&paths) }).await;
+            let body = blocking(move || if smart { tools::smart_suggestion::json(&paths) } else { tools::inference_profile::json(&paths) }).await;
             return body.map_or_else(not_found, |body| response(StatusCode::OK, "application/json", body));
         }
         _ => None,
@@ -813,13 +782,13 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
     }
     if tag == "trace_viewer" {
         return match select(&dir, tag, &params).map(<[PathBuf; 1]>::try_from) {
-            Ok(Ok([file])) if counters::corrupt(std::slice::from_ref(&file)) => not_found(),
+            Ok(Ok([file])) if tools::counters::corrupt(std::slice::from_ref(&file)) => not_found(),
             Ok(Ok([file])) if params.get("format").is_some_and(|format| format == "pb") && !params.contains_key("event_name") => {
                 match state.hosts.get(file, &state.loads, |path| Arc::new(load_host(path))).await {
                     Ok(host) => {
                         let body = blocking(move || {
                             let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: true };
-                            delta::render(&[View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&options) }], None)
+                            trace::delta::render(&[View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&options) }], None)
                         });
                         response(StatusCode::OK, "application/octet-stream", body.await)
                     }
@@ -831,7 +800,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
                 "application/json",
                 blocking(move || {
                     let (map, planes) = prepare(&file, true);
-                    let json = legacy_trace::render(&planes, &map);
+                    let json = trace::legacy::render(&planes, &map);
                     release((map, planes));
                     json
                 })
@@ -847,7 +816,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
     let files = or_fail!(select(&dir, tag, &params));
     let hosts = match try_join_all(files.iter().map(|file| state.hosts.get(file.clone(), &state.loads, |path| Arc::new(load_host(path))))).await {
         Ok(hosts) => hosts,
-        Err(message) => return if blocking(move || counters::corrupt(&files)).await { not_found() } else { internal(&message) },
+        Err(message) => return if blocking(move || tools::counters::corrupt(&files)).await { not_found() } else { internal(&message) },
     };
     let option = |key: &str, default: f64| params.get(key).map_or(Some(default), |value| value.trim().parse::<f64>().ok());
     let (Some(start_ms), Some(end_ms), Some(resolution)) = (option("start_time_ms", 0.0), option("end_time_ms", 0.0), option("resolution", DEFAULT_RESOLUTION)) else {
@@ -882,7 +851,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             })
             .collect();
         (detail.is_none() || views.iter().all(|view| !view.events.is_empty()))
-            .then(|| if protobuf { delta::render(&views, Some(options.full_dma)) } else { render(&views, options.full_dma, with_args) })
+            .then(|| if protobuf { trace::delta::render(&views, Some(options.full_dma)) } else { render(&views, options.full_dma, with_args) })
     })
     .await;
     body.map_or_else(not_found, |body| response(StatusCode::OK, if protobuf { "application/octet-stream" } else { "application/json" }, body))
@@ -939,7 +908,7 @@ async fn prefetch(state: Shared) {
             if !attempted.contains(&key) {
                 attempted.push(key.clone());
                 quiet().await;
-                _ = state.stats.get(key.0.clone(), &permits, opstats::load).await;
+                _ = state.stats.get(key.0.clone(), &permits, tools::opstats::load).await;
                 quiet().await;
                 _ = state.hosts.get(key.0, &permits, |path| Arc::new(load_host(path))).await;
             }
@@ -1006,7 +975,7 @@ fn state(settings: &Settings) -> Shared {
     Arc::new(State_ {
         logdir: settings.logdir.clone(),
         remote: settings.remote.clone(),
-        config: run_tools::python_value(&config),
+        config: server::run_tools::python_value(&config),
         hosts: Memo::new(|_, host: &Arc<Host>| host.bytes),
         stats: Memo::new(|stamp, _| stamp.len),
         rendered: cache(*BUDGET_BYTES / 4, |key: &String, value: &Rendered| (key.len() + value.body.len()) as u64),
@@ -1027,7 +996,7 @@ fn plugin() -> Router<Shared> {
         .route("/config", any(|State(state): State<Shared>| async move { response(StatusCode::OK, "application/json", state.config.clone()) }))
         .route("/module_list", any(module_list))
         .route("/generate_cache", any(generate_cache))
-        .route("/capture_profile", any(|State(state): State<Shared>, Query(params): Query<Params>| async move { capture::handle(&state.logdir, state.remote.as_deref(), &params).await }))
+        .route("/capture_profile", any(|State(state): State<Shared>, Query(params): Query<Params>| async move { server::capture::handle(&state.logdir, state.remote.as_deref(), &params).await }))
 }
 
 async fn first_values(mut request: Request) -> Request {
@@ -1047,7 +1016,7 @@ fn app(state: Shared) -> Router {
         .merge(plugin())
         .nest(PREFIX, plugin())
         .fallback(assets)
-        .layer(axum::middleware::from_fn_with_state(state.clone(), remote::mirror))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), server::remote::mirror))
         .layer(axum::middleware::map_request(first_values))
         .layer(CatchPanicLayer::custom(|payload: Box<dyn Any + Send>| internal(&panic_message(&*payload))))
         .layer(axum::middleware::map_response(|mut reply: Response| async move {

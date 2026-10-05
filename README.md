@@ -171,7 +171,7 @@ xprof-rs replaces the backend. It does not replace the complete XProf distributi
 - `verify_numerical_parity` returns the error of XProf for dependencies that are not installed. XProf runs Python callables for this command.
 - The `detect_*` commands from the README of XProf are not available. XProf 2.23.2 does not register them.
 - `mpmd_pipeline_view=true` has no effect. XProf has the same behavior.
-- `perf_counters` with `names_only` and `utilization_viewer` support only TPU v6e and v7x. XProf 2.23.2 has counter tables only for these two chips. The tables are in `src/tpu_counters_v6e.txt` and `src/tpu_counters_v7x.txt`.
+- `perf_counters` with `names_only` and `utilization_viewer` support only TPU v6e and v7x. XProf 2.23.2 has counter tables only for these two chips. The tables are in `src/data/`.
 
 **Python part of the XProf package**
 
@@ -236,11 +236,14 @@ A tag that starts with `v` makes a draft release with `x86_64-linux` and `aarch6
 The code is in `src/`:
 
 - `main.rs`: flags, routes, and caches.
-- `xplane.rs` and `trace.rs`: reader and conversion.
-- One module for each tool.
+- `xplane/`: the `.xplane.pb` reader, derived lines, event groups, and steps.
+- `trace/`: the trace viewer conversion and its JSON and protobuf output.
+- `hlo/`: the HLO module, its text form, the GPU cost model, the graph viewer, and the memory viewer.
+- `tools/`: one module for each other tool.
+- `server/`: object stores, profile capture, and the tool list of a run.
 - `cli/`: the agent CLI.
-- `remote.rs`: object stores.
-- `tests/`: tests from XProf and XLA.
+- `data/`: the protobuf descriptors, the TPU counter tables, and the HTML page of the graph viewer.
+- `tests/`: tests from XProf and XLA. `tests/inline/` has the unit tests of the modules, in the same folders.
 
 ## License
 

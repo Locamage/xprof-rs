@@ -28,7 +28,7 @@ fn one_allocator_multi_activities_test() {
     let third = named(counters(2000, 5000, 3000, 9500, 300, 300, 345678, -93746, 9), &[("allocator_name", "GPU_0_bfc"), ("tf_op", "mul_grad/Sum"), ("region_type", "temp"), ("shape", "[1, 2]")]);
     host.event(0, "MemoryAllocation", 70000, 1000, &third);
     let (map, planes, _) = grouped(&space);
-    let profile: Value = serde_json::from_str(&crate::memory_profile::json(&planes, &map)).unwrap();
+    let profile: Value = serde_json::from_str(&crate::tools::memory_profile::json(&planes, &map)).unwrap();
     let allocators = profile["memoryProfilePerAllocator"].as_object().unwrap();
     assert_eq!(allocators.len(), 1);
     assert_eq!((&profile["numHosts"], profile["memoryIds"].as_array().unwrap().len(), &profile["version"]), (&Value::from(1), 1, &Value::from(1)));

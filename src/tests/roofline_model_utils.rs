@@ -9,7 +9,7 @@ fn ridge_point(peak_gigaflops_per_second: f64, peak_gibibytes_per_second: f64) -
         peak_gigaflops_per_second / 1e3,
         peak_gibibytes_per_second * GIBI_IN_GIGA
     );
-    let roofline: Value = serde_json::from_str(&crate::roofline::json(&op_stats(&text))).unwrap();
+    let roofline: Value = serde_json::from_str(&crate::tools::roofline::json(&op_stats(&text))).unwrap();
     roofline[0]["p"]["hbm_ridge_point"].as_str().unwrap().to_string()
 }
 

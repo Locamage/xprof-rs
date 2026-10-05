@@ -8,7 +8,7 @@ fn create_op_metrics(name: &str, time: u64, category: &str, deduplicated_name: &
 }
 
 fn by_category(text: &str) -> Value {
-    let profile: Value = serde_json::from_str(&crate::op_profile::json(&op_stats(text), Some("category"))).unwrap();
+    let profile: Value = serde_json::from_str(&crate::tools::op_profile::json(&op_stats(text), Some("category"))).unwrap();
     profile["byCategory"].clone()
 }
 

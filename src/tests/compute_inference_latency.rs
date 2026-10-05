@@ -1,5 +1,5 @@
-use crate::inference_profile::{InferenceStats, PerModelInferenceStats, RequestDetail};
-use crate::overview_page::inference_latency;
+use crate::tools::inference_profile::{InferenceStats, PerModelInferenceStats, RequestDetail};
+use crate::tools::overview_page::inference_latency;
 
 const MAX_ERROR: f64 = 0.0001;
 

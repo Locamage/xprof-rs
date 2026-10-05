@@ -1,8 +1,8 @@
 use super::hlo_fixture::{hlo_proto, module};
 use crate::hlo::Module;
+use crate::hlo::text::{Printer, Style, block_scaling_config_text};
 use crate::hlo::xla::BlockScalingConfig;
 use crate::hlo::xla::block_scaling_config::TensorBlockScalingConfig;
-use crate::hlo_text::{Printer, Style, block_scaling_config_text};
 use std::borrow::Cow;
 
 const CONVOLUTION: &str = r#"

@@ -1,6 +1,6 @@
 use super::xspace::{V, XPlane, XSpace};
-use crate::counter_ids::{V6E_IDS, V7X_IDS};
-use crate::counters::{kernel_utilization, utilization_viewer};
+use crate::tools::counter_ids::{V6E_IDS, V7X_IDS};
+use crate::tools::counters::{kernel_utilization, utilization_viewer};
 use prost::Message;
 use serde_json::Value;
 

@@ -1,4 +1,4 @@
-use crate::gpu_cost::tests::{analyze, computation, inst, parameter, shape};
+use crate::hlo::cost::tests::{analyze, computation, inst, parameter, shape};
 use crate::hlo::xla::{HloInstructionProto, ShapeProto};
 
 const S8: i32 = 2;

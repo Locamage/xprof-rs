@@ -1,5 +1,5 @@
 use super::hlo_fixture::{hlo_proto, module};
-use crate::memory_viewer::render;
+use crate::hlo::memory::render;
 
 const SMALL_BUFFER: i64 = 16 * 1024;
 

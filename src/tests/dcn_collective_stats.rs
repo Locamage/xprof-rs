@@ -1,5 +1,5 @@
 use super::xspace::XSpace;
-use crate::megascale::{json, table};
+use crate::tools::megascale::{json, table};
 use prost::Message;
 use std::path::PathBuf;
 
@@ -30,7 +30,7 @@ fn create_session_snapshot(test_name: &str, has_dcn_collective_stats: bool) -> S
 }
 
 fn has_dcn_collective_stats_in_multi_x_space(session_snapshot: &SessionSnapshot) -> bool {
-    crate::run_tools::tools(&std::fs::read(&session_snapshot.path).unwrap()).unwrap().contains(&"megascale_stats")
+    crate::server::run_tools::tools(&std::fs::read(&session_snapshot.path).unwrap()).unwrap().contains(&"megascale_stats")
 }
 
 #[test]

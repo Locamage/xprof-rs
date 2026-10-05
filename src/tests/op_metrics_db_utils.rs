@@ -1,5 +1,5 @@
 use super::xspace::{XSpace, assert_db};
-use crate::opstats::{Builder, Db, EventReader, templates};
+use crate::tools::opstats::{Builder, Db, EventReader, templates};
 
 fn build(space: &XSpace, tensor_core: bool) -> Db {
     let (map, planes) = space.parsed();

@@ -1,7 +1,7 @@
 #![allow(clippy::needless_raw_string_hashes)]
 
 use crate::hlo::Module;
-use crate::hlo_text::{Printer, Style};
+use crate::hlo::text::{Printer, Style};
 use std::borrow::Cow;
 
 fn module_string(fixture: &[u8], style: Style) -> String {
@@ -36,7 +36,7 @@ macro_rules! corpus {
 }
 
 mod hlo_parser_test_long {
-    use crate::hlo_text::Style;
+    use crate::hlo::text::Style;
 
     corpus! {
     "long", Style::Long,
@@ -1055,7 +1055,7 @@ ENTRY %constant_pred () -> pred[] {
 }
 
 mod hlo_parser_test_short {
-    use crate::hlo_text::Style;
+    use crate::hlo::text::Style;
 
     corpus! {
     "short", Style::Short,
@@ -1776,7 +1776,7 @@ ENTRY Scan {
 }
 
 mod hlo_non_roundtrip_parser_test {
-    use crate::hlo_text::Style;
+    use crate::hlo::text::Style;
 
     corpus! {
     "nonroundtrip", Style::Short,
@@ -1876,7 +1876,7 @@ ENTRY test {
 
 mod hlo_parser_test_printing {
     use crate::hlo::Module;
-    use crate::hlo_text::{Printer, Style};
+    use crate::hlo::text::{Printer, Style};
     use std::borrow::Cow;
     use std::sync::LazyLock;
 

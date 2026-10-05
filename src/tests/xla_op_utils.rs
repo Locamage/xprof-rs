@@ -1,4 +1,4 @@
-use crate::gpu::tf_op_fullname;
+use crate::xplane::gpu::tf_op_fullname;
 
 #[test]
 fn tf_op_fullname_test() {

@@ -1,8 +1,8 @@
 use super::xspace::{V, XPlane, XSpace, grouped};
-use crate::derive::derive_gpu;
-use crate::opstats::templates;
-use crate::steps::{HOST_WAIT_INPUT, SPARSE_CORE_START, Span, StepEvents, device_plane, gpu_device, host_steps};
+use crate::tools::opstats::templates;
 use crate::xplane::Plane;
+use crate::xplane::derive::derive_gpu;
+use crate::xplane::steps::{HOST_WAIT_INPUT, SPARSE_CORE_START, Span, StepEvents, device_plane, gpu_device, host_steps};
 
 const TFRT_TPU_RUNTIME: i64 = 7;
 

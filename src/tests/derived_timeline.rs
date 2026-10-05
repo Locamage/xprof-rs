@@ -1,5 +1,5 @@
 use super::xspace::{V, XSpace};
-use crate::derive::{derive, derive_gpu, is_tensor_core};
+use crate::xplane::derive::{derive, derive_gpu, is_tensor_core};
 use crate::xplane::{Ev, Line, NONE_GROUP, Plane};
 use std::collections::{BTreeMap, HashMap};
 

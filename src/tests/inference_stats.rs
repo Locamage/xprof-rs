@@ -1,6 +1,6 @@
 use super::xspace::{V, XSpace};
-use crate::group::{Metadata, Relatives};
-use crate::inference_profile::generate;
+use crate::tools::inference_profile::generate;
+use crate::xplane::group::{Metadata, Relatives};
 
 const GROUP_ID: i64 = 100;
 

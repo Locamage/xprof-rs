@@ -73,7 +73,7 @@ fn events_sharing_a_timestamp_beyond_the_serial_limit_are_dropped() {
 #[test]
 fn framework_op_names_parse_like_xprof() {
     let parsed = |full: &str| {
-        let op = framework_op_stats::parse_tf_op(full);
+        let op = tools::framework_op_stats::parse_tf_op(full);
         (op.known, op.name, op.kind)
     };
     let expect = |known: bool, name: &str, kind: &str| (known, name.to_string(), kind.to_string());
@@ -94,7 +94,7 @@ fn host_ops_split_self_time_and_idle_per_thread() {
     let line = [number(1, 7), bytes(2, b"worker"), host_event(1, 0, 10, "a/foo:foo"), host_event(2, 2, 3, "a/bar:bar"), host_event(3, 20, 0, "dummy")].concat();
     let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entries(4, &["outer", "inner", "MemoryAllocation"]), entry(5, 1, "tf_op")].concat();
     let space = bytes(1, &plane);
-    let (db, _) = framework_op_stats::host_db(&xplane::parse(&space).unwrap(), &space);
+    let (db, _) = tools::framework_op_stats::host_db(&xplane::parse(&space).unwrap(), &space);
     let rows: Vec<(&str, &str, u64, u64, u64)> =
         db.metrics.iter().map(|metrics| (metrics.name.as_str(), metrics.category.as_str(), metrics.occurrences, metrics.time_ps, metrics.self_time_ps)).collect();
     assert_eq!(rows, [("a/bar", "bar", 1, 3, 3), ("a/foo", "foo", 1, 10, 7), ("dummy", "", 1, 0, 0), ("IDLE", "IDLE", 0, 10, 10)]);
@@ -106,7 +106,7 @@ fn memory_profile_doubles_print_like_protobuf() {
     let printed: Vec<String> = [0.000401934, 2.33222e-05, 0.1 + 0.2, 0.0, 1e20, 123.0, 0.5 + 8.0 / 1048576.0, 1.1444091796875e-05]
         .map(|value| {
             let mut out = String::new();
-            op_profile::proto_double(&mut out, value);
+            tools::op_profile::proto_double(&mut out, value);
             out
         })
         .to_vec();
@@ -128,23 +128,23 @@ fn numbers_print_like_nlohmann_grisu2() {
         (2.1194219481587213e-6, "2.1194219481587212e-06"),
     ] {
         let mut out = String::new();
-        crate::table::number(&mut out, value);
+        crate::tools::table::number(&mut out, value);
         assert_eq!(out, expected);
     }
 }
 
 fn op_stats_of(space: &[u8]) -> std::sync::Arc<OpStats> {
-    crate::tests::with_file(space, opstats::load).unwrap()
+    crate::tests::with_file(space, tools::opstats::load).unwrap()
 }
 
 #[test]
 fn cpu_steps_come_from_host_step_markers() {
     let stats = op_stats_of(&annotated_space());
-    let pipeline = input_pipeline_analyzer::json(&stats);
+    let pipeline = tools::input_pipeline_analyzer::json(&stats);
     assert!(pipeline.starts_with("[{\"cols\":[],\"rows\":[]},"), "{pipeline}");
     assert!(pipeline.contains("{\"c\":[{\"v\":\"train 7\"},{\"v\":0.0},{\"v\":0.0},{\"v\":0.0},{\"v\":0.001},"), "{pipeline}");
     assert!(pipeline.contains("\"hardware_type\":\"CPU_ONLY\""), "{pipeline}");
-    let overview = overview_page::json(&stats, &[]);
+    let overview = tools::overview_page::json(&stats, &[]);
     assert!(overview.contains("\"device_type\":\"CPU\""), "{overview}");
     assert!(overview.contains("\"rows\":[]}, {},{\"cols\":[{\"id\":\"severity\""), "{overview}");
 }
@@ -161,7 +161,7 @@ fn op_profile_partial_sort_breaks_ties_like_libstdcxx() {
     let keys = [3, 1, 3, 2, 3, 1, 2, 3, 0];
     for (k, expected) in [(9, vec![7, 4, 0, 2, 3, 6, 1, 5, 8]), (4, vec![4, 0, 7, 2]), (1, vec![0])] {
         let mut items: Vec<usize> = (0..keys.len()).collect();
-        op_profile::partial_sort(&mut items, k, |a, b| keys[a] > keys[b]);
+        tools::op_profile::partial_sort(&mut items, k, |a, b| keys[a] > keys[b]);
         assert_eq!(items[..k], expected[..]);
     }
 }
@@ -213,7 +213,7 @@ fn fused_instructions_print_like_xla() {
     );
     let proto = bytes(1, &[bytes(1, b"jit_f"), fused, main].concat());
     let module = hlo::Module::parse(std::borrow::Cow::Owned(proto));
-    let printer = hlo_text::Printer::new(&module, hlo_text::Style::Expression, false);
+    let printer = hlo::text::Printer::new(&module, hlo::text::Style::Expression, false);
     let (add, fusion) = (module.find("add.1").unwrap(), module.find("fusion.1").unwrap());
     let expression = |node: usize| {
         let mut out = String::new();
@@ -229,11 +229,11 @@ fn fused_instructions_print_like_xla() {
 
 #[test]
 fn roofline_category_falls_back_to_opcode_names() {
-    let metrics = |name: &str, category: &str| opstats::Metrics { name: name.into(), category: category.into(), ..Default::default() };
-    assert_eq!(roofline::category(&metrics("copy", "")), "copy");
-    assert_eq!(roofline::category(&metrics("copy.1", "unknown")), "unknown");
-    assert_eq!(roofline::category(&metrics("x", "")), "unknown");
-    assert_eq!(roofline::category(&metrics("copy", "data formatting")), "data formatting");
+    let metrics = |name: &str, category: &str| tools::opstats::Metrics { name: name.into(), category: category.into(), ..Default::default() };
+    assert_eq!(tools::roofline::category(&metrics("copy", "")), "copy");
+    assert_eq!(tools::roofline::category(&metrics("copy.1", "unknown")), "unknown");
+    assert_eq!(tools::roofline::category(&metrics("x", "")), "unknown");
+    assert_eq!(tools::roofline::category(&metrics("copy", "data formatting")), "data formatting");
 }
 
 #[test]
@@ -246,7 +246,7 @@ fn std_sort_matches_libstdcxx_tie_order() {
         })
         .collect();
     let mut order: Vec<usize> = (0..60).collect();
-    memory_viewer::std_sort(&mut order, &|a, b| keys[a] > keys[b]);
+    hlo::memory::std_sort(&mut order, &|a, b| keys[a] > keys[b]);
     let expected = [
         34, 50, 37, 28, 7, 31, 35, 32, 9, 3, 2, 53, 38, 41, 16, 44, 36, 49, 42, 45, 11, 10, 56, 14, 40, 13, 27, 29, 8, 54, 58, 47, 48, 30, 59, 6, 25, 17, 24, 4, 20, 33, 51, 5, 19, 46, 43, 23, 39, 26,
         57, 55, 1, 12, 52, 15, 18, 21, 22, 0,
@@ -257,7 +257,7 @@ fn std_sort_matches_libstdcxx_tie_order() {
 #[test]
 fn memory_viewer_simulates_shared_buffers_like_xprof() {
     let proto = b"\x0a\xcc\x01\x0a\x03\x73\x79\x6e\x12\x04\x6d\x61\x69\x6e\x30\x01\x1a\xbc\x01\x0a\x04\x6d\x61\x69\x6e\x12\x24\x0a\x01\x70\x12\x09\x70\x61\x72\x61\x6d\x65\x74\x65\x72\x1a\x0c\x10\x0b\x1a\x02\x40\x40\x2a\x04\x0a\x02\x01\x00\x3a\x03\x12\x01\x78\x98\x02\x01\x12\x2b\x0a\x01\x61\x12\x03\x65\x78\x70\x1a\x0c\x10\x0b\x1a\x02\x40\x40\x2a\x04\x0a\x02\x01\x00\x3a\x0c\x12\x0a\x6a\x69\x74\x28\x66\x29\x2f\x65\x78\x70\x98\x02\x02\xa2\x02\x01\x01\x12\x2c\x0a\x01\x62\x12\x03\x6c\x6f\x67\x1a\x0d\x10\x0b\x1a\x03\x40\x80\x01\x2a\x04\x0a\x02\x01\x00\x3a\x0c\x12\x0a\x6a\x69\x74\x28\x66\x29\x2f\x6c\x6f\x67\x98\x02\x03\xa2\x02\x01\x02\x12\x2f\x0a\x01\x63\x12\x06\x6e\x65\x67\x61\x74\x65\x1a\x0d\x10\x0b\x1a\x03\x40\x80\x01\x2a\x04\x0a\x02\x01\x00\x3a\x0c\x12\x0a\x6a\x69\x74\x28\x66\x29\x2f\x6e\x65\x67\x98\x02\x04\xa2\x02\x01\x03\x28\x01\x30\x04\x1a\xa8\x01\x0a\x0a\x08\x0a\x10\x80\x80\x01\x1a\x02\x20\x01\x0a\x0a\x08\x0b\x10\x80\x80\x01\x1a\x02\x20\x02\x0a\x0a\x08\x0c\x10\x80\x80\x02\x1a\x02\x20\x03\x0a\x0a\x08\x0d\x10\x80\x80\x02\x1a\x02\x20\x04\x1a\x12\x08\x00\x10\x80\x80\x01\x28\x01\x4a\x08\x08\x0a\x10\x00\x18\x80\x80\x01\x1a\x28\x08\x01\x10\x80\x80\x04\x4a\x08\x08\x0b\x10\x00\x18\x80\x80\x01\x4a\x0a\x08\x0c\x10\x80\x80\x01\x18\x80\x80\x02\x4a\x0a\x08\x0d\x10\x80\x80\x01\x18\x80\x80\x02\x22\x38\x0a\x07\x08\x00\x10\x0b\x22\x01\x61\x0a\x07\x08\x00\x10\x0c\x22\x01\x62\x0a\x07\x08\x01\x10\x0b\x22\x01\x62\x0a\x09\x08\x02\x10\x0d\x22\x01\x63\x28\x0c\x0a\x07\x08\x01\x10\x0c\x22\x01\x63\x0a\x07\x08\x01\x10\x0d\x22\x01\x63";
-    let (body, kind) = memory_viewer::render(&hlo::Module::parse(std::borrow::Cow::Borrowed(proto)), 0, 16 * 1024, false).unwrap();
+    let (body, kind) = hlo::memory::render(&hlo::Module::parse(std::borrow::Cow::Borrowed(proto)), 0, 16 * 1024, false).unwrap();
     assert_eq!(kind, "application/json");
     assert_eq!(
         body,
@@ -267,20 +267,20 @@ fn memory_viewer_simulates_shared_buffers_like_xprof() {
 
 #[test]
 fn backend_configs_print_bare_only_when_they_lex_as_one_json_dict() {
-    assert!(hlo_text::lexes_as_json_dict("{\"a\":{\"b\":\"}\"}}"));
-    assert!(hlo_text::lexes_as_json_dict(" {\"x\":1}\n"));
-    assert!(!hlo_text::lexes_as_json_dict("{\"a\":1}}"));
-    assert!(!hlo_text::lexes_as_json_dict("x{}"));
-    assert!(!hlo_text::lexes_as_json_dict("{\"a"));
-    assert_eq!(hlo_text::frontend_attributes(&[("z", "1"), ("a", "{\"k\":2}")].map(|(key, value)| (key.to_string(), value.to_string())).into()), "{a={\"k\":2},z=\"1\"}");
+    assert!(hlo::text::lexes_as_json_dict("{\"a\":{\"b\":\"}\"}}"));
+    assert!(hlo::text::lexes_as_json_dict(" {\"x\":1}\n"));
+    assert!(!hlo::text::lexes_as_json_dict("{\"a\":1}}"));
+    assert!(!hlo::text::lexes_as_json_dict("x{}"));
+    assert!(!hlo::text::lexes_as_json_dict("{\"a"));
+    assert_eq!(hlo::text::frontend_attributes(&[("z", "1"), ("a", "{\"k\":2}")].map(|(key, value)| (key.to_string(), value.to_string())).into()), "{a={\"k\":2},z=\"1\"}");
 }
 
 #[test]
 fn iota_tile_assignments_print_canonicalized_like_xla() {
-    assert_eq!(hlo_text::iota_text(&[4, 1], &[4], &[0]), "[4,1]<=[4]");
-    assert_eq!(hlo_text::iota_text(&[60], &[3, 4, 5], &[1, 2, 0]), "[60]<=[3,20]T(1,0)");
-    assert_eq!(hlo_text::iota_text(&[60], &[3, 4, 5], &[0, 1, 2]), "[60]<=[60]");
-    assert_eq!(hlo_text::iota_text(&[60], &[1, 3, 1, 4, 1, 5], &[4, 3, 2, 5, 1, 0]), "[60]<=[3,20]T(1,0)");
+    assert_eq!(hlo::text::iota_text(&[4, 1], &[4], &[0]), "[4,1]<=[4]");
+    assert_eq!(hlo::text::iota_text(&[60], &[3, 4, 5], &[1, 2, 0]), "[60]<=[3,20]T(1,0)");
+    assert_eq!(hlo::text::iota_text(&[60], &[3, 4, 5], &[0, 1, 2]), "[60]<=[60]");
+    assert_eq!(hlo::text::iota_text(&[60], &[1, 3, 1, 4, 1, 5], &[4, 3, 2, 5, 1, 0]), "[60]<=[3,20]T(1,0)");
 }
 
 pub fn same(a: &serde_json::Value, b: &serde_json::Value) -> bool {
@@ -310,12 +310,12 @@ fn demo_trace_matches_xprof_outputs() {
     let demo = include_bytes!("../../tests/data/demo.xplane.pb");
     let stats = op_stats_of(demo);
     let tools: [(&str, &str, String); 7] = [
-        ("hlo_stats", include_str!("../../tests/data/hlo_stats.json"), hlo_stats::json(&stats)),
-        ("framework_op_stats", include_str!("../../tests/data/framework_op_stats.json"), framework_op_stats::json(&stats)),
-        ("overview_page", include_str!("../../tests/data/overview_page.json"), overview_page::json(&stats, &[])),
-        ("input_pipeline_analyzer", include_str!("../../tests/data/input_pipeline_analyzer.json"), input_pipeline_analyzer::json(&stats)),
-        ("roofline_model", include_str!("../../tests/data/roofline_model.json"), roofline::json(&stats)),
-        ("op_profile", include_str!("../../tests/data/op_profile.json"), op_profile::json(&stats, None)),
+        ("hlo_stats", include_str!("../../tests/data/hlo_stats.json"), tools::hlo_stats::json(&stats)),
+        ("framework_op_stats", include_str!("../../tests/data/framework_op_stats.json"), tools::framework_op_stats::json(&stats)),
+        ("overview_page", include_str!("../../tests/data/overview_page.json"), tools::overview_page::json(&stats, &[])),
+        ("input_pipeline_analyzer", include_str!("../../tests/data/input_pipeline_analyzer.json"), tools::input_pipeline_analyzer::json(&stats)),
+        ("roofline_model", include_str!("../../tests/data/roofline_model.json"), tools::roofline::json(&stats)),
+        ("op_profile", include_str!("../../tests/data/op_profile.json"), tools::op_profile::json(&stats, None)),
         ("memory_profile", include_str!("../../tests/data/memory_profile.json"), stats.memory.clone()),
     ];
     for (name, golden, produced) in tools {
@@ -348,7 +348,7 @@ fn csv_numbers_print_like_python_repr() {
         (f64::NEG_INFINITY, "-inf"),
         (f64::NAN, "nan"),
     ] {
-        assert_eq!(crate::table::repr(value), expected);
+        assert_eq!(crate::tools::table::repr(value), expected);
     }
 }
 
@@ -376,8 +376,8 @@ fn layouts_print_every_section_like_xla() {
 
 #[test]
 fn backend_config_lexer_skips_comments() {
-    assert!(hlo_text::lexes_as_json_dict("/* c */ {\"a\":1} // tail"));
-    assert!(!hlo_text::lexes_as_json_dict("/* open {\"a\":1}"));
+    assert!(hlo::text::lexes_as_json_dict("/* c */ {\"a\":1} // tail"));
+    assert!(!hlo::text::lexes_as_json_dict("/* open {\"a\":1}"));
 }
 
 fn text_stat(id: u64, value: &str) -> Vec<u8> {
@@ -442,23 +442,23 @@ fn gpu_kernels_join_their_launch_step_and_derive_stream_lines() {
 #[test]
 fn tf_op_categories_follow_parse_tf_op_fullname() {
     let cases = [
-        ("model/dense/MatMul_1:", derive::Category::TensorFlow, "model/dense/MatMul_1", "MatMul", "MatMul", vec!["model", "dense"]),
-        ("jit(f)/dot_general[x=1]:", derive::Category::Jax, "jit(f)/dot_general[x=1]", "dot_general", "dot_general", vec!["jit(f)"]),
-        ("Iterator::Batch::Map:", derive::Category::TfData, "Iterator::Batch::Map:", "Dataset", "Iterator::Map:", vec![]),
-        ("MemcpyHToD", derive::Category::Memcpy, "MemcpyHToD", "MemcpyHToD", "MemcpyHToD", vec![]),
-        (":", derive::Category::TensorFlow, "", "", "", vec![]),
-        ("$threading.py:323 wait ", derive::Category::Unknown, "$threading.py:323 wait ", "", "$threading.py:323 wait", vec![]),
+        ("model/dense/MatMul_1:", xplane::derive::Category::TensorFlow, "model/dense/MatMul_1", "MatMul", "MatMul", vec!["model", "dense"]),
+        ("jit(f)/dot_general[x=1]:", xplane::derive::Category::Jax, "jit(f)/dot_general[x=1]", "dot_general", "dot_general", vec!["jit(f)"]),
+        ("Iterator::Batch::Map:", xplane::derive::Category::TfData, "Iterator::Batch::Map:", "Dataset", "Iterator::Map:", vec![]),
+        ("MemcpyHToD", xplane::derive::Category::Memcpy, "MemcpyHToD", "MemcpyHToD", "MemcpyHToD", vec![]),
+        (":", xplane::derive::Category::TensorFlow, "", "", "", vec![]),
+        ("$threading.py:323 wait ", xplane::derive::Category::Unknown, "$threading.py:323 wait ", "", "$threading.py:323 wait", vec![]),
     ];
     for (full, category, name, kind, event_name, scopes) in cases {
-        let op = derive::tf_op(full);
+        let op = xplane::derive::tf_op(full);
         assert_eq!((op.category, op.name, op.kind, op.event_name(), op.scopes()), (category, name, kind, event_name.to_string(), scopes), "{full}");
     }
 }
 
 #[test]
 fn run_tools_list_kernel_stats_only_for_gpu_profiles_and_nothing_for_corrupt_files() {
-    assert_eq!(run_tools::tools(&gpu_space()).unwrap()[8..], ["kernel_stats"]);
-    assert!(run_tools::tools(&[bytes(1, &bytes(2, b"/host:CPU")), vec![0x0a, 0xff, 0x7f]].concat()).is_none());
+    assert_eq!(server::run_tools::tools(&gpu_space()).unwrap()[8..], ["kernel_stats"]);
+    assert!(server::run_tools::tools(&[bytes(1, &bytes(2, b"/host:CPU")), vec![0x0a, 0xff, 0x7f]].concat()).is_none());
 }
 
 #[test]
@@ -487,7 +487,7 @@ fn cpu_input_waits_come_from_iterator_ops_and_pipeline_stage_roots() {
     let staged = bytes(4, &[number(1, 3), number(2, 5_000_000), number(3, 2_000_000), bytes(4, &[number(1, 3), bytes(5, b"stage")].concat())].concat());
     let line = [number(1, 1), bytes(2, b"python"), event(1, 1_000_000, 10_000_000, &[(1, 1), (2, 7)]), event(2, 2_000_000, 1_000_000, &[]), staged, event(4, 8_000_000, 1_000_000, &[])].concat();
     let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entries(4, &["train", "IteratorGetNext", "stage", "inner"]), entries(5, &["_r", "step_num", "_ipl_stage_name"])].concat();
-    let pipeline = input_pipeline_analyzer::json(&op_stats_of(&bytes(1, &plane)));
+    let pipeline = tools::input_pipeline_analyzer::json(&op_stats_of(&bytes(1, &plane)));
     assert!(pipeline.contains("{\"c\":[{\"v\":\"train 7\"},{\"v\":0.0},{\"v\":0.0},{\"v\":0.0},{\"v\":0.001},{\"v\":0.0},{\"v\":0.003},"), "{pipeline}");
     assert!(pipeline.contains("Your program is HIGHLY input-bound because 30.0% of the total step time"), "{pipeline}");
 }
@@ -715,8 +715,8 @@ async fn caches_keep_entries_heavier_than_the_budget_and_count_tiny_ones() {
 #[test]
 fn graph_html_escapes_the_dot_inside_its_template_literal() {
     let plain = "digraph G {\nlabel = <<b>fusion.1</b>>;\n}";
-    assert!(graph_viewer::wrap_dot_html(plain, "dot").contains(&format!("const data = `{plain}`;")));
-    let hostile = graph_viewer::wrap_dot_html("a`b${c}\\d</SCRIPT><!--", "dot");
+    assert!(hlo::graph::wrap_dot_html(plain, "dot").contains(&format!("const data = `{plain}`;")));
+    let hostile = hlo::graph::wrap_dot_html("a`b${c}\\d</SCRIPT><!--", "dot");
     assert!(hostile.contains("const data = `a\\`b\\${c}\\\\d<\\/SCRIPT><\\!--`;"), "{hostile}");
 }
 
@@ -755,7 +755,7 @@ fn command_line_errors_are_reported_not_panicked() {
 #[test]
 fn proto_json_strings_escape_like_protobuf() {
     let mut out = String::new();
-    pbtext::json_string(&mut out, "<a>\u{1}\u{7f}\n\"\u{2028}");
+    hlo::proto_text::json_string(&mut out, "<a>\u{1}\u{7f}\n\"\u{2028}");
     assert_eq!(out, "\"\\u003ca\\u003e\\u0001\\u007f\\n\\\"\\u2028\"");
 }
 
@@ -939,7 +939,7 @@ fn non_streaming_trace_viewer_matches_xprofs_json_stream() {
             })
             .collect::<Vec<_>>()
     };
-    assert_eq!(flow(&legacy_trace::render(&planes, &map)), flow(&golden));
+    assert_eq!(flow(&trace::legacy::render(&planes, &map)), flow(&golden));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

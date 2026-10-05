@@ -1,5 +1,5 @@
 use super::xspace::XSpace;
-use crate::event_fractions::{BARRIER_CORES, Fractions, accumulate, analyze};
+use crate::tools::event_fractions::{BARRIER_CORES, Fractions, accumulate, analyze};
 
 type Op = (i64, i64, u64);
 

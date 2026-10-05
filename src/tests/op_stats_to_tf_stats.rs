@@ -30,7 +30,7 @@ fn gpu_tf_stats() {
     add_tensor_flow_op_event(format!("{tf_op3}:{tf_op3}"), kernel4_start_ns, kernel4_duration_ns, "volta_fp16_s884gemm", Some(KERNEL_DETAILS), device_plane, 20);
     add_tensor_flow_op_event(format!("{tf_op3}:{tf_op3}"), kernel5_start_ns, kernel5_duration_ns, "kernel5", Some(KERNEL_DETAILS), device_plane, 20);
     let op_stats = op_stats(&[space]).unwrap();
-    let tf_stats: Value = serde_json::from_str(&crate::framework_op_stats::json(&op_stats)).unwrap();
+    let tf_stats: Value = serde_json::from_str(&crate::tools::framework_op_stats::json(&op_stats)).unwrap();
     let records: Vec<Vec<Value>> = tf_stats[0]["rows"].as_array().unwrap().iter().map(|row| row["c"].as_array().unwrap().iter().map(|cell| cell["v"].clone()).collect()).collect();
     assert_eq!(records.len(), 4);
     let (op_type, op_name, occurrences, total_self_time, gpu_tensorcore_utilization) = (2, 3, 4, 7, 17);

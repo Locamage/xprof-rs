@@ -1,5 +1,5 @@
 use super::{Error, Kind, fail, json::py_repr};
-use crate::opstats::{Kept, OpStats, load_kept};
+use crate::tools::opstats::{Kept, OpStats, load_kept};
 use crate::xplane::Plane;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -118,14 +118,14 @@ pub fn traces(dir: &Path) -> Vec<PathBuf> {
 }
 
 pub fn kernel_utilization<'a>(path: &Path, option: impl Fn(&str) -> Option<&'a str>) -> Option<String> {
-    let map = crate::read_file(path).ok().filter(|map| crate::counters::valid_space(map))?;
-    let filter = crate::counters::Filter {
+    let map = crate::read_file(path).ok().filter(|map| crate::tools::counters::valid_space(map))?;
+    let filter = crate::tools::counters::Filter {
         kernel: option("kernel").or(option("kernel_name")).unwrap_or_default().to_string(),
         duration_us: option("duration_us").and_then(|value| value.trim().parse().ok()).unwrap_or(0.0),
         force: option("force_duration").is_some_and(|value| matches!(value, "True" | "true" | "1" | "yes" | "t" | "y")),
         device: option("device_id").and_then(|value| value.trim().parse().ok()).unwrap_or(-1),
     };
-    Some(crate::counters::kernel_utilization(&map, &filter))
+    Some(crate::tools::counters::kernel_utilization(&map, &filter))
 }
 
 pub fn temp_dir() -> PathBuf {
@@ -150,7 +150,7 @@ pub struct Local {
 impl Local {
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
     fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> T {
-        if let Some(kept) = self.kept.read().unwrap().get(path).filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::gpu::PREFIX))) {
+        if let Some(kept) = self.kept.read().unwrap().get(path).filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))) {
             return read(&kept.planes, &kept.map);
         }
         let (map, planes) = crate::prepare(path, true);
@@ -173,7 +173,7 @@ impl Client for Local {
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
         let [path] = <[PathBuf; 1]>::try_from(self.xspace_paths(&self.run_dir(session).ok()?).ok()?).ok()?;
-        Some(self.prepared(&path, crate::legacy_trace::barrier_durations))
+        Some(self.prepared(&path, crate::trace::legacy::barrier_durations))
     }
 
     fn run_dir(&self, session: &str) -> Result<PathBuf, Error> {
@@ -233,23 +233,24 @@ impl Client for Local {
         let rendered = match name {
             "memory_profile" if paths.len() != 1 => return fail(Kind::Assertion, ""),
             "memory_profile" => stats(false).map(|stats| stats.memory.clone()),
-            "overview_page" => stats(false).map(|stats| crate::overview_page::json(&stats, &paths)),
-            "input_pipeline_analyzer" => stats(false).map(|stats| crate::input_pipeline_analyzer::json(&stats)),
-            "framework_op_stats" => stats(false).map(|stats| crate::framework_op_stats::json(&stats)),
-            "kernel_stats" => stats(false).map(|stats| crate::gpu::kernel_stats_json(&stats)),
-            "pod_viewer" => stats(false).map(|stats| crate::pod_viewer::json(&stats)),
-            "op_profile" => stats(true).map(|stats| crate::op_profile::json_trees(&stats, Some(option("group_by").unwrap_or("program")), false)),
-            "hlo_stats" => stats(true).map(|stats| crate::hlo_stats::json(&stats)),
-            "roofline_model" => stats(false).map(|stats| crate::roofline::json_rows(&stats, option(TOTAL_ONLY).is_some())),
-            "memory_viewer" => crate::memory_viewer::serve(&dir, &options).map(|(body, _)| body),
-            "graph_viewer" => return crate::graph_viewer::serve(&dir, &options).map(|(body, _)| Some(body)).map_err(|message| Error::new(Kind::Value, message)),
+            "overview_page" => stats(false).map(|stats| crate::tools::overview_page::json(&stats, &paths)),
+            "input_pipeline_analyzer" => stats(false).map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
+            "framework_op_stats" => stats(false).map(|stats| crate::tools::framework_op_stats::json(&stats)),
+            "kernel_stats" => stats(false).map(|stats| crate::xplane::gpu::kernel_stats_json(&stats)),
+            "pod_viewer" => stats(false).map(|stats| crate::tools::pod_viewer::json(&stats)),
+            "op_profile" => stats(true).map(|stats| crate::tools::op_profile::json_trees(&stats, Some(option("group_by").unwrap_or("program")), false)),
+            "hlo_stats" => stats(true).map(|stats| crate::tools::hlo_stats::json(&stats)),
+            "roofline_model" => stats(false).map(|stats| crate::tools::roofline::json_rows(&stats, option(TOTAL_ONLY).is_some())),
+            "memory_viewer" => crate::hlo::memory::serve(&dir, &options).map(|(body, _)| body),
+            "graph_viewer" => return crate::hlo::graph::serve(&dir, &options).map(|(body, _)| Some(body)).map_err(|message| Error::new(Kind::Value, message)),
             "utilization_viewer" | "perf_counters" => {
                 // The process does not read or check a trace again after it read the trace one time.
-                let known = (name == "utilization_viewer" && paths.len() == 1).then(|| self.kept.read().unwrap().get(&paths[0]).map(|kept| crate::counters::utilization_viewer(&kept.map))).flatten();
-                known.or_else(|| crate::counters::serve(name, &paths))
+                let known =
+                    (name == "utilization_viewer" && paths.len() == 1).then(|| self.kept.read().unwrap().get(&paths[0]).map(|kept| crate::tools::counters::utilization_viewer(&kept.map))).flatten();
+                known.or_else(|| crate::tools::counters::serve(name, &paths))
             }
             "kernel_utilization" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| kernel_utilization(&path, option)),
-            "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone()).ok().map(|[path]| self.prepared(&path, crate::legacy_trace::render)),
+            "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone()).ok().map(|[path]| self.prepared(&path, crate::trace::legacy::render)),
             _ => None,
         };
         Ok(rendered.map(String::into_bytes))

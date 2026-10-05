@@ -1,6 +1,6 @@
-use crate::input_pipeline_analyzer::{HOST_TRANSFER, SC_COMPUTE, SCV0_COMPUTE, SCV0_INFEED, TC_COMPUTE, TC_IDLE, TC_INFEED, TC_OUTFEED, tpu_step_details};
-use crate::opstats::{Db, IDLE, Metrics};
-use crate::steps::{Breakdown, Core, Extra, SPARSE_CORE_START, StepInfo, StepRecord, fix};
+use crate::tools::input_pipeline_analyzer::{HOST_TRANSFER, SC_COMPUTE, SCV0_COMPUTE, SCV0_INFEED, TC_COMPUTE, TC_IDLE, TC_INFEED, TC_OUTFEED, tpu_step_details};
+use crate::tools::opstats::{Db, IDLE, Metrics};
+use crate::xplane::steps::{Breakdown, Core, Extra, SPARSE_CORE_START, StepInfo, StepRecord, fix};
 use std::collections::{BTreeMap, HashMap};
 
 const STEP_NUM: u32 = 1;

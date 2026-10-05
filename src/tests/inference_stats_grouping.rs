@@ -1,5 +1,5 @@
 use super::xspace::{inference_stats, tensor_transfer};
-use crate::inference_profile::regroup;
+use crate::tools::inference_profile::regroup;
 
 #[test]
 fn test_with_model_id() {

@@ -1,4 +1,4 @@
-use crate::table::{Cell, Table};
+use crate::tools::table::{Cell, Table};
 
 const COLUMNS: [(&str, &str, &str); 7] = [
     ("rank", "number", "Rank"),

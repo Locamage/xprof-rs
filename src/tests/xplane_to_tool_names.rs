@@ -1,5 +1,5 @@
 use super::xspace::XSpace;
-use crate::run_tools::tools;
+use crate::server::run_tools::tools;
 use prost::Message;
 
 const BASE_TOOLS: [&str; 8] = ["trace_viewer@", "overview_page", "input_pipeline_analyzer", "framework_op_stats", "memory_profile", "op_profile", "hlo_stats", "roofline_model"];

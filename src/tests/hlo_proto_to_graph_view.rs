@@ -1,4 +1,4 @@
-use crate::graph_viewer::serve;
+use crate::hlo::graph::serve;
 use flate2::read::GzDecoder;
 use std::collections::HashMap;
 use std::io::Read;

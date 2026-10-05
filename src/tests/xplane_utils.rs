@@ -1,5 +1,5 @@
 use super::xspace::XSpace;
-use crate::derive::is_grouped;
+use crate::xplane::derive::is_grouped;
 
 fn plane_with_events(space: &mut XSpace, name: &str, events: &[(i64, &str)]) {
     let plane = space.add_plane();

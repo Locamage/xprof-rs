@@ -1,5 +1,5 @@
 use super::op_stats_to_pod_viewer::{check_record, create_op_stats};
-use crate::pod_viewer::render;
+use crate::tools::pod_viewer::render;
 use serde_json::Value;
 
 #[test]

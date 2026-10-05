@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
     let mut pool = DescriptorPool::global();
-    pool.decode_file_descriptor_set(&include_bytes!("../hlo_descriptors.pb")[..]).unwrap();
+    pool.decode_file_descriptor_set(&include_bytes!("../data/hlo_descriptors.pb")[..]).unwrap();
     pool
 });
 static DIRS: AtomicUsize = AtomicUsize::new(0);

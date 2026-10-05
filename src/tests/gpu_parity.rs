@@ -76,7 +76,7 @@ fn graph_viewer_renders_real_gpu_modules_and_backend_configs_like_xprof() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/gpu/hlo");
     for case in recorded(include_bytes!("../../tests/data/gpu/hlo/expected.json.gz")) {
         let params = params(&case);
-        let body = String::from_utf8(crate::graph_viewer::serve(&dir, &params).unwrap().0).unwrap();
+        let body = String::from_utf8(crate::hlo::graph::serve(&dir, &params).unwrap().0).unwrap();
         let expected = case["body"].as_str().unwrap();
         if params["type"] == "graph" {
             assert_eq!(canonical_graph(&body), canonical_graph(expected), "{params:?}");

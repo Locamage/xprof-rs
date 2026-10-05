@@ -1,4 +1,4 @@
-use crate::utilization::{Counters, count};
+use crate::tools::utilization::{Counters, count};
 
 #[test]
 fn basic_functionality() {

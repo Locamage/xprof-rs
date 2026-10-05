@@ -1,5 +1,5 @@
-use crate::derive::{Category, Category::*, tf_op};
-use crate::framework_op_stats::parse_tf_op;
+use crate::tools::framework_op_stats::parse_tf_op;
+use crate::xplane::derive::{Category, Category::*, tf_op};
 
 fn check(full: &str, category: Category, name: &str, kind: &str, event_name: &str) {
     let op = tf_op(full);

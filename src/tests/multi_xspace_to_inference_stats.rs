@@ -1,6 +1,6 @@
 use super::xspace::{V, XSpace};
-use crate::group::{Metadata, Relatives};
-use crate::inference_profile::{InferenceStats, PerModelInferenceStats, SampledPerModelInferenceStats, generate, load, tables};
+use crate::tools::inference_profile::{InferenceStats, PerModelInferenceStats, SampledPerModelInferenceStats, generate, load, tables};
+use crate::xplane::group::{Metadata, Relatives};
 use prost::Message;
 use serde_json::Value;
 

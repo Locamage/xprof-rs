@@ -1,6 +1,6 @@
 use super::legacy::same;
 use super::xspace::{V, XSpace};
-use crate::json::{View, micros, quoted, render, write_event};
+use crate::trace::json::{View, micros, quoted, render, write_event};
 use crate::trace::{Event, FLOW_END, FLOW_MID, FLOW_START, NONE_FLOW, NONE_RESOURCE, Options, Trace};
 use crate::xplane::NONE_GROUP;
 use std::collections::{BTreeMap, HashMap, HashSet};

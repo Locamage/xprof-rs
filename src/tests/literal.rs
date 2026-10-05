@@ -1,5 +1,5 @@
 use crate::hlo::Module;
-use crate::hlo_text::{Printer, Style};
+use crate::hlo::text::{Printer, Style};
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
