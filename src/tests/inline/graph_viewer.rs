@@ -117,3 +117,33 @@ fn annotate_called_computations_parameters_tuple() {
     let graph = render_graph(&graph_dumper_module("annotate_called_computations_parameters_tuple"), "command_buffer", "command buffer");
     assert!(graph.contains("<b>Parameter 0</b><br/><i>from tuple.1 in the ENTRY computation</i>"));
 }
+
+fn built_module(computations: Vec<crate::hlo::xla::HloComputationProto>) -> Module<'static> {
+    use crate::hlo::xla::{HloModuleProto, HloProto, ProgramShapeProto};
+    use prost::Message;
+    let entry_computation_id = computations.last().unwrap().id;
+    let proto = HloProto {
+        hlo_module: Some(HloModuleProto { name: "test".into(), entry_computation_id, computations, host_program_shape: Some(ProgramShapeProto::default()), ..Default::default() }),
+        ..Default::default()
+    };
+    let module = Module::parse(std::borrow::Cow::Owned(proto.encode_to_vec()));
+    assert!(module.valid);
+    module
+}
+
+#[test]
+fn instructions_with_missing_operands_or_computations() {
+    use crate::gpu_cost::tests::{computation, inst, parameter, shape};
+    use crate::hlo::xla::HloInstructionProto;
+    let f32 = || shape(11, &[2]);
+    let gte = built_module(vec![computation(1, vec![inst(1, "get-tuple-element", f32(), &[]), inst(2, "negate", f32(), &[1])])]);
+    assert!(render(&gte, "negate.2", 3, false, true, "dot").is_ok());
+    let fusion = built_module(vec![computation(1, vec![parameter(1, 0, f32())]), computation(2, vec![inst(3, "fusion", f32(), &[])])]);
+    assert!(render(&fusion, "fusion.3", 3, false, true, "dot").is_ok());
+    let fused = HloInstructionProto { called_computation_ids: vec![1], ..inst(4, "fusion", f32(), &[]) };
+    let fused = built_module(vec![computation(1, vec![parameter(1, 0, f32()), inst(2, "negate", f32(), &[1])]), computation(2, vec![fused])]);
+    assert!(render(&fused, "computation.1", 3, false, true, "dot").is_ok());
+    let called = HloInstructionProto { called_computation_ids: vec![1], ..inst(4, "call", f32(), &[3]) };
+    let called = built_module(vec![computation(1, vec![parameter(1, 5, f32())]), computation(2, vec![parameter(3, 0, f32()), called])]);
+    assert!(render(&called, "computation.1", 3, false, true, "dot").is_ok());
+}

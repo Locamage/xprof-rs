@@ -213,7 +213,7 @@ fn canonicalize_iota(dims: &mut Vec<i64>, perm: &mut Vec<i64>) {
         for index in 1..dims.len() {
             let (base_dim, dim) = (perm[base] as usize, perm[index] as usize);
             if base_dim + (index - base) == dim {
-                dims[base_dim] *= dims[dim];
+                dims[base_dim] = dims[base_dim].wrapping_mul(dims[dim]);
                 dims[dim] = 1;
                 changed = true;
             } else {
@@ -250,8 +250,8 @@ pub fn block_scaling_config_text(config: &xla::BlockScalingConfig) -> String {
     [config.lhs.as_ref().map(|lhs| side("lhs", lhs)), config.rhs.as_ref().map(|rhs| side("rhs", rhs))].into_iter().flatten().join(" ")
 }
 
-pub fn iota_text(dims: &[i64], reshape: &[i64], perm: &[i64]) -> String {
-    let (mut reshape, mut perm) = (reshape.to_vec(), perm.to_vec());
+pub fn iota_text<T: Copy + Into<i64>>(dims: &[i64], reshape: &[i64], perm: &[T]) -> String {
+    let (mut reshape, mut perm) = (reshape.to_vec(), perm.iter().map(|&dim| dim.into()).collect());
     canonicalize_iota(&mut reshape, &mut perm);
     if reshape.is_empty() {
         reshape = vec![1];
@@ -278,7 +278,7 @@ pub(crate) fn separate(out: &mut String, index: usize, interval: usize) {
 
 fn dim_labels(numbers: &xla::ConvolutionDimensionNumbers) -> String {
     let labels = |batch: i64, feature: i64, spatial: &[i64], letters: [&str; 2]| {
-        let length = (batch.max(feature).max(spatial.iter().copied().max().unwrap_or(0)) + 1).clamp(0, MAX_RANK as i64);
+        let length = batch.max(feature).max(spatial.iter().copied().max().unwrap_or(0)).wrapping_add(1).clamp(0, MAX_RANK as i64);
         let mut out = vec!["?".to_string(); length as usize];
         let labels = [(batch, letters[0].to_string()), (feature, letters[1].to_string())].into_iter().chain(spatial.iter().enumerate().map(|(index, &dimension)| (dimension, index.to_string())));
         for (dimension, label) in labels {
@@ -390,11 +390,7 @@ fn replica_groups(inst: &Inst) -> String {
     match &inst.replica_group_list {
         Some(ReplicaGroupList::IotaCollectiveDeviceList(list)) => {
             let dims = [list.num_replica_groups, list.num_devices_per_group];
-            if list.iota_reshape_dims.is_empty() {
-                iota_text(&dims, &[dims[0] * dims[1]], &[0])
-            } else {
-                iota_text(&dims, &list.iota_reshape_dims, &list.iota_transpose_perm.iter().map(|&value| i64::from(value)).collect::<Vec<_>>())
-            }
+            if list.iota_reshape_dims.is_empty() { iota_text(&dims, &[dims[0].wrapping_mul(dims[1])], &[0]) } else { iota_text(&dims, &list.iota_reshape_dims, &list.iota_transpose_perm) }
         }
         Some(ReplicaGroupList::MeshAxesReplicaGroupList(list)) => mesh_groups(list),
         list => {
@@ -604,7 +600,7 @@ impl<'a> Printer<'a> {
                 if reshape.is_empty() {
                     write!(out, "[{}]{}", dims.iter().join(","), devices.iter().join(",")).unwrap();
                 } else {
-                    out.push_str(&iota_text(dims, reshape, &sharding.iota_transpose_perm.iter().map(|&value| i64::from(value)).collect::<Vec<_>>()));
+                    out.push_str(&iota_text(dims, reshape, &sharding.iota_transpose_perm));
                 }
                 if sharding.replicate_on_last_tile_dim {
                     out.push_str(" last_tile_dim_replicate");
@@ -762,17 +758,14 @@ impl<'a> Printer<'a> {
                     }
                 }
             }
-            "reverse" | "concatenate" | "reduce" | "transpose" | "broadcast" | "map" => attributes.push(format!("dimensions={{{}}}", dimensions.iter().join(","))),
-            "scan" => {
-                attributes.extend([format!("dimensions={{{}}}", dimensions.iter().join(",")), format!("num_carries={}", inst.num_carries)]);
-                flag(attributes, "is_reverse", inst.is_reverse);
-                if inst.is_associative != 0 {
-                    attributes.push(format!("is_associative={}", inst.is_associative == 1));
-                }
-            }
-            "sort" => {
+            "reverse" | "concatenate" | "reduce" | "transpose" | "broadcast" | "map" | "scan" | "sort" => {
                 attributes.push(format!("dimensions={{{}}}", dimensions.iter().join(",")));
-                flag(attributes, "is_stable", inst.is_stable);
+                if opcode == "scan" {
+                    attributes.push(format!("num_carries={}", inst.num_carries));
+                    flag(attributes, "is_reverse", inst.is_reverse);
+                    attributes.extend((inst.is_associative != 0).then(|| format!("is_associative={}", inst.is_associative == 1)));
+                }
+                flag(attributes, "is_stable", opcode == "sort" && inst.is_stable);
             }
             "reshape" if !dimensions.is_empty() && dimensions[0] != -1 => attributes.push(format!("inferred_dimension={}", dimensions[0])),
             "slice" => {
@@ -1035,15 +1028,9 @@ impl<'a> Printer<'a> {
         }
         write!(out, "{} ", self.graph_name(graph)).unwrap();
         if self.style != Style::Short {
-            out.push('(');
-            for (index, &parameter) in entry.parameters.iter().enumerate() {
-                if index > 0 {
-                    out.push_str(", ");
-                }
-                let name = &module.nodes[parameter].name;
-                write!(out, "{}: {}", if name.is_empty() { "(unknown)" } else { name }, module.nodes[parameter].shape.text(false)).unwrap();
-            }
-            write!(out, ") -> {} ", module.nodes[entry.root].shape.text(false)).unwrap();
+            let parameters = entry.parameters.iter().map(|&parameter| &module.nodes[parameter]);
+            let parameters = parameters.map(|node| format!("{}: {}", if node.name.is_empty() { "(unknown)" } else { &node.name }, node.shape.text(false)));
+            write!(out, "({}) -> {} ", parameters.format(", "), module.nodes[entry.root].shape.text(false)).unwrap();
         }
         out.push_str("{\n");
         for node in schedule.get(&graph).cloned().unwrap_or_else(|| self.module.post_order(graph)) {
@@ -1149,6 +1136,9 @@ impl<'a> Printer<'a> {
                 write!(out, "  {{{}}} : {{{}}}", original_array(&msg(&entry.old_original_array)), original_array(&msg(&entry.new_original_array))).unwrap();
                 if let Some(recovery) = &entry.recovery_module {
                     let recovery = Module::parse(Cow::Owned(xla::HloProto { hlo_module: Some(recovery.clone()), ..Default::default() }.encode_to_vec()));
+                    if !recovery.valid {
+                        return None;
+                    }
                     let text = Printer::new(&recovery, Style::Long, false).module_text()?;
                     let text = text.replace('\\', "\\\\").replace('"', "\\\"").lines().map(|line| if line.is_empty() { String::new() } else { format!("    {line}") }).join("\n");
                     write!(out, ",\n  \"\n{text}\n\n  \"").unwrap();
@@ -1162,12 +1152,7 @@ impl<'a> Printer<'a> {
         if !debug.is_empty() {
             let mut lines = debug.iter().map(|entry| {
                 let mut attributes = entry.debug_attributes.iter().map(|attribute| {
-                    let mode = match attribute.log_mode {
-                        0 => None,
-                        1 => Some("default"),
-                        2 => Some("fusion_debugger"),
-                        _ => Some(""),
-                    };
+                    let mode = [None, Some("default"), Some("fusion_debugger")].get(attribute.log_mode as usize).copied().unwrap_or(Some(""));
                     let parts = mode.map(|mode| format!("log_mode={mode}")).into_iter().chain((attribute.callback_id != 0).then(|| format!("callback_id={}", attribute.callback_id)));
                     let mut parts = parts.chain(attribute.partitioned.then(|| "partitioned=true".to_string())).chain((attribute.op_id != 0).then(|| format!("op_id={}", attribute.op_id)));
                     format!("{{{}}}", parts.join(","))

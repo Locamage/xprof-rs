@@ -318,13 +318,12 @@ pub struct Module<'a> {
 
 impl<'a> Module<'a> {
     pub fn post_order(&self, graph: usize) -> Vec<usize> {
-        let module = self;
-        let nodes = &module.graphs[graph].nodes;
+        let nodes = &self.graphs[graph].nodes;
         let first = nodes.first().copied().unwrap_or(0);
         let mut state = vec![0u8; nodes.len()];
         let mut order = Vec::with_capacity(nodes.len());
         let mut stack = Vec::new();
-        for &start in nodes.iter().filter(|&&start| module.nodes[start].users.is_empty()) {
+        for &start in nodes.iter().filter(|&&start| self.nodes[start].users.is_empty()) {
             stack.clear();
             if state[start - first] != 2 {
                 stack.push(start);
@@ -341,7 +340,7 @@ impl<'a> Module<'a> {
                         continue;
                     }
                 }
-                let entry = &module.nodes[current];
+                let entry = &self.nodes[current];
                 stack.extend(entry.operands.iter().rev().chain(&entry.predecessors).filter(|&&next| state[next - first] != 2));
             }
         }
@@ -548,15 +547,10 @@ impl<'a> Module<'a> {
         match self.nodes[node].opcode.as_str() {
             "fusion" => fusion_category(&self.inst(node).fusion_kind).to_string(),
             "convolution" => {
-                let inst = self.inst(node);
-                let mut category = "convolution".to_string();
-                if inst.window.iter().flat_map(|window| &window.dimensions).any(|dimension| dimension.base_dilation != 1) {
-                    category.push_str(" base-dilated");
-                }
-                if inst.window.iter().flat_map(|window| &window.dimensions).any(|dimension| dimension.window_dilation != 1) {
-                    category.push_str(" window-dilated");
-                }
-                category
+                let dimensions = self.inst(node).window.unwrap_or_default().dimensions;
+                let base = if dimensions.iter().any(|dimension| dimension.base_dilation != 1) { " base-dilated" } else { "" };
+                let window = if dimensions.iter().any(|dimension| dimension.window_dilation != 1) { " window-dilated" } else { "" };
+                format!("convolution{base}{window}")
             }
             "transpose" | "copy" | "reshape" | "dynamic-reshape" => "data formatting".to_string(),
             _ if self.is_elementwise(node) => "non-fusion elementwise".to_string(),

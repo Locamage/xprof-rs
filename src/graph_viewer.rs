@@ -211,23 +211,19 @@ impl Dumper<'_> {
         self.fusion_of(self.module.nodes[node].computation).is_some()
     }
 
+    fn fusion_operand(&self, node: usize) -> Option<usize> {
+        let entry = &self.module.nodes[node];
+        let fusion = self.fusion_of(entry.computation).filter(|_| entry.opcode == "parameter")?;
+        self.module.nodes[fusion].operands.get(entry.parameter as usize).copied()
+    }
+
     fn acf_parameter(&self, node: usize) -> bool {
         let module = self.module;
         let entry = &module.nodes[node];
-        if entry.opcode != "parameter" || entry.users.len() != 1 {
-            return false;
-        }
         let graph = entry.computation;
-        let Some(fusion) = self.fusion_of(graph) else { return false };
-        let Some(&operand) = module.nodes[fusion].operands.get(module.nodes[node].parameter as usize) else { return false };
-        if module.nodes[operand].opcode != "get-tuple-element" {
-            return false;
-        }
-        let tuple = module.nodes[operand].operands[0];
-        if module.nodes[tuple].opcode != "fusion" {
-            return false;
-        }
-        let fused = module.nodes[tuple].called[0];
+        let Some(operand) = self.fusion_operand(node).filter(|&operand| entry.users.len() == 1 && module.nodes[operand].opcode == "get-tuple-element") else { return false };
+        let Some(&tuple) = module.nodes[operand].operands.first().filter(|&&tuple| module.nodes[tuple].opcode == "fusion") else { return false };
+        let Some(&fused) = module.nodes[tuple].called.first() else { return false };
         let source = module.graphs[fused].root;
         let custom_call = |node: usize, target: &str| module.nodes[node].opcode == "custom-call" && module.inst(node).custom_call_target == target;
         let user = entry.users[0];
@@ -276,18 +272,17 @@ impl Dumper<'_> {
     }
 
     fn show_fusion(&self, node: usize) -> bool {
-        self.show_subcomputation(self.module.nodes[node].called[0])
+        self.module.nodes[node].called.first().is_some_and(|&graph| self.show_subcomputation(graph))
     }
 
     fn parameter_constant(&self, node: usize) -> Option<usize> {
-        let module = self.module;
-        let entry = &module.nodes[node];
-        if entry.opcode != "parameter" {
-            return None;
-        }
-        let fusion = self.fusion_of(entry.computation)?;
-        let &operand = module.nodes[fusion].operands.get(module.nodes[node].parameter as usize)?;
-        (module.nodes[operand].opcode == "constant").then_some(operand)
+        self.fusion_operand(node).filter(|&operand| self.module.nodes[operand].opcode == "constant")
+    }
+
+    fn tuple_element(&self, node: usize) -> String {
+        let (module, entry) = (self.module, &self.module.nodes[node]);
+        let tuple = entry.operands.first().map_or("", |&tuple| module.nodes[tuple].name.as_str());
+        format!("tuple-element {} of {tuple} {}", module.inst(node).tuple_index, entry.shape.text(true))
     }
 
     fn merge_into_users(&self, node: usize) -> bool {
@@ -305,8 +300,8 @@ impl Dumper<'_> {
 
     fn node_for_edge(&self, mut node: usize) -> usize {
         let module = self.module;
-        if module.nodes[node].opcode == "get-tuple-element" {
-            node = module.nodes[node].operands[0];
+        if let Some(&operand) = module.nodes[node].operands.first().filter(|_| module.nodes[node].opcode == "get-tuple-element") {
+            node = operand;
         }
         while module.nodes[node].opcode == "fusion" && self.show_fusion(node) {
             node = module.graphs[module.nodes[node].called[0]].root;
@@ -396,26 +391,25 @@ impl Dumper<'_> {
         let mut lines = Vec::new();
         let graph = entry.computation;
         let calls: Vec<usize> = self.callers[graph].iter().copied().filter(|&caller| module.nodes[caller].opcode == "call").collect();
-        if calls.len() == 1 && entry.opcode == "parameter" {
-            let mut producer = module.nodes[calls[0]].operands[module.nodes[node].parameter as usize];
-            let mut indices = Vec::new();
+        if let [call] = calls[..]
+            && entry.opcode == "parameter"
+            && let Some(&start) = module.nodes[call].operands.get(entry.parameter as usize)
+        {
+            let (mut producer, mut indices) = (start, Vec::new());
             loop {
                 let current = &module.nodes[producer];
-                match current.opcode.as_str() {
-                    "bitcast" | "copy" => producer = current.operands[0],
-                    "get-tuple-element" => {
+                let element = indices.last().and_then(|&index| current.operands.get(index as usize));
+                match (current.opcode.as_str(), current.operands.first(), current.called.first()) {
+                    ("bitcast" | "copy", Some(&operand), _) => producer = operand,
+                    ("get-tuple-element", Some(&operand), _) => {
                         indices.push(module.inst(producer).tuple_index);
-                        producer = current.operands[0];
+                        producer = operand;
                     }
-                    "tuple" if !indices.is_empty() => {
-                        let index = *indices.last().unwrap() as usize;
-                        if index >= current.operands.len() {
-                            break;
-                        }
-                        producer = current.operands[index];
+                    ("tuple", _, _) if let Some(&operand) = element => {
+                        producer = operand;
                         indices.pop();
                     }
-                    "call" => producer = module.graphs[current.called[0]].root,
+                    ("call", _, Some(&graph)) => producer = module.graphs[graph].root,
                     _ => break,
                 }
             }
@@ -481,7 +475,7 @@ impl Dumper<'_> {
                         Some(constant) => self.constant_text(constant, &module.nodes[constant].shape),
                         None => format!("Parameter {}", module.nodes[operand].parameter),
                     },
-                    "get-tuple-element" => format!("tuple-element {} of {} {}", module.inst(operand).tuple_index, module.nodes[other.operands[0]].name, other.shape.text(true)),
+                    "get-tuple-element" => self.tuple_element(operand),
                     _ => other.name.clone(),
                 })
             } else {
@@ -496,14 +490,8 @@ impl Dumper<'_> {
                 break;
             }
         }
-        if entry.opcode == "parameter"
-            && let Some(fusion) = self.fusion_of(entry.computation)
-        {
-            let index = module.nodes[fusion].operands[module.nodes[node].parameter as usize];
-            let input = &module.nodes[index];
-            if input.opcode == "get-tuple-element" {
-                lines.push(format!("tuple-element {} of {} {}", module.inst(index).tuple_index, module.nodes[input.operands[0]].name, input.shape.text(true)));
-            }
+        if let Some(input) = self.fusion_operand(node).filter(|&input| module.nodes[input].opcode == "get-tuple-element") {
+            lines.push(self.tuple_element(input));
         }
         lines.join("<br/>")
     }
@@ -570,9 +558,7 @@ impl Dumper<'_> {
         let inlined = self.inlined_operands(node);
         let trivial = self.trivial_text(node);
         if entry.opcode == "parameter" && self.fused(node) {
-            if entry.computation != self.computation {
-                let fusion = self.fusion_of(entry.computation).unwrap();
-                let input = module.nodes[fusion].operands[module.nodes[node].parameter as usize];
+            if let Some(input) = self.fusion_operand(node).filter(|_| entry.computation != self.computation) {
                 self.add_edge(input, node, 0, false, entry.operands.len());
             }
         } else {

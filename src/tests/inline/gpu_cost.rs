@@ -170,3 +170,24 @@ fn test4_bit_pricision() {
     assert_eq!(root.device_flops, root.model_flops / 4);
     assert!(root.device_flops > 0);
 }
+
+#[test]
+fn instructions_with_missing_operands_give_no_costs() {
+    assert_eq!(analyze(vec![computation(1, vec![inst(1, "dot", shape(F32, &[2]), &[])])]), None);
+    assert_eq!(analyze(vec![adder(1), computation(2, vec![HloInstructionProto { called_computation_ids: vec![1], ..inst(20, "scatter", shape(F32, &[2]), &[]) }])]), None);
+    assert_eq!(analyze(vec![computation(1, vec![inst(1, "dynamic-update-slice", shape(F32, &[2]), &[])])]), None);
+}
+
+#[test]
+fn reduce_window_with_a_padded_dimension_that_is_not_in_the_shape() {
+    use crate::hlo::xla::{Window, WindowDimension};
+    let reduce_window = |dimensions: Vec<WindowDimension>, output: &[i64]| {
+        let window = Some(Box::new(Window { dimensions }));
+        let reduce = HloInstructionProto { window, called_computation_ids: vec![1], ..inst(22, "reduce-window", shape(F32, output), &[20, 21]) };
+        analyze(vec![adder(1), computation(2, vec![parameter(20, 0, shape(F32, output)), parameter(21, 1, shape(F32, &[])), reduce])])
+    };
+    let unit = WindowDimension { size: 1, stride: 1, window_dilation: 1, base_dilation: 1, ..Default::default() };
+    let padded = |size: i64, padding: i64| WindowDimension { size, padding_low: padding, padding_high: padding, ..unit };
+    assert!(reduce_window(vec![unit, padded(3, 1)], &[4]).is_some());
+    assert!(reduce_window(vec![padded(-1, -1)], &[0]).is_some());
+}

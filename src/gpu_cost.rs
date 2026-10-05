@@ -86,14 +86,6 @@ impl Props {
     }
 }
 
-fn operand_bytes_key(operand: usize, index: &[i64]) -> Key {
-    Key::Operand(operand, index.to_vec())
-}
-
-fn output_key(index: &[i64]) -> Key {
-    Key::Output(index.to_vec())
-}
-
 pub(crate) fn bit_width(kind: i32) -> i64 {
     match kind {
         1 | 30 | 31 => 1,
@@ -209,11 +201,6 @@ fn cost_estimate(text: &str, key: &str) -> Option<i64> {
     None
 }
 
-#[allow(deprecated)]
-fn replica_groups(inst: &Inst) -> &[crate::hlo::xla::ReplicaGroup] {
-    &inst.replica_groups
-}
-
 fn json_dimensions(value: &serde_json::Value) -> Vec<i64> {
     value.as_array().map_or_else(Vec::new, |items| items.iter().filter_map(|item| item.as_i64().or_else(|| item.as_str().and_then(|text| text.parse().ok()))).collect())
 }
@@ -237,8 +224,8 @@ impl<'m> Context<'m> {
         &self.module.nodes[node].opcode
     }
 
-    fn operand(&self, node: usize, index: usize) -> usize {
-        self.module.nodes[node].operands[index]
+    fn operand(&self, node: usize, index: usize) -> Result<usize, String> {
+        self.module.nodes[node].operands.get(index).copied().ok_or_else(|| format!("missing operand for {}", self.module.nodes[node].name))
     }
 
     fn operands(&self, node: usize) -> &'m [usize] {
@@ -282,15 +269,12 @@ impl<'m> Context<'m> {
         left.dimensions == right.dimensions && left.is_dynamic_dimension == right.is_dynamic_dimension && left.is_array() == right.is_array() && layout(left) == layout(right)
     }
 
-    fn transpose_is_bitcast(&self, node: usize) -> bool {
-        let (input, output) = (self.shape(self.operand(node, 0)), self.shape(node));
-        let (Some(input_layout), Some(output_layout)) = (input.layout.as_ref(), output.layout.as_ref()) else { return false };
-        if input.element_type != output.element_type {
-            return false;
-        }
+    fn transpose_is_bitcast(&self, node: usize) -> Result<bool, String> {
+        let (input, output) = (self.shape(self.operand(node, 0)?), self.shape(node));
+        let (Some(input_layout), Some(output_layout)) = (input.layout.as_ref(), output.layout.as_ref()) else { return Ok(false) };
         let mapping = &self.inst(node).dimensions;
         let composed: Option<Vec<i64>> = output_layout.minor_to_major.iter().map(|&position| mapping.get(position as usize).copied()).collect();
-        composed.is_some_and(|composed| composed == input_layout.minor_to_major)
+        Ok(input.element_type == output.element_type && composed.is_some_and(|composed| composed == input_layout.minor_to_major))
     }
 }
 
@@ -328,17 +312,17 @@ impl<'c, 'm> Analysis<'c, 'm> {
     }
 
     fn set_output(&mut self, index: &[i64], value: f32) {
-        self.current.set(output_key(index), value);
+        self.current.set(Key::Output(index.to_vec()), value);
     }
 
     fn replace_output(&mut self, size: f32) {
-        *self.current.slot(Key::Bytes) -= self.current.get(&output_key(&[]));
+        *self.current.slot(Key::Bytes) -= self.current.get(&Key::Output(Vec::new()));
         *self.current.slot(Key::Bytes) += size;
         self.set_output(&[], size);
     }
 
     fn set_operand_bytes(&mut self, operand: usize, index: &[i64], value: f32) {
-        self.current.set(operand_bytes_key(operand, index), value);
+        self.current.set(Key::Operand(operand, index.to_vec()), value);
     }
 
     fn set_operand_utilization(&mut self, operand: usize, value: f32) {
@@ -475,22 +459,18 @@ impl<'c, 'm> Analysis<'c, 'm> {
             }
             "domain" | "after-all" | "add-dependency" => self.zero_outputs(node, false, true),
             "bitcast" => self.bitcast(),
-            "transpose" => {
-                if context.transpose_is_bitcast(node) {
-                    self.bitcast();
-                }
-            }
-            "slice" | "dynamic-slice" | "dynamic-update-slice" => self.slicing(node, opcode),
+            "transpose" if context.transpose_is_bitcast(node)? => self.bitcast(),
+            "slice" | "dynamic-slice" | "dynamic-update-slice" => self.slicing(node, opcode)?,
             "tuple" => self.transfers(shape_size(shape), &(0..context.operands(node).len()).map(|index| (index, 0)).collect::<Vec<_>>()),
             "concatenate" => {
                 let dimension = context.inst(node).dimensions.first().copied().unwrap_or(0);
-                let size = context.shape(context.operand(node, 0)).dimensions.get(dimension as usize).copied().unwrap_or(0);
+                let size = context.shape(context.operand(node, 0)?).dimensions.get(dimension as usize).copied().unwrap_or(0);
                 let per_element = if dimension > 0 && size & 31 != 0 { 400 } else { 6 };
                 self.current.set(Key::Flops, (per_element * shape.elements_recursive()) as f32);
             }
             "dot" | "scaled-dot" => {
                 let numbers = context.inst(node).dot_dimension_numbers.clone().unwrap_or_default();
-                self.current.set(Key::Flops, dot_flops(context.shape(context.operand(node, 0)), shape, &numbers.lhs_contracting_dimensions) as f32);
+                self.current.set(Key::Flops, dot_flops(context.shape(context.operand(node, 0)?), shape, &numbers.lhs_contracting_dimensions) as f32);
             }
             "ragged-dot" => {
                 let numbers = context.inst(node).ragged_dot_dimension_numbers.clone().unwrap_or_default();
@@ -501,7 +481,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
                     }
                 }
                 let lhs = numbers.dot_dimension_numbers.unwrap_or_default().lhs_contracting_dimensions;
-                self.current.set(Key::Flops, dot_flops(context.shape(context.operand(node, 0)), &result, &lhs) as f32);
+                self.current.set(Key::Flops, dot_flops(context.shape(context.operand(node, 0)?), &result, &lhs) as f32);
             }
             "infeed" | "outfeed" => self.feed(node, opcode),
             "map" => {
@@ -511,28 +491,28 @@ impl<'c, 'm> Analysis<'c, 'm> {
             "reduce" => self.reduce(node)?,
             "scan" => {
                 let sub = self.subcomputation(context.called(node, 0)?)?;
-                self.copy_scaled(&sub, context.shape(context.operand(node, 1)).elements(), false);
+                self.copy_scaled(&sub, context.shape(context.operand(node, 1)?).elements(), false);
             }
             "reduce-window" => self.reduce_window(node)?,
             "select-and-scatter" => {
                 let select = self.subcomputation(context.called(node, 0)?)?;
                 let scatter = self.subcomputation(context.called(node, 1)?)?;
-                let source = context.shape(context.operand(node, 1)).elements();
+                let source = context.shape(context.operand(node, 1)?).elements();
                 let window: i64 = context.inst(node).window.as_ref().map_or(1, |window| window.dimensions.iter().map(|dimension| dimension.size).product());
                 self.copy_scaled(&select, source * (window - 1), true);
                 self.copy_scaled(&scatter, source, true);
             }
             "convolution" => {
-                let flops = convolution_flops(context.inst(node), context.shape(context.operand(node, 0)), context.shape(context.operand(node, 1)), shape);
+                let flops = convolution_flops(context.inst(node), context.shape(context.operand(node, 0)?), context.shape(context.operand(node, 1)?), shape);
                 self.current.set(Key::Flops, flops as f32);
             }
             "fft" => {
-                let operand = context.shape(context.operand(node, 0));
+                let operand = context.shape(context.operand(node, 0)?);
                 let real = if operand.is_tuple() { operand.tuple_shapes.first().cloned().unwrap_or_default() } else { operand.clone() };
                 let factors: i64 = context.inst(node).fft_length.iter().map(|&length| log2_floor(length as u64)).product();
                 self.current.set(Key::Flops, (FMA_FLOPS * 4 * factors * real.elements()) as f32);
             }
-            "triangular-solve" | "cholesky" => self.dense_solver(node, opcode),
+            "triangular-solve" | "cholesky" => self.dense_solver(node, opcode)?,
             "all-gather" => self.all_gather(node, None)?,
             "all-gather-start" => self.all_gather(node, Some(0))?,
             "all-reduce" => self.all_reduce(node)?,
@@ -547,7 +527,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
             }
             "reduce-scatter" => self.reduce_scatter(node)?,
             "all-to-all" => self.current.set(Key::Transferred, ring_shape_size(shape, None) as f32),
-            "collective-permute" | "collective-permute-start" => *self.current.slot(Key::Transferred) += byte_size(context.shape(context.operand(node, 0))) as f32,
+            "collective-permute" | "collective-permute-start" => *self.current.slot(Key::Transferred) += byte_size(context.shape(context.operand(node, 0)?)) as f32,
             "async-start" => {
                 let wrapped = context.root(context.called(node, 0)?);
                 self.dfs(wrapped)?;
@@ -563,34 +543,35 @@ impl<'c, 'm> Analysis<'c, 'm> {
             "call" | "while" | "conditional" => self.control_flow(node, opcode)?,
             "custom-call" => self.custom_call(node)?,
             "sort" => {
-                let count = context.shape(context.operand(node, 0)).elements();
+                let count = context.shape(context.operand(node, 0)?).elements();
                 self.current.set(Key::Flops, (count * log2_ceiling(count as u64)) as f32);
             }
-            "gather" => self.gather(node),
+            "gather" => self.gather(node)?,
             "scatter" => self.scatter(node)?,
             _ => {}
         }
         Ok(())
     }
 
-    fn slicing(&mut self, node: usize, opcode: &str) {
+    fn slicing(&mut self, node: usize, opcode: &str) -> Status {
         let context = self.context;
         let shape = context.shape(node);
-        let operand_size = |index: usize| shape_size(context.shape(context.operand(node, index)));
+        let operand = |index: usize| context.operand(node, index).map(|operand| context.shape(operand));
         if opcode == "dynamic-update-slice" {
-            let update = operand_size(1);
-            self.transfers(update, &[(0, 0), (1, update), (2, operand_size(2))]);
-            let (updates, outputs) = (context.shape(context.operand(node, 1)).elements(), shape.elements());
+            let update = shape_size(operand(1)?);
+            self.transfers(update, &[(0, 0), (1, update), (2, shape_size(operand(2)?))]);
+            let (updates, outputs) = (operand(1)?.elements(), shape.elements());
             self.set_operand_utilization(0, ((outputs - updates) as f64 / outputs as f64) as f32);
-            return;
+            return Ok(());
         }
         let output = shape_size(shape);
         if opcode == "slice" {
             self.transfers(output, &[(0, output)]);
         } else {
-            self.transfers(output, &[(0, output), (1, operand_size(1))]);
+            self.transfers(output, &[(0, output), (1, shape_size(operand(1)?))]);
         }
-        self.set_operand_utilization(0, (shape.elements() as f64 / context.shape(context.operand(node, 0)).elements() as f64) as f32);
+        self.set_operand_utilization(0, (shape.elements() as f64 / operand(0)?.elements() as f64) as f32);
+        Ok(())
     }
 
     fn feed(&mut self, node: usize, opcode: &str) {
@@ -617,10 +598,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
         }
     }
 
-    fn dense_solver(&mut self, node: usize, opcode: &str) {
+    fn dense_solver(&mut self, node: usize, opcode: &str) -> Status {
         let context = self.context;
         let shape = context.shape(node);
-        let a = context.shape(context.operand(node, 0));
+        let a = context.shape(context.operand(node, 0)?);
         if opcode == "cholesky" {
             let half = shape_size(a) as f32 / 2.0;
             self.set_output(&[], half);
@@ -628,9 +609,9 @@ impl<'c, 'm> Analysis<'c, 'm> {
             self.current.set(Key::Bytes, half + half);
             let count = a.dimensions.last().copied().unwrap_or(0) * a.elements();
             self.current.set(Key::Flops, (count / 3) as f32);
-            return;
+            return Ok(());
         }
-        let b = context.shape(context.operand(node, 1));
+        let b = context.shape(context.operand(node, 1)?);
         let mut bytes = shape_size(shape) as f32;
         self.set_output(&[], shape_size(shape) as f32);
         bytes += shape_size(a) as f32 / 2.0;
@@ -640,6 +621,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.current.set(Key::Bytes, bytes);
         let count = a.dimensions.last().copied().unwrap_or(0) * b.elements();
         self.current.set(Key::Flops, (FMA_FLOPS * count) as f32);
+        Ok(())
     }
 
     fn control_flow(&mut self, node: usize, opcode: &str) -> Status {
@@ -683,13 +665,14 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.current.set(Key::ScaleRatio, if steps > 0 { ranks as f32 / steps as f32 } else { 0.0 });
     }
 
+    #[allow(deprecated)]
     fn num_ranks(&self, node: usize) -> Result<i64, String> {
         let inst = self.context.inst(node);
         let (channel, global) = (inst.channel_id > 0, inst.use_global_device_ids);
         if !channel && global {
             return Err("Cannot have use_global_device_ids=true without channel_id".into());
         }
-        let largest: Option<i64> = match (replica_groups(inst), &inst.replica_group_list) {
+        let largest: Option<i64> = match (&inst.replica_groups[..], &inst.replica_group_list) {
             (legacy, _) if !legacy.is_empty() => legacy.iter().map(|group| group.replica_ids.len() as i64).max(),
             (_, Some(ReplicaGroupList::IotaCollectiveDeviceList(list))) => (list.num_replica_groups > 0).then_some(list.num_devices_per_group),
             (_, Some(ReplicaGroupList::MeshAxesReplicaGroupList(list))) => {
@@ -753,17 +736,17 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let sub = self.subcomputation(context.called(node, 0)?)?;
         let shape = context.shape(node);
         let output = if shape.is_array() { shape.clone() } else { shape.tuple_shapes.first().cloned().unwrap_or_default() };
-        self.copy_scaled(&sub, context.shape(context.operand(node, 0)).elements() - output.elements(), false);
+        self.copy_scaled(&sub, context.shape(context.operand(node, 0)?).elements() - output.elements(), false);
         let output_bytes: i64 = leaves(shape).into_iter().map(|(_, leaf)| shape_size(leaf)).sum();
         self.set_output(&[], output_bytes as f32);
         let inputs = context.operands(node).len() / 2;
         let mut bytes = output_bytes;
         for index in 0..inputs {
-            bytes = (bytes as f32 + self.current.get(&operand_bytes_key(index, &[]))) as i64;
+            bytes = (bytes as f32 + self.current.get(&Key::Operand(index, Vec::new()))) as i64;
         }
         let output_elements = output.elements();
         for index in inputs..context.operands(node).len() {
-            let size = output_elements * shape_size(context.shape(context.operand(node, index)));
+            let size = output_elements * shape_size(context.shape(context.operand(node, index)?));
             self.set_operand_bytes(index, &[], size as f32);
             self.set_operand_utilization(index, output_elements as f32);
             bytes += size;
@@ -787,9 +770,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 dimension.size != 1 && dimension.padding_low != 0 && dimension.padding_high != 0 && dimension.padding_low == dimension.padding_high && dimension.size == 2 * dimension.padding_low + 1
             });
             if let Some(position) = found
-                && window.dimensions[position].padding_low == shape.dimensions[position] - 1
+                && let Some(&dimension) = shape.dimensions.get(position).filter(|&&dimension| dimension != 0)
+                && dimension.checked_sub(1) == Some(window.dimensions[position].padding_low)
             {
-                window_elements = shape.dimensions[position];
+                window_elements = dimension;
                 count = output_elements / window_elements + (window_elements - 1);
             }
         }
@@ -797,30 +781,31 @@ impl<'c, 'm> Analysis<'c, 'm> {
         Ok(())
     }
 
-    fn gather(&mut self, node: usize) {
+    fn gather(&mut self, node: usize) -> Status {
         let context = self.context;
         let shape = context.shape(node);
         let output = shape_size(shape);
-        self.transfers(output, &[(0, output), (1, shape_size(context.shape(context.operand(node, 1))))]);
-        self.set_operand_utilization(0, (shape.elements() as f64 / context.shape(context.operand(node, 0)).elements() as f64) as f32);
+        self.transfers(output, &[(0, output), (1, shape_size(context.shape(context.operand(node, 1)?)))]);
+        self.set_operand_utilization(0, (shape.elements() as f64 / context.shape(context.operand(node, 0)?).elements() as f64) as f32);
+        Ok(())
     }
 
     fn scatter(&mut self, node: usize) -> Status {
         let context = self.context;
-        let count = (context.operands(node).len() - 1) / 2;
+        let count = context.operands(node).len().saturating_sub(1) / 2;
         let mut total = 0i64;
         for index in 0..count {
-            let size = shape_size(context.shape(context.operand(node, count + 1 + index)));
+            let size = shape_size(context.shape(context.operand(node, count + 1 + index)?));
             self.set_operand_bytes(index, &[], size as f32);
             self.set_operand_bytes(count + 1 + index, &[], size as f32);
             total += size;
         }
-        let indices = shape_size(context.shape(context.operand(node, count)));
+        let indices = shape_size(context.shape(context.operand(node, count)?));
         self.set_operand_bytes(count, &[], indices as f32);
         self.current.set(Key::Bytes, (total * 3 + indices) as f32);
         self.set_output(&[], total as f32);
         let sub = self.subcomputation(context.called(node, 0)?)?;
-        self.copy_scaled(&sub, context.shape(context.operand(node, count + 1)).elements(), false);
+        self.copy_scaled(&sub, context.shape(context.operand(node, count + 1)?).elements(), false);
         Ok(())
     }
 
@@ -838,7 +823,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 let value: serde_json::Value = serde_json::from_slice(&config).map_err(|error| error.to_string())?;
                 json_dimensions(&value["gemm_backend_config"]["dot_dimension_numbers"]["lhs_contracting_dimensions"])
             };
-            let operand = context.shape(context.operand(node, 0));
+            let operand = context.shape(context.operand(node, 0)?);
             let flops = dot_flops(operand, &output, &lhs) as f32;
             self.current.set(Key::Flops, flops);
             self.replace_output(byte_size(&output) as f32);
@@ -846,7 +831,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
             return Ok(());
         }
         if DNN_CONVOLUTION.contains(&target) {
-            let flops = convolution_flops(inst, context.shape(context.operand(node, 0)), context.shape(context.operand(node, 1)), &output);
+            let flops = convolution_flops(inst, context.shape(context.operand(node, 0)?), context.shape(context.operand(node, 1)?), &output);
             self.current.set(Key::Flops, flops as f32);
             if shape.is_tuple() {
                 self.replace_output(byte_size(&output) as f32);
@@ -880,10 +865,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
         if context.inst(node).fusion_kind == "kCustom" {
             for &child in &context.module.graphs[graph].nodes {
                 match context.opcode(child) {
-                    "gather" => {
-                        self.gather(child);
-                        return Ok(());
-                    }
+                    "gather" => return self.gather(child),
                     "scatter" => return self.scatter(child),
                     _ => {}
                 }
@@ -891,8 +873,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
         }
         self.current = self.subcomputation(graph)?;
         self.current.set(Key::Bytes, 0.0);
-        self.fusion_outputs(node, graph);
-        self.fusion_utilizations(graph);
+        self.fusion_outputs(node, graph)?;
+        self.fusion_utilizations(graph)?;
         for &child in &context.module.graphs[graph].nodes {
             if context.opcode(child) == "constant" && context.shape(child).elements() > IMMEDIATE_CONSTANT_MAX_ELEMENTS {
                 let utilization = (self.property(child, &Key::Utilization) as f64).min(1.0) as f32;
@@ -925,7 +907,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
         Ok(())
     }
 
-    fn fusion_outputs(&mut self, node: usize, graph: usize) {
+    fn fusion_outputs(&mut self, node: usize, graph: usize) -> Status {
         let context = self.context;
         let fused_root = context.root(graph);
         for (index, subshape) in all_subshapes(context.shape(node)) {
@@ -934,10 +916,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
             }
             let mut root = fused_root;
             if index.len() == 1 && context.opcode(root) == "tuple" {
-                root = context.operand(root, index[0] as usize);
+                root = context.operand(root, index[0] as usize)?;
             }
             if context.opcode(root) == "dynamic-update-slice" {
-                let size = shape_size(context.shape(context.operand(root, 1)));
+                let size = shape_size(context.shape(context.operand(root, 1)?));
                 *self.current.slot(Key::Bytes) += size as f32;
                 self.set_output(&index, size as f32);
                 *self.slot(root, Key::OperandUtilization(0)) = 0.0;
@@ -950,10 +932,11 @@ impl<'c, 'm> Analysis<'c, 'm> {
             self.set_output(&[], 0.0);
             self.propagate_output(context.shape(node), &mut Vec::new());
         }
+        Ok(())
     }
 
     fn propagate_output(&mut self, shape: &Shape, index: &mut Vec<i64>) -> f32 {
-        let key = output_key(index);
+        let key = Key::Output(index.clone());
         let bytes = self.current.get(&key);
         if bytes != 0.0 || !shape.is_tuple() {
             self.current.slot(key);
@@ -969,7 +952,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
         total
     }
 
-    fn fusion_utilizations(&mut self, graph: usize) {
+    fn fusion_utilizations(&mut self, graph: usize) -> Status {
         let context = self.context;
         let root = context.root(graph);
         let mut instructions = context.module.post_order(graph);
@@ -1001,7 +984,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
             *self.current.slot(Key::IrSize) += emitted;
             let opcode = context.opcode(instruction);
             let passes = context.is_elementwise(instruction)
-                || (opcode == "bitcast" && Context::equal_ignoring_element_type(context.shape(context.operand(instruction, 0)), context.shape(instruction)))
+                || (opcode == "bitcast" && Context::equal_ignoring_element_type(context.shape(context.operand(instruction, 0)?), context.shape(instruction)))
                 || opcode == "tuple"
                 || opcode == "get-tuple-element";
             for (index, &operand) in context.operands(instruction).iter().enumerate() {
@@ -1026,6 +1009,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 }
             }
         }
+        Ok(())
     }
 
     fn parameter_read_bytes(&self, node: usize) -> i64 {
@@ -1122,11 +1106,11 @@ pub fn costs(module: &Module) -> Option<Vec<Cost>> {
                     for (operand, &input) in module.nodes[node].operands.iter().enumerate() {
                         for (index, leaf) in leaves(&module.nodes[input].shape) {
                             if memory_space(leaf) == Some(0) {
-                                read += get(operand_bytes_key(operand, &index)) as i64;
+                                read += get(Key::Operand(operand, index)) as i64;
                             }
                         }
                     }
-                    let written: i64 = leaves(&module.nodes[node].shape).into_iter().filter(|(_, leaf)| memory_space(leaf) == Some(0)).map(|(index, _)| get(output_key(&index)) as i64).sum();
+                    let written: i64 = leaves(&module.nodes[node].shape).into_iter().filter(|(_, leaf)| memory_space(leaf) == Some(0)).map(|(index, _)| get(Key::Output(index)) as i64).sum();
                     for (is_read, value) in [(true, valid(read)), (false, valid(written))] {
                         if value > 0 {
                             memory.push((is_read, HBM, value));

@@ -101,3 +101,28 @@ fn cli_trace_that_cannot_be_read() {
     std::os::unix::fs::symlink(dir.join("missing"), dir.join("h.xplane.pb")).unwrap();
     assert_eq!(Local::default().fetch("overview_page", &dir.to_string_lossy(), &[]), Ok(None));
 }
+
+#[test]
+fn recovery_module_that_is_not_valid() {
+    use crate::gpu_cost::tests::{computation, parameter, shape};
+    use crate::hlo::xla::original_value_recovery_table_proto::Entry;
+    use crate::hlo::xla::{HloComputationProto, HloModuleProto, HloProto, OriginalValueRecoveryTableProto, ProgramShapeProto};
+    let recovery = HloModuleProto {
+        entry_computation_id: 7,
+        computations: vec![HloComputationProto { id: 7, ..Default::default() }],
+        host_program_shape: Some(ProgramShapeProto::default()),
+        ..Default::default()
+    };
+    let table = OriginalValueRecoveryTableProto { entries: vec![Entry { recovery_module: Some(recovery), ..Default::default() }] };
+    let hlo_module = HloModuleProto {
+        name: "m".into(),
+        entry_computation_id: 1,
+        computations: vec![computation(1, vec![parameter(1, 0, shape(11, &[2]))])],
+        host_program_shape: Some(ProgramShapeProto::default()),
+        original_value_recovery_table: Some(table),
+        ..Default::default()
+    };
+    let module = crate::tests::hlo_fixture::module(&HloProto { hlo_module: Some(hlo_module), ..Default::default() });
+    assert!(module.valid);
+    assert_eq!(crate::hlo_text::Printer::new(&module, crate::hlo_text::Style::Long, false).module_text(), None);
+}
