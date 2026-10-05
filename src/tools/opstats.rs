@@ -553,11 +553,15 @@ fn perf_env(plane: &Plane) -> Perf {
 pub struct Kept {
     modules: Vec<(u64, crate::hlo::Module<'static>)>,
     pub fused: bool,
-    pub map: Vec<u8>,
+    map: Vec<u8>,
     pub planes: Vec<Plane>,
 }
 
 impl Kept {
+    pub fn map(&self) -> &[u8] {
+        &self.map
+    }
+
     /// Adds the fused children to the operations of a trace that does not have them.
     pub fn fuse(&mut self, stats: &mut OpStats) {
         if !self.fused && stats.tpu {
