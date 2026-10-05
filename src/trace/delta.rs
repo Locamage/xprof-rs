@@ -2,6 +2,7 @@ use crate::trace::json::{CONTEXT_TYPES, HOST_PID_STRIDE, View, devices, ordered}
 use crate::trace::{NONE_FLOW, NONE_RESOURCE};
 use crate::xplane::{NONE_GROUP, Value};
 use prost::Message;
+use rayon::prelude::*;
 
 #[derive(Clone, PartialEq, Message)]
 pub(crate) struct SeriesMetadata {
@@ -106,8 +107,6 @@ pub(crate) struct Response {
 }
 
 pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
-    let mut interner = crate::trace::Interner::default();
-    interner.intern("");
     let mut response = Response::default();
     let offset = if full_dma.is_some() { 0 } else { HOST_PID_STRIDE };
     let processes = devices(views).into_iter().map(|(pid, device)| {
@@ -125,53 +124,82 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
     response.full_timespan_start_ps = views.iter().filter(|view| !view.trace.events.is_empty()).map(|view| view.trace.min_ps).min();
     response.full_timespan_end_ps = views.iter().filter(|view| !view.trace.events.is_empty()).map(|view| view.trace.max_ps).max();
     let ordered = ordered(views);
-    let mut start = 0;
-    while start < ordered.len() {
-        let track = |&(host, index): &(u32, u32)| (host, views[host as usize].trace.events[index as usize].track);
-        let end = start + ordered[start..].iter().take_while(|entry| track(entry) == track(&ordered[start])).count();
-        let (host, first) = (ordered[start].0, &views[ordered[start].0 as usize].trace.events[ordered[start].1 as usize]);
-        let (view, pid) = (&views[host as usize], first.device + (host + 1) * HOST_PID_STRIDE - offset);
-        let unbound = first.resource == NONE_RESOURCE;
-        let counter = unbound && first.flow == NONE_FLOW;
-        let (thread_id, name_ref) = if unbound { (0, interner.intern(&view.trace.names[first.name as usize])) } else { (first.resource, 0) };
-        let mut series = Series { metadata: Some(SeriesMetadata { process_id: pid, thread_id, name_ref }), ..Default::default() };
-        let mut last = 0;
-        for &(_, index) in &ordered[start..end] {
-            let event = &view.trace.events[index as usize];
-            series.deltas.push(event.ts - last);
-            last = event.ts;
-            let mut metadata = EventMetadata::default();
-            if counter {
-                metadata.counter_value = first_value(view, event);
-            } else {
-                series.durations.push(event.dur);
-                if !unbound {
-                    series.name_refs.push(interner.intern(&view.trace.names[event.name as usize]));
-                }
-                if event.flow != NONE_FLOW {
-                    metadata.flow_id = view.trace.flow_ids[event.flow as usize] as u32;
-                    if !matches!(event.flow_cat, 0 | 1) {
-                        metadata.flow_category = interner.intern(CONTEXT_TYPES.split('|').nth(event.flow_cat as usize).unwrap_or(""));
+    let track = |&(host, index): &(u32, u32)| (host, views[host as usize].trace.events[index as usize].track);
+    // The series hold the indices of the trace names and of the context types. The interned IDs come after, in the order of the series.
+    let mut built: Vec<(u32, u32, Series)> = ordered
+        .par_chunk_by(|left, right| track(left) == track(right))
+        .map(|run| {
+            let (host, view) = (run[0].0, &views[run[0].0 as usize]);
+            let first = &view.trace.events[run[0].1 as usize];
+            let unbound = first.resource == NONE_RESOURCE;
+            let tag = if unbound { 2 + u32::from(first.flow != NONE_FLOW) } else { 1 };
+            let (thread_id, name_ref) = if unbound { (0, first.name) } else { (first.resource, 0) };
+            let process_id = first.device + (host + 1) * HOST_PID_STRIDE - offset;
+            let mut series = Series { metadata: Some(SeriesMetadata { process_id, thread_id, name_ref }), ..Default::default() };
+            let mut last = 0;
+            for &(_, index) in run {
+                let event = &view.trace.events[index as usize];
+                series.deltas.push(event.ts - last);
+                last = event.ts;
+                let mut metadata = EventMetadata::default();
+                if tag == 2 {
+                    metadata.counter_value = first_value(view, event);
+                } else {
+                    series.durations.push(event.dur);
+                    if !unbound {
+                        series.name_refs.push(event.name);
                     }
+                    if event.flow != NONE_FLOW {
+                        metadata.flow_id = view.trace.flow_ids[event.flow as usize] as u32;
+                        metadata.flow_category = if matches!(event.flow_cat, 0 | 1) { 0 } else { u32::from(event.flow_cat) };
+                    }
+                    if event.group != NONE_GROUP {
+                        metadata.group_id = event.group as u32;
+                    }
+                    metadata.serial = if full_dma.is_some() { event.serial } else { 0 };
                 }
-                if event.group != NONE_GROUP {
-                    metadata.group_id = event.group as u32;
-                }
-                metadata.serial = if full_dma.is_some() { event.serial } else { 0 };
+                series.event_metadata.push(metadata);
             }
-            series.event_metadata.push(metadata);
+            (host, tag, series)
+        })
+        .collect();
+    let mut interner = crate::trace::Interner::default();
+    interner.intern("");
+    let mut ids: Vec<Vec<u32>> = views.iter().map(|view| vec![u32::MAX; view.trace.names.len()]).collect();
+    for (host, tag, series) in &mut built {
+        let mut name = |interner: &mut crate::trace::Interner, name: &mut u32| {
+            let id = &mut ids[*host as usize][*name as usize];
+            if *id == u32::MAX {
+                *id = interner.intern(&views[*host as usize].trace.names[*name as usize]);
+            }
+            *name = *id;
+        };
+        if *tag != 1 {
+            name(&mut interner, &mut series.metadata.as_mut().unwrap().name_ref);
         }
-        match (counter, unbound) {
-            (true, _) => response.counter_events.push(series),
-            (false, true) => response.async_events.push(series),
-            (false, false) => response.complete_events.push(series),
+        for (index, metadata) in series.event_metadata.iter_mut().enumerate() {
+            if let Some(slot) = series.name_refs.get_mut(index) {
+                name(&mut interner, slot);
+            }
+            if metadata.flow_category != 0 {
+                metadata.flow_category = interner.intern(CONTEXT_TYPES.split('|').nth(metadata.flow_category as usize).unwrap_or(""));
+            }
         }
-        start = end;
     }
     response.interned_strings = interner.into_strings();
-    let mut compressed = Vec::new();
-    ruzstd::encoding::compress(&response.encode_to_vec()[..], &mut compressed, ruzstd::encoding::CompressionLevel::Fastest);
-    compressed
+    // Protobuf writes the fields in the order of their tags, so the series come before the other fields of the response.
+    built.sort_by_key(|(_, tag, _)| *tag);
+    let parts: Vec<Vec<u8>> = built
+        .into_par_iter()
+        .map(|(_, tag, series)| {
+            let mut out = Vec::with_capacity(prost::encoding::message::encoded_len(tag, &series));
+            prost::encoding::message::encode(tag, &series, &mut out);
+            out
+        })
+        .collect();
+    let mut raw = parts.concat();
+    response.encode(&mut raw).unwrap();
+    zstd::bulk::compress(&raw, 1).unwrap()
 }
 
 fn first_value(view: &View, event: &crate::trace::Event) -> Option<CounterValue> {
