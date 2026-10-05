@@ -916,9 +916,7 @@ async fn prefetch(state: Shared) {
             let mut used: Vec<(PathBuf, Instant)> = remote.used.lock().unwrap().clone().into_iter().filter(|(dir, _)| !xplanes(dir).is_empty()).collect();
             used.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
             for dir in std::iter::once(remote.mirror.clone()).chain(used.into_iter().take(WATCHED_SESSIONS).map(|(dir, _)| dir)) {
-                if let Err(message) = remote.sync(&dir, false).await {
-                    eprintln!("{message}");
-                }
+                _ = remote.sync(&dir, false).await.inspect_err(|message| eprintln!("{message}"));
             }
         }
         let logdir = state.logdir.clone();

@@ -231,7 +231,15 @@ impl<'a> Builder<'a> {
     }
 
     /// Adds the fused children of a node only when the node stays after the prune.
-    fn sort_and_prune(&mut self, k: usize, level: i32, node: usize) {
+    fn sort_and_prune(&mut self, k: usize, level: i32, root: usize) {
+        let mut pending = vec![(root, level)];
+        while let Some((node, level)) = pending.pop() {
+            self.prune(k, level, node);
+            pending.extend(self.nodes[node].children.iter().rev().map(|&child| (child, level - 1)));
+        }
+    }
+
+    fn prune(&mut self, k: usize, level: i32, node: usize) {
         for child in self.nodes[node].fused.take().map_or(&[][..], |metrics| &metrics.children.metrics) {
             let index = self.add_child(node, Cow::Borrowed(&child.name));
             self.nodes[index].xla = Some(symbol(child));
@@ -250,23 +258,25 @@ impl<'a> Builder<'a> {
             }
             children.truncate(kept);
         }
-        for &child in &children {
-            self.sort_and_prune(k, level - 1, child);
-        }
         self.nodes[node].children = children;
     }
 
-    fn finalize_deduplicated(&mut self, node: usize) {
-        let children = self.nodes[node].children.clone();
-        if children.is_empty() || self.nodes[node].xla.is_some() || children.iter().any(|&child| self.nodes[child].xla.is_none()) {
-            children.into_iter().for_each(|child| self.finalize_deduplicated(child));
-            return;
+    fn finalize_deduplicated(&mut self, root: usize) {
+        let mut pending = vec![root];
+        while let Some(node) = pending.pop() {
+            let children = &self.nodes[node].children;
+            if children.is_empty() || self.nodes[node].xla.is_some() || children.iter().any(|&child| self.nodes[child].xla.is_none()) {
+                pending.extend(children.iter().rev());
+            } else if let [only] = children[..] {
+                self.nodes[node] = std::mem::take(&mut self.nodes[only]);
+            } else {
+                self.deduplicate(node);
+            }
         }
-        if children.len() == 1 {
-            self.nodes[node] = std::mem::take(&mut self.nodes[children[0]]);
-            return;
-        }
-        let top = &self.nodes[children[0]];
+    }
+
+    fn deduplicate(&mut self, node: usize) {
+        let top = &self.nodes[self.nodes[node].children[0]];
         let top_xla = top.xla.clone().unwrap();
         let name = Cow::Owned(format!("{} and its duplicate(s)", top.name));
         let mut xla = Xla { expression: top_xla.expression, source: top_xla.source, program_id: top_xla.program_id, category: top_xla.category, ..Default::default() };
@@ -278,7 +288,39 @@ impl<'a> Builder<'a> {
         self.nodes[node].xla = Some(xla);
     }
 
-    fn write(&self, out: &mut String, index: usize, parallel: usize) {
+    fn write(&self, out: &mut String, root: usize, parallel: usize) {
+        self.open(out, root);
+        let mut stack = vec![(root, 0, parallel)];
+        while let Some(&mut (index, ref mut next, parallel)) = stack.last_mut() {
+            let children = &self.nodes[index].children;
+            if *next == 0 && parallel > 0 && children.len() > 1 {
+                let parts: Vec<String> = children
+                    .par_iter()
+                    .map(|&child| {
+                        let mut part = String::new();
+                        self.write(&mut part, child, parallel - 1);
+                        part
+                    })
+                    .collect();
+                out.reserve(parts.iter().map(|part| part.len() + 1).sum());
+                for (position, part) in parts.iter().enumerate() {
+                    out.push_str(if position > 0 { "," } else { "" });
+                    out.push_str(part);
+                }
+                *next = children.len();
+            } else if let Some(&child) = children.get(*next) {
+                out.push_str(if *next > 0 { "," } else { "" });
+                *next += 1;
+                self.open(out, child);
+                stack.push((child, 0, if children.len() == 1 { parallel } else { 0 }));
+            } else {
+                self.close(out, index);
+                stack.pop();
+            }
+        }
+    }
+
+    fn open(&self, out: &mut String, index: usize) {
         let (node, metrics) = (&self.nodes[index], &self.nodes[index].metrics);
         let time_ns = pico_to_nano(metrics.time_ps);
         let mut rate = safe_divide(metrics.flops_v2, time_ns);
@@ -325,27 +367,10 @@ impl<'a> Builder<'a> {
             }
         }
         out.push_str("},\"children\":[");
-        if parallel > 0 && node.children.len() > 1 {
-            let parts: Vec<String> = node
-                .children
-                .par_iter()
-                .map(|&child| {
-                    let mut part = String::new();
-                    self.write(&mut part, child, parallel - 1);
-                    part
-                })
-                .collect();
-            out.reserve(parts.iter().map(|part| part.len() + 1).sum());
-            for (position, part) in parts.iter().enumerate() {
-                out.push_str(if position > 0 { "," } else { "" });
-                out.push_str(part);
-            }
-        } else {
-            for (position, &child) in node.children.iter().enumerate() {
-                out.push_str(if position > 0 { "," } else { "" });
-                self.write(out, child, if node.children.len() == 1 { parallel } else { 0 });
-            }
-        }
+    }
+
+    fn close(&self, out: &mut String, index: usize) {
+        let node = &self.nodes[index];
         out.push(']');
         if let Some(xla) = &node.xla {
             out.push_str(",\"xla\":{\"op\":\"\",\"expression\":");

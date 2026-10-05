@@ -126,3 +126,14 @@ fn recovery_module_that_is_not_valid() {
     assert!(module.valid);
     assert_eq!(crate::hlo_text::Printer::new(&module, crate::hlo_text::Style::Long, false).module_text(), None);
 }
+
+#[test]
+fn provenance_with_many_parts() {
+    let text = format!(
+        "device_op_metrics_db {{ metrics_db {{ name: \"op\" category: \"fusion\" provenance: \"{}\" occurrences: 1 time_ps: 10 self_time_ps: 10 }} total_time_ps: 10 total_op_time_ps: 10 }}",
+        "a/".repeat(100_000)
+    );
+    let stats = crate::tests::opstats_adapter::op_stats(&text);
+    let json = std::thread::Builder::new().stack_size(1 << 20).spawn(move || crate::op_profile::json(&stats, Some("provenance"))).unwrap().join().unwrap();
+    assert_eq!(json.matches("\"name\":\"a\"").count(), 2 * 100_000);
+}
