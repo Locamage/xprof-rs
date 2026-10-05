@@ -551,7 +551,7 @@ impl Plane {
             pid = self.pid.or(pid);
         }
         let synthesize = |id: u64, kind: u64, direction: u64, category: u64| Some(category << 58 | ((hash(kind, &[id]) ^ self.host) & ((1 << 56) - 1)) << 2 | direction);
-        let correlated = correlation.map_or(get(FLOW), |id| synthesize(id, u64::MAX, if self.name.starts_with("/device:") { 1 } else { 2 }, 9));
+        let correlated = correlation.map_or_else(|| get(FLOW), |id| synthesize(id, u64::MAX, if self.name.starts_with("/device:") { 1 } else { 2 }, 9));
         let stated = get(ROOT).map(|level| level as i64);
         Links {
             flow: consumer.map_or_else(|| producer.map_or(correlated, |(id, kind)| synthesize(id, kind, 2, kind.min(63))), |(id, kind)| synthesize(id, kind, 1, kind.min(63))),

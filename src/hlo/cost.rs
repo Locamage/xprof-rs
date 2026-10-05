@@ -1174,18 +1174,13 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 || opcode == "tuple"
                 || opcode == "get-tuple-element";
             for (index, &operand) in context.operands(instruction).iter().enumerate() {
-                if passes {
-                    let entry = self.use_roots.entry(operand).or_default();
-                    for &used in &roots {
-                        if !entry.contains(&used) {
-                            entry.push(used);
-                        }
+                let entry = self.use_roots.entry(operand).or_default();
+                for &used in if passes { &roots[..] } else { std::slice::from_ref(&operand) } {
+                    if !entry.contains(&used) {
+                        entry.push(used);
                     }
-                } else {
-                    let entry = self.use_roots.entry(operand).or_default();
-                    if !entry.contains(&operand) {
-                        entry.push(operand);
-                    }
+                }
+                if !passes {
                     let mut operand_utilization = utilization * self.property(instruction, &Key::OperandUtilization(index));
                     let count = context.shape(operand).elements_recursive();
                     operand_utilization = if count == 0 { 0.0 } else { (operand_utilization * count as f32).ceil() / count as f32 };

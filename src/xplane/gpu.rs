@@ -533,7 +533,7 @@ impl<'a> Builder<'a> {
             if let Some(group) = group {
                 current.group = group as u64;
             }
-            current.eager = event.eager.unwrap_or(stats.int(EAGER).unwrap_or(0) != 0);
+            current.eager = event.eager.unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0);
         }
         current.occurrences += 1;
         current.duration += event.dur;
@@ -557,7 +557,7 @@ impl<'a> Builder<'a> {
         let op = parse_tf_op(tf_op);
         let info = Info { category: op.kind.into(), provenance: tf_op.into(), deduplicated: ArcStr::new(), expression: ArcStr::new(), source: Source { line: -1, ..Default::default() }, cost: None };
         let name = format!("{}/{event_name}", op.name);
-        self.enter(&Tracker { info: Some(&info), name, eager: event.eager.unwrap_or(stats.int(EAGER).unwrap_or(0) != 0), occurrences: 1, duration: event.dur, ..Default::default() });
+        self.enter(&Tracker { info: Some(&info), name, eager: event.eager.unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0), occurrences: 1, duration: event.dur, ..Default::default() });
     }
 }
 
