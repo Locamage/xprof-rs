@@ -50,6 +50,11 @@ async fn listing_mirrors_sessions_and_sessions_download_on_demand() {
     remote.checked.lock().unwrap().clear();
     remote.sync(&s1, true).await.unwrap();
     assert_eq!(std::fs::read(s1.join("h1.xplane.pb")).unwrap(), [9; 5]);
+    store.delete(&Key::from("logs/a/plugins/profile/s1/h1.xplane.pb")).await.unwrap();
+    std::fs::write(s1.join("local.hlo_proto.pb"), [1]).unwrap();
+    remote.checked.lock().unwrap().clear();
+    remote.sync(&s1, true).await.unwrap();
+    assert!(!s1.join("h1.xplane.pb").exists() && s1.join("local.hlo_proto.pb").exists() && s1.join("empty.xplane.pb").exists());
     assert!(remote.key(&remote.mirror.join("a/../../escape")).is_none());
     assert!(remote.key(Path::new("/elsewhere")).is_none());
     std::fs::remove_dir_all(&remote.mirror).unwrap();

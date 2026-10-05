@@ -1019,3 +1019,11 @@ async fn flows_of_hosts_with_different_hostnames_stay_apart_like_xprof() {
     assert!(status == StatusCode::OK && !merged.is_empty() && apart.len() == 2 * merged.len(), "{} {}", apart.len(), merged.len());
     assert!(apart.iter().all(|&hosts| hosts == 1) && merged.iter().all(|&hosts| hosts == 2));
 }
+
+#[test]
+fn accept_encoding_weights() {
+    let accepts = |value: &str| accepts_gzip(&HeaderMap::from_iter([(header::ACCEPT_ENCODING, HeaderValue::from_str(value).unwrap())]));
+    for (value, expected) in [("gzip, deflate, br", true), ("GZIP;q=0.5", true), ("*", true), ("gzip;q=0, identity", false), ("gzip;q=0, *", false), ("identity", false), ("br, *;q=0", false)] {
+        assert_eq!(accepts(value), expected, "{value}");
+    }
+}

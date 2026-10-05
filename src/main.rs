@@ -455,7 +455,14 @@ fn session(state: &State_, params: &Params) -> Result<PathBuf, Failure> {
 }
 
 fn accepts_gzip(headers: &HeaderMap) -> bool {
-    headers.get(header::ACCEPT_ENCODING).and_then(|value| value.to_str().ok()).is_some_and(|value| value.contains("gzip"))
+    let Some(value) = headers.get(header::ACCEPT_ENCODING).and_then(|value| value.to_str().ok()) else { return false };
+    let weight = |name: &str| {
+        value.split(',').find_map(|coding| {
+            let mut parts = coding.split(';').map(str::trim);
+            parts.next()?.eq_ignore_ascii_case(name).then(|| parts.find_map(|part| part.strip_prefix("q=")).map_or(1.0, |weight| weight.parse::<f32>().unwrap_or(0.0)))
+        })
+    };
+    weight("gzip").or_else(|| weight("*")).is_some_and(|weight| weight > 0.0)
 }
 
 async fn cached(state: &Shared, key: String, dir: &Path, accepts_gzip: bool, render: impl Future<Output = Response> + Send + 'static) -> Response {

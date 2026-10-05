@@ -27,7 +27,7 @@ I made these changes one at a time. After each change, I read the profile with `
 | 1 | Explicit mesh axis `fsdp` and a loss that gathers the features. XLA does not do tensor-parallel all-reduces on activations after this change. The batches are random. A thread copies them (`--prefetch`). | 43 ms | 77% | 0% |
 | 2 | libtpu flags (`--overlap`) start the all-gathers early | 39 ms | 71% | 53% |
 | 3 | `jax.jit` on the split state. `nnx.jit` used 8 ms of host time for each step. | 28 ms | 99.5% | 54% |
-| 4 | Move the state to its final sharding before the first step. The step compiled two times before. | 28 ms | 99.5% | 54% |
+| 4 | Move the state to its final shard layout before the first step. The step compiled two times before. | 28 ms | 99.5% | 54% |
 
 How to find each problem with `xprof-rs`:
 

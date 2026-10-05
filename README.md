@@ -86,7 +86,7 @@ The credentials come from the environment:
 - S3: the `AWS_*` variables.
 - Azure: the `AZURE_*` variables.
 
-The server copies the store to a local directory. The directory name is `xprof-rs-<hash of the URL>`. It is in `XPROF_CACHE_DIR`. The default is the temporary directory. All tools read this copy.
+The server copies the store to a local directory, and all tools read this copy. The directory is `xprof-rs-<hash of the URL>` in `XPROF_CACHE_DIR`. The default is the temporary directory. Only the user of the server can read the directory. The server does not start if a different user owns it.
 
 - A request that names a session downloads the `.xplane.pb` and `.hlo_proto.pb` files of the session.
 - The server downloads 4 files at a time. It reads each file in eight ranges of 8 MiB.
@@ -226,7 +226,7 @@ xprof-rs cannot copy these outputs.
 
 ## Development
 
-Run these commands before each commit:
+Run these commands before each commit. `Cargo.toml` turns on the pedantic lints of clippy.
 
 ```bash
 cargo fmt --check

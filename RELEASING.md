@@ -2,7 +2,7 @@
 
 Each release of xprof-rs is a GitHub release with prebuilt binaries. We do not publish xprof-rs to crates.io (`publish = false`).
 
-1. Check that the working tree is clean and CI is green on `main`.
+1. Make sure that `git status` shows no changes and that CI passes on `main`.
 2. Change `version` in `Cargo.toml`. Run `cargo check --locked` to update `Cargo.lock`.
 3. Add a `## X.Y.Z` section to `CHANGELOG.md`. The section becomes the text of the release.
 4. Run the full build and checks on the release profile:
