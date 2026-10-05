@@ -1,5 +1,5 @@
 use super::xspace::XSpace;
-use crate::legacy_trace::render;
+use crate::trace::legacy::render;
 
 fn converted(space: &XSpace) -> Vec<serde_json::Value> {
     let (map, planes) = space.parsed();

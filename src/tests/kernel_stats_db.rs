@@ -1,5 +1,5 @@
 use super::xspace::XSpace;
-use crate::gpu::{Infos, device_plane, top_kernels};
+use crate::xplane::gpu::{Infos, device_plane, top_kernels};
 
 #[test]
 fn multi_kernels() {

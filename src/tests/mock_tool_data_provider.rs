@@ -1,5 +1,5 @@
-use crate::event_fractions::Fractions;
-use crate::smart_suggestion::{Data, InputPipeline, Node, Overview, RULES, Rule, Step, ToolData};
+use crate::tools::event_fractions::Fractions;
+use crate::tools::smart_suggestion::{Data, InputPipeline, Node, Overview, RULES, Rule, Step, ToolData};
 use std::collections::BTreeMap;
 
 pub type StepInfo<'a> = (&'a [(u32, u64)], &'a [(&'a str, u64)]);

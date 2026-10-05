@@ -1,8 +1,8 @@
 use super::hlo_fixture::module;
+use crate::hlo::text::{Printer, Style};
 use crate::hlo::xla::mesh_proto::MeshAxis;
 use crate::hlo::xla::named_sharding_proto::DimensionSharding;
 use crate::hlo::xla::{AxisRefProto, HloComputationProto, HloInstructionProto, HloModuleProto, HloProto, MeshProto, NamedShardingProto, OpMetadata, OpSharding, ProgramShapeProto, ShapeProto};
-use crate::hlo_text::{Printer, Style};
 
 const REPLICATED: i32 = 0;
 const MAXIMAL: i32 = 1;

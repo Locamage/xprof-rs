@@ -1,5 +1,5 @@
 use super::xspace::inference_stats;
-use crate::inference_profile::sample;
+use crate::tools::inference_profile::sample;
 
 #[test]
 fn test_sort() {

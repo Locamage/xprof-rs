@@ -1,4 +1,4 @@
-use crate::gpu::{KernelKey, KernelReport, by_op_name, launch_params, top_kernels};
+use crate::xplane::gpu::{KernelKey, KernelReport, by_op_name, launch_params, top_kernels};
 
 fn report(name: &str, op_name: &str, total_ns: u64, tensor_core: bool, eligible: bool) -> KernelReport {
     KernelReport { key: KernelKey { name: name.into(), op_name: op_name.into(), tensor_core, eligible, ..Default::default() }, total_ns, ..Default::default() }

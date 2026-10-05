@@ -2,7 +2,7 @@ use super::opstats_adapter::op_stats;
 use serde_json::Value;
 
 fn analysis(text: &str) -> Value {
-    let overview: Value = serde_json::from_str(&crate::overview_page::json(&op_stats(text), &[])).unwrap();
+    let overview: Value = serde_json::from_str(&crate::tools::overview_page::json(&op_stats(text), &[])).unwrap();
     overview[0]["p"].clone()
 }
 

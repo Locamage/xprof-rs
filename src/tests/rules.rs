@@ -56,7 +56,7 @@ rules! {
         #[test]
         fn mock_call_test() {
             let provider = P { op_stats: step_sequence(&[(&[(0, 100)], &[("all-reduce", 5)])]), ..Default::default() };
-            assert!((crate::smart_suggestion::collective_percent(&provider).unwrap() - 5.0).abs() <= 0.001);
+            assert!((crate::tools::smart_suggestion::collective_percent(&provider).unwrap() - 5.0).abs() <= 0.001);
         }
     }
     compute_bound_rule = "ComputeBoundRule" {

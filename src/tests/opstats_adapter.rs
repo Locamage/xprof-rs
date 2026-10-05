@@ -1,7 +1,7 @@
 use super::xspace::descriptor;
-use crate::gpu::{KernelKey, KernelReport};
-use crate::opstats::{Db, Metrics, OpStats, Perf, Source};
-use crate::steps::{Breakdown, Core, Extra, StepInfo, StepRecord};
+use crate::tools::opstats::{Db, Metrics, OpStats, Perf, Source};
+use crate::xplane::gpu::{KernelKey, KernelReport};
+use crate::xplane::steps::{Breakdown, Core, Extra, StepInfo, StepRecord};
 use prost_reflect::{DynamicMessage, MapKey, ReflectMessage, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -243,7 +243,7 @@ pub fn op_stats_message(stats: &DynamicMessage) -> OpStats {
             ridge_point: double(&perf_env, "ridge_point"),
             cmem: false,
         },
-        tpu: extra.hardware == crate::steps::TPU,
+        tpu: extra.hardware == crate::xplane::steps::TPU,
         host: db(&child(stats, "host_op_metrics_db")),
         memory: String::new(),
         extra: Arc::new(extra),

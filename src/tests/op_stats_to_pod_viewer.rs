@@ -1,6 +1,6 @@
-use crate::opstats::pico_to_micro;
-use crate::pod_viewer::render;
-use crate::steps::{
+use crate::tools::opstats::pico_to_micro;
+use crate::tools::pod_viewer::render;
+use crate::xplane::steps::{
     Breakdown, Core, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE, DEVICE_TO_HOST, DEVICE_WAIT_DEVICE, DEVICE_WAIT_HOST, Extra, HOST_COMPILE, HOST_COMPUTE, HOST_PREPARE,
     HOST_TO_DEVICE, HOST_TO_HOST, HOST_WAIT_INPUT, StepInfo, StepRecord, UNKNOWN_TIME,
 };

@@ -1,4 +1,4 @@
-use crate::counter_ids::{names, names_json};
+use crate::tools::counter_ids::{names, names_json};
 
 #[test]
 fn test_get_all_counters_success() {

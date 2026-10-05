@@ -1,4 +1,4 @@
-use crate::steps::Span;
+use crate::xplane::steps::Span;
 
 fn timespan(begin: u64, duration: u64) -> Span {
     Span { begin, duration }

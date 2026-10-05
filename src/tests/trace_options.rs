@@ -1,6 +1,6 @@
 use super::legacy::{fetch, logdir};
 use super::xspace::{V, XSpace};
-use crate::json::{View, render};
+use crate::trace::json::{View, render};
 use crate::trace::{Options, Trace};
 use crate::{Settings, state};
 

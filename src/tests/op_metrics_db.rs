@@ -1,6 +1,6 @@
 use super::xspace::{V, XPlane, XSpace, assert_db};
-use crate::framework_op_stats::host_db;
-use crate::opstats::{Db, IDLE, convert_tensor_core, templates};
+use crate::tools::framework_op_stats::host_db;
+use crate::tools::opstats::{Db, IDLE, convert_tensor_core, templates};
 
 const NS: i64 = 1000;
 
@@ -40,9 +40,9 @@ fn device_op_metrics_db() {
     tensor_flow_op_event(gpu, 20, "TfOp1:TfOp1", 110000, 10000, Some("kernel2"));
     tensor_flow_op_event(gpu, 20, "TfOp2:TfOp2", 120000, 10000, Some("kernel3"));
     let (map, planes) = space.parsed();
-    let gpus = crate::gpu::devices(&planes);
-    let infos = crate::gpu::infos(&planes, &map, &gpus);
-    let (db, _) = crate::gpu::device_plane(gpus[0], &map, &infos, crate::xplane::origin_ns(&planes));
+    let gpus = crate::xplane::gpu::devices(&planes);
+    let infos = crate::xplane::gpu::infos(&planes, &map, &gpus);
+    let (db, _) = crate::xplane::gpu::device_plane(gpus[0], &map, &infos, crate::xplane::origin_ns(&planes));
     assert_eq!(db.metrics.len(), 4);
     let total_op = ((8000 * 2 + 10000 * 2 + 10000) * NS) as u64;
     assert_eq!(db.total_op_time_ps, total_op);

@@ -1,5 +1,5 @@
-use crate::gpu_cost::bit_width;
-use crate::gpu_cost::tests::{parameter, shape};
+use crate::hlo::cost::bit_width;
+use crate::hlo::cost::tests::{parameter, shape};
 
 const BF16: i32 = 16;
 const S4: i32 = 21;

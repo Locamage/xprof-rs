@@ -1,6 +1,6 @@
 use super::opstats_adapter::op_stats;
-use crate::opstats::OpStats;
-use crate::steps::TPU;
+use crate::tools::opstats::OpStats;
+use crate::xplane::steps::TPU;
 use std::sync::Arc;
 
 fn combine(all: &[&str]) -> Arc<OpStats> {

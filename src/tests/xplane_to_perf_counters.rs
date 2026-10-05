@@ -1,5 +1,5 @@
 use super::xspace::XSpace;
-use crate::counters::perf_counters;
+use crate::tools::counters::perf_counters;
 use prost::Message;
 
 fn create_session_snapshot() -> Vec<u8> {

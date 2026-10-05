@@ -1,4 +1,4 @@
-use crate::capture::{ProfileRequest, ProfileResponse, ToolData, handle};
+use crate::server::capture::{ProfileRequest, ProfileResponse, ToolData, handle};
 use axum::http::{Request, Response};
 use std::convert::Infallible;
 use std::future::{Ready, ready};
@@ -94,7 +94,7 @@ async fn capture_reports_invalid_requests_like_xprof() {
 async fn capture_into_a_remote_logdir_uploads_the_session() {
     let (address, bucket) = (serve().await, super::legacy::logdir("capture-remote"));
     let url = format!("file://{}", bucket.display());
-    let remote = crate::remote::Remote::open(&url).unwrap();
+    let remote = crate::server::remote::Remote::open(&url).unwrap();
     let reply = handle(&remote.mirror, Some(&remote), &query(&[("service_addr", &address), ("duration", "50")])).await;
     assert_eq!(reply.status().as_u16(), 200);
     let name = format!("{}.xplane.pb", address.replace(':', "_"));

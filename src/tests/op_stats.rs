@@ -1,6 +1,6 @@
 use super::xspace::{V, XPlane, XSpace, op_stats, proto_bytes};
-use crate::opstats::IDLE;
-use crate::steps::{Breakdown, SPARSE_CORE_START};
+use crate::tools::opstats::IDLE;
+use crate::xplane::steps::{Breakdown, SPARSE_CORE_START};
 
 const MAX_ERROR: f64 = 0.01;
 const DEFAULT_GPU_LOCAL_CORE_ID: u32 = 1;
@@ -21,9 +21,9 @@ fn amd_mi300x(space: &mut XSpace) -> &mut XPlane {
     plane
 }
 
-fn perf_env_of(space: &XSpace) -> crate::opstats::Perf {
+fn perf_env_of(space: &XSpace) -> crate::tools::opstats::Perf {
     let (_, planes) = space.parsed();
-    crate::gpu::perf_env(&planes[0])
+    crate::xplane::gpu::perf_env(&planes[0])
 }
 
 #[test]

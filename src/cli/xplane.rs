@@ -1,8 +1,8 @@
 use super::client::{Client, TRACE_SUFFIXES, traces};
 use super::json::{J, py_repr};
 use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round, stdev};
-use crate::counters::{Event, Plane, events, planes, valid_space};
 use crate::obj;
+use crate::tools::counters::{Event, Plane, events, planes, valid_space};
 use crate::xplane::{Field, Value, fields, stats};
 use indexmap::IndexMap;
 use rayon::prelude::*;

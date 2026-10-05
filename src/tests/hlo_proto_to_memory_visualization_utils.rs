@@ -1,7 +1,7 @@
 use super::hlo_fixture::{hlo_proto, module};
+use crate::hlo::memory::render;
 use crate::hlo::xla::HloProto;
 use crate::hlo::xla::heap_simulator_trace::{Event, event::Kind};
-use crate::memory_viewer::render;
 use serde_json::Value;
 
 const HLO_BASE: &str = r#"hlo_module { name: "test_module" entry_computation_name: "test_computation" computations { name: "test_computation"
@@ -314,7 +314,7 @@ fn memory_viewer_matches_xprof_on_synthetic_modules() {
     let cases: Vec<Value> = serde_json::from_str(&text).unwrap();
     for case in &cases {
         let params: std::collections::HashMap<String, String> = case["params"].as_object().unwrap().iter().map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string())).collect();
-        assert_eq!(crate::memory_viewer::serve(&dir, &params).unwrap().0, case["body"].as_str().unwrap(), "{params:?}");
+        assert_eq!(crate::hlo::memory::serve(&dir, &params).unwrap().0, case["body"].as_str().unwrap(), "{params:?}");
     }
 }
 

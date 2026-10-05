@@ -1,4 +1,4 @@
-use crate::run_tools::python_string_into;
+use crate::server::run_tools::python_string_into;
 use rayon::prelude::*;
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use std::fmt::{self, Write};
@@ -164,7 +164,7 @@ impl J {
             Self::Null => "None".into(),
             Self::Bool(flag) => if *flag { "True" } else { "False" }.into(),
             Self::Int(number) => number.to_string(),
-            Self::Float(number) => crate::table::repr(*number),
+            Self::Float(number) => crate::tools::table::repr(*number),
             Self::Str(text) => text.clone(),
             Self::List(items) => format!("[{}]", items.iter().map(Self::repr).collect::<Vec<_>>().join(", ")),
             Self::Map(entries) => format!("{{{}}}", entries.iter().map(|(key, value)| format!("{}: {}", py_repr(key), value.repr())).collect::<Vec<_>>().join(", ")),
@@ -204,7 +204,7 @@ impl J {
             Self::Int(number) => _ = write!(out, "{number}"),
             Self::Float(number) if number.is_nan() => out.push_str("NaN"),
             Self::Float(number) if number.is_infinite() => out.push_str(if *number > 0.0 { "Infinity" } else { "-Infinity" }),
-            Self::Float(number) => out.push_str(&crate::table::repr(*number)),
+            Self::Float(number) => out.push_str(&crate::tools::table::repr(*number)),
             Self::Str(text) => string(out, text, ascii),
             Self::List(items) if items.is_empty() => out.push_str("[]"),
             Self::Map(entries) if entries.is_empty() => out.push_str("{}"),

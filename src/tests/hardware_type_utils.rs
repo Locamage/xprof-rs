@@ -1,5 +1,5 @@
 use super::xspace::{V, XSpace, op_stats};
-use crate::steps::GPU;
+use crate::xplane::steps::GPU;
 
 fn device(stats: &[(&str, V)]) -> XSpace {
     let mut space = XSpace::default();
@@ -10,9 +10,9 @@ fn device(stats: &[(&str, V)]) -> XSpace {
     space
 }
 
-fn perf(space: &XSpace) -> crate::opstats::Perf {
+fn perf(space: &XSpace) -> crate::tools::opstats::Perf {
     let (_, planes) = space.parsed();
-    crate::gpu::perf_env(&planes[0])
+    crate::xplane::gpu::perf_env(&planes[0])
 }
 
 fn peak_tflops(space: &XSpace) -> f64 {
@@ -25,7 +25,7 @@ fn aggregate_shared_memory_giga_bytes_per_second(space: &XSpace) -> f64 {
 
 fn gpu_model_name(space: &XSpace) -> String {
     let (_, planes) = space.parsed();
-    crate::gpu::model_name(&planes[0])
+    crate::xplane::gpu::model_name(&planes[0])
 }
 
 fn near(actual: f64, expected: f64, abs_error: f64) {
