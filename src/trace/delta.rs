@@ -2,7 +2,6 @@ use crate::trace::json::{CONTEXT_TYPES, HOST_PID_STRIDE, View, devices, ordered}
 use crate::trace::{NONE_FLOW, NONE_RESOURCE};
 use crate::xplane::{NONE_GROUP, Value};
 use prost::Message;
-use rustc_hash::FxHashMap;
 
 #[derive(Clone, PartialEq, Message)]
 pub(crate) struct SeriesMetadata {
@@ -106,25 +105,9 @@ pub(crate) struct Response {
     pub(crate) full_timespan_end_ps: Option<u64>,
 }
 
-struct Interner {
-    ids: FxHashMap<String, u32>,
-    strings: Vec<String>,
-}
-
-impl Interner {
-    fn intern(&mut self, text: &str) -> u32 {
-        if let Some(&id) = self.ids.get(text) {
-            return id;
-        }
-        let id = self.strings.len() as u32;
-        self.strings.push(text.to_string());
-        self.ids.insert(text.to_string(), id);
-        id
-    }
-}
-
 pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
-    let mut interner = Interner { ids: FxHashMap::from_iter([(String::new(), 0)]), strings: vec![String::new()] };
+    let mut interner = crate::trace::Interner::default();
+    interner.intern("");
     let mut response = Response::default();
     let offset = if full_dma.is_some() { 0 } else { HOST_PID_STRIDE };
     let processes = devices(views).into_iter().map(|(pid, device)| {
@@ -185,7 +168,7 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
         }
         start = end;
     }
-    response.interned_strings = interner.strings;
+    response.interned_strings = interner.into_strings();
     let mut compressed = Vec::new();
     ruzstd::encoding::compress(&response.encode_to_vec()[..], &mut compressed, ruzstd::encoding::CompressionLevel::Fastest);
     compressed

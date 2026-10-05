@@ -1,4 +1,5 @@
 use crate::hlo::memory::std_sort;
+use crate::trace::Interner;
 use crate::xplane::{Field, Plane, Value as Raw, fields, slice};
 use rustc_hash::FxHashMap as HashMap;
 use std::collections::{BTreeMap, VecDeque};
@@ -68,14 +69,8 @@ enum Sample {
 }
 
 #[derive(Default)]
-struct Strings {
-    list: Vec<String>,
-    index: HashMap<String, u32>,
-}
-
-#[derive(Default)]
 struct Trace {
-    strings: Strings,
+    strings: Interner,
     tpu: BTreeMap<i64, Vec<Track>>,
     megascale: BTreeMap<i64, Vec<Track>>,
     counters: [Vec<(i64, Sample)>; 6],
@@ -86,21 +81,6 @@ struct GraphKey {
     short_name: String,
     device_id: i64,
     iteration: i64,
-}
-
-impl Strings {
-    fn intern(&mut self, text: &str) -> u32 {
-        if let Some(&id) = self.index.get(text) {
-            return id;
-        }
-        self.list.push(text.to_string());
-        self.index.insert(text.to_string(), self.list.len() as u32 - 1);
-        self.list.len() as u32 - 1
-    }
-
-    fn get(&self, id: u32) -> &str {
-        &self.list[id as usize]
-    }
 }
 
 fn digits(text: &str) -> usize {
@@ -217,7 +197,7 @@ fn stat_name(plane: &Plane, id: usize) -> &str {
     plane.stat_names.get(id).map_or("", |name| name)
 }
 
-fn add_args(plane: &Plane, raw: &[u8], field: u32, strings: &mut Strings, args: &mut Vec<Arg>) {
+fn add_args(plane: &Plane, raw: &[u8], field: u32, strings: &mut Interner, args: &mut Vec<Arg>) {
     for (id, value) in raw_stats(raw, field) {
         let name = stat_name(plane, id);
         if SKIPPED_STATS.contains(&name) {
@@ -238,7 +218,7 @@ fn add_args(plane: &Plane, raw: &[u8], field: u32, strings: &mut Strings, args: 
 type Deltas<T> = Vec<(i64, T)>;
 type Prefixes = Vec<Option<(u32, Vec<Arg>)>>;
 
-fn event(plane: &Plane, map: &[u8], prefixes: &mut Prefixes, ev: &crate::xplane::Ev, ts: i64, strings: &mut Strings) -> Event {
+fn event(plane: &Plane, map: &[u8], prefixes: &mut Prefixes, ev: &crate::xplane::Ev, ts: i64, strings: &mut Interner) -> Event {
     let (name, mut args) = match plane.meta.get(ev.meta as usize) {
         Some(found) => prefixes[ev.meta as usize]
             .get_or_insert_with(|| {
@@ -260,11 +240,11 @@ fn event(plane: &Plane, map: &[u8], prefixes: &mut Prefixes, ev: &crate::xplane:
     Event { name, ts, dur: ev.dur as i64, args, run_id: -1, flows: Vec::new() }
 }
 
-fn arg_text<'a>(event: &Event, strings: &'a Strings, key: &str) -> Option<&'a str> {
+fn arg_text<'a>(event: &Event, strings: &'a Interner, key: &str) -> Option<&'a str> {
     event.args.iter().find_map(|arg| if let (true, Value::Text(id)) = (strings.get(arg.key) == key, arg.value) { Some(strings.get(id)) } else { None })
 }
 
-fn arg_int(event: &Event, strings: &Strings, key: &str) -> Option<i64> {
+fn arg_int(event: &Event, strings: &Interner, key: &str) -> Option<i64> {
     event.args.iter().find_map(|arg| if let (true, Value::Int(value)) = (strings.get(arg.key) == key, arg.value) { Some(value) } else { None })
 }
 
