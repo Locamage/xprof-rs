@@ -54,7 +54,7 @@ pub struct Instruction {
 #[derive(Default)]
 struct OpState {
     start_time: u64,
-    overlapping_duration: u64,
+    overlap_base: u64,
     transfer_type: String,
     stall_duration_ns: u64,
     send_op_name: String,
@@ -77,6 +77,8 @@ pub struct Tracker {
     states: HashMap<String, OpState>,
     group_sizes: HashMap<String, i64>,
     summaries: Vec<Summary>,
+    positions: HashMap<String, usize>,
+    overlap: u64,
 }
 
 fn replica_group_size(info: &[u8]) -> i64 {
@@ -126,13 +128,14 @@ impl Tracker {
             Opcode::Send => *self.group_sizes.entry(rendezvous.clone()).or_insert_with(|| replica_group_size(visit.collective_info)),
             _ => 0,
         };
-        let state = self.states.entry(rendezvous.clone()).or_default();
+        let overlap = self.overlap;
+        let state = self.states.entry(rendezvous.clone()).or_insert_with(|| OpState { overlap_base: overlap, ..Default::default() });
         state.stall_duration_ns = (state.stall_duration_ns as f64 + duration_ns) as u64;
         match instruction.opcode {
             Opcode::Send => {
                 state.start_time = visit.timestamp_ns as u64;
                 state.transfer_type = instruction.transfer_type.clone().unwrap_or_default();
-                state.overlapping_duration = 0;
+                state.overlap_base = overlap;
                 state.stall_duration_ns = duration_ns as u64;
                 state.send_op_name = visit.display_name.to_string();
                 state.send_ps = duration_ps;
@@ -141,13 +144,13 @@ impl Tracker {
             Opcode::Recv => state.recv_ps = duration_ps,
             Opcode::SendDone => state.send_done_ps = duration_ps,
             Opcode::RecvDone if state.start_time != 0 => {
-                let index = self.summaries.iter().position(|summary| summary.rendezvous == rendezvous).unwrap_or_else(|| {
+                let index = *self.positions.entry(rendezvous.clone()).or_insert_with(|| {
                     self.summaries.push(Summary { rendezvous: rendezvous.clone(), ..Default::default() });
                     self.summaries.len() - 1
                 });
                 let summary = &mut self.summaries[index];
                 let end_ns = (visit.timestamp_ns as f64 + duration_ns) as i64;
-                let slack_us = ((visit.timestamp_ns as u64).wrapping_sub(state.start_time).wrapping_sub(state.overlapping_duration) as f64 / 1e3) as u64;
+                let slack_us = ((visit.timestamp_ns as u64).wrapping_sub(state.start_time).wrapping_sub(overlap.wrapping_sub(state.overlap_base)) as f64 / 1e3) as u64;
                 let observed_us = (((end_ns as u64) as f64 / 1e3) as u64).wrapping_sub((state.start_time as f64 / 1e3) as u64);
                 let times = &mut summary.times_us;
                 times[SLACK] = times[SLACK].wrapping_add(slack_us);
@@ -165,8 +168,7 @@ impl Tracker {
             }
             _ => {}
         }
-        let duration = duration_ns as u64;
-        self.states.values_mut().for_each(|state| state.overlapping_duration = state.overlapping_duration.wrapping_add(duration));
+        self.overlap = overlap.wrapping_add(duration_ns as u64);
     }
 }
 

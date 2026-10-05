@@ -230,34 +230,47 @@ struct Simulation {
     unpadded: i64,
     peak: i64,
     peak_unpadded: i64,
-    live: Vec<i64>,
-    peak_live: Vec<i64>,
+    live: Vec<(i64, usize)>,
+    alive: HashMap<i64, Vec<usize>>,
+    removed: usize,
+    display: Vec<(i64, i64)>,
+    peak_marks: [usize; 3],
     timeline: Vec<i64>,
     unpadded_timeline: Vec<i64>,
     names: Vec<String>,
     peak_position: i64,
     seen: Vec<usize>,
     seen_allocations: HashSet<i64>,
-    display: HashMap<i64, i64>,
-    peak_display: HashMap<i64, i64>,
     events: i64,
 }
 
 impl Simulation {
     fn increase(&mut self, buffer: &mut Buffer, init: bool) {
-        self.live.push(buffer.logical.id);
+        self.alive.entry(buffer.logical.id).or_default().push(self.live.len());
+        self.live.push((buffer.logical.id, usize::MAX));
         self.heap += buffer.logical.size;
         self.unpadded += buffer.logical.unpadded;
         if self.heap > self.peak {
             self.peak = self.heap;
             self.peak_position = self.timeline.len() as i64 - 1;
             self.peak_unpadded = self.unpadded;
-            self.peak_live = self.live.clone();
-            self.peak_display = self.display.clone();
+            self.peak_marks = [self.live.len(), self.removed, self.display.len()];
         }
         if init {
             buffer.span = Some((self.timeline.len() as i64 - 1, self.events - 1));
         }
+    }
+
+    fn remove(&mut self, id: i64) {
+        self.removed += 1;
+        for position in self.alive.remove(&id).unwrap_or_default() {
+            self.live[position].1 = self.removed;
+        }
+    }
+
+    fn peak_live(&self) -> (Vec<i64>, HashMap<i64, i64>) {
+        let [live, removed, display] = self.peak_marks;
+        (self.live[..live].iter().filter(|(_, at)| *at > removed).map(|(id, _)| *id).collect(), self.display[..display].iter().copied().collect())
     }
 }
 
@@ -291,7 +304,7 @@ fn simulate(model: &mut Model, color: i64) -> Option<Simulation> {
                 }
                 if refs == 0 {
                     let buffer = &mut model.buffers[root];
-                    stats.live.retain(|live| *live != buffer.logical.id);
+                    stats.remove(buffer.logical.id);
                     stats.heap -= buffer.logical.size;
                     if stats.heap < 0 {
                         return None;
@@ -316,7 +329,7 @@ fn simulate(model: &mut Model, color: i64) -> Option<Simulation> {
                 let root = model.root(canonical);
                 model.buffers[root].refs += 1;
                 if model.buffers[root].refs == 1 {
-                    stats.display.insert(model.buffers[root].logical.id, model.buffers[index].logical.id);
+                    stats.display.push((model.buffers[root].logical.id, model.buffers[index].logical.id));
                     model.buffers[index].span = Some((stats.timeline.len() as i64 - 1, stats.events - 1));
                     stats.increase(&mut model.buffers[root], false);
                 }
@@ -415,7 +428,8 @@ impl Model<'_> {
                 add(best, &mut objects);
             }
         }
-        let complete = stats.peak_live.iter().all(|id| self.buffers.get(stats.peak_display.get(id).unwrap_or(id)).map(|buffer| add(buffer, &mut objects)).is_some());
+        let (peak_live, peak_display) = stats.peak_live();
+        let complete = peak_live.iter().all(|id| self.buffers.get(peak_display.get(id).unwrap_or(id)).map(|buffer| add(buffer, &mut objects)).is_some());
         if complete && small != 0 {
             let label = format!("small (<{small_buffer} bytes)");
             objects.push(HeapObject { color: Some(Color::Numbered(objects.len() as i32)), label, logical_buffer_id: -1, logical_buffer_size_mib: mib(small), ..Default::default() });

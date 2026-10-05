@@ -183,3 +183,34 @@ fn hlo_text_proto_with_deep_nesting() {
     assert!(crate::pbtext::print_hlo(&hlo(98)).is_none());
     assert!(crate::pbtext::print_hlo(&hlo(100_000)).is_none());
 }
+
+#[test]
+fn memory_viewer_with_many_live_buffers() {
+    use crate::hlo::xla::buffer_allocation_proto::Assigned;
+    use crate::hlo::xla::heap_simulator_trace::Event;
+    use crate::hlo::xla::logical_buffer_proto::Location;
+    use crate::hlo::xla::{BufferAllocationProto, BufferAssignmentProto, HeapSimulatorTrace, HloComputationProto, HloInstructionProto, HloModuleProto, HloProto, LogicalBufferProto};
+    let count = 100_000;
+    let instructions = (0..count).map(|id| HloInstructionProto { name: format!("f.{id}"), id, ..Default::default() }).collect();
+    let hlo_module = HloModuleProto { name: "m".into(), computations: vec![HloComputationProto { name: "c".into(), instructions, ..Default::default() }], ..Default::default() };
+    let size = |id: i64| if id == 1 { 3 << 20 } else { 1 << 20 };
+    let logical_buffers =
+        (0..count).map(|id| LogicalBufferProto { id: id + 1, size: size(id + 1), defined_at: Some(Location { instruction_id: id, ..Default::default() }), ..Default::default() }).collect();
+    let assigned = (0..count).map(|id| Assigned { logical_buffer_id: id + 1, offset: id << 22, size: size(id + 1), ..Default::default() }).collect();
+    let event = |kind: i32, id: i64| Event { kind, buffer_id: id + 1, ..Default::default() };
+    let mut events = vec![event(0, 0), event(1, 0)];
+    events.extend((1..count).map(|id| event(0, id)));
+    events.extend((1..count).map(|id| event(1, id)));
+    let assignment = BufferAssignmentProto {
+        logical_buffers,
+        buffer_allocations: vec![BufferAllocationProto { index: 0, size: count << 22, assigned, ..Default::default() }],
+        heap_simulator_traces: vec![HeapSimulatorTrace { events, ..Default::default() }],
+        ..Default::default()
+    };
+    let module = crate::tests::hlo_fixture::module(&HloProto { hlo_module: Some(hlo_module), buffer_assignment: Some(assignment) });
+    let (body, _) = crate::memory_viewer::render(&module, 0, 16 * 1024, false).unwrap();
+    let result: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let ids: Vec<i64> = result["maxHeap"].as_array().unwrap().iter().map(|object| object["logicalBufferId"].as_i64().unwrap()).collect();
+    assert_eq!(ids, (2..=count).collect::<Vec<_>>());
+    assert_eq!(result["peakHeapSizePosition"].as_i64(), Some(count));
+}
