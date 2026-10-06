@@ -200,9 +200,8 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
             let indices = chunk * 1024..(chunk * 1024 + 1024).min(count);
             let (mut part, mut nested, mut plain) = (Out::default(), Vec::with_capacity(if generic { indices.len() } else { 0 }), FxHashMap::default());
             for (event, node) in indices.map(node) {
-                // The links of an event without stats come only from its metadata.
                 let fresh;
-                let links = if event.has_stats {
+                let links = if event.linked {
                     fresh = plane.links(event.meta, slice(map, event.raw), ordinal);
                     &fresh
                 } else {

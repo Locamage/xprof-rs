@@ -150,6 +150,15 @@ pub struct Ev {
     pub eager: Option<bool>,
     /// The event has a field of stats.
     pub has_stats: bool,
+    /// A stat of the event can have a kind of `STATS`. Without one, the links of the event come only from its metadata.
+    pub linked: bool,
+}
+
+impl Ev {
+    /// The bytes of the event for a reader of its stats. An event without stats gives no bytes.
+    pub fn stats_raw<'a>(&self, map: &'a [u8]) -> &'a [u8] {
+        if self.has_stats { slice(map, self.raw) } else { &[] }
+    }
 }
 
 #[derive(Default)]
@@ -353,7 +362,7 @@ fn named(bytes: &[u8]) -> Option<(u64, &[u8], &[u8])> {
     entries.complete().then_some(entry)
 }
 
-fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
+fn line((offset, bytes): (usize, &[u8]), limit: u64, kind: &[u8]) -> Option<Line> {
     let (mut line, mut bodies) = (Line::default(), Vec::with_capacity(bytes.len() / 32));
     let mut entries = fields(bytes);
     for (tag, field) in &mut entries {
@@ -375,14 +384,17 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
         .par_iter()
         .with_min_len(4096)
         .map(|&(start, len)| {
-            let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start as usize) as u32, len), meta: 0, eager: None, has_stats: false };
+            let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start as usize) as u32, len), meta: 0, eager: None, has_stats: false, linked: false };
             let mut parts = fields(&bytes[start as usize..][..len as usize]);
             for (tag, field) in &mut parts {
                 match (tag, field) {
                     (1, Field::Num(id)) => event.meta = id.min(limit) as u32,
                     (2, Field::Num(ts)) => event.ts = ts,
                     (3, Field::Num(dur)) => event.dur = dur,
-                    (4, Field::Bytes(..)) => event.has_stats = true,
+                    (4, Field::Bytes(_, body)) => {
+                        event.has_stats = true;
+                        event.linked = event.linked || !matches!(fields(body).next(), Some((1, Field::Num(id))) if kind.get(id as usize).is_none_or(|&kind| kind == NO_KIND));
+                    }
                     _ => {}
                 }
             }
@@ -473,14 +485,14 @@ impl Plane {
         plane.meta = table(metas).context("An event metadata ID is out of range")?;
         plane.stat_names = table(names).context("A stat metadata ID is out of range")?;
         let limit = plane.meta.len() as u64;
-        plane.lines = spans.par_iter().map(|&span| line(span, limit)).collect::<Option<Vec<Line>>>().context("An XLine is not valid")?;
+        plane.kind = plane.stat_names.iter().map(|name| STATS.iter().position(|stat| stat == &&**name).map_or(NO_KIND, |kind| kind as u8)).collect();
+        plane.lines = spans.par_iter().map(|&span| line(span, limit, &plane.kind)).collect::<Option<Vec<Line>>>().context("An XLine is not valid")?;
         for line in plane.lines.iter_mut().filter(|line| !line.events.is_sorted_by_key(|event| (event.ts, Reverse(event.dur)))) {
             line.events.sort_by_key(|event| (event.ts, Reverse(event.dur)));
         }
         if plane.lines.iter().flat_map(|line| &line.events).any(|event| u64::from(event.meta) == limit) {
             plane.meta.push(Meta::default());
         }
-        plane.kind = plane.stat_names.iter().map(|name| STATS.iter().position(|stat| stat == &&**name).map_or(NO_KIND, |kind| kind as u8)).collect();
         plane.correlation = plane.kind.iter().position(|&kind| kind == CORRELATION as u8);
         for &kind in plane.kind.iter().filter(|&&kind| kind != NO_KIND) {
             plane.present[kind as usize] = true;
@@ -679,7 +691,7 @@ impl Plane {
                         started = Some(event.ts).filter(|&ts| line.absolute_ps(ts, origin) != 0);
                     }
                 } else if let Some(started) = started.filter(|_| event.meta as usize == stop) {
-                    regions.push(Ev { ts: started, dur: event.ts.saturating_sub(started), group: NONE_GROUP, raw: (0, 0), meta: region as u32, eager: None, has_stats: false });
+                    regions.push(Ev { ts: started, dur: event.ts.saturating_sub(started), group: NONE_GROUP, raw: (0, 0), meta: region as u32, eager: None, has_stats: false, linked: false });
                 }
             }
             if !regions.is_empty() {
