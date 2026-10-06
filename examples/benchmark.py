@@ -1,120 +1,131 @@
 #!/usr/bin/env python3
-"""Measure the time of xprof-rs and XProf on one logdir.
+"""Measure the cold and warm times of XProf and xprof-rs on one profile, and print Markdown tables.
 
-Usage: benchmark.py LOGDIR [--rs PATH] [--xprof PATH] [--repeat N] [--tools a,b,c]
+Usage: benchmark.py SESSION_DIR --xprof PATH [--rs PATH] [--cores 0-3] [--trials N]
 
-Each server runs on a fresh copy of the profile files, so no cache is warm.
-"first" is the first request after the server starts. "repeat" is the best of N later requests.
-The CLI rows show the wall time of one process, best of N. Python 3 standard library only.
+SESSION_DIR holds one `.xplane.pb` file and optional `.hlo_proto.pb` files.
+Server, cold: the first request to a new server on a new copy of the files. Warm: the best of 3 more requests.
+CLI, cold: one process on a new copy with an empty TMPDIR (the XProf result cache). Warm: the same command again.
+Each cold time is the best of N trials. Python 3 standard library only.
 """
 
 import argparse
-import gzip
 import http.client
-import json
+import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
 
-TOOLS = ["overview_page", "framework_op_stats", "input_pipeline_analyzer", "hlo_stats", "op_profile", "roofline_model", "memory_profile", "kernel_stats", "pod_viewer", "trace_viewer@"]
-COMMANDS = ["get_overview", "get_top_hlo_ops", "get_hlo_op_profile", "get_step_trace", "check_host_boundness"]
-PORTS = {"xprof-rs": 8981, "xprof": 8982}
+TOOLS = ["trace_viewer@", "overview_page", "op_profile", "hlo_stats", "framework_op_stats", "input_pipeline_analyzer",
+         "roofline_model", "memory_profile", "pod_viewer", "memory_viewer"]
+COMMANDS = ["get_overview", "get_top_hlo_ops", "get_hlo_op_profile", "get_hlo_stats", "get_roofline_model", "get_step_trace",
+            "check_host_boundness", "get_memory_profile", "list_hlo_modules", "aggregate_xplane_events"]
+
+
+def fresh(session, scratch):
+    shutil.rmtree(scratch, ignore_errors=True)
+    target = scratch / "logs/run/plugins/profile/s"
+    target.mkdir(parents=True)
+    (scratch / "tmp").mkdir()
+    for source in session.iterdir():
+        if source.name.endswith((".xplane.pb", ".hlo_proto.pb")):
+            shutil.copy2(source, target)
+    env = {key: value for key, value in os.environ.items() if key != "LD_PRELOAD"}
+    return scratch / "logs", {**env, "TMPDIR": str(scratch / "tmp")}
 
 
 def fetch(port, path):
-    start = time.perf_counter()
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3600)
+    start = time.perf_counter()
     connection.request("GET", path, headers={"Accept-Encoding": "gzip"})
     response = connection.getresponse()
-    size = len(response.read())
-    return (time.perf_counter() - start) * 1000, size, response.status
+    response.read()
+    if response.status != 200:
+        raise RuntimeError(f"{path}: HTTP {response.status}")
+    return time.perf_counter() - start
 
 
-def get_json(port, path):
-    connection = http.client.HTTPConnection("127.0.0.1", port)
-    connection.request("GET", path)
-    body = connection.getresponse().read()
-    return json.loads(gzip.decompress(body) if body[:2] == b"\x1f\x8b" else body)
+def server(command, session, scratch, port, path):
+    logs, env = fresh(session, scratch)
+    process = subprocess.Popen(command + ["--logdir", str(logs), "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+    try:
+        for _ in range(600):
+            try:
+                fetch(port, "/data/plugin/profile/runs")
+                break
+            except OSError:
+                time.sleep(0.1)
+        return fetch(port, path), min(fetch(port, path) for _ in range(3))
+    finally:
+        process.terminate()
+        process.wait()
 
 
-def peak_memory_mb(pid):
-    for line in Path(f"/proc/{pid}/status").read_text().splitlines():
-        if line.startswith("VmHWM"):
-            return int(line.split()[1]) // 1024
-    return 0
-
-
-def copy_profiles(logdir, target):
-    for source in Path(logdir).rglob("*"):
-        if source.is_file() and source.name.endswith((".xplane.pb", ".hlo_proto.pb")):
-            destination = target / source.relative_to(logdir)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-
-
-def serve(name, command, logdir, tools, repeat):
-    port = PORTS[name]
-    with tempfile.TemporaryDirectory(prefix="bench-") as scratch:
-        copy_profiles(logdir, Path(scratch))
-        server = subprocess.Popen(command + ["--logdir", scratch, "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            for _ in range(600):
-                try:
-                    status = fetch(port, "/data/plugin/profile/runs")
-                    if status[2] == 200:
-                        break
-                except OSError:
-                    time.sleep(0.1)
-            run = get_json(port, "/data/plugin/profile/runs")[0]
-            hosts = get_json(port, f"/data/plugin/profile/hosts?run={run}&tag=overview_page")
-            host = next((entry["hostname"] for entry in hosts if entry["hostname"] != "ALL_HOSTS"), hosts[0]["hostname"])
-            rows = {}
-            for tool in tools:
-                extra = "&resolution=8000" if tool.startswith("trace_viewer") else ""
-                path = f"/data/plugin/profile/data?run={run}&tag={tool}&host={host}{extra}"
-                first, size, status = fetch(port, path)
-                best = min(fetch(port, path)[0] for _ in range(repeat))
-                rows[tool] = (first, best, size, status)
-            return rows, peak_memory_mb(server.pid)
-        finally:
-            server.terminate()
-            server.wait()
-
-
-def command_line(binary, logdir, command, repeat):
-    best = float("inf")
-    for _ in range(repeat):
+def cli(command, session, scratch, name):
+    logs, env = fresh(session, scratch)
+    times = []
+    for _ in range(2):
         start = time.perf_counter()
-        subprocess.run([binary, command, str(logdir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        best = min(best, time.perf_counter() - start)
-    return best * 1000
+        done = subprocess.run(command + [name, str(logs / "run")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        times.append(time.perf_counter() - start)
+        if done.returncode != 0:
+            raise RuntimeError(f"{name}: exit code {done.returncode}")
+    return times
+
+
+def best(measure, trials):
+    pairs = [measure() for _ in range(trials)]
+    return min(pair[0] for pair in pairs), min(pair[1] for pair in pairs)
+
+
+def duration(seconds):
+    if seconds < 0.01:
+        return f"{seconds * 1000:.1f} ms"
+    return f"{seconds * 1000:.0f} ms" if seconds < 1 else f"{seconds:.1f} s"
+
+
+def ratio(slow, fast):
+    value = slow / fast
+    return f"{value:.0f}×" if value >= 10 else f"{value:.1f}×"
+
+
+def table(title, rows):
+    print(f"| {title} | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |")
+    print("|---|---|---|---|---|---|---|")
+    for name, ((old_cold, old_warm), (new_cold, new_warm)) in rows.items():
+        print(f"| `{name}` | {duration(old_cold)} | {duration(new_cold)} | {ratio(old_cold, new_cold)} "
+              f"| {duration(old_warm)} | {duration(new_warm)} | {ratio(old_warm, new_warm)} |")
+    print()
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("logdir")
+    parser.add_argument("session", type=Path)
+    parser.add_argument("--xprof", required=True, help="path of the XProf command")
     parser.add_argument("--rs", default="target/release/xprof-rs")
-    parser.add_argument("--xprof", help="path of the XProf command; skip XProf when missing")
-    parser.add_argument("--repeat", type=int, default=3)
-    parser.add_argument("--tools", default=",".join(TOOLS))
+    parser.add_argument("--cores", help="CPU list for taskset, for example 0-3")
+    parser.add_argument("--trials", type=int, default=2)
     arguments = parser.parse_args()
-    tools = arguments.tools.split(",")
-    results = {"xprof-rs": serve("xprof-rs", [arguments.rs], arguments.logdir, tools, arguments.repeat)}
-    if arguments.xprof:
-        results["xprof"] = serve("xprof", [arguments.xprof, "--grpc_port", "8983"], arguments.logdir, tools, arguments.repeat)
-    names = list(results)
-    print(f"{'tool':26}" + "".join(f"{name + ' first':>18}{name + ' repeat':>18}" for name in names) + f"{'bytes':>12}")
-    for tool in tools:
-        cells = "".join(f"{results[name][0][tool][0]:>15.0f} ms{results[name][0][tool][1]:>15.1f} ms" for name in names)
-        print(f"{tool:26}{cells}{results[names[0]][0][tool][2]:>12}")
-    print("peak memory " + ", ".join(f"{name} {results[name][1]} MB" for name in names))
-    print("\nCLI wall time of xprof-rs, best of", arguments.repeat)
-    for command in COMMANDS:
-        print(f"{command:26}{command_line(arguments.rs, arguments.logdir, command, arguments.repeat):>10.0f} ms")
+    pin = ["taskset", "-c", arguments.cores] if arguments.cores else []
+    commands = {"xprof": pin + [arguments.xprof], "xprof-rs": pin + [str(Path(arguments.rs).resolve())]}
+    host = next(arguments.session.glob("*.xplane.pb")).name.removesuffix(".xplane.pb")
+    modules = [path.name.removesuffix(".hlo_proto.pb") for path in arguments.session.glob("*.hlo_proto.pb")]
+    tools = [tool for tool in TOOLS if tool != "memory_viewer" or modules]
+    with tempfile.TemporaryDirectory(prefix="xprof-benchmark-") as scratch:
+        scratch = Path(scratch) / "work"
+        servers, clis = {}, {}
+        for tool in tools:
+            extra = "&resolution=8000" if tool == "trace_viewer@" else f"&module_name={modules[0]}" if tool == "memory_viewer" else ""
+            path = f"/data/plugin/profile/data?run=run/s&tag={tool}&host={host}{extra}"
+            servers[tool] = [best(lambda: server(command, arguments.session, scratch, 8981 + index, path), arguments.trials)
+                             for index, command in enumerate(commands.values())]
+        for name in COMMANDS:
+            clis[name] = [best(lambda: cli(command, arguments.session, scratch, name), arguments.trials) for command in commands.values()]
+    table("Tool", servers)
+    table("Command", clis)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
