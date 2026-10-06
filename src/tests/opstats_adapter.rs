@@ -245,6 +245,7 @@ pub fn op_stats_message(stats: &DynamicMessage) -> OpStats {
         },
         tpu: extra.hardware == crate::xplane::steps::TPU,
         host: db(&child(stats, "host_op_metrics_db")),
+        infeed_enqueue: (0, 0),
         extra: Arc::new(extra),
         programs: map(stats, "program_id_to_name_map").into_iter().map(|(key, value)| (key_number(&key), value.as_str().unwrap().to_string())).collect::<HashMap<_, _>>(),
         kernels: messages(&child(stats, "kernel_stats_db"), "reports").iter().map(kernel).collect(),

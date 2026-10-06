@@ -414,7 +414,7 @@ pub fn analyze(stats: &OpStats) -> Analysis {
     let generic_breakdown = summarize(&generic_steps.iter().map(|step| step.2));
     let tpu = extra.hardware == TPU;
     let fallback_ratio = if step_summary[0] > 0.0 && !tpu { safe_divide(generic_breakdown[TO_DEVICE][0], step_summary[0]) } else { 0.0 };
-    let (mut host, input_time) = host_result(&stats.host, extra.infeed_enqueue, fallback_ratio);
+    let (mut host, input_time) = host_result(&stats.host, stats.infeed_enqueue, fallback_ratio);
     INPUT_TIMES.iter().zip(input_time).for_each(|(key, value)| host.prop(key, fixed(value, 3)));
     let tf_data = input_time[1..4].iter().any(|&time| time > 0.0);
     let (bottleneck, classification) =
