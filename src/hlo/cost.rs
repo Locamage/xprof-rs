@@ -203,10 +203,6 @@ fn cost_estimate(text: &str, key: &str) -> Option<i64> {
     None
 }
 
-fn json_dimensions(value: &serde_json::Value) -> Vec<i64> {
-    value.as_array().map_or_else(Vec::new, |items| items.iter().filter_map(|item| item.as_i64().or_else(|| item.as_str().and_then(|text| text.parse().ok()))).collect())
-}
-
 #[derive(Clone, Copy, PartialEq)]
 enum Op {
     Node(usize),
@@ -1006,7 +1002,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 Vec::new()
             } else {
                 let value: serde_json::Value = serde_json::from_slice(&config).map_err(|error| error.to_string())?;
-                json_dimensions(&value["gemm_backend_config"]["dot_dimension_numbers"]["lhs_contracting_dimensions"])
+                let dimensions = value["gemm_backend_config"]["dot_dimension_numbers"]["lhs_contracting_dimensions"].as_array();
+                dimensions.map_or_else(Vec::new, |items| items.iter().filter_map(|item| item.as_i64().or_else(|| item.as_str().and_then(|text| text.parse().ok()))).collect())
             };
             let operand = context.shape(context.operand(node, 0)?);
             let flops = dot_flops(operand, &output, &lhs) as f32;

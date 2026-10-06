@@ -1,5 +1,5 @@
 use crate::xplane::derive::{Category, is_tensor_core, tf_op};
-use crate::xplane::{Ev, Line, NONE_GROUP, Plane, Step, Value, slice, stats};
+use crate::xplane::{C, CT, Ev, Line, NONE_GROUP, P, PT, Plane, ROOT, Step, Value, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::cmp::Reverse;
@@ -544,9 +544,9 @@ pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
     }
     let eager_exists = planes.iter().zip(&typings).any(|(plane, typing)| !plane.name.starts_with(TPU) && typing.kinds.contains(&EAGER));
     let full = eager_exists
-        || planes.iter().any(Plane::has_roots)
+        || planes.iter().any(|plane| plane.present[ROOT] || plane.meta.iter().any(|meta| meta.root.is_some()))
         || typings.iter().any(|typing| typing.kinds.contains(&EXECUTOR))
-        || planes.iter().any(|plane| plane.name.starts_with(TPU) && plane.has_contexts());
+        || planes.iter().any(|plane| plane.name.starts_with(TPU) && [PT, P, CT, C].iter().any(|&kind| plane.present[kind]));
     let (jobs, nodes, cores) = plan_jobs(planes, full);
     let outs: Vec<Out> = jobs.par_iter().map(|job| run(planes, map, job, &typings[job.plane])).collect();
     let (graph, iterations) = build_graph(planes, &jobs, &outs, nodes);

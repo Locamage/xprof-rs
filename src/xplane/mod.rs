@@ -640,14 +640,6 @@ impl Plane {
         })
     }
 
-    pub fn has_roots(&self) -> bool {
-        self.present[ROOT] || self.meta.iter().any(|meta| meta.root.is_some())
-    }
-
-    pub fn has_contexts(&self) -> bool {
-        [PT, P, CT, C].iter().any(|&kind| self.present[kind])
-    }
-
     pub fn id(&self, name: &str) -> Option<usize> {
         self.stat_names.iter().position(|stat| &**stat == name)
     }
