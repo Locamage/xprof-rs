@@ -28,7 +28,7 @@ use std::io::Read;
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::panic::AssertUnwindSafe;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::Semaphore;
@@ -273,10 +273,22 @@ fn prepare_map(map: Vec<u8>, trace: bool) -> Option<(Vec<u8>, Vec<Plane>)> {
     Some((map, planes))
 }
 
-/// A file that is not a valid `XSpace` gives `None`. The check runs at the same time as the parse.
+/// A file that is not a valid `XSpace` gives `None`. The parse checks the events, and the check of the other fields runs at the same time.
 fn parse_checked(map: &[u8]) -> anyhow::Result<Option<Vec<Plane>>> {
-    let (valid, planes) = rayon::join(|| tools::counters::valid_space(map), || xplane::parse(map));
-    if valid { planes.map(Some) } else { Ok(None) }
+    let stats = AtomicBool::new(true);
+    let (valid, planes) = rayon::join(|| tools::counters::valid_besides_events(map), || xplane::parse_checking(map, Some(&stats)));
+    match planes {
+        _ if !valid => Ok(None),
+        Ok(planes) => Ok(stats.into_inner().then_some(planes)),
+        // The parse can stop before it checks all of the events.
+        Err(error) => {
+            if tools::counters::valid_space(map) {
+                Err(error)
+            } else {
+                Ok(None)
+            }
+        }
+    }
 }
 
 /// Adds the regions, the groups, and the derived lines.

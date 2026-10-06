@@ -362,7 +362,7 @@ fn named(bytes: &[u8]) -> Option<(u64, &[u8], &[u8])> {
     entries.complete().then_some(entry)
 }
 
-fn line((offset, bytes): (usize, &[u8]), limit: u64, kind: &[u8]) -> Option<Line> {
+fn line((offset, bytes): (usize, &[u8]), limit: u64, kind: &[u8], checked: Option<&AtomicBool>) -> Option<Line> {
     let (mut line, mut bodies) = (Line::default(), Vec::with_capacity(bytes.len() / 32));
     let mut entries = fields(bytes);
     for (tag, field) in &mut entries {
@@ -393,6 +393,11 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64, kind: &[u8]) -> Option<Line
                     (3, Field::Num(dur)) => event.dur = dur,
                     (4, Field::Bytes(_, body)) => {
                         event.has_stats = true;
+                        if let Some(valid) = checked
+                            && !crate::tools::counters::valid_stat(body)
+                        {
+                            valid.store(false, Ordering::Relaxed);
+                        }
                         event.linked = event.linked || !matches!(fields(body).next(), Some((1, Field::Num(id))) if kind.get(id as usize).is_none_or(|&kind| kind == NO_KIND));
                     }
                     _ => {}
@@ -418,6 +423,11 @@ fn hash(kind: u64, parts: &[u64]) -> u64 {
 }
 
 pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
+    parse_checking(buf, None)
+}
+
+/// Clears `checked` if a stat of an event does not pass the check of `valid_space`.
+pub fn parse_checking(buf: &[u8], checked: Option<&AtomicBool>) -> anyhow::Result<Vec<Plane>> {
     anyhow::ensure!(u32::try_from(buf.len()).is_ok(), "The profile is larger than 4 GiB");
     let mut entries = fields(buf);
     let (mut spans, mut host) = (Vec::new(), None);
@@ -429,7 +439,7 @@ pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
         }
     }
     anyhow::ensure!(entries.complete(), "The XSpace is not valid");
-    let mut planes: Vec<Plane> = spans.par_iter().map(|&span| Plane::parse(span, buf)).collect::<anyhow::Result<_>>()?;
+    let mut planes: Vec<Plane> = spans.par_iter().map(|&span| Plane::parse(span, buf, checked)).collect::<anyhow::Result<_>>()?;
     let origin = origin_ns(&planes);
     let host = host.map_or(0, |name| hash(name.len() as u64, &name.iter().map(|&byte| byte as u64).collect::<Vec<_>>()));
     planes.iter_mut().for_each(|plane| (plane.origin_ns, plane.host) = (origin, host));
@@ -444,7 +454,7 @@ pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
 }
 
 impl Plane {
-    fn parse((offset, bytes): (usize, &[u8]), buf: &[u8]) -> anyhow::Result<Self> {
+    fn parse((offset, bytes): (usize, &[u8]), buf: &[u8], checked: Option<&AtomicBool>) -> anyhow::Result<Self> {
         let (mut spans, mut metas, mut names) = (Vec::new(), Vec::new(), Vec::new());
         let mut plane = Self::default();
         let mut entries = fields(bytes);
@@ -486,7 +496,7 @@ impl Plane {
         plane.stat_names = table(names).context("A stat metadata ID is out of range")?;
         let limit = plane.meta.len() as u64;
         plane.kind = plane.stat_names.iter().map(|name| STATS.iter().position(|stat| stat == &&**name).map_or(NO_KIND, |kind| kind as u8)).collect();
-        plane.lines = spans.par_iter().map(|&span| line(span, limit, &plane.kind)).collect::<Option<Vec<Line>>>().context("An XLine is not valid")?;
+        plane.lines = spans.par_iter().map(|&span| line(span, limit, &plane.kind, checked)).collect::<Option<Vec<Line>>>().context("An XLine is not valid")?;
         for line in plane.lines.iter_mut().filter(|line| !line.events.is_sorted_by_key(|event| (event.ts, Reverse(event.dur)))) {
             line.events.sort_by_key(|event| (event.ts, Reverse(event.dur)));
         }
