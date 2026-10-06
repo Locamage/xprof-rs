@@ -101,7 +101,7 @@ To measure the times of the first two tables on your profile, run [`examples/ben
 The [releases](https://github.com/Locamage/xprof-rs/releases) have binaries for Linux on `x86_64` and `aarch64`, and for macOS on Apple silicon. The Linux binaries need glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04, or newer). You do not need Python.
 
 ```bash
-version=v0.1.0 target=x86_64-linux   # or aarch64-linux, aarch64-macos
+version=v0.1.1 target=x86_64-linux   # or aarch64-linux, aarch64-macos
 curl -LO https://github.com/Locamage/xprof-rs/releases/download/$version/xprof-rs-$version-$target.tar.gz
 tar -xzf xprof-rs-$version-$target.tar.gz
 xprof-rs-$version-$target/xprof-rs --logdir ~/logs          # open http://localhost:8791
