@@ -9,7 +9,6 @@ readme = "README.md"
 repository = "https://github.com/Locamage/xprof-rs"
 keywords = ["profiler", "xprof", "tpu", "jax", "tracing"]
 categories = ["development-tools::profiling"]
-publish = false
 exclude = ["/tests", "/.github", "/docs"]
 
 [dependencies]

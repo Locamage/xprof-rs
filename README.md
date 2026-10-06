@@ -1,5 +1,9 @@
 # xprof-rs
 
+[![crates.io](https://img.shields.io/crates/v/xprof-rs.svg)](https://crates.io/crates/xprof-rs)
+[![CI](https://github.com/Locamage/xprof-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Locamage/xprof-rs/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 xprof-rs is a fast backend for the [XProf](https://github.com/openxla/xprof) profile viewer. It is one Rust binary. It replaces the XProf server and the XProf agent CLI, and it serves the same user interface. Its responses are the same as the responses of XProf 2.23.2. The tests compare them with the output of XProf.
 
 xprof-rs is an independent project. Google and the OpenXLA project do not maintain or endorse it.
@@ -34,10 +38,10 @@ xprof-rs-$version-$target/xprof-rs get_overview ~/logs/run1 # the same binary ru
 To build from source, you need Rust 1.95 or newer, a C compiler, and a 64-bit Unix system. You do not need a C++ toolchain or `protoc`.
 
 ```bash
-cargo install --locked --git https://github.com/Locamage/xprof-rs
+cargo install --locked xprof-rs
 ```
 
-The release profile uses fat LTO and one codegen unit. A full build takes about 80 s on a machine with 240 cores. It uses about 10 CPU minutes. For a quick build, set `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`.
+The release profile uses fat LTO and one codegen unit. A full build takes about 80 s on a machine with 240 cores. It uses about 10 CPU minutes. On 8 cores, it takes about 2 minutes. For a quick build, set `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`.
 
 ## Server
 
