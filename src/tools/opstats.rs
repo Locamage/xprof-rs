@@ -496,8 +496,9 @@ impl Db {
     }
 }
 
-pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates) -> Db {
-    let (mut builder, mut first, mut last, reader) = (Builder::new(templates), u64::MAX, 0u64, EventReader::new(plane));
+/// `span` is the first start and the last end of the derived operations, if the plane does not have them.
+pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, span: Option<(u64, u64)>) -> Db {
+    let ((mut first, mut last), mut builder, reader) = (span.unwrap_or((u64::MAX, 0)), Builder::new(templates), EventReader::new(plane));
     for line in &plane.lines {
         let is_step = line.name == "Steps" || line.name == "Sparse Core Steps";
         let is_op = matches!(line.name.as_str(), "XLA Ops" | "Framework Ops" | "Sparse Core Ops");
@@ -561,6 +562,7 @@ pub struct Kept {
     modules: Vec<(u64, crate::hlo::Module<'static>)>,
     pub fused: bool,
     pub part: Part,
+    finished: bool,
     map: Vec<u8>,
     pub planes: Vec<Plane>,
 }
@@ -568,6 +570,13 @@ pub struct Kept {
 impl Kept {
     pub fn map(&self) -> &[u8] {
         &self.map
+    }
+
+    /// Adds the regions, the groups, and the derived lines, if the planes do not have them.
+    pub fn finish(&mut self) {
+        if !std::mem::replace(&mut self.finished, true) {
+            crate::finish(&mut self.planes, &self.map, false);
+        }
     }
 
     /// Adds the fused children to the operations of a trace that does not have them.
@@ -583,6 +592,7 @@ impl Kept {
 
     /// Adds the parts of the op statistics that `part` has and the statistics do not have. `part` comes after the part of the statistics.
     pub fn upgrade(&mut self, stats: &mut OpStats, part: Part) {
+        self.finish();
         let (planes, map) = (&self.planes, &self.map[..]);
         let (mut extra, host) = rayon::join(|| steps(planes, map, &all_templates(planes, map), part), || (part == Part::All).then(|| crate::tools::framework_op_stats::host_db(planes, map)));
         if stats.tpu {
@@ -614,15 +624,20 @@ pub fn load_kept(map: Vec<u8>, fused: bool, part: Part) -> anyhow::Result<Option
     let Some(mut planes) = crate::parse_checked(&map)? else { return Ok(None) };
     // The modules come from the metadata plane only, so they parse at the same time as the other planes change.
     let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
+    // The operations of the TPUs do not use the groups, and of the derived lines, they use only the span that `op_span` gives.
+    let finished = part > Part::Device || planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX));
+    let spans = !finished && !crate::xplane::derive::is_grouped(&planes);
     let modules = std::thread::scope(|scope| {
         let modules = scope.spawn(|| crate::hlo::parse_modules(protos));
-        crate::finish(&mut planes, &map, false);
+        if finished {
+            crate::finish(&mut planes, &map, false);
+        }
         modules.join().unwrap()
     });
-    let stats = op_stats(&planes, &map, &modules, part);
+    let stats = op_stats(&planes, &map, &modules, part, spans);
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
     let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
-    Ok(Some((Arc::new(stats), Kept { modules, fused, part, map, planes })))
+    Ok(Some((Arc::new(stats), Kept { modules, fused, part, finished, map, planes })))
 }
 
 pub fn load(path: &std::path::Path) -> anyhow::Result<Option<Arc<OpStats>>> {
@@ -662,7 +677,7 @@ impl OpStats {
 }
 
 /// Without `Part::All`, the host operations are empty.
-fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)], part: Part) -> OpStats {
+fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)], part: Part, spans: bool) -> OpStats {
     let first = planes.iter().find(|plane| plane.name.starts_with("/device:TPU:"));
     let tpu = first.is_some();
     let gpus = crate::xplane::gpu::devices(planes);
@@ -671,7 +686,12 @@ fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)],
         if !gpus.is_empty() {
             return crate::xplane::gpu::device(planes, map, &gpus);
         }
-        let parts: Vec<Db> = planes.par_iter().zip(&templates).filter(|(plane, _)| is_tensor_core(&plane.name)).map(|(plane, templates)| convert_tensor_core(plane, map, templates)).collect();
+        let parts: Vec<Db> = planes
+            .par_iter()
+            .zip(&templates)
+            .filter(|(plane, _)| is_tensor_core(&plane.name))
+            .map(|(plane, templates)| convert_tensor_core(plane, map, templates, spans.then(|| crate::xplane::derive::op_span(plane, map)).flatten()))
+            .collect();
         let mut db = Db::combined(&parts, true);
         crate::release(parts);
         if !modules.is_empty() {
