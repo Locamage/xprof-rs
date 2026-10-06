@@ -108,6 +108,8 @@ pub struct OpStats {
     pub perf: Perf,
     pub tpu: bool,
     pub host: Db,
+    /// The sums of the durations of the enqueues of infeed, and of the times between them, on the host.
+    pub infeed_enqueue: (u64, u64),
     pub extra: Arc<crate::xplane::steps::Extra>,
     pub programs: HashMap<u64, String>,
     pub kernels: Vec<crate::xplane::gpu::KernelReport>,
@@ -548,10 +550,22 @@ fn perf_env(plane: &Plane) -> Perf {
     Perf { peak_tera_flops, ridge_point: peak_tera_flops * 1e3 / bandwidths[0], cmem: bandwidths[3] > 0.0 || bandwidths[4] > 0.0, bandwidths }
 }
 
+/// The parts of the op statistics that a tool reads. Each part has the parts before it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Part {
+    /// The operations of the devices, the module names, and the header of the steps.
+    Device,
+    /// Also the programs of the steps.
+    Programs,
+    /// Also the other fields of the steps and the operations of the host.
+    All,
+}
+
 /// Prepared planes with the modules that borrow their file. Fields drop in order, so the modules drop before the file.
 pub struct Kept {
     modules: Vec<(u64, crate::hlo::Module<'static>)>,
     pub fused: bool,
+    pub part: Part,
     map: Vec<u8>,
     pub planes: Vec<Plane>,
 }
@@ -571,10 +585,37 @@ impl Kept {
         }
         self.fused = true;
     }
+
+    /// Adds the parts of the op statistics that `part` has and the statistics do not have. `part` comes after the part of the statistics.
+    pub fn upgrade(&mut self, stats: &mut OpStats, part: Part) {
+        let (planes, map) = (&self.planes, &self.map[..]);
+        let (mut extra, host) = rayon::join(|| steps(planes, map, &all_templates(planes, map), part), || (part == Part::All).then(|| crate::tools::framework_op_stats::host_db(planes, map)));
+        if stats.tpu {
+            crate::xplane::steps::fix(&mut extra, &stats.db);
+        }
+        stats.extra = Arc::new(extra);
+        if let Some((host, infeed_enqueue)) = host {
+            (stats.host, stats.infeed_enqueue) = (host, infeed_enqueue);
+        }
+        self.part = part;
+    }
+}
+
+fn all_templates(planes: &[Plane], map: &[u8]) -> Vec<Templates> {
+    planes.par_iter().map(|plane| if is_tensor_core(&plane.name) { templates(plane, map) } else { Templates::default() }).collect()
+}
+
+/// The steps that `part` has. The programs of the steps on a GPU come with the other fields.
+fn steps(planes: &[Plane], map: &[u8], templates: &[Templates], part: Part) -> crate::xplane::steps::Extra {
+    match part {
+        Part::Device => crate::xplane::steps::header(planes, map),
+        Part::Programs if crate::xplane::gpu::devices(planes).is_empty() => crate::xplane::steps::programs(planes, map, templates),
+        _ => crate::xplane::steps::extra(planes, map, templates),
+    }
 }
 
 /// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
-pub fn load_kept(map: Vec<u8>, fused: bool) -> anyhow::Result<Option<(Arc<OpStats>, Kept)>> {
+pub fn load_kept(map: Vec<u8>, fused: bool, part: Part) -> anyhow::Result<Option<(Arc<OpStats>, Kept)>> {
     let Some(mut planes) = crate::parse_checked(&map)? else { return Ok(None) };
     // The modules come from the metadata plane only, so they parse at the same time as the other planes change.
     let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
@@ -583,14 +624,14 @@ pub fn load_kept(map: Vec<u8>, fused: bool) -> anyhow::Result<Option<(Arc<OpStat
         crate::finish(&mut planes, &map, false);
         modules.join().unwrap()
     });
-    let stats = op_stats(&planes, &map, &modules);
+    let stats = op_stats(&planes, &map, &modules, part);
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
     let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
-    Ok(Some((Arc::new(stats), Kept { modules, fused, map, planes })))
+    Ok(Some((Arc::new(stats), Kept { modules, fused, part, map, planes })))
 }
 
 pub fn load(path: &std::path::Path) -> anyhow::Result<Option<Arc<OpStats>>> {
-    let Some((stats, kept)) = load_kept(crate::read_file(path)?, true)? else { return Ok(None) };
+    let Some((stats, kept)) = load_kept(crate::read_file(path)?, true, Part::All)? else { return Ok(None) };
     crate::release(kept);
     Ok(Some(stats))
 }
@@ -620,15 +661,17 @@ impl OpStats {
         (extra.megacore, extra.merged_vmem) = (false, false);
         let extra = Arc::new(extra);
         let tpu = all.iter().any(|stats| stats.tpu);
-        Some(Arc::new(Self { db, perf, tpu, host, extra, programs, kernels: crate::xplane::gpu::sorted_kernels(all.iter().flat_map(|stats| stats.kernels.iter().cloned()).collect()) }))
+        let infeed_enqueue = all.iter().fold((0, 0), |sum, stats| (sum.0 + stats.infeed_enqueue.0, sum.1 + stats.infeed_enqueue.1));
+        Some(Arc::new(Self { db, perf, tpu, host, infeed_enqueue, extra, programs, kernels: crate::xplane::gpu::sorted_kernels(all.iter().flat_map(|stats| stats.kernels.iter().cloned()).collect()) }))
     }
 }
 
-fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)]) -> OpStats {
+/// Without `Part::All`, the host operations are empty.
+fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)], part: Part) -> OpStats {
     let first = planes.iter().find(|plane| plane.name.starts_with("/device:TPU:"));
     let tpu = first.is_some();
     let gpus = crate::xplane::gpu::devices(planes);
-    let templates: Vec<Templates> = planes.par_iter().map(|plane| if is_tensor_core(&plane.name) { templates(plane, map) } else { Templates::default() }).collect();
+    let templates = all_templates(planes, map);
     let device = || {
         if !gpus.is_empty() {
             return crate::xplane::gpu::device(planes, map, &gpus);
@@ -645,19 +688,18 @@ fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)])
     let ((db, kernels), mut extra, ((host, infeed_enqueue), programs)) = std::thread::scope(|scope| {
         let side = scope.spawn(|| {
             rayon::join(
-                || crate::tools::framework_op_stats::host_db(planes, map),
+                || if part == Part::All { crate::tools::framework_op_stats::host_db(planes, map) } else { Default::default() },
                 || crate::hlo::protos(planes, map).into_par_iter().map(|(id, proto)| (id, crate::hlo::module_name(proto))).collect::<HashMap<u64, String>>(),
             )
         });
-        let extra = scope.spawn(|| crate::xplane::steps::extra(planes, map, &templates));
+        let extra = scope.spawn(|| steps(planes, map, &templates, part));
         let device = scope.spawn(device);
         (device.join().unwrap(), extra.join().unwrap(), side.join().unwrap())
     });
     crate::release(templates);
-    extra.infeed_enqueue = infeed_enqueue;
     if tpu {
         crate::xplane::steps::fix(&mut extra, &db);
     }
     let perf = first.map_or_else(|| gpus.first().map_or_else(Perf::default, |plane| crate::xplane::gpu::perf_env(plane)), perf_env);
-    OpStats { db, perf, tpu, host, extra: Arc::new(extra), programs, kernels }
+    OpStats { db, perf, tpu, host, infeed_enqueue, extra: Arc::new(extra), programs, kernels }
 }

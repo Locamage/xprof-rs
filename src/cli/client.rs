@@ -1,5 +1,5 @@
 use super::{Error, Kind, fail, json::py_repr};
-use crate::tools::opstats::{Kept, OpStats, load_kept};
+use crate::tools::opstats::{Kept, OpStats, Part, load_kept};
 use crate::xplane::Plane;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -192,19 +192,24 @@ impl Client for Local {
         let options: HashMap<String, String> = params.iter().map(|(key, value)| (key.to_string(), flag(key, value))).collect();
         let option = |key: &str| options.get(key).map(String::as_str);
         let dir = paths[0].parent().map(Path::to_path_buf).unwrap_or_default();
-        let stats = |fused: bool| {
+        let stats = |fused: bool, part: Part| {
             let mut loaded = self.loaded.lock().unwrap();
             if paths.len() > 1 {
                 return None;
             }
             let mut kept = self.kept.write().unwrap();
             let stats = loaded.entry(paths[0].clone()).or_insert_with(|| {
-                let (stats, found) = load_kept(crate::read_file(&paths[0]).ok()?, fused || self.fused).ok()??;
+                let (stats, found) = load_kept(crate::read_file(&paths[0]).ok()?, fused || self.fused, part).ok()??;
                 kept.insert(paths[0].clone(), found);
                 Some(stats)
             });
-            if let (Some(stats), Some(kept)) = (stats.as_mut(), kept.get_mut(&paths[0]).filter(|kept| fused && !kept.fused)) {
-                kept.fuse(Arc::make_mut(stats));
+            if let (Some(stats), Some(kept)) = (stats.as_mut(), kept.get_mut(&paths[0])) {
+                if fused && !kept.fused {
+                    kept.fuse(Arc::make_mut(stats));
+                }
+                if kept.part < part {
+                    kept.upgrade(Arc::make_mut(stats), part);
+                }
             }
             stats.clone()
         };
@@ -214,14 +219,14 @@ impl Client for Local {
                 Some(kept) => Some(crate::tools::memory_profile::json(&kept.planes, kept.map())),
                 None => crate::tools::memory_profile::load(&paths[0]).ok().flatten(),
             },
-            "overview_page" => stats(false).map(|stats| crate::tools::overview_page::json(&stats, &paths)),
-            "input_pipeline_analyzer" => stats(false).map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
-            "framework_op_stats" => stats(false).map(|stats| crate::tools::framework_op_stats::json(&stats)),
-            "kernel_stats" => stats(false).map(|stats| crate::xplane::gpu::kernel_stats_json(&stats)),
-            "pod_viewer" => stats(false).map(|stats| crate::tools::pod_viewer::json(&stats)),
-            "op_profile" => stats(true).map(|stats| crate::tools::op_profile::json_trees(&stats, Some(option("group_by").unwrap_or("program")), false)),
-            "hlo_stats" => stats(true).map(|stats| crate::tools::hlo_stats::json(&stats)),
-            "roofline_model" => stats(false).map(|stats| crate::tools::roofline::json_rows(&stats, option(TOTAL_ONLY).is_some())),
+            "overview_page" => stats(false, Part::All).map(|stats| crate::tools::overview_page::json(&stats, &paths)),
+            "input_pipeline_analyzer" => stats(false, Part::All).map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
+            "framework_op_stats" => stats(false, Part::All).map(|stats| crate::tools::framework_op_stats::json(&stats)),
+            "kernel_stats" => stats(false, Part::Device).map(|stats| crate::xplane::gpu::kernel_stats_json(&stats)),
+            "pod_viewer" => stats(false, Part::All).map(|stats| crate::tools::pod_viewer::json(&stats)),
+            "op_profile" => stats(true, Part::Device).map(|stats| crate::tools::op_profile::json_trees(&stats, Some(option("group_by").unwrap_or("program")), false)),
+            "hlo_stats" => stats(true, Part::Device).map(|stats| crate::tools::hlo_stats::json(&stats)),
+            "roofline_model" => stats(false, Part::Programs).map(|stats| crate::tools::roofline::json_rows(&stats, option(TOTAL_ONLY).is_some())),
             "memory_viewer" => crate::hlo::memory::serve(&dir, &options).map(|(body, _)| body),
             "graph_viewer" => return crate::hlo::graph::serve(&dir, &options).map(|(body, _)| Some(body)).map_err(|message| Error::new(Kind::Value, message)),
             "utilization_viewer" | "perf_counters" => {

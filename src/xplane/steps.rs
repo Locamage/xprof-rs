@@ -152,7 +152,6 @@ pub struct Extra {
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
     pub host_input: Option<HashMap<i64, u64>>,
-    pub infeed_enqueue: (u64, u64),
     pub megacore: bool,
     pub merged_vmem: bool,
     pub program_steps: Vec<(i64, [Metrics; 2])>,
@@ -615,19 +614,18 @@ fn add_metrics(total: &mut [Metrics; 2], part: &[Metrics; 2], times: [u64; 2]) {
     }
 }
 
-pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
+/// The fields of `Extra` that do not come from the steps: the hosts, the errors, the warnings, and the kind and number of devices.
+pub fn header(planes: &[Plane], map: &[u8]) -> Extra {
     let texts = |tag: u32| {
         let mut seen = HashSet::new();
         nested(map, tag).map(|bytes| String::from_utf8_lossy(bytes).into_owned()).filter(|text| seen.insert(text.clone())).collect::<Vec<String>>()
     };
-    let raw_planes: Vec<&[u8]> = nested(map, 1).collect();
     let hostname = texts(4).into_iter().next().unwrap_or_else(|| "localhost".into());
-    let origin = (crate::xplane::origin_ns(planes) as u64).wrapping_mul(1000);
     let mut extra = Extra { errors: texts(2), warnings: texts(3), hostnames: vec![hostname.clone()], tasks: 1, device_type: "CPU".into(), hardware: CPU_ONLY, ..Default::default() };
     let tensor_cores: Vec<&Plane> = planes.iter().filter(|plane| is_tensor_core(&plane.name)).collect();
-    let devices: Vec<(usize, &Plane)> = planes.iter().enumerate().filter(|(_, plane)| plane.name.starts_with(TPU_PREFIX)).collect();
+    let devices: Vec<&Plane> = planes.iter().filter(|plane| plane.name.starts_with(TPU_PREFIX)).collect();
     if let Some(first) = tensor_cores.first() {
-        let flag = |name: &str| devices[0].1.own.iter().any(|(key, value)| &**key == name && matches!(value, Own::Int(value) if *value != 0));
+        let flag = |name: &str| devices[0].own.iter().any(|(key, value)| &**key == name && matches!(value, Own::Int(value) if *value != 0));
         extra.device_type = first.own_text("device_type_string").unwrap_or_default().to_string();
         extra.core_count = tensor_cores.len() as i32;
         extra.hardware = TPU;
@@ -640,10 +638,58 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
         extra.core_count = planes.iter().filter(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX)).count() as i32;
         extra.hardware = GPU;
     }
-    let gpus = crate::xplane::gpu::devices(planes);
-    if !gpus.is_empty() {
-        extra.cores.insert(crate::xplane::gpu::CORE, Core { hostname: hostname.clone(), ..Default::default() });
+    if !crate::xplane::gpu::devices(planes).is_empty() {
+        extra.cores.insert(crate::xplane::gpu::CORE, Core { hostname, ..Default::default() });
     }
+    extra
+}
+
+/// The header and the programs of the steps. On a GPU, the steps have other fields that the roofline model reads, so `extra` must make them.
+pub fn programs(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
+    let mut extra = header(planes, map);
+    let devices = planes.par_iter().zip(templates).filter(|(plane, _)| plane.name.starts_with(TPU_PREFIX));
+    let programs: Vec<HashMap<i64, StepPrograms>> = devices.map(|(plane, templates)| if is_tensor_core(&plane.name) { step_programs(plane, map, templates) } else { HashMap::new() }).collect();
+    add_programs(&mut extra, programs);
+    extra
+}
+
+/// Adds the program steps of the devices, in the order of the devices.
+fn add_programs(extra: &mut Extra, devices: Vec<HashMap<i64, StepPrograms>>) {
+    let mut programs: HashMap<i64, StepPrograms> = HashMap::new();
+    for device in devices {
+        if programs.is_empty() || !device.is_empty() {
+            intersect(device, &mut programs, |step, other| {
+                step.markers.extend(other.markers);
+                step.cores.extend(other.cores);
+            });
+        }
+    }
+    let mut sequence: Vec<(i64, [Metrics; 2])> = programs
+        .into_iter()
+        .map(|(group, step)| {
+            let duration = step.markers.iter().copied().max().unwrap_or(0);
+            let mut sums: [Metrics; 2] = Default::default();
+            for (total_op, core, infeed_outfeed) in step.cores.iter().filter(|_| duration != 0) {
+                let total = (*total_op).max(duration);
+                add_metrics(&mut sums, core, [total, total.wrapping_sub(*infeed_outfeed)]);
+            }
+            (group, sums)
+        })
+        .collect();
+    sequence.sort_unstable_by_key(|(group, _)| *group);
+    for (_, sums) in &sequence {
+        add_metrics(&mut extra.program_total, sums, [sums[0].time_ps, sums[1].time_ps]);
+    }
+    extra.program_steps = sequence;
+}
+
+pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
+    let mut extra = header(planes, map);
+    let hostname = extra.hostnames[0].clone();
+    let raw_planes: Vec<&[u8]> = nested(map, 1).collect();
+    let origin = (crate::xplane::origin_ns(planes) as u64).wrapping_mul(1000);
+    let devices: Vec<(usize, &Plane)> = planes.iter().enumerate().filter(|(_, plane)| plane.name.starts_with(TPU_PREFIX)).collect();
+    let gpus = crate::xplane::gpu::devices(planes);
     let host = planes.iter().find(|plane| plane.name == HOST_PLANE);
     let ((outputs, gpu_events), (training, host_events)) = rayon::join(
         || {
@@ -657,17 +703,12 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
     extra.training = training;
     let mut step_events: StepEvents = HashMap::new();
     let mut chips: BTreeMap<(bool, u32), [Tracker; 2]> = BTreeMap::new();
-    let mut programs: HashMap<i64, StepPrograms> = HashMap::new();
+    let mut programs = Vec::new();
     for (index, ((_, plane), output)) in devices.iter().zip(outputs).enumerate() {
         if !output.events.is_empty() {
             intersect(output.events, &mut step_events, Details::combine);
         }
-        if programs.is_empty() || !output.programs.is_empty() {
-            intersect(output.programs, &mut programs, |step, other| {
-                step.markers.extend(other.markers);
-                step.cores.extend(other.cores);
-            });
-        }
+        programs.push(output.programs);
         let key = output.core.as_ref().map_or((true, index as u32), |core| (false, core.chip));
         for (tracker, active) in chips.entry(key).or_default().iter_mut().zip(output.active) {
             tracker.0.extend(active);
@@ -687,23 +728,7 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
         extra.busy_ps[index % 2] += active_ps;
         extra.idle_ps[index % 2] += total_ps.wrapping_sub(active_ps);
     }
-    let mut sequence: Vec<(i64, [Metrics; 2])> = programs
-        .into_iter()
-        .map(|(group, step)| {
-            let duration = step.markers.iter().copied().max().unwrap_or(0);
-            let mut sums: [Metrics; 2] = Default::default();
-            for (total_op, core, infeed_outfeed) in step.cores.iter().filter(|_| duration != 0) {
-                let total = (*total_op).max(duration);
-                add_metrics(&mut sums, core, [total, total.wrapping_sub(*infeed_outfeed)]);
-            }
-            (group, sums)
-        })
-        .collect();
-    sequence.sort_unstable_by_key(|(group, _)| *group);
-    for (_, sums) in &sequence {
-        add_metrics(&mut extra.program_total, sums, [sums[0].time_ps, sums[1].time_ps]);
-    }
-    extra.program_steps = sequence;
+    add_programs(&mut extra, programs);
     if let Some(plane) = host {
         extra.mxu = plane.own_double("matrix_unit_utilization_percent");
         extra.hbm = plane.own_double("hbm_utilization_percent");
@@ -835,7 +860,6 @@ pub fn combine(all: &[&Extra]) -> Extra {
         combined.errors.extend(extra.errors.iter().cloned());
         combined.warnings.extend(extra.warnings.iter().cloned());
         combined.tasks += extra.tasks;
-        combined.infeed_enqueue = (combined.infeed_enqueue.0 + extra.infeed_enqueue.0, combined.infeed_enqueue.1 + extra.infeed_enqueue.1);
         combined.mxu += extra.mxu;
         combined.hbm += extra.hbm;
         combined.precision = std::array::from_fn(|index| combined.precision[index] + extra.precision[index]);
