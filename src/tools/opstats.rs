@@ -562,7 +562,8 @@ pub struct Kept {
     modules: Vec<(u64, crate::hlo::Module<'static>)>,
     pub fused: bool,
     pub part: Part,
-    finished: bool,
+    /// `None` before the groups. Then, if the planes do not have the derived lines of the TPUs yet.
+    underived: Option<bool>,
     map: Vec<u8>,
     pub planes: Vec<Plane>,
 }
@@ -572,10 +573,11 @@ impl Kept {
         &self.map
     }
 
-    /// Adds the regions, the groups, and the derived lines, if the planes do not have them.
-    pub fn finish(&mut self) {
-        if !std::mem::replace(&mut self.finished, true) {
-            crate::finish(&mut self.planes, &self.map, false);
+    /// Adds the regions and the groups, and with `derived`, the derived lines, if the planes do not have them.
+    pub fn finish(&mut self, derived: bool) {
+        let underived = self.underived.get_or_insert_with(|| crate::group(&mut self.planes, &self.map, false));
+        if derived && std::mem::take(underived) {
+            crate::derive(&mut self.planes, &self.map);
         }
     }
 
@@ -592,7 +594,7 @@ impl Kept {
 
     /// Adds the parts of the op statistics that `part` has and the statistics do not have. `part` comes after the part of the statistics.
     pub fn upgrade(&mut self, stats: &mut OpStats, part: Part) {
-        self.finish();
+        self.finish(false);
         let (planes, map) = (&self.planes, &self.map[..]);
         let (mut extra, host) = rayon::join(|| steps(planes, map, &all_templates(planes, map), part), || (part == Part::All).then(|| crate::tools::framework_op_stats::host_db(planes, map)));
         if stats.tpu {
@@ -624,20 +626,18 @@ pub fn load_kept(map: Vec<u8>, fused: bool, part: Part) -> anyhow::Result<Option
     let Some(mut planes) = crate::parse_checked(&map)? else { return Ok(None) };
     // The modules come from the metadata plane only, so they parse at the same time as the other planes change.
     let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
-    // The operations of the TPUs do not use the groups, and of the derived lines, they use only the span that `op_span` gives.
-    let finished = part > Part::Device || planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX));
-    let spans = !finished && !crate::xplane::derive::is_grouped(&planes);
-    let modules = std::thread::scope(|scope| {
+    // The operations of the TPUs do not use the groups, and of the derived lines, the op statistics use only the span that `op_span` gives.
+    let grouped = part > Part::Device || planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX));
+    let spans = !crate::xplane::derive::is_grouped(&planes);
+    let (modules, underived) = std::thread::scope(|scope| {
         let modules = scope.spawn(|| crate::hlo::parse_modules(protos));
-        if finished {
-            crate::finish(&mut planes, &map, false);
-        }
-        modules.join().unwrap()
+        let underived = grouped.then(|| crate::group(&mut planes, &map, false));
+        (modules.join().unwrap(), underived)
     });
     let stats = op_stats(&planes, &map, &modules, part, spans);
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
     let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
-    Ok(Some((Arc::new(stats), Kept { modules, fused, part, finished, map, planes })))
+    Ok(Some((Arc::new(stats), Kept { modules, fused, part, underived, map, planes })))
 }
 
 pub fn load(path: &std::path::Path) -> anyhow::Result<Option<Arc<OpStats>>> {

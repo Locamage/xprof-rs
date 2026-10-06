@@ -129,7 +129,7 @@ impl Local {
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
     fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> Option<T> {
         if let Some(kept) = self.kept.write().unwrap().get_mut(path).filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))) {
-            kept.finish();
+            kept.finish(true);
             return Some(read(&kept.planes, kept.map()));
         }
         let (map, planes) = crate::prepare(path, true).ok()?;
@@ -218,7 +218,7 @@ impl Client for Local {
             "memory_profile" if paths.len() != 1 => return fail(Kind::Assertion, ""),
             "memory_profile" => match self.kept.write().unwrap().get_mut(&paths[0]) {
                 Some(kept) => {
-                    kept.finish();
+                    kept.finish(false);
                     Some(crate::tools::memory_profile::json(&kept.planes, kept.map()))
                 }
                 None => crate::tools::memory_profile::load(&paths[0]).ok().flatten(),
