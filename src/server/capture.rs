@@ -117,14 +117,6 @@ fn status_text(status: &Status) -> String {
     format!("{shouted}: {}", status.message())
 }
 
-fn retryable(status: &Status) -> bool {
-    matches!(status.code(), Code::Unavailable | Code::AlreadyExists) || (status.code() == Code::Unknown && status.message() == "Stream removed")
-}
-
-fn valid_host_port(address: &str) -> bool {
-    address.split_once(':').is_some_and(|(host, port)| !host.is_empty() && !host.contains('/') && port.parse::<u32>().is_ok())
-}
-
 async fn call<Req: prost::Message + Send + Sync + 'static, Rep: prost::Message + Default + Send + Sync + 'static>(
     address: &str,
     path: &'static str,
@@ -186,7 +178,10 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
     let invalid = if duration_ms == 0 {
         Some("duration_ms must be greater than zero.".to_string())
     } else {
-        addresses.iter().find(|address| !valid_host_port(address)).map(|address| format!("Could not interpret \"{address}\" as a host-port pair."))
+        addresses
+            .iter()
+            .find(|address| !address.split_once(':').is_some_and(|(host, port)| !host.is_empty() && !host.contains('/') && port.parse::<u32>().is_ok()))
+            .map(|address| format!("Could not interpret \"{address}\" as a host-port pair."))
     };
     if let Some(message) = invalid {
         return json(StatusCode::INTERNAL_SERVER_ERROR, "error", &format!("INVALID_ARGUMENT: {message}"));
@@ -253,7 +248,7 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
             }
         };
         match outcome {
-            Err(status) if remaining > 0 && retryable(&status) => continue,
+            Err(status) if remaining > 0 && (matches!(status.code(), Code::Unavailable | Code::AlreadyExists) || (status.code() == Code::Unknown && status.message() == "Stream removed")) => continue,
             other => break other,
         }
     };
