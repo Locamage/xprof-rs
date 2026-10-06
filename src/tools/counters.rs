@@ -85,11 +85,16 @@ fn slot(message: Message, field: u64) -> Slot {
 }
 
 pub fn valid_space(buf: &[u8]) -> bool {
-    valid(buf, Message::Space, true)
+    valid(buf, Message::Space, true, true)
+}
+
+/// The same check as `valid_space` without the events, for a parse that checks the events.
+pub fn valid_besides_events(buf: &[u8]) -> bool {
+    valid(buf, Message::Space, true, false)
 }
 
 /// With `split`, a line checks only its own fields, and then parts of about `SPLIT` bytes check all of their fields in parallel.
-fn valid(buf: &[u8], message: Message, split: bool) -> bool {
+fn valid(buf: &[u8], message: Message, split: bool, events: bool) -> bool {
     const SPLIT: usize = 1 << 16;
     let split = split && matches!(message, Message::Line);
     let (mut pos, mut start, mut children) = (0, 0, Vec::new());
@@ -115,8 +120,8 @@ fn valid(buf: &[u8], message: Message, split: bool) -> bool {
                         true
                     }
                     Slot::Message(_) if split => true,
-                    Slot::Message(Message::Event) => valid_event(body),
-                    Slot::Message(child) => valid(body, child, false),
+                    Slot::Message(Message::Event) => !events || valid_event(body),
+                    Slot::Message(child) => valid(body, child, false, events),
                     Slot::Text => std::str::from_utf8(body).is_ok(),
                     Slot::Packed => {
                         let mut at = 0;
@@ -139,12 +144,17 @@ fn valid(buf: &[u8], message: Message, split: bool) -> bool {
     if split {
         children.push((&buf[start..], message, false));
     }
-    children.par_iter().all(|&(body, child, split)| valid(body, child, split))
+    children.par_iter().all(|&(body, child, split)| valid(body, child, split, events))
 }
 
 /// The same check as `valid` for an event and its stats.
 fn valid_event(buf: &[u8]) -> bool {
-    walk(buf, |field, body| field != 4 || walk(body, |field, body| field != 5 || std::str::from_utf8(body).is_ok()))
+    walk(buf, |field, body| field != 4 || valid_stat(body))
+}
+
+/// The same check as `valid` for a stat.
+pub fn valid_stat(buf: &[u8]) -> bool {
+    walk(buf, |field, body| field != 5 || std::str::from_utf8(body).is_ok())
 }
 
 /// Checks the keys and the lengths of the fields. `body` checks each field that has a length.
