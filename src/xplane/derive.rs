@@ -167,7 +167,7 @@ impl Derived {
         }
         self.reset(line, level);
         let builder = &mut self.lines[line];
-        builder.events.push(Ev { ts: start, dur: end - start, group, raw: (0, 0), meta, eager: None });
+        builder.events.push(Ev { ts: start, dur: end - start, group, raw: (0, 0), meta, eager: None, has_stats: false });
         builder.last[level] = Some((builder.events.len() - 1, scope));
     }
 
@@ -523,7 +523,7 @@ fn launch_lines(planes: &[Plane], map: &[u8], devices: usize, names: &HashMap<i6
                     format!("\"avg_launch_time_us\":{}", crate::trace::json::double(sum as f64 / count as f64 / 1e6)),
                 ],
             );
-            line.events.push(Ev { ts: begin, dur: end - begin, group, raw: (0, 0), meta: line.labels.len() as u32, eager: None });
+            line.events.push(Ev { ts: begin, dur: end - begin, group, raw: (0, 0), meta: line.labels.len() as u32, eager: None, has_stats: false });
             line.labels.push(format!("Launch Stats for {name}").into());
             line.longs.push("".into());
         }

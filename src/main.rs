@@ -55,7 +55,7 @@ const GZIP_CHUNK: usize = 1 << 20;
 const GZIP_HEADER: [u8; 10] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
 const READ_CHUNK: usize = 16 << 20;
 const MAX_THREADS: usize = 32;
-/// `mi_option_purge_delay` of mimalloc 3, which `libmimalloc-sys` does not name.
+/// `mi_option_purge_delay` of mimalloc, which `libmimalloc-sys` does not name.
 const PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
 const DEFAULT_PORT: u16 = 8791;
 const DEFAULT_GRPC_PORT: u16 = 50051;
@@ -279,14 +279,13 @@ fn parse_checked(map: &[u8]) -> anyhow::Result<Option<Vec<Plane>>> {
     if valid { planes.map(Some) } else { Ok(None) }
 }
 
-/// Adds the regions, the groups, and the derived lines. Do not call it on a thread of the pool: the pool stops when all of its threads wait for the threads of this function.
+/// Adds the regions, the groups, and the derived lines.
 fn finish(planes: &mut [Plane], map: &[u8], trace: bool) {
     planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
     if !xplane::derive::is_grouped(planes) {
         let groups = xplane::group::group(planes, map);
         xplane::derive::derive_gpu(planes, map, groups.as_ref().map(|groups| &groups.names), trace);
-        // Each plane runs on a thread outside the pool, so no plane waits for the work of another that the pool stole.
-        std::thread::scope(|scope| planes.iter_mut().filter(|plane| xplane::derive::is_tensor_core(&plane.name)).for_each(|plane| _ = scope.spawn(|| xplane::derive::derive(plane, map))));
+        planes.par_iter_mut().filter(|plane| xplane::derive::is_tensor_core(&plane.name)).for_each(|plane| xplane::derive::derive(plane, map));
     }
 }
 
