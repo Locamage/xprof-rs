@@ -11,7 +11,6 @@ use std::borrow::Cow;
 const MAX_OPS: usize = 500;
 const HOST_PLANE: &str = "/host:CPU";
 const UNKNOWN: &str = "Unknown";
-const MEMCPY: [&str; 4] = ["MemcpyHToD", "MemcpyDToH", "MemcpyDToD", "MemcpyHToH"];
 const COLUMNS: [(&str, &str, &str); 19] = [
     ("rank", "number", "Rank"),
     ("host_or_device", "string", "Host/device"),
@@ -65,35 +64,9 @@ pub fn is_jax_op_type(kind: &str) -> bool {
     rest.is_empty() || (rest.len() >= 2 && rest[0] == b'[' && rest[rest.len() - 1] == b']' && !rest.contains(&b'\n'))
 }
 
-fn derive_op_type(full: &str) -> &str {
-    let name = full.rsplit('/').next().unwrap();
-    let suffix = name.rsplit('_').next().unwrap();
-    match (suffix.trim_ascii().parse::<i64>(), name.len() > suffix.len()) {
-        (Ok(_), true) => &name[..name.len() - suffix.len() - 1],
-        _ => name,
-    }
-}
-
-pub fn jax_op_type<'a>(name: &'a str, kind: &'a str) -> Option<&'a str> {
-    let derived = if kind.is_empty() { derive_op_type(name) } else { kind };
-    if is_jax_op_type(derived) { Some(&derived[..derived.find('[').unwrap_or(derived.len())]) } else { kind.is_empty().then_some(derived) }
-}
-
 pub fn parse_tf_op(full: &str) -> TfOp {
-    let op = |known: bool, name: &str, kind: &str| TfOp { known, name: name.to_string(), kind: kind.to_string(), id: 0 };
-    let Some((name, kind)) = full.split_once(':') else {
-        return match MEMCPY.iter().find(|memcpy| full.get(..memcpy.len()).is_some_and(|prefix| prefix.eq_ignore_ascii_case(memcpy))) {
-            Some(memcpy) => op(true, full, memcpy),
-            None => op(false, full, ""),
-        };
-    };
-    if name == "Iterator" {
-        op(true, full, "Dataset")
-    } else if is_tf_op_name(name) && is_tf_op_type(kind) {
-        op(true, name, kind)
-    } else {
-        jax_op_type(name, kind).map_or_else(|| op(false, full, ""), |kind| op(true, name, kind))
-    }
+    let op = crate::xplane::derive::tf_op(full);
+    TfOp { known: op.category != crate::xplane::derive::Category::Unknown, name: op.name.into(), kind: op.kind.into(), id: 0 }
 }
 
 fn shared(op: TfOp) -> Op {
@@ -215,7 +188,8 @@ pub fn device_tf_db(device: &Db) -> Db {
     db
 }
 
-fn training(name: &str, kind: &str) -> bool {
+/// Tells if the op is a part of the training, from the scopes of its name.
+pub fn training(name: &str, kind: &str) -> bool {
     if is_tf_op_type(kind) && is_tf_op_name(name) {
         // The last scope is the op itself.
         name.rsplit_once('/').is_some_and(|(scopes, _)| scopes.split('/').any(|scope| scope.strip_prefix("gradient").is_some_and(|rest| rest == "_tape" || rest.starts_with('s'))))

@@ -14,7 +14,6 @@ const COLLECTIVES: [&str; 4] = ["all-gather", "all-reduce", "reduce-scatter", "c
 const CUSTOM_CALLS: [&str; 2] = ["custom-call", "custom_call"];
 const NO_LABEL: [&str; 4] = ["IDLE", "idle", "unknown", ""];
 const SUMMARY_LIMIT: usize = 10;
-const CUSTOM_CALL_GUIDANCE: &str = "Op-level metrics unavailable for custom calls. Use get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events for Pallas kernels.";
 const NO_PROFILE: &str = "No HLO op_profile found in trace. For JAX traces, ensure compilation is captured in the trace or pass XLA_FLAGS='--xla_dump_to=<path> --xla_dump_hlo_as_proto'.";
 /// The default `max_recursion_depth` of `json_format.Parse` in protobuf.
 const MAX_MESSAGE_DEPTH: usize = 100;
@@ -465,7 +464,7 @@ pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         .any(|op| CUSTOM_CALLS.contains(&op.at("category").text().to_lowercase().as_str()) || op.at("name").text().to_lowercase().contains("custom-call"));
     let mut result = obj! {"top_by_time" => by_time, "top_by_flops" => by_flops, "top_by_bytes_accessed" => by_bytes, "total_matched" => flat.len()};
     if custom {
-        result.set("guidance", CUSTOM_CALL_GUIDANCE);
+        result.set("guidance", super::overview::CUSTOM_CALL_GUIDANCE);
     }
     Ok(result.into())
 }

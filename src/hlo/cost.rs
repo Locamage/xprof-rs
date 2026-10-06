@@ -139,11 +139,6 @@ fn log2_floor(value: u64) -> i64 {
     if value == 0 { -1 } else { 63 - value.leading_zeros() as i64 }
 }
 
-fn log2_ceiling(value: u64) -> i64 {
-    let floor = log2_floor(value);
-    if value == 0 || value.is_power_of_two() { floor } else { floor + 1 }
-}
-
 fn adjusted(flops: f32, width: i64) -> f32 {
     let divisor = match width {
         8 => 2.0,
@@ -388,12 +383,6 @@ impl<'m> Context<'m> {
             "fusion" => self.module.nodes[node].called.first().is_some_and(|&graph| graphs.get(graph) == Some(&true)),
             _ => ELEMENTWISE.split(' ').any(|name| name == opcode),
         }
-    }
-
-    fn equal_ignoring_element_type(left: &Shape, right: &Shape) -> bool {
-        let layout =
-            |shape: &Shape| shape.layout.as_ref().map(|layout| (layout.minor_to_major.clone(), layout.tiles.iter().map(|tile| tile.dimensions.clone()).collect::<Vec<_>>(), layout.memory_space));
-        left.dimensions == right.dimensions && left.is_dynamic_dimension == right.is_dynamic_dimension && left.is_array() == right.is_array() && layout(left) == layout(right)
     }
 
     fn transpose_is_bitcast(&self, node: usize) -> Result<bool, String> {
@@ -724,7 +713,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
             "custom-call" => self.custom_call(node)?,
             "sort" => {
                 let count = context.shape(context.operand(node, 0)?).elements();
-                self.current.set(Key::Flops, (count * log2_ceiling(count as u64)) as f32);
+                let rounded = (count as u64 != 0 && !(count as u64).is_power_of_two()) as i64;
+                self.current.set(Key::Flops, (count * (log2_floor(count as u64) + rounded)) as f32);
             }
             "gather" => self.gather(node)?,
             "scatter" => self.scatter(node)?,
@@ -1157,8 +1147,13 @@ impl<'c, 'm> Analysis<'c, 'm> {
             *self.current.slot(Key::Flops) += utilization * flops;
             *self.current.slot(Key::IrSize) += emitted;
             let opcode = context.opcode(instruction);
+            let layout =
+                |shape: &Shape| shape.layout.as_ref().map(|layout| (layout.minor_to_major.clone(), layout.tiles.iter().map(|tile| tile.dimensions.clone()).collect::<Vec<_>>(), layout.memory_space));
+            let same = |left: &Shape, right: &Shape| {
+                left.dimensions == right.dimensions && left.is_dynamic_dimension == right.is_dynamic_dimension && left.is_array() == right.is_array() && layout(left) == layout(right)
+            };
             let passes = context.is_elementwise(instruction)
-                || (opcode == "bitcast" && Context::equal_ignoring_element_type(context.shape(context.operand(instruction, 0)?), context.shape(instruction)))
+                || (opcode == "bitcast" && same(context.shape(context.operand(instruction, 0)?), context.shape(instruction)))
                 || opcode == "tuple"
                 || opcode == "get-tuple-element";
             for (index, &operand) in context.operands(instruction).iter().enumerate() {

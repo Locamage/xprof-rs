@@ -120,7 +120,7 @@ fn valid(buf: &[u8], message: Message, split: bool, events: bool) -> bool {
                         true
                     }
                     Slot::Message(_) if split => true,
-                    Slot::Message(Message::Event) => !events || valid_event(body),
+                    Slot::Message(Message::Event) => !events || walk(body, |field, stat| field != 4 || valid_stat(stat)),
                     Slot::Message(child) => valid(body, child, false, events),
                     Slot::Text => std::str::from_utf8(body).is_ok(),
                     Slot::Packed => {
@@ -145,11 +145,6 @@ fn valid(buf: &[u8], message: Message, split: bool, events: bool) -> bool {
         children.push((&buf[start..], message, false));
     }
     children.par_iter().all(|&(body, child, split)| valid(body, child, split, events))
-}
-
-/// The same check as `valid` for an event and its stats.
-fn valid_event(buf: &[u8]) -> bool {
-    walk(buf, |field, body| field != 4 || valid_stat(body))
 }
 
 /// The same check as `valid` for a stat.

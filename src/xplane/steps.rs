@@ -1,4 +1,4 @@
-use crate::tools::framework_op_stats::{is_jax_op_type, is_tf_op_name, is_tf_op_type, parse_tf_op};
+use crate::tools::framework_op_stats::{parse_tf_op, training};
 use crate::tools::input_pipeline_analyzer::{TC_IDLE, tpu_step_details};
 use crate::tools::opstats::{Builder, Db, EventReader, IDLE, Metrics, Templates, safe_divide};
 use crate::tools::roofline::accumulate;
@@ -595,15 +595,7 @@ fn is_training(planes: &[Plane], map: &[u8]) -> bool {
     let instructions: Vec<&[u8]> = modules.iter().flat_map(|(_, proto)| nested(proto, 1)).flat_map(|module| nested(module, 3)).flat_map(|computation| nested(computation, 2)).collect();
     instructions.par_iter().flat_map_iter(|instruction| nested(instruction, 7)).any(|metadata| {
         let text = |wanted: u32| nested(metadata, wanted).last().map(|bytes| String::from_utf8_lossy(bytes).into_owned()).unwrap_or_default();
-        let (kind, name) = (text(1), text(2));
-        if is_tf_op_type(&kind) && is_tf_op_name(&name) {
-            let scopes: Vec<&str> = name.split('/').collect();
-            scopes[..scopes.len() - 1].iter().any(|scope| scope.strip_prefix("gradient").is_some_and(|rest| rest == "_tape" || rest.starts_with('s')))
-        } else if (!name.is_empty() && is_jax_op_type(&kind) && name.rsplit('/').next().unwrap().contains(kind.as_str())) || kind.is_empty() {
-            name.split('/').any(|scope| scope.starts_with("transpose("))
-        } else {
-            false
-        }
+        training(&text(2), &text(1))
     })
 }
 

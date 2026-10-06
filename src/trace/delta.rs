@@ -186,7 +186,7 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
             }
         }
     }
-    response.interned_strings = interner.into_strings();
+    response.interned_strings = interner.0.into_iter().collect();
     // Protobuf writes the fields in the order of their tags, so the series come before the other fields of the response.
     built.sort_by_key(|(_, tag, _)| *tag);
     let parts: Vec<Vec<u8>> = built
