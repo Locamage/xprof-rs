@@ -2,7 +2,7 @@ use super::client::{Client, TRACE_SUFFIXES, traces};
 use super::json::{J, py_repr};
 use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round, stdev};
 use crate::obj;
-use crate::tools::counters::{Event, Plane, events, planes, valid_space};
+use crate::tools::counters::{Event, Plane, checked, events, planes, valid_space};
 use crate::xplane::{Field, Value, fields, stats};
 use indexmap::IndexMap;
 use rayon::prelude::*;
@@ -88,10 +88,12 @@ fn space(path: &Path) -> Result<Vec<u8>, Error> {
 fn scan_lines<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize) -> R + Sync) -> Result<Vec<R>, Error> {
     let mut results = Vec::new();
     for path in paths {
-        let map = space(path)?;
-        let planes = planes(&map, |_| true);
-        let lines: Vec<(&Plane, usize)> = planes.iter().flat_map(|plane| (0..plane.lines.len()).map(move |index| (plane, index))).collect();
-        results.extend(lines.into_par_iter().map(|(plane, index)| scan(plane, index)).collect::<Vec<R>>());
+        let scanned = checked(&super::read(path)?, |map| {
+            let planes = planes(map, |_| true);
+            let lines: Vec<(&Plane, usize)> = planes.iter().flat_map(|plane| (0..plane.lines.len()).map(move |index| (plane, index))).collect();
+            lines.into_par_iter().map(|(plane, index)| scan(plane, index)).collect::<Vec<R>>()
+        });
+        results.extend(scanned.ok_or_else(|| Error::new(Kind::Value, "Failed to parse XSpace protobuf data"))?);
     }
     Ok(results)
 }
