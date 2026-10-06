@@ -1,5 +1,5 @@
 use crate::tools::hlo_stats::roofline;
-use crate::tools::opstats::{Db, IDLE, Metrics, OpStats, add, pico_to_micro, safe_divide};
+use crate::tools::opstats::{Db, IDLE, OpStats, add, pico_to_micro, safe_divide};
 use crate::tools::table::{Cell, Table};
 use crate::xplane::derive::is_derived;
 use crate::xplane::{Line, Plane, event_stats};
@@ -108,17 +108,15 @@ fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &FxHashMap<i64, Op>, i
             let [stage, other_stage, eager, tf_op] = event_stats(event.stats_raw(map), [ids[2], ids[4], ids[0], ids[1]]);
             let key = stage.or(other_stage).map_or(event.meta as i64, |value| value.int().unwrap_or(0));
             let (begin, end) = (event.ts, event.ts.wrapping_add(event.dur));
+            let mut push = |op: Op, eager: bool| {
+                let next = activities.len() as u32 / 2 + 1;
+                activities.extend([(begin, next, None), (end, next, Some((op, eager)))]);
+            };
             if let Some(op) = ops.get(&key) {
-                let (next, eager) = (activities.len() as u32 / 2 + 1, eager.is_some_and(|value| value.int().unwrap_or(0) != 0));
-                activities.extend([(begin, next, None), (end, next, Some((op.clone(), eager)))]);
+                push(op.clone(), eager.is_some_and(|value| value.int().unwrap_or(0) != 0));
             }
             let Some(full) = tf_op.map(|value| plane.text_cow(&value)).filter(|full| !full.is_empty()) else { continue };
-            let op = match parsed.get(&*full) {
-                Some(op) => op.clone(),
-                None => parsed.entry(full).or_insert_with_key(|full| shared(parse_tf_op(full))).clone(),
-            };
-            let next = activities.len() as u32 / 2 + 1;
-            activities.extend([(begin, next, None), (end, next, Some((op, false)))]);
+            push(parsed.entry(full).or_insert_with_key(|full| shared(parse_tf_op(full))).clone(), false);
         }
     }
     let (mut db, mut index) = (Db::default(), FxHashMap::default());
@@ -158,12 +156,8 @@ fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &FxHashMap<i64, Op>, i
             last_enqueue = Some((start, duration));
         }
     }
-    if let (Some(first), Some(last)) = (activities.first(), activities.last()) {
-        db.total_time_ps = db.total_op_time_ps.max(last.0 - first.0);
-    }
-    let idle = db.total_time_ps.wrapping_sub(db.total_op_time_ps);
-    db.metrics.push(Metrics { name: IDLE.into(), category: IDLE.into(), time_ps: idle, self_time_ps: idle, ..Default::default() });
-    (db, enqueue)
+    let span = activities.first().zip(activities.last()).map_or(0, |(first, last)| last.0 - first.0);
+    (db.with_idle(span), enqueue)
 }
 
 pub fn host_db(planes: &[Plane], map: &[u8]) -> (Db, (u64, u64)) {
@@ -222,15 +216,11 @@ pub fn device_tf_db(device: &Db) -> Db {
 }
 
 fn training(name: &str, kind: &str) -> bool {
-    let jax = |name: &str| name.split('/').any(|scope| scope.starts_with("transpose("));
     if is_tf_op_type(kind) && is_tf_op_name(name) {
-        let mut scopes: Vec<&str> = name.split('/').collect();
-        scopes.pop();
-        scopes.iter().any(|scope| scope.strip_prefix("gradient").is_some_and(|rest| rest == "_tape" || rest.starts_with('s')))
-    } else if !name.is_empty() && is_jax_op_type(kind) && name.rsplit('/').next().unwrap().contains(kind) {
-        jax(name)
+        // The last scope is the op itself.
+        name.rsplit_once('/').is_some_and(|(scopes, _)| scopes.split('/').any(|scope| scope.strip_prefix("gradient").is_some_and(|rest| rest == "_tape" || rest.starts_with('s'))))
     } else {
-        kind.is_empty() && jax(name)
+        (kind.is_empty() || (!name.is_empty() && is_jax_op_type(kind) && name.rsplit('/').next().unwrap().contains(kind))) && name.split('/').any(|scope| scope.starts_with("transpose("))
     }
 }
 

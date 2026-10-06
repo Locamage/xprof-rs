@@ -152,18 +152,13 @@ fn breakdown(data: &[u8]) -> Vec<(u8, u64, u64)> {
     fields(data)
         .filter_map(|(tag, field)| match (tag, field) {
             (1, Field::Bytes(_, body)) => {
-                let mut entry = (0u8, 0u64, 0u64);
+                let mut entry = [0u64; 3];
                 for (tag, field) in fields(body) {
-                    if let Field::Num(number) = field {
-                        match tag {
-                            1 => entry.0 = number as u8,
-                            2 => entry.1 = number,
-                            3 => entry.2 = number,
-                            _ => {}
-                        }
+                    if let (1..=3, Field::Num(number)) = (tag, field) {
+                        entry[tag as usize - 1] = number;
                     }
                 }
-                Some(entry)
+                Some((entry[0] as u8, entry[1], entry[2]))
             }
             _ => None,
         })

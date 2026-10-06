@@ -112,16 +112,10 @@ fn averaged(mut summaries: Vec<Summary>) -> Vec<Summary> {
 
 impl Tracker {
     pub fn visit(&mut self, instruction: &Instruction, visit: &Visit) {
-        let rendezvous = match &instruction.rendezvous {
-            Some(name) => {
-                self.channels.insert(instruction.channel_id, name.clone());
-                name.clone()
-            }
-            None => match self.channels.get(&instruction.channel_id) {
-                Some(name) => name.clone(),
-                None => return,
-            },
-        };
+        if let Some(name) = &instruction.rendezvous {
+            self.channels.insert(instruction.channel_id, name.clone());
+        }
+        let Some(rendezvous) = self.channels.get(&instruction.channel_id).cloned() else { return };
         let duration_ns = (visit.duration_ps as u64) as f64 / 1e3;
         let duration_ps = visit.duration_ps as u64;
         let group = match instruction.opcode {

@@ -565,10 +565,8 @@ fn add_host_phases(requests: &mut BTreeMap<i64, Request>) {
         let device_end = request.events.iter().filter(|(kind, _)| *kind == DEVICE_COMPUTE_32).map(|(_, span)| span.end()).max().unwrap_or(0);
         request.events.extend(runtimes);
         request.events.extend(first_execute.map(|execute| (HOST_PREPROCESS, span(begin, execute))));
-        match callback {
-            Some(callback) => request.events.push((HOST_POSTPROCESS, span(callback, end))),
-            None if device_end != 0 => request.events.push((HOST_POSTPROCESS, span(device_end, end))),
-            None => {}
+        if let Some(start) = callback.or((device_end != 0).then_some(device_end)) {
+            request.events.push((HOST_POSTPROCESS, span(start, end)));
         }
         if let (Some(schedule), Some(concat)) = (schedule, concat) {
             request.events.push((HOST_BATCH_FORMATION, span(schedule, concat)));
@@ -790,17 +788,25 @@ fn throughput_and_latency(spans: &[(u64, u64)]) -> (f64, f64) {
     (spans.len() as f64 / (end.wrapping_sub(begin) as f64 / 1e12), total as f64 / 1e6 / spans.len() as f64)
 }
 
+macro_rules! wrapping_add {
+    ($sum:ident, $item:ident, $($field:ident),*) => { $($sum.$field = $sum.$field.wrapping_add($item.$field);)* };
+}
+
 fn add_request(sum: &mut RequestDetail, request: &RequestDetail) {
     sum.end_time_ps = sum.end_time_ps.wrapping_add(request.end_time_ps.wrapping_sub(request.start_time_ps));
-    sum.device_time_ps = sum.device_time_ps.wrapping_add(request.device_time_ps);
-    sum.read_from_device_time_ps = sum.read_from_device_time_ps.wrapping_add(request.read_from_device_time_ps);
-    sum.write_to_device_time_ps = sum.write_to_device_time_ps.wrapping_add(request.write_to_device_time_ps);
-    sum.batching_request_delay_ps = sum.batching_request_delay_ps.wrapping_add(request.batching_request_delay_ps);
-    sum.batching_request_size = sum.batching_request_size.wrapping_add(request.batching_request_size);
-    sum.host_preprocessing_ps = sum.host_preprocessing_ps.wrapping_add(request.host_preprocessing_ps);
-    sum.host_batch_formation_ps = sum.host_batch_formation_ps.wrapping_add(request.host_batch_formation_ps);
-    sum.host_runtime_ps = sum.host_runtime_ps.wrapping_add(request.host_runtime_ps);
-    sum.host_postprocessing_ps = sum.host_postprocessing_ps.wrapping_add(request.host_postprocessing_ps);
+    wrapping_add!(
+        sum,
+        request,
+        device_time_ps,
+        read_from_device_time_ps,
+        write_to_device_time_ps,
+        batching_request_delay_ps,
+        batching_request_size,
+        host_preprocessing_ps,
+        host_batch_formation_ps,
+        host_runtime_ps,
+        host_postprocessing_ps
+    );
     sum.idle_time_ps += request.idle_time_ps;
 }
 
@@ -828,10 +834,7 @@ fn average_request(sum: &RequestDetail, size: usize) -> RequestDetail {
 
 fn add_batch(sum: &mut BatchDetail, batch: &BatchDetail) {
     sum.end_time_ps = sum.end_time_ps.wrapping_add(batch.end_time_ps.wrapping_sub(batch.start_time_ps));
-    sum.batch_delay_ps = sum.batch_delay_ps.wrapping_add(batch.batch_delay_ps);
-    sum.padding_amount = sum.padding_amount.wrapping_add(batch.padding_amount);
-    sum.batch_size_after_padding = sum.batch_size_after_padding.wrapping_add(batch.batch_size_after_padding);
-    sum.device_time_ps = sum.device_time_ps.wrapping_add(batch.device_time_ps);
+    wrapping_add!(sum, batch, batch_delay_ps, padding_amount, batch_size_after_padding, device_time_ps);
 }
 
 fn average_batch(sum: &BatchDetail, size: usize) -> BatchDetail {

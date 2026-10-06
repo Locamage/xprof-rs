@@ -303,20 +303,6 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
     trace
 }
 
-fn upper_bound(runs: &[(i64, i64)], ts: i64) -> usize {
-    let (mut first, mut length) = (0, runs.len());
-    while length > 0 {
-        let half = length >> 1;
-        if ts < runs[first + half].0 {
-            length = half;
-        } else {
-            first += half + 1;
-            length -= half + 1;
-        }
-    }
-    first
-}
-
 fn sort_track(track: &mut Track) {
     let mut order: Vec<usize> = (0..track.events.len()).collect();
     let events = &track.events;
@@ -349,7 +335,7 @@ fn assign_run_ids(trace: &mut Trace) {
             let Some(list) = runs.get(tpu).filter(|list| !list.is_empty()) else { continue };
             for track in tracks.iter_mut().filter(|track| !track.name.contains("XLA Modules")) {
                 for event in &mut track.events {
-                    let position = upper_bound(list, event.ts);
+                    let position = list.partition_point(|run| run.0 <= event.ts);
                     if position > 0 {
                         event.run_id = list[position - 1].1;
                         event.args.push(Arg { key: run_id, value: Value::Int(event.run_id) });
