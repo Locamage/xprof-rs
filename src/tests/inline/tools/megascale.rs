@@ -33,7 +33,7 @@ fn ops_without_a_known_channel_are_ignored() {
 #[test]
 fn line_time_far_from_the_origin() {
     let line = Line { timestamp_ns: i64::MIN, ..Default::default() };
-    let event = Ev { ts: 5, dur: 0, group: 0, raw: (0, 0), meta: 0, eager: None, has_stats: false };
+    let event = Ev { ts: 5, dur: 0, group: 0, raw: (0, 0), meta: 0, eager: None, has_stats: false, linked: false };
     assert_eq!(absolute(&line, &event, 1).0, 1005);
 }
 

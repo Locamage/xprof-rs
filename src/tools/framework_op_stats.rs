@@ -2,7 +2,7 @@ use crate::tools::hlo_stats::roofline;
 use crate::tools::opstats::{Db, IDLE, Metrics, OpStats, add, pico_to_micro, safe_divide};
 use crate::tools::table::{Cell, Table};
 use crate::xplane::derive::is_derived;
-use crate::xplane::{Line, Plane, event_stats, slice};
+use crate::xplane::{Line, Plane, event_stats};
 use arcstr::ArcStr;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -105,7 +105,7 @@ fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &FxHashMap<i64, Op>, i
     if !is_derived(line.id) {
         let mut parsed: FxHashMap<Cow<str>, Op> = FxHashMap::default();
         for event in &line.events {
-            let [stage, other_stage, eager, tf_op] = event_stats(slice(map, event.raw), [ids[2], ids[4], ids[0], ids[1]]);
+            let [stage, other_stage, eager, tf_op] = event_stats(event.stats_raw(map), [ids[2], ids[4], ids[0], ids[1]]);
             let key = stage.or(other_stage).map_or(event.meta as i64, |value| value.int().unwrap_or(0));
             let (begin, end) = (event.ts, event.ts.wrapping_add(event.dur));
             if let Some(op) = ops.get(&key) {
@@ -175,7 +175,7 @@ pub fn host_db(planes: &[Plane], map: &[u8]) -> (Db, (u64, u64)) {
         if meta.name.is_empty() {
             continue;
         }
-        let [stage, other_stage, category, other_category] = event_stats(slice(map, event.raw), [ids[2], ids[4], ids[3], ids[5]]);
+        let [stage, other_stage, category, other_category] = event_stats(event.stats_raw(map), [ids[2], ids[4], ids[3], ids[5]]);
         if let Some(stage) = stage.or(other_stage) {
             if let Some(category) = category.or(other_category) {
                 let (id, kind) = (stage.int().unwrap_or(0), plane.text(&category));
