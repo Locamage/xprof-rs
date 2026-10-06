@@ -6,6 +6,10 @@ xprof-rs is an independent project. Google and the OpenXLA project do not mainta
 
 On a 279 MB TPU v4 profile with 2.95 M events, the trace viewer opens in 0.73 s (XProf: 12 s). The overview page opens in 1.3 s (XProf: 18 s). The [server](#server) and [command line](#command-line) sections have more times.
 
+![XProf 2.23.2 on the left and xprof-rs on the right open the same 279 MB TPU v4 profile for the first time](docs/demo.gif)
+
+In the video, the two servers use 4 cores and the same frontend. The times in the video include the time of the browser.
+
 We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores. More cores make xprof-rs faster. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
 
 XProf converts the `.xplane.pb` file again for each cold request. xprof-rs does these steps:
@@ -58,6 +62,10 @@ The server has these tools. They are all written in Rust.
 - Memory and graphs: `memory_profile`, `memory_viewer`, `graph_viewer`, `module_list`.
 - Hardware: `pod_viewer`, `megascale_stats`, `smart_suggestion`, `perf_counters`, `utilization_viewer`, `kernel_utilization`.
 - Session: `runs`, `run_tools`, `hosts`, `data_csv`, `version`, `config`, `POST /generate_cache`, `/capture_profile` (gRPC client), and the static files.
+
+The pages are the same as the pages of XProf. In this image, each pair of browser screenshots is byte-identical.
+
+![Op profile, memory profile, and roofline model in XProf 2.23.2 and in xprof-rs](docs/pages.png)
 
 The table shows the time on the 279 MB v4 trace. [`examples/benchmark.py`](examples/benchmark.py) measures these columns.
 
