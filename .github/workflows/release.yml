@@ -59,7 +59,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
-          path: xprof-rs-*
+          path: xprof-rs-*.tar.gz*
   publish:
     needs: binary
     if: github.ref_type == 'tag'
@@ -74,6 +74,6 @@ jobs:
       - name: Make a draft release with the changelog section of the version
         run: |
           awk -v version="## ${GITHUB_REF_NAME#v}" '$0 == version { found = 1; next } /^## / { found = 0 } found' CHANGELOG.md > notes.md
-          gh release create "${GITHUB_REF_NAME}" xprof-rs-* --draft --verify-tag --title "xprof-rs ${GITHUB_REF_NAME}" --notes-file notes.md
+          gh release create "${GITHUB_REF_NAME}" xprof-rs-*.tar.gz* --draft --verify-tag --title "xprof-rs ${GITHUB_REF_NAME}" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
