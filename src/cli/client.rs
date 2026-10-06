@@ -7,28 +7,6 @@ use std::sync::{Arc, Mutex, RwLock};
 
 /// A parameter of the local client only. The table then has the first row only.
 const TOTAL_ONLY: &str = "total_only";
-const KNOWN_TOOLS: [&str; 20] = [
-    "overview_page",
-    "input_pipeline_analyzer",
-    "framework_op_stats",
-    "kernel_stats",
-    "memory_profile",
-    "pod_viewer",
-    "op_profile",
-    "hlo_op_profile",
-    "hlo_stats",
-    "roofline_model",
-    "graph_viewer",
-    "memory_viewer",
-    "megascale_stats",
-    "inference_profile",
-    "perf_counters",
-    "utilization_viewer",
-    "kernel_utilization",
-    "smart_suggestion",
-    "trace_viewer",
-    "trace_viewer@",
-];
 pub const TRACE_SUFFIXES: [&str; 2] = [".xplane.pb", ".xspace.pb"];
 
 pub type Params<'a> = [(&'a str, String)];
@@ -206,7 +184,7 @@ impl Client for Local {
     fn fetch(&self, tool: &str, session: &str, params: &Params) -> Result<Option<Vec<u8>>, Error> {
         let name = tool.strip_suffix(".json").unwrap_or(tool);
         let name = if name == "hlo_op_profile" { "op_profile" } else { name };
-        if !KNOWN_TOOLS.contains(&name) {
+        if !crate::XPLANE_TOOLS.contains(&name) {
             return fail(Kind::Value, format!("Unknown XProf tool name: {}", py_repr(tool)));
         }
         let paths = self.xspace_paths(&self.run_dir(session)?)?;

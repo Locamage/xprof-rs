@@ -63,7 +63,7 @@ const DEFAULT_RESOLUTION: f64 = 8000.0;
 const PREFIX: &str = "/data/plugin/profile";
 const VERSION: &str = "2.23.2";
 const CACHE_TOOLS: [&str; 2] = ["overview_page", "trace_viewer@"];
-const XPLANE_TOOLS: [&str; 19] = [
+pub(crate) const XPLANE_TOOLS: [&str; 19] = [
     "trace_viewer",
     "trace_viewer@",
     "overview_page",
