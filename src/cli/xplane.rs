@@ -79,11 +79,6 @@ fn value_text(value: Value) -> String {
     }
 }
 
-fn space(path: &Path) -> Result<Vec<u8>, Error> {
-    let map = super::read(path)?;
-    if valid_space(&map) { Ok(map) } else { fail(Kind::Value, "Failed to parse XSpace protobuf data") }
-}
-
 /// Runs `scan` on every line of every trace file, with its plane and its index. The lines run in parallel. The results keep the order of the planes and of the lines.
 fn scan_lines<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize) -> R + Sync) -> Result<Vec<R>, Error> {
     let mut results = Vec::new();
@@ -96,11 +91,6 @@ fn scan_lines<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize) -> R + Sy
         results.extend(scanned.ok_or_else(|| Error::new(Kind::Value, "Failed to parse XSpace protobuf data"))?);
     }
     Ok(results)
-}
-
-/// Calls `each` on every event of the plane, until it returns false. The result is false if it stopped.
-fn visit(plane: &Plane, mut each: impl FnMut(&Visit) -> bool) -> bool {
-    (0..plane.lines.len()).all(|index| visit_line(plane, index, &mut each))
 }
 
 fn visit_line(plane: &Plane, index: usize, mut each: impl FnMut(&Visit) -> bool) -> bool {
@@ -118,8 +108,11 @@ fn visit_line(plane: &Plane, index: usize, mut each: impl FnMut(&Visit) -> bool)
 /// Calls `each` on every event of every trace file, until it returns false.
 fn visit_all(paths: &[PathBuf], mut each: impl FnMut(&Visit) -> bool) -> Result<(), Error> {
     for path in paths {
-        let map = space(path)?;
-        if !planes(&map, |_| true).iter().all(|plane| visit(plane, &mut each)) {
+        let map = super::read(path)?;
+        if !valid_space(&map) {
+            return fail(Kind::Value, "Failed to parse XSpace protobuf data");
+        }
+        if !planes(&map, |_| true).iter().all(|plane| (0..plane.lines.len()).all(|index| visit_line(plane, index, &mut each))) {
             break;
         }
     }

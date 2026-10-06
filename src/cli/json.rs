@@ -99,11 +99,7 @@ impl J {
 
     pub fn set(&mut self, key: &str, value: impl Into<Self>) {
         if let Self::Map(entries) = self {
-            let value = value.into();
-            match entries.iter_mut().find(|(name, _)| name == key) {
-                Some(slot) => slot.1 = value,
-                None => entries.push((key.to_string(), value)),
-            }
+            insert(entries, key.to_string(), value.into());
         }
     }
 
@@ -199,6 +195,15 @@ impl J {
             }
         };
         let inner = depth.map(|depth| depth + 1);
+        let separator = |index: usize| {
+            if index == 0 {
+                ""
+            } else if depth.is_some() {
+                ","
+            } else {
+                ", "
+            }
+        };
         match self {
             Self::Null => out.push_str("null"),
             Self::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
@@ -212,13 +217,7 @@ impl J {
             Self::List(items) => {
                 out.push('[');
                 for (index, item) in items.iter().enumerate() {
-                    out.push_str(if index == 0 {
-                        ""
-                    } else if depth.is_some() {
-                        ","
-                    } else {
-                        ", "
-                    });
+                    out.push_str(separator(index));
                     open(out, inner);
                     item.write(out, inner, ascii);
                 }
@@ -228,13 +227,7 @@ impl J {
             Self::Map(entries) => {
                 out.push('{');
                 for (index, (key, value)) in entries.iter().enumerate() {
-                    out.push_str(if index == 0 {
-                        ""
-                    } else if depth.is_some() {
-                        ","
-                    } else {
-                        ", "
-                    });
+                    out.push_str(separator(index));
                     open(out, inner);
                     string(out, key, ascii);
                     out.push_str(": ");
@@ -256,12 +249,14 @@ fn string(out: &mut String, text: &str, ascii: bool) {
 }
 
 pub fn py_float(text: &str) -> Option<f64> {
-    let trimmed = text.trim();
-    let digits = trimmed.replace('_', "");
-    digits.parse().ok().filter(|_| !trimmed.starts_with('_') && !trimmed.ends_with('_') && !trimmed.contains("__"))
+    py_number(text)
 }
 
 pub fn py_int(text: &str) -> Option<i128> {
+    py_number(text)
+}
+
+fn py_number<T: std::str::FromStr>(text: &str) -> Option<T> {
     let trimmed = text.trim();
     trimmed.replace('_', "").parse().ok().filter(|_| !trimmed.starts_with('_') && !trimmed.ends_with('_') && !trimmed.contains("__"))
 }

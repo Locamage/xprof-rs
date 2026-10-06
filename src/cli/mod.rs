@@ -560,6 +560,7 @@ fn spill(command: &str, bytes: &[u8]) -> Option<String> {
 }
 
 fn render(out: Out) -> Vec<u8> {
+    let display = |value: &J| if let J::Str(text) = value { text.replace('\n', " ") } else { value.compact() };
     let mut bytes = match out {
         Out::Text(text) => text.into_bytes(),
         Out::Bytes(data) => {
@@ -579,12 +580,11 @@ fn render(out: Out) -> Vec<u8> {
             text.push(quote as char);
             text.into_bytes()
         }
-        Out::Value(J::List(items)) => items.iter().map(|item| if let J::Str(text) = item { text.replace('\n', " ") } else { item.compact() }).collect::<Vec<_>>().join("\n").into_bytes(),
+        Out::Value(J::List(items)) => items.iter().map(display).collect::<Vec<_>>().join("\n").into_bytes(),
         Out::Value(J::Map(entries)) => {
             let visible: Vec<&(String, J)> = entries.iter().filter(|(key, _)| !key.starts_with('_')).collect();
             let width = visible.iter().map(|(key, _)| key.chars().count()).max().unwrap_or(0) + 1;
-            let lines: Vec<String> =
-                visible.iter().map(|(key, value)| format!("{:width$} {}", format!("{key}:"), if let J::Str(text) = value { text.replace('\n', " ") } else { value.compact() })).collect();
+            let lines: Vec<String> = visible.iter().map(|(key, value)| format!("{:width$} {}", format!("{key}:"), display(value))).collect();
             if lines.is_empty() { "{}".into() } else { lines.join("\n").into_bytes() }
         }
         Out::Value(value) => value.compact().into_bytes(),

@@ -984,11 +984,8 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
     let logdir = match values.remove("--logdir").filter(|logdir| !logdir.is_empty()) {
         Some(_) if let Some(remote) = &remote => remote.mirror.clone(),
         Some(logdir) => {
-            let expanded = match logdir.strip_prefix('~').filter(|rest| rest.is_empty() || rest.starts_with('/')) {
-                Some(rest) => format!("{}{rest}", std::env::var("HOME").unwrap_or_default()),
-                None => logdir,
-            };
-            let absolute = std::path::absolute(&expanded).unwrap_or_else(|_| PathBuf::from(&expanded));
+            let expanded = cli::expand(&logdir);
+            let absolute = std::path::absolute(&expanded).unwrap_or(expanded);
             absolute.canonicalize().ok().filter(|dir| dir.is_dir()).ok_or_else(|| format!("Log directory '{}' does not exist or is not a directory.", absolute.display()))?
         }
         None => PathBuf::new(),
