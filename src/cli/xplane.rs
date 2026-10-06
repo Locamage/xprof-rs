@@ -7,7 +7,7 @@ use crate::xplane::{Field, Value, fields, stats};
 use indexmap::IndexMap;
 use rayon::prelude::*;
 use regex::Regex;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::borrow::Cow;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -56,11 +56,16 @@ impl Visit<'_> {
 
     fn name(&self) -> String {
         let name = self.raw_name();
-        if !name.is_empty() && name.chars().all(char::is_numeric) {
+        if is_number(&name) {
             return self.stats().into_iter().find(|(key, value)| NAME_STATS.contains(&key.as_str()) && !value.is_empty()).map_or(name, |(_, value)| value);
         }
         name
     }
+}
+
+/// A name that is a number gets its text from the stats of each event.
+fn is_number(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(char::is_numeric)
 }
 
 fn value_text(value: Value) -> String {
@@ -135,7 +140,7 @@ impl<'a> Names<'a> {
         let (name, numeric, matched) = self.known.entry(visit.event.meta).or_insert_with(|| {
             let name = visit.raw_name();
             let matched = pattern.is_match(&name);
-            (name.clone(), !name.is_empty() && name.chars().all(char::is_numeric), matched)
+            (name.clone(), is_number(&name), matched)
         });
         if *numeric {
             let name = visit.name();
@@ -234,21 +239,30 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
     let compute = || -> Result<J, Error> {
         let (planes_re, events_re) = (regex(&args.string("plane_regex", ".*"))?, regex(&args.string("event_regex", ".*"))?);
         let keep = plane_filter(&planes_re);
-        let (mut durations, mut scanned): (IndexMap<String, Vec<i128>>, usize) = (IndexMap::new(), 0);
+        let (mut durations, mut scanned): (IndexMap<String, Vec<i128>, FxBuildHasher>, usize) = (IndexMap::default(), 0);
         let paths = sources(client, &session)?;
         let parts = scan_lines(&paths, |plane, index| {
-            let (mut found, mut count, mut names) = (IndexMap::<String, Vec<i128>>::new(), 0usize, Names::new(&events_re));
+            let (mut found, mut count, mut names) = (IndexMap::<String, Vec<i128>, FxBuildHasher>::default(), 0usize, Names::new(&events_re));
+            // The slot in `found` of each metadata with a name that is not a number. `None` is a name that does not match.
+            let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
             if keep(plane) {
                 visit_line(plane, index, |visit| {
-                    let (name, matched) = names.resolve(visit);
-                    if matched {
-                        let duration = (visit.duration_ns() * 1000.0).trunc() as i128;
-                        match found.get_mut(&*name) {
-                            Some(values) => values.push(duration),
-                            None => _ = found.insert(name.into_owned(), vec![duration]),
-                        }
-                    }
                     count += 1;
+                    let duration = || (visit.duration_ns() * 1000.0).trunc() as i128;
+                    if let Some(slot) = slots.get(&visit.event.meta) {
+                        if let Some(slot) = *slot {
+                            found[slot].push(duration());
+                        }
+                        return true;
+                    }
+                    let (name, matched) = names.resolve(visit);
+                    let slot = matched.then(|| found.get_index_of(&*name).unwrap_or_else(|| found.insert_full(name.to_string(), Vec::new()).0));
+                    if let Some(slot) = slot {
+                        found[slot].push(duration());
+                    }
+                    if let Cow::Borrowed(_) = name {
+                        slots.insert(visit.event.meta, slot);
+                    }
                     true
                 });
             }
@@ -383,30 +397,42 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
     let compute = || -> Result<Out, Error> {
         let patterns: Vec<(Option<Regex>, &String)> = matchers.iter().map(|pattern| (Regex::new(pattern).ok(), pattern)).collect();
         let parts = scan_lines(&sources(client, &source)?, |plane, index| {
-            let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>>::new(), Vec::new(), Vec::new());
+            let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
             if !plane.name.starts_with("/device:") {
                 return (durations, intervals, steps);
             }
-            let (tpu, mut line) = (plane.name.to_uppercase().contains("TPU"), None);
+            let (tpu, mut kind) = (plane.name.to_uppercase().contains("TPU"), None);
+            let wanted = |name: &str| {
+                kernel.as_ref().is_none_or(|kernel| kernel == name)
+                    && (patterns.is_empty() || patterns.iter().any(|(compiled, pattern)| compiled.as_ref().is_some_and(|compiled| compiled.is_match(name)) || name.contains(pattern.as_str())))
+            };
+            // The slot in `durations` of each metadata with a name that is not a number, for the events without `tf_op_name`. `None` is a name that the filters skip.
+            let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
             visit_line(plane, index, |visit| {
-                let line = line.get_or_insert_with(|| visit.line.to_uppercase());
-                if tpu && !DEVICE_LINES.iter().any(|word| line.contains(word)) {
-                    if summary && line.contains("XLA MODULES") {
+                let &mut (skipped, modules) = kind.get_or_insert_with(|| {
+                    let line = visit.line.to_uppercase();
+                    let skipped = if tpu { !DEVICE_LINES.iter().any(|word| line.contains(word)) } else { EXCLUDED_LINES.iter().any(|word| line.contains(word)) };
+                    (skipped, tpu && summary && line.contains("XLA MODULES"))
+                });
+                if skipped {
+                    if modules {
                         steps.push(visit.duration_ns() / 1000.0);
                     }
                     return true;
                 }
-                if !tpu && EXCLUDED_LINES.iter().any(|word| line.contains(word)) {
-                    return true;
-                }
-                let name = visit.stat("tf_op_name").unwrap_or_else(|| visit.name());
-                if kernel.as_ref().is_some_and(|kernel| *kernel != name) {
-                    return true;
-                }
-                if !patterns.is_empty() && !patterns.iter().any(|(compiled, pattern)| compiled.as_ref().is_some_and(|compiled| compiled.is_match(&name)) || name.contains(pattern.as_str())) {
-                    return true;
-                }
-                durations.entry(name).or_default().push(visit.duration_ns() / 1000.0);
+                let tf_op = visit.stat("tf_op_name");
+                let cached = tf_op.is_none().then(|| slots.get(&visit.event.meta).copied()).flatten();
+                let slot = cached.unwrap_or_else(|| {
+                    let by_meta = tf_op.is_none() && !is_number(&visit.raw_name());
+                    let name = tf_op.unwrap_or_else(|| visit.name());
+                    let slot = wanted(&name).then(|| durations.get_index_of(&name).unwrap_or_else(|| durations.insert_full(name, Vec::new()).0));
+                    if by_meta {
+                        slots.insert(visit.event.meta, slot);
+                    }
+                    slot
+                });
+                let Some(slot) = slot else { return true };
+                durations[slot].push(visit.duration_ns() / 1000.0);
                 if summary {
                     let start = visit.start_ns().trunc() as i128;
                     intervals.push((start, start + visit.duration_ns().trunc() as i128));
@@ -415,7 +441,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             });
             (durations, intervals, steps)
         })?;
-        let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>>::new(), Vec::new(), Vec::new());
+        let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
         for (found, spans, times) in parts {
             for (name, values) in found {
                 durations.entry(name).or_default().extend(values);
