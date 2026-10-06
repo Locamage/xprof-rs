@@ -150,6 +150,8 @@ pub fn stdev(values: &[f64]) -> f64 {
             let bits = value.to_bits();
             let (exponent, fraction) = (((bits >> 52) & 0x7ff) as i32, bits & ((1 << 52) - 1));
             let (mantissa, exponent) = if exponent == 0 { (fraction, -1074) } else { (fraction | 1 << 52, exponent - 1075) };
+            let zeros = mantissa.trailing_zeros().min(52);
+            let (mantissa, exponent) = (mantissa >> zeros, exponent + zeros as i32);
             (if bits >> 63 == 1 { -(mantissa as i64) } else { mantissa as i64 }, exponent)
         })
         .filter(|&(mantissa, _)| mantissa != 0)

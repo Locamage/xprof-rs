@@ -205,10 +205,10 @@ pub fn load(path: &std::path::Path) -> anyhow::Result<Option<String>> {
     from_map(&crate::read_file(path)?)
 }
 
-/// The memory profile uses the groups, but not the op statistics.
+/// The memory profile uses the groups, but not the op statistics or the derived lines of the TPUs.
 pub fn from_map(map: &[u8]) -> anyhow::Result<Option<String>> {
     let Some(mut planes) = crate::parse_checked(map)? else { return Ok(None) };
-    crate::finish(&mut planes, map, false);
+    crate::group(&mut planes, map, false);
     Ok(Some(json(&planes, map)))
 }
 

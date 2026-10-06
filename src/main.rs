@@ -281,12 +281,20 @@ fn parse_checked(map: &[u8]) -> anyhow::Result<Option<Vec<Plane>>> {
 
 /// Adds the regions, the groups, and the derived lines.
 fn finish(planes: &mut [Plane], map: &[u8], trace: bool) {
-    planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
-    if !xplane::derive::is_grouped(planes) {
-        let groups = xplane::group::group(planes, map);
-        xplane::derive::derive_gpu(planes, map, groups.as_ref().map(|groups| &groups.names), trace);
+    if group(planes, map, trace) {
         planes.par_iter_mut().filter(|plane| xplane::derive::is_tensor_core(&plane.name)).for_each(|plane| xplane::derive::derive(plane, map));
     }
+}
+
+/// Adds the regions, the groups, and the derived lines of the GPUs, but not the derived lines of the TPUs. Gives `false` if the planes have their groups already.
+fn group(planes: &mut [Plane], map: &[u8], trace: bool) -> bool {
+    planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
+    let ungrouped = !xplane::derive::is_grouped(planes);
+    if ungrouped {
+        let groups = xplane::group::group(planes, map);
+        xplane::derive::derive_gpu(planes, map, groups.as_ref().map(|groups| &groups.names), trace);
+    }
+    ungrouped
 }
 
 fn release(garbage: impl Send + 'static) {
