@@ -8,6 +8,8 @@ xprof-rs is a fast backend for the [XProf](https://github.com/openxla/xprof) pro
 
 xprof-rs is an independent project. Google and the OpenXLA project do not maintain or endorse it.
 
+We wrote xprof-rs with [Claude](https://www.anthropic.com/claude), an AI model from Anthropic. The tests compare the output of each tool with the output of XProf 2.23.2.
+
 On a 279 MB TPU v4 profile with 2.95 M events, the trace viewer opens in 0.73 s (XProf: 12 s). The overview page opens in 1.3 s (XProf: 18 s). The [server](#server) and [command line](#command-line) sections have more times.
 
 ![XProf 2.23.2 on the left and xprof-rs on the right open the same 279 MB TPU v4 profile for the first time](docs/demo.gif)
