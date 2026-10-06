@@ -10,13 +10,13 @@ xprof-rs is an independent project. Google and the OpenXLA project do not mainta
 
 We wrote xprof-rs with [Claude](https://www.anthropic.com/claude), an AI model from Anthropic. The tests compare the output of each tool with the output of XProf 2.23.2.
 
-On a 279 MB TPU v4 profile with 2.95 M events, the trace viewer opens in 0.73 s (XProf: 12 s). The overview page opens in 1.3 s (XProf: 18 s). The [server](#server) and [command line](#command-line) sections have more times.
+On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.45 s (XProf: 4.7 s). After the first request, it opens in less than 1 ms (XProf: 0.6 s). The [performance](#performance) section has the times of all tools.
 
 ![XProf 2.23.2 on the left and xprof-rs on the right open the same 279 MB TPU v4 profile for the first time](docs/demo.gif)
 
 In the video, the two servers use 4 cores and the same frontend. The times in the video include the time of the browser.
 
-We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores. More cores make xprof-rs faster. [`examples/benchmark.py`](examples/benchmark.py) measures these times on your own profile.
+We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores.
 
 XProf converts the `.xplane.pb` file again for each cold request. xprof-rs does these steps:
 
@@ -24,6 +24,77 @@ XProf converts the `.xplane.pb` file again for each cold request. xprof-rs does 
 2. It converts the events in parallel.
 3. It keeps the result in a cache.
 4. It renders only the time window that you zoom to. A new window takes about 10 ms, and the same window again takes about 3 ms.
+
+## Performance
+
+The tables show the times on an 80 MB TPU v4 profile of a job that trains a CLIP model. Each server and each CLI process used 4 cores.
+
+- Server, cold: the first request to a new server on a new copy of the profile. There is no cache on the disk.
+- Server, warm: the same request again, to the same server.
+- CLI, cold: one process on a new copy of the profile, with no result cache.
+- CLI, warm: the same command again.
+
+| Tool | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
+|---|---|---|---|---|---|---|
+| `trace_viewer@` | 4.7 s | 447 ms | 11× | 595 ms | 0.8 ms | 781× |
+| `overview_page` | 3.4 s | 521 ms | 6.5× | 40 ms | 0.3 ms | 128× |
+| `op_profile` | 3.8 s | 574 ms | 6.6× | 513 ms | 0.5 ms | 963× |
+| `hlo_stats` | 3.5 s | 527 ms | 6.7× | 145 ms | 0.4 ms | 337× |
+| `framework_op_stats` | 3.4 s | 504 ms | 6.7× | 81 ms | 0.5 ms | 160× |
+| `input_pipeline_analyzer` | 3.3 s | 507 ms | 6.5× | 39 ms | 0.3 ms | 133× |
+| `roofline_model` | 3.5 s | 530 ms | 6.5× | 232 ms | 0.4 ms | 573× |
+| `memory_profile` | 1.2 s | 525 ms | 2.3× | 1.2 s | 0.4 ms | 3015× |
+| `pod_viewer` | 3.3 s | 514 ms | 6.3× | 40 ms | 0.3 ms | 115× |
+| `memory_viewer` | 65 ms | 25 ms | 2.6× | 64 ms | 0.4 ms | 180× |
+
+| Command | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
+|---|---|---|---|---|---|---|
+| `get_overview` | 4.1 s | 516 ms | 7.9× | 229 ms | 532 ms | 0.4× |
+| `get_top_hlo_ops` | 5.3 s | 566 ms | 9.4× | 230 ms | 545 ms | 0.4× |
+| `get_hlo_op_profile` | 5.3 s | 535 ms | 10× | 232 ms | 574 ms | 0.4× |
+| `get_hlo_stats` | 4.0 s | 563 ms | 7.2× | 230 ms | 544 ms | 0.4× |
+| `get_roofline_model` | 4.1 s | 545 ms | 7.5× | 230 ms | 581 ms | 0.4× |
+| `get_step_trace` | 3.9 s | 505 ms | 7.8× | 230 ms | 506 ms | 0.5× |
+| `check_host_boundness` | 66.4 s | 565 ms | 117× | 230 ms | 573 ms | 0.4× |
+| `get_memory_profile` | 1.8 s | 551 ms | 3.3× | 229 ms | 534 ms | 0.4× |
+| `list_hlo_modules` | 231 ms | 4.9 ms | 47× | 231 ms | 4.7 ms | 49× |
+| `aggregate_xplane_events` | 22.2 s | 351 ms | 63× | 253 ms | 398 ms | 0.6× |
+
+A warm XProf command is faster than xprof-rs. XProf keeps each result in a cache in `$TMPDIR`, and a second call reads this cache. xprof-rs has no result cache. It reads the profile again for each call.
+
+The next table shows five profiles of jobs that train CLIP models. The trace viewer time is for a cold server. The peak memory is the peak of the server process after the trace viewer and seven other tools.
+
+| Profile | XProf, trace viewer | xprof-rs, trace viewer | XProf, peak memory | xprof-rs, peak memory |
+|---|---|---|---|---|
+| 43 MB | 3.0 s | 186 ms | 1.21 GB | 0.43 GB |
+| 43 MB | 2.6 s | 195 ms | 1.23 GB | 0.44 GB |
+| 52 MB | 3.4 s | 295 ms | 1.50 GB | 0.57 GB |
+| 80 MB | 6.0 s | 453 ms | 2.09 GB | 0.75 GB |
+| 117 MB | 8.1 s | 678 ms | 3.09 GB | 1.05 GB |
+
+These numbers are for the 80 MB profile:
+
+| Item | XProf | xprof-rs |
+|---|---|---|
+| Trace viewer, zoom to a new time window | 95 ms | 1.9 ms |
+| Trace viewer, the same window again | 88 ms | 0.3 ms |
+| Server start, until the first response | 0.41 s | 0.05 s |
+| Size of the installed files | 127 MB (Python packages, without Python) | 27 MB (one binary) |
+| Size of the download | 52 Python packages | 12.6 MB archive |
+
+More cores make xprof-rs faster. The next table shows the cold times of xprof-rs on the 80 MB profile. XProf on 4 cores takes 4.7 s for the trace viewer and 3.4 s for the overview page.
+
+| Cores | Trace viewer | Overview page | Peak memory |
+|---|---|---|---|
+| 1 | 1.17 s | 1.47 s | 0.64 GB |
+| 2 | 0.65 s | 0.78 s | 0.70 GB |
+| 4 | 0.45 s | 0.54 s | 0.75 GB |
+| 8 | 0.46 s | 0.48 s | 0.79 GB |
+| 16 | 0.39 s | 0.44 s | 0.97 GB |
+| 32 | 0.37 s | 0.38 s | 1.09 GB |
+| 64 | 0.35 s | 0.38 s | 1.12 GB |
+
+To measure the times of the first two tables on your profile, run [`examples/benchmark.py`](examples/benchmark.py) `SESSION_DIR --xprof PATH --cores 0-3`.
 
 ## Install and start
 
@@ -73,18 +144,7 @@ The pages are the same as the pages of XProf. In this image, each pair of browse
 
 ![Op profile, memory profile, and roofline model in XProf 2.23.2 and in xprof-rs](docs/pages.png)
 
-The table shows the time on the 279 MB v4 trace. [`examples/benchmark.py`](examples/benchmark.py) measures these columns.
-
-| Endpoint | XProf, cold | xprof-rs, first | xprof-rs, repeat |
-|---|---|---|---|
-| `trace_viewer@` | 12 s | 0.73 s | 2 ms |
-| `overview_page` | 18 s | 1.3 s (builds the shared statistics) | under 1 ms |
-| `op_profile` | 4.0 s | 0.13 s | 3 ms |
-| `hlo_stats` | 2.1 s | 0.09 s | 3 ms |
-| `framework_op_stats`, `input_pipeline_analyzer`, `roofline_model`, `memory_profile`, `kernel_stats`, `pod_viewer` | 0.35 to 2.7 s | 0 to 0.03 s | under 1 ms |
-| `memory_viewer`, `graph_viewer`, `module_list` | 2.3 s | 0.3 s | 3 ms |
-
-The peak memory of xprof-rs for the tools in the table is 1.5 GB. XProf used 4.8 GB for all of its tools. A machine with more cores uses more memory, because more work runs at the same time.
+A machine with more cores uses more memory, because more work runs at the same time.
 
 ## Remote log directories
 
@@ -147,15 +207,7 @@ xprof-rs get_hlo_op_profile ~/logs --view=tree --path=by_program --depth=3
 xprof-rs list_xplane_events ~/logs/run1 --plane_regex='TPU:0$' --event_regex=all-reduce --max_events=20
 ```
 
-The table shows the time on the 279 MB v4 trace.
-
-| Command | XProf | xprof-rs |
-|---|---|---|
-| `get_overview` | 18 s | 1.0 s |
-| `get_hlo_op_profile` | 25 s | 1.4 s |
-| `aggregate_xplane_events` | 25 s | 0.65 s |
-
-More cores make a command faster, up to about 16 cores. `get_overview` takes 1.9 s on 2 cores, 0.62 s on 8 cores, 0.40 s on 16 cores, and 0.38 s on 32 cores. Its peak memory is 0.96 GB on 4 cores and 1.6 GB on 32 cores.
+More cores make a command faster, up to about 16 cores.
 
 The CLI is different from the Python CLI in these points:
 
