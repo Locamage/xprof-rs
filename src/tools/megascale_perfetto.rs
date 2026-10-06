@@ -442,7 +442,7 @@ impl Flows {
         queue.entry(key.to_string()).or_default().push_back(id);
     }
 
-    fn pop(&mut self, queue: &mut Queue, key: &str, consumer: &mut Event) {
+    fn pop(&self, queue: &mut Queue, key: &str, consumer: &mut Event) {
         if let Some(id) = queue.get_mut(key).and_then(VecDeque::pop_front) {
             consumer.args.push(Arg { key: self.flow_in, value: Value::Int(id) });
             consumer.flows.push((id, true));

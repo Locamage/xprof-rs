@@ -311,10 +311,7 @@ fn backslashes_before(bytes: &[u8], index: usize) -> usize {
 
 /// The commas in `bytes[start..end]` at the lowest depth the range reaches, the depth change, and that lowest depth.
 fn chunk_commas(bytes: &[u8], start: usize, end: usize, inside: bool) -> Option<(Vec<usize>, isize, isize)> {
-    let mut index = start;
-    if inside {
-        index = string_end(bytes, start - backslashes_before(bytes, start) - 1)?;
-    }
+    let mut index = if inside { string_end(bytes, start - backslashes_before(bytes, start) - 1)? } else { start };
     let (mut depth, mut lowest, mut commas) = (0isize, 0isize, Vec::new());
     while index < end {
         match bytes[index] {
