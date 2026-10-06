@@ -18,6 +18,8 @@ Each release of xprof-rs is a GitHub release with prebuilt binaries and a crate 
    - It builds `x86_64-linux` and `aarch64-linux` binaries in the `manylinux_2_28` image. These binaries need glibc 2.28 or newer. It builds the `aarch64-macos` binary on a macOS runner.
    - It makes a draft GitHub release with the archives, the SHA-256 files, and the changelog section.
 9. Download an archive from the draft. Check it with `sha256sum -c`, and run it on a profile. Then publish the draft: `gh release edit vX.Y.Z --draft=false`.
-10. Publish the crate from the tag: `cargo publish --locked`. You must log in with `cargo login` first. You cannot remove a version from crates.io. You can only yank it.
+10. The `crates` workflow starts when you publish the draft. It publishes the crate from the tag with trusted publishing. Thus the repository needs no crates.io token. You cannot remove a version from crates.io. You can only yank it.
+
+Trusted publishing needs a setting on crates.io, one time: on the crate page, open Settings, then Trusted Publishing. Add the GitHub repository `Locamage/xprof-rs` with the workflow `crates.yml`.
 
 The minimum Rust version is 1.95. The `msrv` job in CI checks it. Change `rust-version` in `Cargo.toml` and the `msrv` job together.
