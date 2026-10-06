@@ -36,10 +36,6 @@ impl Interner {
     pub fn get(&self, id: u32) -> &str {
         &self.0[id as usize]
     }
-
-    pub fn into_strings(self) -> Vec<String> {
-        self.0.into_iter().collect()
-    }
 }
 
 #[derive(Clone, Copy, Default)]

@@ -267,12 +267,6 @@ fn prepare(path: &Path, trace: bool) -> anyhow::Result<(Vec<u8>, Vec<Plane>)> {
     Ok((map, planes))
 }
 
-fn prepare_map(map: Vec<u8>, trace: bool) -> Option<(Vec<u8>, Vec<Plane>)> {
-    let mut planes = parse_checked(&map).ok()??;
-    finish(&mut planes, &map, trace);
-    Some((map, planes))
-}
-
 /// A file that is not a valid `XSpace` gives `None`. The parse checks the events, and the check of the other fields runs at the same time.
 fn parse_checked(map: &[u8]) -> anyhow::Result<Option<Vec<Plane>>> {
     let stats = AtomicBool::new(true);
