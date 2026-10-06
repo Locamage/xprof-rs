@@ -154,13 +154,17 @@ fn grouping_line(plane: &Plane) -> Option<usize> {
     [step_line(plane), module].into_iter().flatten().find(|&index| !plane.lines[index].events.is_empty())
 }
 
-fn csr(nodes: usize, edges: &[(u32, u32)], by_child: bool) -> Members {
+fn csr(nodes: usize, parts: &[&[(u32, u32)]], by_child: bool) -> Members {
     let key = |edge: &(u32, u32)| if by_child { edge.1 } else { edge.0 } as usize;
+    let edges = || parts.iter().flat_map(|part| part.iter());
     let mut offsets = vec![0u32; nodes + 1];
-    edges.iter().for_each(|edge| offsets[key(edge) + 1] += 1);
-    (0..nodes).for_each(|node| offsets[node + 1] += offsets[node]);
-    let (mut cursor, mut targets) = (offsets.clone(), vec![0u32; edges.len()]);
-    for edge in edges {
+    edges().for_each(|edge| offsets[key(edge) + 1] += 1);
+    offsets.iter_mut().fold(0, |sum, offset| {
+        *offset += sum;
+        *offset
+    });
+    let (mut cursor, mut targets) = (offsets.clone(), vec![0u32; offsets[nodes] as usize]);
+    for edge in edges() {
         targets[cursor[key(edge)] as usize] = if by_child { edge.0 } else { edge.1 };
         cursor[key(edge)] += 1;
     }
@@ -194,9 +198,16 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
         .into_par_iter()
         .map(|chunk| {
             let indices = chunk * 1024..(chunk * 1024 + 1024).min(count);
-            let (mut part, mut nested) = (Out::default(), Vec::with_capacity(if generic { indices.len() } else { 0 }));
+            let (mut part, mut nested, mut plain) = (Out::default(), Vec::with_capacity(if generic { indices.len() } else { 0 }), FxHashMap::default());
             for (event, node) in indices.map(node) {
-                let links = plane.links(event.meta, slice(map, event.raw), ordinal);
+                // The links of an event without stats come only from its metadata.
+                let fresh;
+                let links = if event.has_stats {
+                    fresh = plane.links(event.meta, slice(map, event.raw), ordinal);
+                    &fresh
+                } else {
+                    &*plain.entry(event.meta).or_insert_with(|| plane.links(event.meta, &[], ordinal))
+                };
                 if let Some(level) = links.root.filter(|_| generic) {
                     part.roots.push((node, level));
                 }
@@ -339,15 +350,16 @@ impl Walker<'_> {
         let graph = self.graph;
         self.epoch += 1;
         self.mark(root);
-        let mut queue = VecDeque::from([root]);
+        // The order of the visits does not change the nodes that get the group, or the relatives.
+        let mut pending = vec![root];
         self.relatives.entry(group).or_default();
-        while let Some(node) = queue.pop_front() {
+        while let Some(node) = pending.pop() {
             let current = self.group[node as usize];
             if current == NONE_GROUP {
                 self.group[node as usize] = group;
                 for &child in neighbors(&graph.kids, node) {
                     if self.mark(child) {
-                        queue.push_back(child);
+                        pending.push(child);
                     }
                 }
             } else if current != group {
@@ -383,7 +395,7 @@ fn merge(plane: &mut Plane, map: &[u8], index: usize, names: &HashMap<i64, Strin
         (Some(offset), Some(duration)) => (offset as u64, duration as u64),
         _ => (event.ts, event.dur),
     };
-    let (mut kept, mut steps): (Vec<Ev>, HashMap<usize, Step>) = (Vec::new(), HashMap::new());
+    let (mut kept, mut steps): (Vec<Ev>, FxHashMap<usize, Step>) = (Vec::new(), FxHashMap::default());
     let (mut group, mut idle, mut span) = (None, 0i64, None::<(u64, u64)>);
     for event in events {
         if event.group == NONE_GROUP {
@@ -447,7 +459,7 @@ fn plan_jobs(planes: &[Plane], full: bool) -> (Vec<Job>, u32, Vec<(u32, usize)>)
 
 fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Graph, Vec<Vec<u32>>) {
     let starts: Vec<(u32, u32, u32)> = jobs.iter().filter(|job| !matches!(job.kind, Kind::Child(..))).map(|job| (job.base, job.plane as u32, job.line as u32)).collect();
-    let mut edges: Vec<(u32, u32)> = outs.iter().flat_map(|out| out.edges.iter().copied()).collect();
+    let mut edges: Vec<(u32, u32)> = Vec::new();
     let tf_data: FxHashSet<i64> = outs.iter().flat_map(|out| out.tf_data.iter().copied()).collect();
     let mut loops: BTreeMap<i64, BTreeMap<i64, Vec<u32>>> = BTreeMap::new();
     for &(node, step, iteration) in outs.iter().flat_map(|out| &out.executors).filter(|(_, step, _)| !tf_data.contains(step)) {
@@ -474,7 +486,8 @@ fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Gra
     for (_, (producers, consumers)) in ordered.into_iter().filter(|(_, (producers, consumers))| producers.len() < FANOUT_LIMIT || consumers.len() < FANOUT_LIMIT) {
         edges.extend(producers.iter().flat_map(|&producer| consumers.iter().map(move |&consumer| (producer, consumer))));
     }
-    let (kids, parents) = rayon::join(|| csr(nodes as usize, &edges, false), || csr(nodes as usize, &edges, true));
+    let parts: Vec<&[(u32, u32)]> = outs.iter().map(|out| &out.edges[..]).chain([&edges[..]]).collect();
+    let (kids, parents) = rayon::join(|| csr(nodes as usize, &parts, false), || csr(nodes as usize, &parts, true));
     (Graph { starts, kids, parents }, iterations)
 }
 

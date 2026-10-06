@@ -5,6 +5,7 @@ pub mod steps;
 
 use anyhow::Context;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -147,6 +148,8 @@ pub struct Ev {
     pub raw: (u32, u32),
     pub meta: u32,
     pub eager: Option<bool>,
+    /// The event has a field of stats.
+    pub has_stats: bool,
 }
 
 #[derive(Default)]
@@ -158,8 +161,8 @@ pub struct Line {
     pub events: Vec<Ev>,
     pub labels: Vec<Box<str>>,
     pub longs: Vec<Box<str>>,
-    pub steps: HashMap<usize, Step>,
-    pub args: HashMap<usize, Vec<String>>,
+    pub steps: FxHashMap<usize, Step>,
+    pub args: FxHashMap<usize, Vec<String>>,
     pub timestamp_ns: i64,
 }
 
@@ -372,13 +375,14 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64) -> Option<Line> {
         .par_iter()
         .with_min_len(4096)
         .map(|&(start, len)| {
-            let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start as usize) as u32, len), meta: 0, eager: None };
+            let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start as usize) as u32, len), meta: 0, eager: None, has_stats: false };
             let mut parts = fields(&bytes[start as usize..][..len as usize]);
             for (tag, field) in &mut parts {
                 match (tag, field) {
                     (1, Field::Num(id)) => event.meta = id.min(limit) as u32,
                     (2, Field::Num(ts)) => event.ts = ts,
                     (3, Field::Num(dur)) => event.dur = dur,
+                    (4, Field::Bytes(..)) => event.has_stats = true,
                     _ => {}
                 }
             }
@@ -675,7 +679,7 @@ impl Plane {
                         started = Some(event.ts).filter(|&ts| line.absolute_ps(ts, origin) != 0);
                     }
                 } else if let Some(started) = started.filter(|_| event.meta as usize == stop) {
-                    regions.push(Ev { ts: started, dur: event.ts.saturating_sub(started), group: NONE_GROUP, raw: (0, 0), meta: region as u32, eager: None });
+                    regions.push(Ev { ts: started, dur: event.ts.saturating_sub(started), group: NONE_GROUP, raw: (0, 0), meta: region as u32, eager: None, has_stats: false });
                 }
             }
             if !regions.is_empty() {

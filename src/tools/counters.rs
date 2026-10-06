@@ -115,6 +115,7 @@ fn valid(buf: &[u8], message: Message, split: bool) -> bool {
                         true
                     }
                     Slot::Message(_) if split => true,
+                    Slot::Message(Message::Event) => valid_event(body),
                     Slot::Message(child) => valid(body, child, false),
                     Slot::Text => std::str::from_utf8(body).is_ok(),
                     Slot::Packed => {
@@ -139,6 +140,41 @@ fn valid(buf: &[u8], message: Message, split: bool) -> bool {
         children.push((&buf[start..], message, false));
     }
     children.par_iter().all(|&(body, child, split)| valid(body, child, split))
+}
+
+/// The same check as `valid` for an event and its stats.
+fn valid_event(buf: &[u8]) -> bool {
+    walk(buf, |field, body| field != 4 || walk(body, |field, body| field != 5 || std::str::from_utf8(body).is_ok()))
+}
+
+/// Checks the keys and the lengths of the fields. `body` checks each field that has a length.
+#[inline(always)]
+fn walk(buf: &[u8], mut body: impl FnMut(u64, &[u8]) -> bool) -> bool {
+    let mut pos = 0;
+    while pos < buf.len() {
+        let Some(key) = varint(buf, &mut pos) else { return false };
+        let field = key >> 3;
+        if field == 0 || field >= 1 << 29 {
+            return false;
+        }
+        let complete = match key & 7 {
+            0 => varint(buf, &mut pos).is_some(),
+            1 | 5 => {
+                pos += if key & 7 == 1 { 8 } else { 4 };
+                pos <= buf.len()
+            }
+            2 => {
+                let Some(length) = varint(buf, &mut pos).filter(|&length| length <= (buf.len() - pos) as u64) else { return false };
+                pos += length as usize;
+                body(field, &buf[pos - length as usize..pos])
+            }
+            _ => false,
+        };
+        if !complete {
+            return false;
+        }
+    }
+    true
 }
 
 fn unsigned(value: &Value) -> u64 {

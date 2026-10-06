@@ -205,7 +205,7 @@ pub fn load(path: &std::path::Path) -> anyhow::Result<Option<String>> {
     from_map(&crate::read_file(path)?)
 }
 
-/// The memory profile uses the groups, but not the op statistics. Do not call it on a thread of the pool.
+/// The memory profile uses the groups, but not the op statistics.
 pub fn from_map(map: &[u8]) -> anyhow::Result<Option<String>> {
     let Some(mut planes) = crate::parse_checked(map)? else { return Ok(None) };
     crate::finish(&mut planes, map, false);
