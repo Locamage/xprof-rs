@@ -36,31 +36,31 @@ The tables show the times on an 80 MB TPU v4 profile of a job that trains a CLIP
 
 | Tool | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
 |---|---|---|---|---|---|---|
-| `trace_viewer@` | 4.7 s | 447 ms | 11× | 595 ms | 0.8 ms | 781× |
-| `overview_page` | 3.4 s | 521 ms | 6.5× | 40 ms | 0.3 ms | 128× |
-| `op_profile` | 3.8 s | 574 ms | 6.6× | 513 ms | 0.5 ms | 963× |
-| `hlo_stats` | 3.5 s | 527 ms | 6.7× | 145 ms | 0.4 ms | 337× |
-| `framework_op_stats` | 3.4 s | 504 ms | 6.7× | 81 ms | 0.5 ms | 160× |
-| `input_pipeline_analyzer` | 3.3 s | 507 ms | 6.5× | 39 ms | 0.3 ms | 133× |
-| `roofline_model` | 3.5 s | 530 ms | 6.5× | 232 ms | 0.4 ms | 573× |
-| `memory_profile` | 1.2 s | 525 ms | 2.3× | 1.2 s | 0.4 ms | 3015× |
-| `pod_viewer` | 3.3 s | 514 ms | 6.3× | 40 ms | 0.3 ms | 115× |
-| `memory_viewer` | 65 ms | 25 ms | 2.6× | 64 ms | 0.4 ms | 180× |
+| `trace_viewer@` | 4.7 s | 405 ms | 12× | 595 ms | 0.8 ms | 781× |
+| `overview_page` | 3.4 s | 272 ms | 13× | 40 ms | 0.3 ms | 128× |
+| `op_profile` | 3.8 s | 317 ms | 12× | 513 ms | 0.5 ms | 963× |
+| `hlo_stats` | 3.5 s | 282 ms | 12× | 145 ms | 0.4 ms | 337× |
+| `framework_op_stats` | 3.4 s | 276 ms | 12× | 81 ms | 0.5 ms | 160× |
+| `input_pipeline_analyzer` | 3.3 s | 272 ms | 12× | 39 ms | 0.3 ms | 133× |
+| `roofline_model` | 3.5 s | 298 ms | 12× | 232 ms | 0.4 ms | 573× |
+| `memory_profile` | 1.2 s | 130 ms | 9.2× | 1.2 s | 0.4 ms | 3015× |
+| `pod_viewer` | 3.3 s | 267 ms | 12× | 40 ms | 0.3 ms | 115× |
+| `memory_viewer` | 65 ms | 22 ms | 3.0× | 64 ms | 0.4 ms | 180× |
 
 | Command | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
 |---|---|---|---|---|---|---|
-| `get_overview` | 4.1 s | 516 ms | 7.9× | 229 ms | 532 ms | 0.4× |
-| `get_top_hlo_ops` | 5.3 s | 566 ms | 9.4× | 230 ms | 545 ms | 0.4× |
-| `get_hlo_op_profile` | 5.3 s | 535 ms | 10× | 232 ms | 574 ms | 0.4× |
-| `get_hlo_stats` | 4.0 s | 563 ms | 7.2× | 230 ms | 544 ms | 0.4× |
-| `get_roofline_model` | 4.1 s | 545 ms | 7.5× | 230 ms | 581 ms | 0.4× |
-| `get_step_trace` | 3.9 s | 505 ms | 7.8× | 230 ms | 506 ms | 0.5× |
-| `check_host_boundness` | 66.4 s | 565 ms | 117× | 230 ms | 573 ms | 0.4× |
-| `get_memory_profile` | 1.8 s | 551 ms | 3.3× | 229 ms | 534 ms | 0.4× |
+| `get_overview` | 4.1 s | 268 ms | 15× | 229 ms | 268 ms | 0.9× |
+| `get_top_hlo_ops` | 5.3 s | 305 ms | 17× | 230 ms | 305 ms | 0.8× |
+| `get_hlo_op_profile` | 5.3 s | 304 ms | 17× | 232 ms | 304 ms | 0.8× |
+| `get_hlo_stats` | 4.0 s | 292 ms | 14× | 230 ms | 292 ms | 0.8× |
+| `get_roofline_model` | 4.1 s | 316 ms | 13× | 230 ms | 316 ms | 0.7× |
+| `get_step_trace` | 3.9 s | 268 ms | 15× | 230 ms | 268 ms | 0.9× |
+| `check_host_boundness` | 66.4 s | 306 ms | 217× | 230 ms | 306 ms | 0.8× |
+| `get_memory_profile` | 1.8 s | 137 ms | 13× | 229 ms | 137 ms | 1.7× |
 | `list_hlo_modules` | 231 ms | 4.9 ms | 47× | 231 ms | 4.7 ms | 49× |
-| `aggregate_xplane_events` | 22.2 s | 351 ms | 63× | 253 ms | 398 ms | 0.6× |
+| `aggregate_xplane_events` | 22.2 s | 136 ms | 163× | 253 ms | 136 ms | 1.9× |
 
-A warm XProf command is faster than xprof-rs. XProf keeps each result in a cache in `$TMPDIR`, and a second call reads this cache. xprof-rs has no result cache. It reads the profile again for each call.
+Most warm XProf commands are faster than xprof-rs. XProf keeps each result in a cache in `$TMPDIR`, and a second call reads this cache. xprof-rs has no result cache. It reads the profile again for each call.
 
 The next table shows five profiles of jobs that train CLIP models. The trace viewer time is for a cold server. The peak memory is the peak of the server process after the trace viewer and seven other tools.
 
@@ -86,13 +86,13 @@ More cores make xprof-rs faster. The next table shows the cold times of xprof-rs
 
 | Cores | Trace viewer | Overview page | Peak memory |
 |---|---|---|---|
-| 1 | 1.17 s | 1.47 s | 0.64 GB |
-| 2 | 0.65 s | 0.78 s | 0.70 GB |
-| 4 | 0.45 s | 0.54 s | 0.75 GB |
-| 8 | 0.46 s | 0.48 s | 0.79 GB |
-| 16 | 0.39 s | 0.44 s | 0.97 GB |
-| 32 | 0.37 s | 0.38 s | 1.09 GB |
-| 64 | 0.35 s | 0.38 s | 1.12 GB |
+| 1 | 1.04 s | 0.89 s | 0.62 GB |
+| 2 | 0.61 s | 0.47 s | 0.65 GB |
+| 4 | 0.40 s | 0.28 s | 0.69 GB |
+| 8 | 0.32 s | 0.18 s | 0.76 GB |
+| 16 | 0.36 s | 0.16 s | 0.79 GB |
+| 32 | 0.36 s | 0.16 s | 0.81 GB |
+| 64 | 0.35 s | 0.14 s | 0.80 GB |
 
 To measure the times of the first two tables on your profile, run [`examples/benchmark.py`](examples/benchmark.py) `SESSION_DIR --xprof PATH --cores 0-3`.
 
