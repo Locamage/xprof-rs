@@ -210,7 +210,10 @@ impl Client for Local {
         };
         let rendered = match name {
             "memory_profile" if paths.len() != 1 => return fail(Kind::Assertion, ""),
-            "memory_profile" => stats(false).map(|stats| stats.memory.clone()),
+            "memory_profile" => match self.kept.read().unwrap().get(&paths[0]) {
+                Some(kept) => Some(crate::tools::memory_profile::json(&kept.planes, kept.map())),
+                None => crate::tools::memory_profile::load(&paths[0]).ok().flatten(),
+            },
             "overview_page" => stats(false).map(|stats| crate::tools::overview_page::json(&stats, &paths)),
             "input_pipeline_analyzer" => stats(false).map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
             "framework_op_stats" => stats(false).map(|stats| crate::tools::framework_op_stats::json(&stats)),

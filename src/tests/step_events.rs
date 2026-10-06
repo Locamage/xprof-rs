@@ -11,7 +11,7 @@ fn device_steps(planes: &[Plane], map: &[u8], index: usize) -> StepEvents {
 }
 
 fn host_step_events(planes: &[Plane], map: &[u8], device: &StepEvents) -> StepEvents {
-    let mut host = host_steps(&planes[0], map, 0);
+    let mut host = host_steps(&planes[0], map, 0, false);
     host.retain(|step, _| device.contains_key(step));
     host
 }

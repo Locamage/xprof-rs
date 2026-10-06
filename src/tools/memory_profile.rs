@@ -200,6 +200,18 @@ fn snapshot(snapshot: Snapshot) -> MemoryProfileSnapshot {
     MemoryProfileSnapshot { time_offset_ps: snapshot.time, aggregation_stats: Some(snapshot.stats), activity_metadata: Some(snapshot.meta) }
 }
 
+/// The memory profile of a file. A file that is not a valid `XSpace` gives `None`.
+pub fn load(path: &std::path::Path) -> anyhow::Result<Option<String>> {
+    from_map(&crate::read_file(path)?)
+}
+
+/// The memory profile uses the groups, but not the op statistics. Do not call it on a thread of the pool.
+pub fn from_map(map: &[u8]) -> anyhow::Result<Option<String>> {
+    let Some(mut planes) = crate::parse_checked(map)? else { return Ok(None) };
+    crate::finish(&mut planes, map, false);
+    Ok(Some(json(&planes, map)))
+}
+
 pub fn json(planes: &[Plane], map: &[u8]) -> String {
     let Some(host) = planes.iter().find(|plane| plane.name == HOST_PLANE) else { return String::new() };
     let mut allocators = generate(host, map);

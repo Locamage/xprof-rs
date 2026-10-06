@@ -316,7 +316,7 @@ fn demo_trace_matches_xprof_outputs() {
         ("input_pipeline_analyzer", include_str!("../../tests/data/input_pipeline_analyzer.json"), tools::input_pipeline_analyzer::json(&stats)),
         ("roofline_model", include_str!("../../tests/data/roofline_model.json"), tools::roofline::json(&stats)),
         ("op_profile", include_str!("../../tests/data/op_profile.json"), tools::op_profile::json(&stats, None)),
-        ("memory_profile", include_str!("../../tests/data/memory_profile.json"), stats.memory.clone()),
+        ("memory_profile", include_str!("../../tests/data/memory_profile.json"), tools::memory_profile::from_map(demo).unwrap().unwrap()),
     ];
     for (name, golden, produced) in tools {
         assert!(golden == produced, "{name} differs from XProf");

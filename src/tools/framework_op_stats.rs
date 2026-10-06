@@ -2,11 +2,11 @@ use crate::tools::hlo_stats::roofline;
 use crate::tools::opstats::{Db, IDLE, Metrics, OpStats, add, pico_to_micro, safe_divide};
 use crate::tools::table::{Cell, Table};
 use crate::xplane::derive::is_derived;
-use crate::xplane::{Line, Plane, event_stat, slice};
+use crate::xplane::{Line, Plane, event_stats, slice};
 use arcstr::ArcStr;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
-use std::collections::HashMap;
+use std::borrow::Cow;
 
 const MAX_OPS: usize = 500;
 const HOST_PLANE: &str = "/host:CPU";
@@ -100,20 +100,25 @@ fn shared(op: TfOp) -> Op {
     (op.name.into(), op.kind.into(), op.id)
 }
 
-fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &HashMap<i64, Op>, ids: &[Option<usize>; 6]) -> (Db, (u64, u64)) {
+fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &FxHashMap<i64, Op>, ids: &[Option<usize>; 6]) -> (Db, (u64, u64)) {
     let mut activities: Vec<Activity> = Vec::new();
     if !is_derived(line.id) {
+        let mut parsed: FxHashMap<Cow<str>, Op> = FxHashMap::default();
         for event in &line.events {
-            let stat = |id: Option<usize>| event_stat(slice(map, event.raw), id);
-            let key = stat(ids[2]).or_else(|| stat(ids[4])).map_or(event.meta as i64, |value| value.int().unwrap_or(0));
+            let [stage, other_stage, eager, tf_op] = event_stats(slice(map, event.raw), [ids[2], ids[4], ids[0], ids[1]]);
+            let key = stage.or(other_stage).map_or(event.meta as i64, |value| value.int().unwrap_or(0));
             let (begin, end) = (event.ts, event.ts.wrapping_add(event.dur));
             if let Some(op) = ops.get(&key) {
-                let (next, eager) = (activities.len() as u32 / 2 + 1, stat(ids[0]).is_some_and(|value| value.int().unwrap_or(0) != 0));
+                let (next, eager) = (activities.len() as u32 / 2 + 1, eager.is_some_and(|value| value.int().unwrap_or(0) != 0));
                 activities.extend([(begin, next, None), (end, next, Some((op.clone(), eager)))]);
             }
-            let Some(full) = stat(ids[1]).map(|value| plane.text(&value)).filter(|full| !full.is_empty()) else { continue };
+            let Some(full) = tf_op.map(|value| plane.text_cow(&value)).filter(|full| !full.is_empty()) else { continue };
+            let op = match parsed.get(&*full) {
+                Some(op) => op.clone(),
+                None => parsed.entry(full).or_insert_with_key(|full| shared(parse_tf_op(full))).clone(),
+            };
             let next = activities.len() as u32 / 2 + 1;
-            activities.extend([(begin, next, None), (end, next, Some((shared(parse_tf_op(&full)), false)))]);
+            activities.extend([(begin, next, None), (end, next, Some((op, false)))]);
         }
     }
     let (mut db, mut index) = (Db::default(), FxHashMap::default());
@@ -164,19 +169,22 @@ fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &HashMap<i64, Op>, ids
 pub fn host_db(planes: &[Plane], map: &[u8]) -> (Db, (u64, u64)) {
     let Some(plane) = planes.iter().find(|plane| plane.name == HOST_PLANE) else { return Default::default() };
     let ids = ["is_eager", "tf_op", "_ipl_stage_id", "_ipl_stage_cat", "input_pipeline_stage_id", "input_pipeline_stage_category"].map(|wanted| plane.id(wanted));
-    let mut ops: HashMap<i64, Op> = HashMap::new();
+    let (mut ops, mut parsed) = (FxHashMap::default(), vec![false; plane.meta.len()]);
     for event in plane.lines.iter().flat_map(|line| &line.events) {
         let meta = &plane.meta[event.meta as usize];
         if meta.name.is_empty() {
             continue;
         }
-        let find = |id: Option<usize>| event_stat(slice(map, event.raw), id);
-        if let Some(stage) = find(ids[2]).or_else(|| find(ids[4])) {
-            if let Some(category) = find(ids[3]).or_else(|| find(ids[5])) {
+        let [stage, other_stage, category, other_category] = event_stats(slice(map, event.raw), [ids[2], ids[4], ids[3], ids[5]]);
+        if let Some(stage) = stage.or(other_stage) {
+            if let Some(category) = category.or(other_category) {
                 let (id, kind) = (stage.int().unwrap_or(0), plane.text(&category));
                 let op = if kind.is_empty() { TfOp { id, ..parse_tf_op(&meta.name) } } else { TfOp { known: true, name: meta.name.to_string(), kind, id } };
                 ops.entry(id).or_insert_with(|| shared(op));
             }
+            continue;
+        }
+        if std::mem::replace(&mut parsed[event.meta as usize], true) {
             continue;
         }
         let op = parse_tf_op(&meta.name);

@@ -37,21 +37,17 @@ impl Visit<'_> {
     }
 
     fn stats(&self) -> Vec<(String, String)> {
-        let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
         stats(self.event.raw, 4, |_| true)
-            .map(|stat| {
-                let name = self.plane.stat_names.get(&(stat.id as u64)).map_or_else(|| stat.id.to_string(), |name| text(name));
-                let value = match stat.value {
-                    Value::Double(number) => format!("{number:.6}"),
-                    Value::Uint(number) => number.to_string(),
-                    Value::Int(number) => number.to_string(),
-                    Value::Str(bytes) => text(bytes),
-                    Value::Ref(id) => id.to_string(),
-                    Value::Bytes(_) => "<bytes>".into(),
-                };
-                (name, value)
-            })
+            .map(|stat| (self.plane.stat_names.get(&(stat.id as u64)).map_or_else(|| stat.id.to_string(), |name| String::from_utf8_lossy(name).into_owned()), value_text(stat.value)))
             .collect()
+    }
+
+    /// The first value with this name that is not empty.
+    fn stat(&self, name: &str) -> Option<String> {
+        stats(self.event.raw, 4, |_| true)
+            .filter(|stat| self.plane.stat_names.get(&(stat.id as u64)).is_some_and(|known| *known == name.as_bytes()))
+            .map(|stat| value_text(stat.value))
+            .find(|value| !value.is_empty())
     }
 
     fn raw_name(&self) -> String {
@@ -67,39 +63,49 @@ impl Visit<'_> {
     }
 }
 
+fn value_text(value: Value) -> String {
+    match value {
+        Value::Double(number) => format!("{number:.6}"),
+        Value::Uint(number) => number.to_string(),
+        Value::Int(number) => number.to_string(),
+        Value::Str(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+        Value::Ref(id) => id.to_string(),
+        Value::Bytes(_) => "<bytes>".into(),
+    }
+}
+
 fn space(path: &Path) -> Result<Vec<u8>, Error> {
     let map = super::read(path)?;
     if valid_space(&map) { Ok(map) } else { fail(Kind::Value, "Failed to parse XSpace protobuf data") }
 }
 
-/// Runs `scan` on every plane of every trace file. The planes run in parallel. The results keep the order of the planes.
-fn scan_planes<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane) -> R + Sync) -> Result<Vec<R>, Error> {
+/// Runs `scan` on every line of every trace file, with its plane and its index. The lines run in parallel. The results keep the order of the planes and of the lines.
+fn scan_lines<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize) -> R + Sync) -> Result<Vec<R>, Error> {
     let mut results = Vec::new();
     for path in paths {
         let map = space(path)?;
-        results.extend(planes(&map, |_| true).par_iter().map(&scan).collect::<Vec<R>>());
+        let planes = planes(&map, |_| true);
+        let lines: Vec<(&Plane, usize)> = planes.iter().flat_map(|plane| (0..plane.lines.len()).map(move |index| (plane, index))).collect();
+        results.extend(lines.into_par_iter().map(|(plane, index)| scan(plane, index)).collect::<Vec<R>>());
     }
     Ok(results)
 }
 
 /// Calls `each` on every event of the plane, until it returns false. The result is false if it stopped.
 fn visit(plane: &Plane, mut each: impl FnMut(&Visit) -> bool) -> bool {
-    for bytes in &plane.lines {
-        let (mut line, mut timestamp) = (String::new(), 0);
-        for (tag, field) in fields(bytes) {
-            match (tag, field) {
-                (2, Field::Bytes(_, name)) => line = String::from_utf8_lossy(name).into_owned(),
-                (3, Field::Num(value)) => timestamp = value as i64,
-                _ => {}
-            }
-        }
-        for event in events(bytes) {
-            if !each(&Visit { plane, line: &line, timestamp, event }) {
-                return false;
-            }
+    (0..plane.lines.len()).all(|index| visit_line(plane, index, &mut each))
+}
+
+fn visit_line(plane: &Plane, index: usize, mut each: impl FnMut(&Visit) -> bool) -> bool {
+    let (bytes, mut line, mut timestamp) = (plane.lines[index], String::new(), 0);
+    for (tag, field) in fields(bytes) {
+        match (tag, field) {
+            (2, Field::Bytes(_, name)) => line = String::from_utf8_lossy(name).into_owned(),
+            (3, Field::Num(value)) => timestamp = value as i64,
+            _ => {}
         }
     }
-    true
+    events(bytes).all(|event| each(&Visit { plane, line: &line, timestamp, event }))
 }
 
 /// Calls `each` on every event of every trace file, until it returns false.
@@ -185,10 +191,10 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
         let keep = plane_filter(&planes_re);
         let wanted = if max_events <= 0.0 { f64::INFINITY } else { offset.max(0.0).ceil() + max_events.ceil() };
         // Each plane keeps the first matches that can be in the answer. The planes join in order.
-        let parts = scan_planes(&sources(client, &session)?, |plane| {
+        let parts = scan_lines(&sources(client, &session)?, |plane, index| {
             let (mut listed, mut matched, mut names) = (Vec::new(), 0usize, Names::new(&events_re));
             if keep(plane) {
-                visit(plane, |visit| {
+                visit_line(plane, index, |visit| {
                     let offset_ps = (visit.start_ns() * 1000.0).trunc();
                     let duration_ps = (visit.duration_ns() * 1000.0).trunc();
                     if start.is_some_and(|start| offset_ps < start) || end.is_some_and(|end| offset_ps + duration_ps > end) {
@@ -230,10 +236,10 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
         let keep = plane_filter(&planes_re);
         let (mut durations, mut scanned): (IndexMap<String, Vec<i128>>, usize) = (IndexMap::new(), 0);
         let paths = sources(client, &session)?;
-        let parts = scan_planes(&paths, |plane| {
+        let parts = scan_lines(&paths, |plane, index| {
             let (mut found, mut count, mut names) = (IndexMap::<String, Vec<i128>>::new(), 0usize, Names::new(&events_re));
             if keep(plane) {
-                visit(plane, |visit| {
+                visit_line(plane, index, |visit| {
                     let (name, matched) = names.resolve(visit);
                     if matched {
                         let duration = (visit.duration_ns() * 1000.0).trunc() as i128;
@@ -376,41 +382,47 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
     };
     let compute = || -> Result<Out, Error> {
         let patterns: Vec<(Option<Regex>, &String)> = matchers.iter().map(|pattern| (Regex::new(pattern).ok(), pattern)).collect();
-        let mut durations: IndexMap<String, Vec<f64>> = IndexMap::new();
-        let (mut intervals, mut steps) = (Vec::new(), Vec::new());
-        visit_all(&sources(client, &source)?, |visit| {
-            let plane = visit.plane.name.as_str();
-            if !plane.starts_with("/device:") {
-                return true;
+        let parts = scan_lines(&sources(client, &source)?, |plane, index| {
+            let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>>::new(), Vec::new(), Vec::new());
+            if !plane.name.starts_with("/device:") {
+                return (durations, intervals, steps);
             }
-            let (tpu, line) = (plane.to_uppercase().contains("TPU"), visit.line.to_uppercase());
-            if tpu && !DEVICE_LINES.iter().any(|word| line.contains(word)) {
-                if summary && line.contains("XLA MODULES") {
-                    steps.push(visit.duration_ns() / 1000.0);
+            let (tpu, mut line) = (plane.name.to_uppercase().contains("TPU"), None);
+            visit_line(plane, index, |visit| {
+                let line = line.get_or_insert_with(|| visit.line.to_uppercase());
+                if tpu && !DEVICE_LINES.iter().any(|word| line.contains(word)) {
+                    if summary && line.contains("XLA MODULES") {
+                        steps.push(visit.duration_ns() / 1000.0);
+                    }
+                    return true;
                 }
-                return true;
-            }
-            if !tpu && EXCLUDED_LINES.iter().any(|word| line.contains(word)) {
-                return true;
-            }
-            let stats = visit.stats();
-            let name = match stats.iter().find(|(key, value)| key == "tf_op_name" && !value.is_empty()) {
-                Some((_, value)) => value.clone(),
-                None => visit.name(),
-            };
-            if kernel.as_ref().is_some_and(|kernel| *kernel != name) {
-                return true;
-            }
-            if !patterns.is_empty() && !patterns.iter().any(|(compiled, pattern)| compiled.as_ref().is_some_and(|compiled| compiled.is_match(&name)) || name.contains(pattern.as_str())) {
-                return true;
-            }
-            durations.entry(name).or_default().push(visit.duration_ns() / 1000.0);
-            if summary {
-                let start = visit.start_ns().trunc() as i128;
-                intervals.push((start, start + visit.duration_ns().trunc() as i128));
-            }
-            true
+                if !tpu && EXCLUDED_LINES.iter().any(|word| line.contains(word)) {
+                    return true;
+                }
+                let name = visit.stat("tf_op_name").unwrap_or_else(|| visit.name());
+                if kernel.as_ref().is_some_and(|kernel| *kernel != name) {
+                    return true;
+                }
+                if !patterns.is_empty() && !patterns.iter().any(|(compiled, pattern)| compiled.as_ref().is_some_and(|compiled| compiled.is_match(&name)) || name.contains(pattern.as_str())) {
+                    return true;
+                }
+                durations.entry(name).or_default().push(visit.duration_ns() / 1000.0);
+                if summary {
+                    let start = visit.start_ns().trunc() as i128;
+                    intervals.push((start, start + visit.duration_ns().trunc() as i128));
+                }
+                true
+            });
+            (durations, intervals, steps)
         })?;
+        let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>>::new(), Vec::new(), Vec::new());
+        for (found, spans, times) in parts {
+            for (name, values) in found {
+                durations.entry(name).or_default().extend(values);
+            }
+            intervals.extend(spans);
+            steps.extend(times);
+        }
         if durations.is_empty() {
             let message = format!("No kernel stats found for session {source}{}", kernel.as_ref().map_or(String::new(), |kernel| format!(" and kernel {kernel}")));
             return Ok(match format.as_str() {
@@ -477,13 +489,19 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
     let source = args.string("source", "");
     let function = args.text("func_name").filter(|name| !name.is_empty());
     let compute = || -> Result<Out, Error> {
-        let mut durations = Vec::new();
-        visit_all(&sources(client, &source)?, |visit| {
-            if visit.plane.name.starts_with("/device:") && visit.line.to_uppercase().contains("XLA MODULES") && function.as_ref().is_none_or(|function| visit.raw_name().contains(function.as_str())) {
-                durations.push(visit.duration_ns() / 1_000_000.0);
+        let parts = scan_lines(&sources(client, &source)?, |plane, index| {
+            let (mut durations, mut line) = (Vec::new(), None);
+            if plane.name.starts_with("/device:") {
+                visit_line(plane, index, |visit| {
+                    if *line.get_or_insert_with(|| visit.line.to_uppercase().contains("XLA MODULES")) && function.as_ref().is_none_or(|function| visit.raw_name().contains(function.as_str())) {
+                        durations.push(visit.duration_ns() / 1_000_000.0);
+                    }
+                    true
+                });
             }
-            true
+            durations
         })?;
+        let durations: Vec<f64> = parts.into_iter().flatten().collect();
         if durations.is_empty() {
             return fail(Kind::Value, format!("No steps matching func_name '{}' found in {source}.", args.get("func_name").map_or("None".into(), J::text)));
         }

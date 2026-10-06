@@ -4,7 +4,7 @@ use crate::tools::opstats::{Builder, Db, EventReader, IDLE, Metrics, Templates, 
 use crate::tools::roofline::accumulate;
 use crate::xplane::derive::{STEP_LINE, is_derived, is_tensor_core};
 use crate::xplane::group::is_sparse_core;
-use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, event_stat, fields, nested, slice, stats};
+use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, event_stats, fields, nested, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -179,10 +179,11 @@ pub struct Device {
     core: Option<Core>,
 }
 
-fn scan<'a>(plane: &'a Plane, raw: &'a [u8], field: u32, ids: &[Option<usize>; 10]) -> Scanned<'a> {
+/// `slots` has the index in `DEVICE_STATS` of each stat id, or `u8::MAX`.
+fn scan<'a>(plane: &'a Plane, raw: &'a [u8], field: u32, slots: &[u8]) -> Scanned<'a> {
     let mut out: Scanned = Default::default();
     for stat in stats(raw, field, |_| true) {
-        match ids.iter().position(|&id| id == Some(stat.id)) {
+        match slots.get(stat.id).map(|&slot| slot as usize).filter(|&slot| slot < DEVICE_STATS.len()) {
             Some(CATEGORY) => {
                 out.1 = Some(plane.text_cow(&stat.value));
             }
@@ -211,8 +212,8 @@ fn nest<T>(items: impl Iterator<Item = (Span, T)>, mut finish: impl FnMut(T, Spa
 }
 
 fn step_programs<'a>(plane: &Plane, map: &[u8], templates: &'a Templates) -> HashMap<i64, StepPrograms> {
-    let mut markers: HashMap<i64, Vec<u64>> = HashMap::new();
-    let mut builders: HashMap<i64, Builder<'a>> = HashMap::new();
+    let mut markers: FxHashMap<i64, Vec<u64>> = FxHashMap::default();
+    let mut builders: FxHashMap<i64, Builder<'a>> = FxHashMap::default();
     let reader = EventReader::new(plane);
     for line in &plane.lines {
         if line.name == "Steps" {
@@ -251,10 +252,13 @@ pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &Tem
 }
 
 fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostname: &str) -> Device {
-    let ids = DEVICE_STATS.map(|name| plane.id(name));
+    let mut slots = vec![u8::MAX; plane.stat_names.len()];
+    for (slot, id) in DEVICE_STATS.iter().enumerate().filter_map(|(slot, name)| Some((slot, plane.id(name)?))).rev() {
+        slots[id] = slot as u8;
+    }
     let (tensor, sparse) = (is_tensor_core(&plane.name), is_sparse_core(&plane.name));
     let step_core = if sparse { SPARSE_CORE_START } else { 0 } + plane.id as u32;
-    let metas: Vec<Scanned> = plane.meta.iter().map(|meta| scan(plane, slice(map, meta.raw), 5, &ids)).collect();
+    let metas: Vec<Scanned> = plane.meta.iter().map(|meta| scan(plane, slice(map, meta.raw), 5, &slots)).collect();
     let kind = |category: &str| (OFF_DUTY.contains(&category), category == "custom-call");
     let duty: Vec<Option<(bool, bool)>> = metas.iter().map(|(_, category)| category.as_deref().map(kind)).collect();
     let span_of = |offset: Option<i64>, duration: Option<i64>, event: &Ev| match (offset, duration) {
@@ -284,7 +288,7 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
         }
         let active = &mut device.active;
         let grouped = line.events.iter().enumerate().filter_map(|(index, event)| {
-            let (own, own_category) = scan(plane, slice(map, event.raw), 4, &ids);
+            let (own, own_category) = scan(plane, slice(map, event.raw), 4, &slots);
             if name == "XLA Ops" {
                 let (off, custom) = duty[event.meta as usize].or_else(|| own_category.as_deref().map(kind)).unwrap_or_default();
                 let custom_off = custom && {
@@ -421,53 +425,85 @@ fn merged_active(mut intervals: Vec<(u64, u64)>) -> u64 {
     sum.wrapping_add(stop.wrapping_sub(start))
 }
 
-pub fn host_steps(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
+/// With `input_only`, the steps keep only the time on the host that is input, because a device has the other times.
+pub fn host_steps(plane: &Plane, map: &[u8], origin: u64, input_only: bool) -> StepEvents {
     let id = |name| plane.id(name);
-    let (group_id, step_name, stage_name, consumer_type, consumer_id, producer_type, producer_id) = (id("group_id"), id("step_name"), id("_ipl_stage_name"), id("_ct"), id("_c"), id("_pt"), id("_p"));
-    let find = |event: &Ev, id: Option<usize>| event_stat(slice(map, event.raw), id);
-    let number = |event: &Ev, id: Option<usize>| find(event, id).and_then(|value| value.int());
-    let parents: HashSet<(i64, i64)> = if producer_type.is_some() && producer_id.is_some() {
-        plane.lines.iter().flat_map(|line| &line.events).filter_map(|event| number(event, producer_type).zip(number(event, producer_id))).collect()
+    let mut ids = [id("group_id"), id("step_name"), id("_ipl_stage_name"), id("_ct"), id("_c")];
+    let number = |value: Option<Value>| value.and_then(|value| value.int());
+    let producers = [id("_pt"), id("_p")];
+    // An asynchronous parent changes the kind of time only below a stage of the input pipeline.
+    let parents: HashSet<(i64, i64)> = if ids[2].is_some() && producers.iter().all(Option::is_some) {
+        plane
+            .lines
+            .par_iter()
+            .flat_map_iter(|line| &line.events)
+            .filter_map(|event| {
+                let [kind, id] = event_stats(slice(map, event.raw), producers);
+                number(kind).zip(number(id))
+            })
+            .collect()
     } else {
         HashSet::new()
     };
-    let per_line: Vec<StepEvents> = plane
+    if parents.is_empty() {
+        ids[3..].fill(None);
+    }
+    // For each name: if it is a marker, and the kind of its time. `None` has no time, and `Some(None)` is input or compute, from the stack.
+    let kinds: Vec<(bool, Option<Option<u32>>)> = plane
+        .meta
+        .iter()
+        .map(|meta| {
+            let name = &*meta.name;
+            let explicit = (name.starts_with("train") || name.starts_with("test") || name.starts_with("TraceContext")) && !name.contains('/');
+            if EAGER_WRAPPERS.iter().any(|wrapper| name.starts_with(wrapper)) {
+                return (explicit, None);
+            }
+            let op = parse_tf_op(name);
+            let memcpy = |kind: &str| op.kind == kind && !name.contains(':');
+            let kind = if op.kind.starts_with("InfeedEnqueue") || memcpy("MemcpyHToD") {
+                Some(HOST_TO_DEVICE)
+            } else if memcpy("MemcpyHToH") {
+                Some(HOST_TO_HOST)
+            } else if name.len() >= 15 && name.as_bytes()[..15].eq_ignore_ascii_case(b"IteratorGetNext") {
+                Some(HOST_WAIT_INPUT)
+            } else {
+                None
+            };
+            (explicit, Some(kind))
+        })
+        .collect();
+    let per_line: Vec<FxHashMap<i64, Details>> = plane
         .lines
         .par_iter()
         .map(|line| {
-            let mut result: StepEvents = HashMap::new();
+            let mut result: FxHashMap<i64, Details> = FxHashMap::default();
             let mut stack: Vec<(bool, bool, Span)> = Vec::new();
             for (index, event) in line.events.iter().enumerate() {
-                let name = &*plane.meta[event.meta as usize].name;
-                let text = |id| find(event, id).map(|value| plane.text(&value)).unwrap_or_default();
-                let step = line.steps.get(&index).map(|step| step.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| text(step_name));
-                let async_parent = number(event, consumer_type).zip(number(event, consumer_id)).is_some_and(|key| parents.contains(&key));
+                let (explicit, kind) = kinds[event.meta as usize];
+                let [group_id, step_name, stage_name, consumer_type, consumer_id] = event_stats(slice(map, event.raw), ids);
+                let step = line.steps.get(&index).map(|step| step.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| step_name.map(|value| plane.text(&value)).unwrap_or_default());
+                let async_parent = number(consumer_type).zip(number(consumer_id)).is_some_and(|key| parents.contains(&key));
                 let span = Span { begin: event.ts.wrapping_add(origin), duration: event.dur };
                 while stack.last().is_some_and(|top| !top.2.includes(span)) {
                     stack.pop();
                 }
-                let current = (!text(stage_name).is_empty(), async_parent || stack.last().is_some_and(|top| top.1 || top.0), span);
+                let current = (stage_name.is_some_and(|value| !plane.text_cow(&value).is_empty()), async_parent || stack.last().is_some_and(|top| top.1 || top.0), span);
                 stack.push(current);
-                let group = if event.group == NONE_GROUP { number(event, group_id).unwrap_or(-1) } else { event.group };
+                let group = if event.group == NONE_GROUP { number(group_id).unwrap_or(-1) } else { event.group };
                 if group < 0 {
                     continue;
                 }
-                let explicit = (name.starts_with("train") || name.starts_with("test") || name.starts_with("TraceContext")) && !name.contains('/');
+                let kind = kind.filter(|_| !explicit && step.is_empty()).map(|kind| kind.unwrap_or(if current.0 && !current.1 { HOST_WAIT_INPUT } else { HOST_COMPUTE }));
+                if input_only {
+                    if let Some(kind @ (HOST_WAIT_INPUT | HOST_TO_DEVICE)) = kind {
+                        result.entry(group).or_default().events.push((kind, span));
+                    }
+                    continue;
+                }
                 let details = result.entry(group).or_default();
                 if explicit || !step.is_empty() {
                     details.markers.push(Marker { device: false, core: None, span });
-                } else if !EAGER_WRAPPERS.iter().any(|wrapper| name.starts_with(wrapper)) {
-                    let op = parse_tf_op(name);
-                    let memcpy = |kind: &str| op.kind == kind && !name.contains(':');
-                    let kind = if op.kind.starts_with("InfeedEnqueue") || memcpy("MemcpyHToD") {
-                        HOST_TO_DEVICE
-                    } else if memcpy("MemcpyHToH") {
-                        HOST_TO_HOST
-                    } else if name.len() >= 15 && name.as_bytes()[..15].eq_ignore_ascii_case(b"IteratorGetNext") || (current.0 && !current.1) {
-                        HOST_WAIT_INPUT
-                    } else {
-                        HOST_COMPUTE
-                    };
+                } else if let Some(kind) = kind {
                     details.events.push((kind, span));
                 }
                 if !step.is_empty() {
@@ -480,7 +516,7 @@ pub fn host_steps(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
     combined_steps(per_line)
 }
 
-fn combined_steps(parts: impl IntoIterator<Item = StepEvents>) -> StepEvents {
+fn combined_steps(parts: impl IntoIterator<Item = impl IntoIterator<Item = (i64, Details)>>) -> StepEvents {
     let mut combined: StepEvents = HashMap::new();
     for (step, details) in parts.into_iter().flatten() {
         combined.entry(step).or_default().combine(details);
@@ -616,7 +652,7 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
                 || gpus.par_iter().map(|plane| gpu_device(plane, map, origin)).collect::<Vec<StepEvents>>(),
             )
         },
-        || rayon::join(|| is_training(planes, map), || host.map(|plane| host_steps(plane, map, origin))),
+        || rayon::join(|| is_training(planes, map), || host.filter(|_| gpus.is_empty()).map(|plane| host_steps(plane, map, origin, !devices.is_empty()))),
     );
     extra.training = training;
     let mut step_events: StepEvents = HashMap::new();
