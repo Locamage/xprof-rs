@@ -247,34 +247,54 @@ impl Derived {
     }
 }
 
-pub fn derive(plane: &mut Plane, map: &[u8]) {
-    let (tf_op_id, source_id, async_id) = (plane.id("tf_op"), plane.id("source"), plane.id("_a"));
-    let wanted: Vec<usize> = [tf_op_id, source_id, async_id].into_iter().flatten().collect();
-    let scan = |raw: &[u8], field: u32| {
-        let (mut tf_op, mut source, mut is_async) = (String::new(), String::new(), 0u64);
-        for stat in stats(raw, field, |id| wanted.contains(&id)) {
+/// Gives the tags of the stats in a field, or `None` if no stat has a tag.
+fn tagger(plane: &Plane) -> impl Fn(&[u8], u32) -> Option<Tags> + Sync + Copy + '_ {
+    let wanted @ [tf_op_id, source_id, async_id] = [plane.id("tf_op"), plane.id("source"), plane.id("_a")];
+    move |raw: &[u8], field: u32| {
+        let mut tags: Option<Tags> = None;
+        for stat in stats(raw, field, |id| wanted.contains(&Some(id))) {
+            let (tf_op, source, is_async) = tags.get_or_insert_default();
             match stat.value {
-                Value::Str(_) | Value::Ref(_) if Some(stat.id) == tf_op_id => tf_op = plane.text(&stat.value),
-                Value::Str(_) | Value::Ref(_) if Some(stat.id) == source_id => source = plane.text(&stat.value),
-                Value::Int(_) | Value::Uint(_) if Some(stat.id) == async_id => is_async = stat.value.int().unwrap() as u64,
+                Value::Str(_) | Value::Ref(_) if Some(stat.id) == tf_op_id => *tf_op = plane.text(&stat.value),
+                Value::Str(_) | Value::Ref(_) if Some(stat.id) == source_id => *source = plane.text(&stat.value),
+                Value::Int(_) | Value::Uint(_) if Some(stat.id) == async_id => *is_async = stat.value.int().unwrap() as u64,
                 _ => {}
             }
         }
-        (tf_op, source, is_async)
-    };
-    let tags: Vec<Tags> = plane.meta.par_iter().map(|meta| scan(slice(map, meta.raw), 5)).collect();
+        tags
+    }
+}
+
+fn meta_tags(plane: &Plane, map: &[u8]) -> Vec<Tags> {
+    plane.meta.par_iter().map(|meta| tagger(plane)(slice(map, meta.raw), 5).unwrap_or_default()).collect()
+}
+
+/// The first start and the last end of the events of the "Framework Ops" line that `derive` adds.
+pub fn op_span(plane: &Plane, map: &[u8]) -> Option<(u64, u64)> {
+    let (tags, scan) = (meta_tags(plane, map), tagger(plane));
+    let ops = plane.lines.par_iter().flat_map(|line| &line.events).filter(|event| {
+        let (tf_op, _, is_async) = &tags[event.meta as usize];
+        match scan(slice(map, event.raw), 4) {
+            Some(own) => (if own.2 != 0 { own.2 } else { *is_async }) == 0 && !(own.0.is_empty() && tf_op.is_empty()),
+            None => *is_async == 0 && !tf_op.is_empty(),
+        }
+    });
+    ops.map(|event| (event.ts, event.ts + event.dur)).reduce_with(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+}
+
+pub fn derive(plane: &mut Plane, map: &[u8]) {
+    let (tags, scan) = (meta_tags(plane, map), tagger(plane));
     // The events to derive from, in time order, with their groups and the tags of their own stats.
     let mut order: Vec<(Position, i64, Option<Tags>)> = Vec::new();
     for (line_index, line) in plane.lines.iter().enumerate() {
         order.par_extend(line.events.par_iter().enumerate().filter_map(|(index, event)| {
             let raw = slice(map, event.raw);
-            let own = stats(raw, 4, |id| wanted.contains(&id)).next().is_some();
-            let (tf_op, source, _) = &tags[event.meta as usize];
-            if tf_op.is_empty() && source.is_empty() && !own {
+            let (own, (tf_op, source, _)) = (scan(raw, 4), &tags[event.meta as usize]);
+            if tf_op.is_empty() && source.is_empty() && own.is_none() {
                 return None;
             }
             let group = if event.group == NONE_GROUP { plane.group_of(event.meta, raw).unwrap_or(NONE_GROUP) } else { event.group };
-            Some(((event.ts, Reverse(event.dur), line_index, index), group, own.then(|| scan(raw, 4))))
+            Some(((event.ts, Reverse(event.dur), line_index, index), group, own))
         }));
     }
     order.par_sort_unstable_by_key(|&(position, _, _)| position);
