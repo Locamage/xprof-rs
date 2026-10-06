@@ -633,7 +633,9 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let opcode = context.opcode(node);
         let shape = context.shape(node);
         match opcode {
-            _ if ELEMENTWISE.split(' ').any(|name| name == opcode) && !matches!(opcode, "copy" | "constant" | "rng") => self.elementwise(node),
+            _ if ELEMENTWISE.split(' ').any(|name| name == opcode) && !matches!(opcode, "copy" | "constant" | "rng") => {
+                self.current.set(Key::Flops, (profile_flops(opcode, shape.element_type) * shape.elements_recursive()) as f32);
+            }
             "parameter" | "constant" => self.zero_outputs(node, false, false),
             "get-tuple-element" => {
                 self.zero_outputs(node, false, false);
@@ -666,15 +668,12 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 self.current.set(Key::Flops, dot_flops(context.shape(context.operand(node, 0)?), &result, &lhs) as f32);
             }
             "infeed" | "outfeed" => self.feed(node, opcode),
-            "map" => {
+            "map" | "scan" => {
                 let sub = self.subcomputation(context.called(node, 0)?)?;
-                self.copy_scaled(&sub, shape.elements(), false);
+                let factor = if opcode == "map" { shape.elements() } else { context.shape(context.operand(node, 1)?).elements() };
+                self.copy_scaled(&sub, factor, false);
             }
             "reduce" => self.reduce(node)?,
-            "scan" => {
-                let sub = self.subcomputation(context.called(node, 0)?)?;
-                self.copy_scaled(&sub, context.shape(context.operand(node, 1)?).elements(), false);
-            }
             "reduce-window" => self.reduce_window(node)?,
             "select-and-scatter" => {
                 let select = self.subcomputation(context.called(node, 0)?)?;
@@ -793,13 +792,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
             return Ok(());
         }
         let b = context.shape(context.operand(node, 1)?);
-        let mut bytes = shape_size(shape) as f32;
-        self.set_output(&[], shape_size(shape) as f32);
-        bytes += shape_size(a) as f32 / 2.0;
-        self.set_operand_bytes(0, &[], shape_size(a) as f32 / 2.0);
-        bytes += shape_size(b) as f32;
-        self.set_operand_bytes(0, &[], shape_size(b) as f32);
-        self.current.set(Key::Bytes, bytes);
+        let (output, operand) = (shape_size(shape) as f32, shape_size(b) as f32);
+        self.set_output(&[], output);
+        self.set_operand_bytes(0, &[], operand);
+        self.current.set(Key::Bytes, output + shape_size(a) as f32 / 2.0 + operand);
         let count = a.dimensions.last().copied().unwrap_or(0) * b.elements();
         self.current.set(Key::Flops, (FMA_FLOPS * count) as f32);
         Ok(())
@@ -834,11 +830,6 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.set_output(&[], 0.0);
         self.set_operand_bytes(0, &[], 0.0);
         self.current.set(Key::Optimal, 0.0);
-    }
-
-    fn elementwise(&mut self, node: usize) {
-        let shape = self.context.shape(node);
-        self.current.set(Key::Flops, (profile_flops(self.context.opcode(node), shape.element_type) * shape.elements_recursive()) as f32);
     }
 
     fn ring(&mut self, ranks: i64, steps: i64) {

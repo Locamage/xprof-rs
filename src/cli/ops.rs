@@ -230,13 +230,9 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         "bytes" => op.at("bytes_accessed").float().unwrap_or(0.0),
         _ => op.at("total_self_time_ms").float().unwrap_or(0.0),
     };
-    let mut groups: Vec<(String, Vec<J>)> = Vec::new();
+    let mut groups: indexmap::IndexMap<String, Vec<J>> = indexmap::IndexMap::new();
     for op in &flat {
-        let category = op.at("category").text();
-        match groups.iter_mut().find(|(name, _)| *name == category) {
-            Some((_, ops)) => ops.push(op.clone()),
-            None => groups.push((category, vec![op.clone()])),
-        }
+        groups.entry(op.at("category").text()).or_default().push(op.clone());
     }
     let time_of = |ops: &[J]| fsum(ops.iter().map(|op| op.at("total_self_time_ms").float().unwrap_or(0.0)));
     let fraction = |part: f64, whole: f64| if whole > 0.0 { round(part / whole, 4) } else { 0.0 };
@@ -267,7 +263,7 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
     };
     descending(&mut summary, |entry| entry.at(summary_key).float().unwrap_or(0.0));
     let available: Vec<String> = summary.iter().map(|entry| entry.at("category").text()).collect();
-    let ops_of = |category: &str| groups.iter().find(|(name, _)| name == category).map_or(&[][..], |(_, ops)| ops.as_slice());
+    let ops_of = |category: &str| groups.get(category).map_or(&[][..], Vec::as_slice);
     let with_fraction = |ops: Vec<J>, whole: f64| -> Vec<J> {
         ops.into_iter()
             .map(|mut op| {

@@ -1258,22 +1258,18 @@ fn slice_size_groups(module: &Module, operands: &[usize], sizes: &[i64]) -> Opti
         remaining = tail;
         Some(head.to_vec())
     };
-    let rank = |shape: &Shape| shape.dimensions.len();
     let mut groups = Vec::new();
     if input.is_tuple() {
         let nested = starts.tuple_shapes.first()?.tuple_shapes.first()?.is_array();
         for (index, element) in input.tuple_shapes.iter().enumerate() {
-            let count = if nested { 1 } else { starts.tuple_shapes.get(index)?.tuple_shapes.len() };
-            for _ in 0..count {
-                groups.push(take(rank(element))?);
+            for _ in 0..if nested { 1 } else { starts.tuple_shapes.get(index)?.tuple_shapes.len() } {
+                groups.push(take(element.dimensions.len())?);
             }
         }
-    } else if starts.tuple_shapes.first()?.is_tuple() {
-        for _ in 0..starts.tuple_shapes.len() {
-            groups.push(take(rank(input))?);
-        }
     } else {
-        groups.push(take(rank(input))?);
+        for _ in 0..if starts.tuple_shapes.first()?.is_tuple() { starts.tuple_shapes.len() } else { 1 } {
+            groups.push(take(input.dimensions.len())?);
+        }
     }
     Some(groups)
 }

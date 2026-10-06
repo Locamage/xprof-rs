@@ -421,13 +421,13 @@ impl Dumper<'_> {
         let mut attributes = Vec::new();
         self.printer.extra(node, &module.inst(node), true, &mut attributes);
         for line in attributes {
-            if (line.starts_with("replica_groups=") || line.starts_with("source_target_pairs=") || line.starts_with("control-predecessors=")) && line.len() > 128 {
-                lines.push(sanitize_html(&format!("{}...", String::from_utf8_lossy(&line.as_bytes()[..125]))));
+            lines.push(if (line.starts_with("replica_groups=") || line.starts_with("source_target_pairs=") || line.starts_with("control-predecessors=")) && line.len() > 128 {
+                sanitize_html(&format!("{}...", String::from_utf8_lossy(&line.as_bytes()[..125])))
             } else if line.starts_with("feature_group_count=") {
-                lines.push(format!("<b>{}</b>", sanitize_html(&line)));
+                format!("<b>{}</b>", sanitize_html(&line))
             } else {
-                lines.push(sanitize_html(&line));
-            }
+                sanitize_html(&line)
+            });
         }
         if entry.opcode != "fusion" || !self.show_fusion(node) {
             fn multidim(shape: &Shape) -> bool {
@@ -541,13 +541,7 @@ impl Dumper<'_> {
         let module = self.module;
         let entry = &module.nodes[node];
         let root = module.graphs[entry.computation].root;
-        if (entry.opcode == "constant" || self.broadcast_of_scalar_constant(node)) && node != root {
-            return String::new();
-        }
-        if self.merge_into_users(node) {
-            return String::new();
-        }
-        if entry.opcode == "fusion" && self.show_fusion(node) {
+        if ((entry.opcode == "constant" || self.broadcast_of_scalar_constant(node)) && node != root) || self.merge_into_users(node) || (entry.opcode == "fusion" && self.show_fusion(node)) {
             return String::new();
         }
         self.node_ids.insert(node, self.node_ids.len() as i64 + 1);
