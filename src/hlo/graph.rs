@@ -386,7 +386,7 @@ impl Dumper<'_> {
         format!("backend_config=\"{}\"", String::from_utf8_lossy(&config))
     }
 
-    fn extra_info(&mut self, node: usize) -> String {
+    fn extra_info(&self, node: usize) -> String {
         let module = self.module;
         let entry = &module.nodes[node];
         let mut lines = Vec::new();
@@ -442,7 +442,7 @@ impl Dumper<'_> {
         lines.join("<br/>")
     }
 
-    fn constant_text(&mut self, constant: usize, shape: &Shape) -> String {
+    fn constant_text(&self, constant: usize, shape: &Shape) -> String {
         let module = self.module;
         let entry = &module.nodes[constant];
         if shape.is_array() && shape.dimensions.contains(&0) {
@@ -570,10 +570,7 @@ impl Dumper<'_> {
                 self.add_edge(predecessor, node, 0, true, entry.operands.len());
             }
         }
-        let mut scheme = self.color(node);
-        if matches!(self.show(node), Show::OmitOperands | Show::SomeOperandsOmitted | Show::SomeUsersOmitted) {
-            scheme = "dashed";
-        }
+        let mut scheme = if matches!(self.show(node), Show::OmitOperands | Show::SomeOperandsOmitted | Show::SomeUsersOmitted) { "dashed" } else { self.color(node) };
         if self.show(node) == Show::Highlight {
             shape = "diamond";
             scheme = "dark_red";
