@@ -621,12 +621,24 @@ pub fn corrupt(paths: &[std::path::PathBuf]) -> bool {
     paths.iter().any(|path| crate::read_file(path).is_ok_and(|map| !valid_space(&map)))
 }
 
+/// Renders a trace if it is valid. The render reads a trace that is not valid without a panic, so it runs at the same time as the check.
+pub fn checked<T: Send>(map: &[u8], render: impl FnOnce(&[u8]) -> T + Send) -> Option<T> {
+    let (valid, rendered) = rayon::join(|| valid_space(map), || render(map));
+    valid.then_some(rendered)
+}
+
 pub fn serve(tag: &str, paths: &[std::path::PathBuf]) -> Option<String> {
-    let maps: Vec<(String, Option<Vec<u8>>)> = paths.iter().map(|path| (crate::host_name(path), crate::read_file(path).ok().filter(|map| valid_space(map)))).collect();
-    match (tag, maps.as_slice()) {
-        ("perf_counters", [_, ..]) => Some(perf_counters(&maps.iter().filter_map(|(host, map)| Some((host.clone(), &map.as_ref()?[..]))).collect::<Vec<_>>())),
-        ("utilization_viewer", [(_, Some(map))]) => Some(utilization_viewer(map)),
-        ("kernel_utilization", [(_, Some(map))]) => Some(kernel_utilization(map, &Filter::default())),
+    let single = |render: fn(&[u8]) -> String| match paths {
+        [path] => checked(&crate::read_file(path).ok()?, render),
+        _ => None,
+    };
+    match tag {
+        "perf_counters" if !paths.is_empty() => {
+            let maps: Vec<(String, Vec<u8>)> = paths.iter().filter_map(|path| Some((crate::host_name(path), crate::read_file(path).ok().filter(|map| valid_space(map))?))).collect();
+            Some(perf_counters(&maps.iter().map(|(host, map)| (host.clone(), &map[..])).collect::<Vec<_>>()))
+        }
+        "utilization_viewer" => single(utilization_viewer),
+        "kernel_utilization" => single(|map| kernel_utilization(map, &Filter::default())),
         _ => None,
     }
 }

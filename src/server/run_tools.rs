@@ -1,4 +1,4 @@
-use crate::tools::counters::{events, first, planes, pretty, valid_space};
+use crate::tools::counters::{checked, events, first, planes, pretty};
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -43,21 +43,20 @@ const HLO_PROTO: &str = "Hlo Proto";
 const COUNTER_VALUE: &str = "counter_value";
 
 pub fn tools(map: &[u8]) -> Option<Vec<&'static str>> {
-    if !valid_space(map) {
-        return None;
-    }
-    let planes = planes(map, |_| true);
-    let counters = planes.par_iter().filter(|plane| plane.name.starts_with(TPU_PREFIX)).any(|plane| {
-        let id = plane.stat_id(COUNTER_VALUE);
-        id.is_some() && plane.lines.par_iter().any(|line| events(line).any(|event| first(event.raw, 4, [id])[0].is_some()))
-    });
-    let found: [(bool, &[&str]); 4] = [
-        (planes.iter().any(|plane| plane.name.starts_with(GPU_PREFIX)), &["kernel_stats"]),
-        (planes.iter().any(|plane| plane.name == METADATA_PLANE && plane.stat_id(HLO_PROTO).is_some()), &["memory_viewer", "graph_viewer"]),
-        (planes.iter().find(|plane| plane.name == HOST_PLANE).is_some_and(|plane| plane.metadata.values().any(|(name, _)| name.starts_with(MEGASCALE_PREFIX))), &["megascale_stats"]),
-        (counters, &["perf_counters", "utilization_viewer", "kernel_utilization"]),
-    ];
-    Some(BASE_TOOLS.into_iter().chain(found.into_iter().filter(|(present, _)| *present).flat_map(|(_, names)| names.iter().copied())).collect())
+    checked(map, |map| -> Vec<&'static str> {
+        let planes = planes(map, |_| true);
+        let counters = planes.par_iter().filter(|plane| plane.name.starts_with(TPU_PREFIX)).any(|plane| {
+            let id = plane.stat_id(COUNTER_VALUE);
+            id.is_some() && plane.lines.par_iter().any(|line| events(line).any(|event| first(event.raw, 4, [id])[0].is_some()))
+        });
+        let found: [(bool, &[&str]); 4] = [
+            (planes.iter().any(|plane| plane.name.starts_with(GPU_PREFIX)), &["kernel_stats"]),
+            (planes.iter().any(|plane| plane.name == METADATA_PLANE && plane.stat_id(HLO_PROTO).is_some()), &["memory_viewer", "graph_viewer"]),
+            (planes.iter().find(|plane| plane.name == HOST_PLANE).is_some_and(|plane| plane.metadata.values().any(|(name, _)| name.starts_with(MEGASCALE_PREFIX))), &["megascale_stats"]),
+            (counters, &["perf_counters", "utilization_viewer", "kernel_utilization"]),
+        ];
+        BASE_TOOLS.into_iter().chain(found.into_iter().filter(|(present, _)| *present).flat_map(|(_, names)| names.iter().copied())).collect()
+    })
 }
 
 pub fn sorted<'a>(tools: impl IntoIterator<Item = &'a str>) -> Vec<String> {

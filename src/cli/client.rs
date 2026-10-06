@@ -96,14 +96,14 @@ pub fn traces(dir: &Path) -> Vec<PathBuf> {
 }
 
 pub fn kernel_utilization<'a>(path: &Path, option: impl Fn(&str) -> Option<&'a str>) -> Option<String> {
-    let map = crate::read_file(path).ok().filter(|map| crate::tools::counters::valid_space(map))?;
+    let map = crate::read_file(path).ok()?;
     let filter = crate::tools::counters::Filter {
         kernel: option("kernel").or(option("kernel_name")).unwrap_or_default().to_string(),
         duration_us: option("duration_us").and_then(|value| value.trim().parse().ok()).unwrap_or(0.0),
         force: option("force_duration").is_some_and(|value| matches!(value, "True" | "true" | "1" | "yes" | "t" | "y")),
         device: option("device_id").and_then(|value| value.trim().parse().ok()).unwrap_or(-1),
     };
-    Some(crate::tools::counters::kernel_utilization(&map, &filter))
+    crate::tools::counters::checked(&map, |map| crate::tools::counters::kernel_utilization(map, &filter))
 }
 
 pub fn temp_dir() -> PathBuf {
