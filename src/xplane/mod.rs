@@ -181,6 +181,8 @@ pub struct Links {
     pub pid: Option<i32>,
     pub root: Option<i64>,
     pub step: Option<String>,
+    /// The first integer value of the stat `correlation_id`, as `event_stat` finds it.
+    pub correlation: Option<u64>,
 }
 
 type Stats = [Option<u64>; STATS.len()];
@@ -221,6 +223,7 @@ pub struct Plane {
     host: u64,
     kind: Vec<u8>,
     present: [bool; STATS.len()],
+    correlation: Option<usize>,
 }
 
 pub enum Own {
@@ -229,6 +232,7 @@ pub enum Own {
     Text(String),
 }
 
+#[derive(Clone, Copy)]
 pub enum Value<'a> {
     Int(i64),
     Uint(u64),
@@ -294,6 +298,24 @@ pub fn nested(data: &[u8], wanted: u32) -> impl Iterator<Item = &[u8]> {
 pub fn event_stat(raw: &[u8], id: Option<usize>) -> Option<Value<'_>> {
     let id = id?;
     stats(raw, 4, |stat| stat == id).next().map(|stat| stat.value)
+}
+
+/// For each id, the same value as `event_stat`, from one pass over the stats.
+pub fn event_stats<const N: usize>(raw: &[u8], ids: [Option<usize>; N]) -> [Option<Value<'_>>; N] {
+    let mut out = [None; N];
+    if ids.iter().all(Option::is_none) {
+        return out;
+    }
+    for body in nested(raw, 4) {
+        let first = std::cell::Cell::new(None);
+        let Some(stat) = stat(body, |id| ids.contains(&Some(id)) && first.replace(Some(id)).is_none_or(|first| first == id)) else { continue };
+        for (slot, id) in out.iter_mut().zip(ids) {
+            if slot.is_none() && id == Some(stat.id) {
+                *slot = Some(stat.value);
+            }
+        }
+    }
+    out
 }
 
 pub fn event_group(raw: &[u8], group: i64, id: Option<usize>) -> Option<i64> {
@@ -455,6 +477,7 @@ impl Plane {
             plane.meta.push(Meta::default());
         }
         plane.kind = plane.stat_names.iter().map(|name| STATS.iter().position(|stat| stat == &&**name).map_or(NO_KIND, |kind| kind as u8)).collect();
+        plane.correlation = plane.kind.iter().position(|&kind| kind == CORRELATION as u8);
         for &kind in plane.kind.iter().filter(|&&kind| kind != NO_KIND) {
             plane.present[kind as usize] = true;
         }
@@ -512,8 +535,18 @@ impl Plane {
 
     pub fn links(&self, meta: u32, raw: &[u8], ordinal: Option<u64>) -> Links {
         let mut out = self.meta[meta as usize].base.as_deref().copied().unwrap_or_default();
-        let (mut correlation, mut step) = (None, None);
-        for stat in stats(raw, 4, |id| self.kind.get(id).is_some_and(|&kind| kind != NO_KIND)) {
+        let (mut correlation, mut step, mut first_correlation) = (None, None, None);
+        for body in nested(raw, 4) {
+            let only_correlation = std::cell::Cell::new(true);
+            let Some(stat) = stat(body, |id| {
+                only_correlation.set(only_correlation.get() && Some(id) == self.correlation);
+                self.kind.get(id).is_some_and(|&kind| kind != NO_KIND)
+            }) else {
+                continue;
+            };
+            if first_correlation.is_none() && only_correlation.get() {
+                first_correlation = stat.value.int().map(|value| value as u64);
+            }
             let kind = self.kind[stat.id] as usize;
             if let Some(value) = stat.value.int() {
                 out[kind] = Some(value as u64);
@@ -566,6 +599,7 @@ impl Plane {
                 None => stated,
             },
             step: step.map(|value| self.text(&value)).or_else(|| meta.step.clone()),
+            correlation: first_correlation,
         }
     }
 

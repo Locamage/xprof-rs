@@ -144,20 +144,35 @@ pub fn fsum(values: impl IntoIterator<Item = f64>) -> f64 {
 }
 
 pub fn stdev(values: &[f64]) -> f64 {
-    let parts: Vec<(BigInt, i32)> = values
+    let parts: Vec<(i64, i32)> = values
         .iter()
         .map(|value| {
             let bits = value.to_bits();
             let (exponent, fraction) = (((bits >> 52) & 0x7ff) as i32, bits & ((1 << 52) - 1));
             let (mantissa, exponent) = if exponent == 0 { (fraction, -1074) } else { (fraction | 1 << 52, exponent - 1075) };
-            (if bits >> 63 == 1 { -BigInt::from(mantissa) } else { BigInt::from(mantissa) }, exponent)
+            (if bits >> 63 == 1 { -(mantissa as i64) } else { mantissa as i64 }, exponent)
         })
+        .filter(|&(mantissa, _)| mantissa != 0)
         .collect();
+    // The result does not change with the scale, so the scale comes from the values that are not zero.
     let low = parts.iter().map(|(_, exponent)| *exponent).min().unwrap_or(0);
-    let scaled: Vec<BigInt> = parts.into_iter().map(|(mantissa, exponent)| mantissa << (exponent - low) as usize).collect();
-    let count = BigInt::from(scaled.len());
-    let sum: BigInt = scaled.iter().sum();
-    let squares: BigInt = scaled.iter().map(|value| value * value).sum();
+    let count = BigInt::from(values.len());
+    let (sum, squares) = if parts.iter().all(|&(mantissa, exponent)| 64 - mantissa.unsigned_abs().leading_zeros() as i32 + exponent - low <= 62) {
+        let (mut sum, mut squares, mut partial) = (0i128, BigInt::default(), 0u128);
+        for &(mantissa, exponent) in &parts {
+            let value = i128::from(mantissa << (exponent - low));
+            sum += value;
+            let square = (value * value) as u128;
+            partial = partial.checked_add(square).unwrap_or_else(|| {
+                squares += partial;
+                square
+            });
+        }
+        (BigInt::from(sum), squares + partial)
+    } else {
+        let scaled: Vec<BigInt> = parts.into_iter().map(|(mantissa, exponent)| BigInt::from(mantissa) << (exponent - low) as usize).collect();
+        (scaled.iter().sum(), scaled.iter().map(|value| value * value).sum())
+    };
     let (numerator, denominator) = ((&count * squares - &sum * &sum).magnitude().clone(), (&count * (&count - 1u32)).magnitude().clone());
     let shift = (numerator.bits() as i64 - denominator.bits() as i64 - 109).div_euclid(2);
     let (numerator, denominator) = if shift >= 0 { (numerator, denominator << (2 * shift) as usize) } else { (numerator << (-2 * shift) as usize, denominator) };

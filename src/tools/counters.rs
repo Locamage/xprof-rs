@@ -85,11 +85,14 @@ fn slot(message: Message, field: u64) -> Slot {
 }
 
 pub fn valid_space(buf: &[u8]) -> bool {
-    valid(buf, Message::Space)
+    valid(buf, Message::Space, true)
 }
 
-fn valid(buf: &[u8], message: Message) -> bool {
-    let (mut pos, mut children) = (0, Vec::new());
+/// With `split`, a line checks only its own fields, and then parts of about `SPLIT` bytes check all of their fields in parallel.
+fn valid(buf: &[u8], message: Message, split: bool) -> bool {
+    const SPLIT: usize = 1 << 16;
+    let split = split && matches!(message, Message::Line);
+    let (mut pos, mut start, mut children) = (0, 0, Vec::new());
     while pos < buf.len() {
         let Some(key) = varint(buf, &mut pos) else { return false };
         let field = key >> 3;
@@ -108,10 +111,11 @@ fn valid(buf: &[u8], message: Message) -> bool {
                 pos += length as usize;
                 match slot(message, field) {
                     Slot::Message(child) if matches!(message, Message::Space | Message::Plane) => {
-                        children.push((body, child));
+                        children.push((body, child, true));
                         true
                     }
-                    Slot::Message(child) => valid(body, child),
+                    Slot::Message(_) if split => true,
+                    Slot::Message(child) => valid(body, child, false),
                     Slot::Text => std::str::from_utf8(body).is_ok(),
                     Slot::Packed => {
                         let mut at = 0;
@@ -126,8 +130,15 @@ fn valid(buf: &[u8], message: Message) -> bool {
         if !complete {
             return false;
         }
+        if split && pos - start >= SPLIT {
+            children.push((&buf[start..pos], message, false));
+            start = pos;
+        }
     }
-    children.par_iter().all(|&(body, child)| valid(body, child))
+    if split {
+        children.push((&buf[start..], message, false));
+    }
+    children.par_iter().all(|&(body, child, split)| valid(body, child, split))
 }
 
 fn unsigned(value: &Value) -> u64 {

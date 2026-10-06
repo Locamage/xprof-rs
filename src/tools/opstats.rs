@@ -108,7 +108,6 @@ pub struct OpStats {
     pub perf: Perf,
     pub tpu: bool,
     pub host: Db,
-    pub memory: String,
     pub extra: Arc<crate::xplane::steps::Extra>,
     pub programs: HashMap<u64, String>,
     pub kernels: Vec<crate::xplane::gpu::KernelReport>,
@@ -621,16 +620,7 @@ impl OpStats {
         (extra.megacore, extra.merged_vmem) = (false, false);
         let extra = Arc::new(extra);
         let tpu = all.iter().any(|stats| stats.tpu);
-        Some(Arc::new(Self {
-            db,
-            perf,
-            tpu,
-            host,
-            memory: String::new(),
-            extra,
-            programs,
-            kernels: crate::xplane::gpu::sorted_kernels(all.iter().flat_map(|stats| stats.kernels.iter().cloned()).collect()),
-        }))
+        Some(Arc::new(Self { db, perf, tpu, host, extra, programs, kernels: crate::xplane::gpu::sorted_kernels(all.iter().flat_map(|stats| stats.kernels.iter().cloned()).collect()) }))
     }
 }
 
@@ -652,10 +642,10 @@ fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)])
         (db, Vec::new())
     };
     // Each part runs on a thread outside the pool, so no part waits for the work of another that the pool stole.
-    let ((db, kernels), mut extra, (((host, infeed_enqueue), memory), programs)) = std::thread::scope(|scope| {
+    let ((db, kernels), mut extra, ((host, infeed_enqueue), programs)) = std::thread::scope(|scope| {
         let side = scope.spawn(|| {
             rayon::join(
-                || rayon::join(|| crate::tools::framework_op_stats::host_db(planes, map), || crate::tools::memory_profile::json(planes, map)),
+                || crate::tools::framework_op_stats::host_db(planes, map),
                 || crate::hlo::protos(planes, map).into_par_iter().map(|(id, proto)| (id, crate::hlo::module_name(proto))).collect::<HashMap<u64, String>>(),
             )
         });
@@ -669,5 +659,5 @@ fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)])
         crate::xplane::steps::fix(&mut extra, &db);
     }
     let perf = first.map_or_else(|| gpus.first().map_or_else(Perf::default, |plane| crate::xplane::gpu::perf_env(plane)), perf_env);
-    OpStats { db, perf, tpu, host, memory, extra: Arc::new(extra), programs, kernels }
+    OpStats { db, perf, tpu, host, extra: Arc::new(extra), programs, kernels }
 }

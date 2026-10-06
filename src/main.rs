@@ -687,14 +687,14 @@ fn listed_hosts(dir: &Path, tool: &str, params: &Params) -> Result<Vec<PathBuf>,
     Ok(paths)
 }
 
-async fn tool(state: &Shared, paths: Vec<PathBuf>, render: Render, empty_ok: bool) -> Response {
+async fn tool(state: &Shared, paths: Vec<PathBuf>, render: Render) -> Response {
     let all = match try_join_all(paths.iter().map(|path| state.stats.get(path.clone(), &state.loads, tools::opstats::load))).await {
         Ok(all) => all,
         Err(message) => return if blocking(move || tools::counters::corrupt(&paths)).await { not_found() } else { internal(&message) },
     };
     let Some(combined) = OpStats::combine(&all) else { return not_found() };
     let body = blocking(move || render(&combined)).await;
-    if body.is_empty() && !empty_ok { not_found() } else { response(StatusCode::OK, "application/json", body) }
+    if body.is_empty() { not_found() } else { response(StatusCode::OK, "application/json", body) }
 }
 
 async fn counter_tool(dir: &Path, tag: &str, params: &Params) -> Option<Response> {
@@ -743,7 +743,6 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
         "hlo_stats" => Some(Box::new(tools::hlo_stats::json)),
         "kernel_stats" => Some(Box::new(xplane::gpu::kernel_stats_json)),
         "framework_op_stats" => Some(Box::new(tools::framework_op_stats::json)),
-        "memory_profile" if single() => Some(Box::new(|stats: &OpStats| stats.memory.clone())),
         "overview_page" => {
             let paths = listed_hosts(&dir, tag, &params).unwrap_or_default();
             Some(Box::new(move |stats: &OpStats| tools::overview_page::json(stats, &paths)))
@@ -778,6 +777,26 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             });
             return body.await.map_or_else(not_found, |body| response(StatusCode::OK, if perfetto { "application/octet-stream" } else { "application/json" }, body));
         }
+        "memory_profile" if single() => {
+            let paths = or_fail!(listed_hosts(&dir, tag, &params));
+            let path = paths[0].clone();
+            let _permit = state.loads.clone().acquire_owned().await;
+            let outcome = match Stamp::of(&path) {
+                None => Err(format!("Cannot read {}", path.display())),
+                Some(_) => blocking(move || tools::memory_profile::load(&path)).await.map_err(|error| error.to_string()),
+            };
+            return match outcome {
+                Ok(Some(body)) => response(StatusCode::OK, "application/json", body),
+                Ok(None) => not_found(),
+                Err(message) => {
+                    if blocking(move || tools::counters::corrupt(&paths)).await {
+                        not_found()
+                    } else {
+                        internal(&message)
+                    }
+                }
+            };
+        }
         "inference_profile" | "smart_suggestion" => {
             let paths = or_fail!(listed_hosts(&dir, tag, &params));
             let smart = tag == "smart_suggestion";
@@ -787,7 +806,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
         _ => None,
     };
     if let Some(renderer) = renderer {
-        return tool(&state, or_fail!(listed_hosts(&dir, tag, &params)), renderer, tag == "memory_profile").await;
+        return tool(&state, or_fail!(listed_hosts(&dir, tag, &params)), renderer).await;
     }
     if tag == "trace_viewer" {
         return match select(&dir, tag, &params).map(<[PathBuf; 1]>::try_from) {

@@ -81,11 +81,15 @@ impl Typing {
     }
 
     fn kind(&self, map: &[u8], event: &Ev) -> (u8, Option<u64>) {
+        self.typed(event, || stats(slice(map, event.raw), 4, |id| Some(id) == self.correlation).find_map(|stat| stat.value.int()).map(|value| value as u64))
+    }
+
+    fn typed(&self, event: &Ev, correlation: impl FnOnce() -> Option<u64>) -> (u8, Option<u64>) {
         let kind = self.kinds[event.meta as usize];
         if !matches!(kind, UNTYPED | LAUNCH | EXECUTE) {
             return (kind, None);
         }
-        let correlation = stats(slice(map, event.raw), 4, |id| Some(id) == self.correlation).find_map(|stat| stat.value.int()).map(|value| value as u64);
+        let correlation = correlation();
         match (kind, correlation) {
             (UNTYPED, Some(_)) => (if self.host { LAUNCH } else { EXECUTE }, correlation),
             _ => (kind, correlation),
@@ -120,7 +124,8 @@ pub struct Groups {
 }
 
 struct Graph {
-    locs: Vec<(u32, u32, u32)>,
+    /// The first node, the plane and the line of each job that has its own nodes, in the order of the nodes.
+    starts: Vec<(u32, u32, u32)>,
     kids: Members,
     parents: Members,
 }
@@ -166,38 +171,37 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
     let (plane, line) = (&planes[job.plane], &planes[job.plane].lines[job.line]);
     let (ordinal, mut out, mut stack) = (ordinal(plane, line), Out::default(), Vec::<(u32, u64, u64)>::new());
     let generic = matches!(job.kind, Kind::Generic);
-    let mut nodes: Vec<(&Ev, u32)> = Vec::with_capacity(line.events.len());
-    let mut parent = 0;
-    for (index, event) in line.events.iter().enumerate() {
-        nodes.push(match job.kind {
-            Kind::Child(base, grouping) => {
-                let parents = &plane.lines[grouping].events;
-                while parent < parents.len() && parents[parent].ts + parents[parent].dur <= event.ts {
-                    parent += 1;
-                }
-                if parent == parents.len() {
-                    break;
-                }
-                if parents[parent].ts > event.ts || parents[parent].ts + parents[parent].dur < event.ts + event.dur {
-                    continue;
-                }
-                (event, base + parent as u32)
+    // Only a child line keeps a list of its events and their nodes. The node of another event comes from its index.
+    let mut children: Vec<(&Ev, u32)> = Vec::new();
+    if let Kind::Child(base, grouping) = job.kind {
+        let (parents, mut parent) = (&plane.lines[grouping].events, 0);
+        for event in &line.events {
+            while parent < parents.len() && parents[parent].ts + parents[parent].dur <= event.ts {
+                parent += 1;
             }
-            _ => (event, job.base + index as u32),
-        });
+            if parent == parents.len() {
+                break;
+            }
+            if parents[parent].ts <= event.ts && parents[parent].ts + parents[parent].dur >= event.ts + event.dur {
+                children.push((event, base + parent as u32));
+            }
+        }
     }
+    let count = if matches!(job.kind, Kind::Child(..)) { children.len() } else { line.events.len() };
+    let node = |index: usize| if matches!(job.kind, Kind::Child(..)) { children[index] } else { (&line.events[index], job.base + index as u32) };
     // Chunks decode their events in parallel. Only the nested structure of the events must have them in order. It uses one flag for each event.
-    let parts: Vec<(Out, Vec<bool>)> = nodes
-        .par_chunks(1024)
+    let parts: Vec<(Out, Vec<bool>)> = (0..count.div_ceil(1024))
+        .into_par_iter()
         .map(|chunk| {
-            let (mut part, mut nested) = (Out::default(), Vec::with_capacity(if generic { chunk.len() } else { 0 }));
-            for &(event, node) in chunk {
+            let indices = chunk * 1024..(chunk * 1024 + 1024).min(count);
+            let (mut part, mut nested) = (Out::default(), Vec::with_capacity(if generic { indices.len() } else { 0 }));
+            for (event, node) in indices.map(node) {
                 let links = plane.links(event.meta, slice(map, event.raw), ordinal);
                 if let Some(level) = links.root.filter(|_| generic) {
                     part.roots.push((node, level));
                 }
                 let value = |wanted: Option<usize>| stats(slice(map, event.raw), 4, |id| Some(id) == wanted).find_map(|stat| stat.value.int());
-                match generic.then(|| typing.kind(map, event)) {
+                match generic.then(|| typing.typed(event, || links.correlation)) {
                     Some((LAUNCH, Some(correlation))) => part.launches.push((correlation, node)),
                     Some((EXECUTE, correlation)) => {
                         part.executes.extend(correlation.map(|correlation| (correlation, node)));
@@ -225,7 +229,7 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
             (part, nested)
         })
         .collect();
-    let mut nested = Vec::with_capacity(if generic { nodes.len() } else { 0 });
+    let mut nested = Vec::with_capacity(if generic { count } else { 0 });
     for (part, flags) in parts {
         out.roots.extend(part.roots);
         out.launches.extend(part.launches);
@@ -237,7 +241,7 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
         out.contexts.extend(part.contexts);
         nested.extend(flags);
     }
-    for (&(event, node), nested) in nodes.iter().zip(nested) {
+    for ((event, node), nested) in (0..count).map(node).zip(nested) {
         if nested {
             let end = event.ts + event.dur;
             while let Some(&(top, begin, top_end)) = stack.last() {
@@ -270,9 +274,14 @@ fn neighbors(csr: &Members, node: u32) -> &[u32] {
     &csr.1[csr.0[node as usize] as usize..csr.0[node as usize + 1] as usize]
 }
 
+fn locate(starts: &[(u32, u32, u32)], node: u32) -> (u32, u32, u32) {
+    let (base, plane, line) = starts[starts.partition_point(|start| start.0 <= node) - 1];
+    (plane, line, node - base)
+}
+
 impl Walker<'_> {
     fn event(&self, node: u32) -> (&Plane, &Line, &Ev) {
-        let (plane, line, event) = self.graph.locs[node as usize];
+        let (plane, line, event) = locate(&self.graph.starts, node);
         let (plane, line) = (&self.planes[plane as usize], &self.planes[plane as usize].lines[line as usize]);
         (plane, line, &line.events[event as usize])
     }
@@ -437,11 +446,7 @@ fn plan_jobs(planes: &[Plane], full: bool) -> (Vec<Job>, u32, Vec<(u32, usize)>)
 }
 
 fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Graph, Vec<Vec<u32>>) {
-    let locs: Vec<(u32, u32, u32)> = jobs
-        .par_iter()
-        .filter(|job| !matches!(job.kind, Kind::Child(..)))
-        .flat_map_iter(|job| (0..planes[job.plane].lines[job.line].events.len() as u32).map(|event| (job.plane as u32, job.line as u32, event)))
-        .collect();
+    let starts: Vec<(u32, u32, u32)> = jobs.iter().filter(|job| !matches!(job.kind, Kind::Child(..))).map(|job| (job.base, job.plane as u32, job.line as u32)).collect();
     let mut edges: Vec<(u32, u32)> = outs.iter().flat_map(|out| out.edges.iter().copied()).collect();
     let tf_data: FxHashSet<i64> = outs.iter().flat_map(|out| out.tf_data.iter().copied()).collect();
     let mut loops: BTreeMap<i64, BTreeMap<i64, Vec<u32>>> = BTreeMap::new();
@@ -449,7 +454,7 @@ fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Gra
         loops.entry(step).or_default().entry(iteration).or_default().push(node);
     }
     let order = |node: u32| {
-        let (plane, line, event) = locs[node as usize];
+        let (plane, line, event) = locate(&starts, node);
         let event = &planes[plane as usize].lines[line as usize].events[event as usize];
         (event.ts, Reverse(event.ts + event.dur), node)
     };
@@ -470,7 +475,7 @@ fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Gra
         edges.extend(producers.iter().flat_map(|&producer| consumers.iter().map(move |&consumer| (producer, consumer))));
     }
     let (kids, parents) = rayon::join(|| csr(nodes as usize, &edges, false), || csr(nodes as usize, &edges, true));
-    (Graph { locs, kids, parents }, iterations)
+    (Graph { starts, kids, parents }, iterations)
 }
 
 fn classify_eager(walker: &Walker, outs: &[Out]) -> Vec<(u32, bool)> {
@@ -575,7 +580,7 @@ pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
     let eager = classify_eager(&walker, &outs);
     let (group, names, relatives, renames) = (walker.group, walker.names, walker.relatives, walker.renames);
     for (node, value) in eager {
-        let (plane, line, event) = graph.locs[node as usize];
+        let (plane, line, event) = locate(&graph.starts, node);
         planes[plane as usize].lines[line as usize].events[event as usize].eager = Some(value);
     }
     if !full {
@@ -587,13 +592,15 @@ pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
             }
         });
     }
-    for (&(plane, line, event), &id) in graph.locs.iter().zip(&group) {
-        if id != NONE_GROUP {
-            planes[plane as usize].lines[line as usize].events[event as usize].group = id;
+    for &(base, plane, line) in &graph.starts {
+        for (event, &id) in planes[plane as usize].lines[line as usize].events.iter_mut().zip(&group[base as usize..]) {
+            if id != NONE_GROUP {
+                event.group = id;
+            }
         }
     }
     for (node, name) in renames {
-        let (plane, line, event) = graph.locs[node as usize];
+        let (plane, line, event) = locate(&graph.starts, node);
         planes[plane as usize].lines[line as usize].steps.insert(event as usize, Step { name, stats: Vec::new() });
     }
     if planes.iter().any(|plane| plane.name.starts_with(TPU)) {
