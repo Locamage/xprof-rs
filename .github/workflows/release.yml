@@ -15,6 +15,8 @@ jobs:
         run: test "v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" = "${GITHUB_REF_NAME}"
       - name: The changelog must have a section for the version
         run: grep -qx "## ${GITHUB_REF_NAME#v}" CHANGELOG.md
+      - name: The crate must build from its package
+        run: cargo publish --dry-run --locked
   binary:
     needs: check
     if: ${{ !cancelled() && (needs.check.result == 'success' || needs.check.result == 'skipped') }}
