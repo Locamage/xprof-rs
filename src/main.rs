@@ -288,8 +288,13 @@ fn parse_checked(map: &[u8]) -> anyhow::Result<Option<Vec<Plane>>> {
 /// Adds the regions, the groups, and the derived lines.
 fn finish(planes: &mut [Plane], map: &[u8], trace: bool) {
     if group(planes, map, trace) {
-        planes.par_iter_mut().filter(|plane| xplane::derive::is_tensor_core(&plane.name)).for_each(|plane| xplane::derive::derive(plane, map));
+        derive(planes, map);
     }
+}
+
+/// Adds the derived lines of the TPUs.
+fn derive(planes: &mut [Plane], map: &[u8]) {
+    planes.par_iter_mut().filter(|plane| xplane::derive::is_tensor_core(&plane.name)).for_each(|plane| xplane::derive::derive(plane, map));
 }
 
 /// Adds the regions, the groups, and the derived lines of the GPUs, but not the derived lines of the TPUs. Gives `false` if the planes have their groups already.
