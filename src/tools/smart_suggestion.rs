@@ -151,16 +151,13 @@ fn percent_of_input(data: &dyn ToolData, enqueue: bool) -> Data<f64> {
 }
 
 fn step_fractions(data: &dyn ToolData, categories: &[&str]) -> Data<Vec<f32>> {
-    let mut fractions = Vec::new();
-    for step in data.steps()?.iter().filter(|step| !step.cores.is_empty()) {
+    let steps = data.steps()?;
+    let fractions = steps.iter().filter(|step| !step.cores.is_empty()).filter_map(|step| {
         let total: u64 = step.cores.iter().filter(|(core, _)| *core < SPARSE_CORE_START).map(|(_, duration)| duration).sum();
-        if total == 0 {
-            continue;
-        }
         let matched: u64 = step.categories.iter().filter(|(category, _)| categories.contains(&category.as_str())).map(|(_, time)| time).sum();
-        fractions.push(matched as f32 / total as f32);
-    }
-    Ok(fractions)
+        (total != 0).then(|| matched as f32 / total as f32)
+    });
+    Ok(fractions.collect())
 }
 
 fn average_percent(fractions: &[f32]) -> f64 {
