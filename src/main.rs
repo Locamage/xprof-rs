@@ -810,28 +810,42 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
         return tool(&state, or_fail!(listed_hosts(&dir, tag, &params)), renderer).await;
     }
     if tag == "trace_viewer" {
-        return match select(&dir, tag, &params).map(<[PathBuf; 1]>::try_from) {
-            Ok(Ok([file])) if tools::counters::corrupt(std::slice::from_ref(&file)) => not_found(),
-            Ok(Ok([file])) if params.get("format").is_some_and(|format| format == "pb") && !params.contains_key("event_name") => match state.hosts.get(file, &state.loads, shared_host).await {
-                Ok(host) => {
-                    let body = blocking(move || {
-                        let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: true };
-                        trace::delta::render(&[View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&options) }], None)
-                    });
-                    response(StatusCode::OK, "application/octet-stream", body.await)
-                }
-                Err(message) => internal(&message),
-            },
-            Ok(Ok([file])) => blocking(move || {
-                let (map, planes) = prepare(&file, true)?;
-                let json = trace::legacy::render(&planes, &map);
-                release((map, planes));
+        let file = match select(&dir, tag, &params).map(<[PathBuf; 1]>::try_from) {
+            Ok(Ok([file])) => file,
+            Ok(Err(_)) => return not_found(),
+            Err(error) => return failure(error),
+        };
+        if params.get("format").is_some_and(|format| format == "pb") && !params.contains_key("event_name") {
+            let path = file.clone();
+            let body = async {
+                let host = state.hosts.get(file, &state.loads, shared_host).await?;
+                Ok(blocking(move || {
+                    let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: true };
+                    trace::delta::render(&[View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&options) }], None)
+                })
+                .await)
+            };
+            return match tokio::join!(blocking(move || tools::counters::corrupt(&[path])), body) {
+                (true, _) => not_found(),
+                (false, body) => body.map_or_else(|message: Arc<str>| internal(&message), |body| response(StatusCode::OK, "application/octet-stream", body)),
+            };
+        }
+        let rendered = blocking(move || {
+            let map = read_file(&file)?;
+            let json = tools::counters::checked(&map, |map| {
+                let mut planes = xplane::parse(map)?;
+                finish(&mut planes, map, true);
+                let json = trace::legacy::render(&planes, map);
+                release(planes);
                 anyhow::Ok(json)
-            })
-            .await
-            .map_or_else(|error| internal(&error.to_string()), |json| response(StatusCode::OK, "application/json", json)),
-            Ok(Err(_)) => not_found(),
-            Err(error) => failure(error),
+            });
+            release(map);
+            anyhow::Ok(json)
+        });
+        return match rendered.await {
+            Ok(None) => not_found(),
+            Ok(Some(Ok(json))) => response(StatusCode::OK, "application/json", json),
+            Ok(Some(Err(error))) | Err(error) => internal(&error.to_string()),
         };
     }
     if tag != "trace_viewer@" {
