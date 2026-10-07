@@ -362,7 +362,7 @@ fn named(bytes: &[u8]) -> Option<(u64, &[u8], &[u8])> {
     entries.complete().then_some(entry)
 }
 
-fn line((offset, bytes): (usize, &[u8]), limit: u64, kind: &[u8], checked: Option<&AtomicBool>) -> Option<Line> {
+fn line((offset, bytes): (usize, &[u8]), limit: u64, kind: &[u8], checked: Option<&AtomicBool>, keep: bool) -> Option<Line> {
     let (mut line, mut bodies) = (Line::default(), Vec::with_capacity(bytes.len() / 32));
     let mut entries = fields(bytes);
     for (tag, field) in &mut entries {
@@ -380,35 +380,36 @@ fn line((offset, bytes): (usize, &[u8]), limit: u64, kind: &[u8], checked: Optio
         return None;
     }
     let complete = AtomicBool::new(true);
-    bodies
-        .par_iter()
-        .with_min_len(4096)
-        .map(|&(start, len)| {
-            let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start as usize) as u32, len), meta: 0, eager: None, has_stats: false, linked: false };
-            let mut parts = fields(&bytes[start as usize..][..len as usize]);
-            for (tag, field) in &mut parts {
-                match (tag, field) {
-                    (1, Field::Num(id)) => event.meta = id.min(limit) as u32,
-                    (2, Field::Num(ts)) => event.ts = ts,
-                    (3, Field::Num(dur)) => event.dur = dur,
-                    (4, Field::Bytes(_, body)) => {
-                        event.has_stats = true;
-                        if let Some(valid) = checked
-                            && !crate::tools::counters::valid_stat(body)
-                        {
-                            valid.store(false, Ordering::Relaxed);
-                        }
-                        event.linked = event.linked || !matches!(fields(body).next(), Some((1, Field::Num(id))) if kind.get(id as usize).is_none_or(|&kind| kind == NO_KIND));
+    let events = bodies.par_iter().with_min_len(4096).map(|&(start, len)| {
+        let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start as usize) as u32, len), meta: 0, eager: None, has_stats: false, linked: false };
+        let mut parts = fields(&bytes[start as usize..][..len as usize]);
+        for (tag, field) in &mut parts {
+            match (tag, field) {
+                (1, Field::Num(id)) => event.meta = id.min(limit) as u32,
+                (2, Field::Num(ts)) => event.ts = ts,
+                (3, Field::Num(dur)) => event.dur = dur,
+                (4, Field::Bytes(_, body)) => {
+                    event.has_stats = true;
+                    if let Some(valid) = checked
+                        && !crate::tools::counters::valid_stat(body)
+                    {
+                        valid.store(false, Ordering::Relaxed);
                     }
-                    _ => {}
+                    event.linked = event.linked || !matches!(fields(body).next(), Some((1, Field::Num(id))) if kind.get(id as usize).is_none_or(|&kind| kind == NO_KIND));
                 }
+                _ => {}
             }
-            if !parts.complete() {
-                complete.store(false, Ordering::Relaxed);
-            }
-            event
-        })
-        .collect_into_vec(&mut line.events);
+        }
+        if !parts.complete() {
+            complete.store(false, Ordering::Relaxed);
+        }
+        event
+    });
+    if keep {
+        events.collect_into_vec(&mut line.events);
+    } else {
+        events.for_each(drop);
+    }
     complete.into_inner().then_some(line)
 }
 
@@ -423,11 +424,11 @@ fn hash(kind: u64, parts: &[u64]) -> u64 {
 }
 
 pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
-    parse_checking(buf, None)
+    parse_checking(buf, None, false)
 }
 
-/// Clears `checked` if a stat of an event does not pass the check of `valid_space`.
-pub fn parse_checking(buf: &[u8], checked: Option<&AtomicBool>) -> anyhow::Result<Vec<Plane>> {
+/// Clears `checked` if a stat of an event does not pass the check of `valid_space`. With `bare` and no GPU planes, the lines of the host plane have no events.
+pub fn parse_checking(buf: &[u8], checked: Option<&AtomicBool>, bare: bool) -> anyhow::Result<Vec<Plane>> {
     anyhow::ensure!(u32::try_from(buf.len()).is_ok(), "The profile is larger than 4 GiB");
     let mut entries = fields(buf);
     let (mut spans, mut host) = (Vec::new(), None);
@@ -439,7 +440,8 @@ pub fn parse_checking(buf: &[u8], checked: Option<&AtomicBool>) -> anyhow::Resul
         }
     }
     anyhow::ensure!(entries.complete(), "The XSpace is not valid");
-    let mut planes: Vec<Plane> = spans.par_iter().map(|&span| Plane::parse(span, buf, checked)).collect::<anyhow::Result<_>>()?;
+    let bare = bare && !spans.iter().any(|(_, bytes)| fields(bytes).any(|field| matches!(field, (2, Field::Bytes(_, name)) if name.starts_with(gpu::PREFIX.as_bytes()))));
+    let mut planes: Vec<Plane> = spans.par_iter().map(|&span| Plane::parse(span, buf, checked, bare)).collect::<anyhow::Result<_>>()?;
     let origin = origin_ns(&planes);
     let host = host.map_or(0, |name| hash(name.len() as u64, &name.iter().map(|&byte| byte as u64).collect::<Vec<_>>()));
     planes.iter_mut().for_each(|plane| (plane.origin_ns, plane.host) = (origin, host));
@@ -454,7 +456,7 @@ pub fn parse_checking(buf: &[u8], checked: Option<&AtomicBool>) -> anyhow::Resul
 }
 
 impl Plane {
-    fn parse((offset, bytes): (usize, &[u8]), buf: &[u8], checked: Option<&AtomicBool>) -> anyhow::Result<Self> {
+    fn parse((offset, bytes): (usize, &[u8]), buf: &[u8], checked: Option<&AtomicBool>, bare: bool) -> anyhow::Result<Self> {
         let (mut spans, mut metas, mut names) = (Vec::new(), Vec::new(), Vec::new());
         let mut plane = Self::default();
         let mut entries = fields(bytes);
@@ -496,7 +498,8 @@ impl Plane {
         plane.stat_names = table(names).context("A stat metadata ID is out of range")?;
         let limit = plane.meta.len() as u64;
         plane.kind = plane.stat_names.iter().map(|name| STATS.iter().position(|stat| stat == &&**name).map_or(NO_KIND, |kind| kind as u8)).collect();
-        plane.lines = spans.par_iter().map(|&span| line(span, limit, &plane.kind, checked)).collect::<Option<Vec<Line>>>().context("An XLine is not valid")?;
+        let keep = !bare || plane.name != "/host:CPU";
+        plane.lines = spans.par_iter().map(|&span| line(span, limit, &plane.kind, checked, keep)).collect::<Option<Vec<Line>>>().context("An XLine is not valid")?;
         for line in plane.lines.iter_mut().filter(|line| !line.events.is_sorted_by_key(|event| (event.ts, Reverse(event.dur)))) {
             line.events.sort_by_key(|event| (event.ts, Reverse(event.dur)));
         }

@@ -407,7 +407,7 @@ fn session_fractions(paths: &[PathBuf]) -> Option<Results> {
     let mut fractions = Results::new();
     for path in paths {
         let map = crate::read_file(path).ok()?;
-        let mut planes = crate::parse_checked(&map).ok()??;
+        let mut planes = crate::parse_checked(&map, false).ok()??;
         crate::finish(&mut planes, &map, true);
         let hostname = crate::xplane::fields(&map).find_map(|(tag, field)| match (tag, field) {
             (4, crate::xplane::Field::Bytes(_, name)) => Some(String::from_utf8_lossy(name).into_owned()),
