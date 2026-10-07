@@ -373,7 +373,7 @@ impl Walker<'_> {
         let (plane, line, event) = self.event(root);
         let implicit = IMPLICIT_ROOTS.contains(&line.name.as_str()) || IMPLICIT_ROOT_EVENTS.contains(&&*plane.meta[event.meta as usize].full_name(self.map));
         let step = self.context(root, "iter_num").and_then(|value| value.int()).or_else(|| self.context(root, "step_num").and_then(|value| value.int())).unwrap_or(group);
-        let prefix = match self.context(root, "graph_type").map(|value| plane.text(&value)) {
+        let prefix = match self.context(root, "graph_type").map(|value| plane.text_cow(&value)) {
             Some(text) => format!("{text} "),
             None if !implicit => format!("{} ", plane.meta[event.meta as usize].name),
             None => String::new(),

@@ -90,7 +90,7 @@ fn add_texts(texts: &mut FxHashMap<u64, String>, planes: &[Plane], map: &[u8], e
     let framed = |plane: &Plane| plane.stat_names.iter().any(|name| matches!(&**name, "long_name" | "hlo_text"));
     let strings = |plane: &Plane, raw: &[u8], field: u32| -> Vec<String> {
         let named = |id: usize| plane.stat_names.get(id).is_some_and(|name| matches!(&**name, "long_name" | "hlo_text"));
-        stats(raw, field, |_| true).filter(|stat| matches!(stat.value, Value::Str(_) | Value::Ref(_)) && named(stat.id)).map(|stat| long_text(&plane.text(&stat.value))).collect()
+        stats(raw, field, |_| true).filter(|stat| matches!(stat.value, Value::Str(_) | Value::Ref(_)) && named(stat.id)).map(|stat| long_text(&plane.text_cow(&stat.value))).collect()
     };
     let used: Vec<Vec<AtomicBool>> = planes.iter().map(|plane| plane.meta.iter().map(|_| AtomicBool::new(false)).collect()).collect();
     events.par_iter().filter(|event| event.meta != DERIVED_META && event.ts != u64::MAX).for_each(|event| used[event.plane as usize][event.meta as usize].store(true, Relaxed));
@@ -256,7 +256,7 @@ pub fn counter_values(plane: &Plane, event: &Event, map: &[u8]) -> (Option<Box<s
             Value::Int(v) => v.to_string(),
             Value::Uint(v) => v.to_string(),
             Value::Double(v) => stat_double(name, v),
-            Value::Str(_) | Value::Ref(_) => quoted(&plane.text(&stat.value)),
+            Value::Str(_) | Value::Ref(_) => quoted(&plane.text_cow(&stat.value)),
             Value::Bytes(_) => continue,
         };
         first.get_or_insert_with(|| name.clone());

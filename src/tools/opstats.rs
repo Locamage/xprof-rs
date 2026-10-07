@@ -177,7 +177,7 @@ fn from_metadata(plane: &Plane, map: &[u8], meta: usize, path: &mut Vec<usize>) 
     let raw = slice(map, meta.raw);
     for stat in stats(raw, 5, |_| true) {
         let Some(name) = plane.stat_names.get(stat.id) else { continue };
-        let text = || ArcStr::from(plane.text(&stat.value));
+        let text = || ArcStr::from(&*plane.text_cow(&stat.value));
         let number = stat.value.int().unwrap_or(0) as u64;
         match &**name {
             "program_id" => (out.module, key.0) = (number, Some(number)),
@@ -194,7 +194,7 @@ fn from_metadata(plane: &Plane, map: &[u8], meta: usize, path: &mut Vec<usize>) 
             }
             "deduplicated_name" => out.deduplicated_name = text(),
             "source" => {
-                if let Some((file, line)) = plane.text(&stat.value).split_once(':').and_then(|(file, line)| Some((file.into(), line.parse::<i32>().ok()?))) {
+                if let Some((file, line)) = plane.text_cow(&stat.value).split_once(':').and_then(|(file, line)| Some((file.into(), line.parse::<i32>().ok()?))) {
                     let source = out.source.get_or_insert_with(Source::default);
                     (source.file, source.line) = (file, line);
                 }
