@@ -10,7 +10,7 @@ xprof-rs is an independent project. Google and the OpenXLA project do not mainta
 
 We wrote xprof-rs with [Claude](https://www.anthropic.com/claude), an AI model from Anthropic. The tests compare the output of each tool with the output of XProf 2.23.2.
 
-On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.37 s (XProf: 4.7 s). After the first request, it opens in less than 2 ms (XProf: 0.6 s). The [performance](#performance) section has the times of all tools.
+On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.39 s (XProf: 5.4 s). After the first request, it opens in less than 2 ms (XProf: 0.62 s). The [performance](#performance) section has the times of all tools.
 
 ![XProf 2.23.2 on the left and xprof-rs on the right open the same 279 MB TPU v4 profile for the first time](docs/demo.gif)
 
@@ -30,35 +30,37 @@ XProf converts the `.xplane.pb` file again for each cold request. xprof-rs does 
 The tables show the times on an 80 MB TPU v4 profile of a job that trains a CLIP model. Each server and each CLI process used 4 cores.
 
 - Server, cold: the first request to a new server on a new copy of the profile. There is no cache on the disk.
-- Server, warm: the same request again, to the same server.
+- Server, warm: the mean of 5 more requests to the same server.
 - CLI, cold: one process on a new copy of the profile, with no result cache.
 - CLI, warm: the same command again.
 
+Each cell is the mean and the standard deviation of 8 trials, after 1 warmup trial that is not counted, as in pyperf. The trials of XProf and xprof-rs alternate, so a change of the machine load affects the two the same. The mark (!) shows a standard deviation of more than 10% of the mean.
+
 | Tool | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
 |---|---|---|---|---|---|---|
-| `trace_viewer@` | 4.7 s | 372 ms | 13× | 595 ms | 1.6 ms | 372× |
-| `overview_page` | 3.4 s | 239 ms | 14× | 40 ms | 0.3 ms | 133× |
-| `op_profile` | 3.8 s | 264 ms | 14× | 513 ms | 0.5 ms | 1026× |
-| `hlo_stats` | 3.5 s | 250 ms | 14× | 145 ms | 0.4 ms | 362× |
-| `framework_op_stats` | 3.4 s | 242 ms | 14× | 81 ms | 0.3 ms | 270× |
-| `input_pipeline_analyzer` | 3.3 s | 241 ms | 14× | 39 ms | 0.3 ms | 130× |
-| `roofline_model` | 3.5 s | 256 ms | 14× | 232 ms | 0.4 ms | 580× |
-| `memory_profile` | 1.2 s | 124 ms | 9.7× | 1.2 s | 0.4 ms | 3000× |
-| `pod_viewer` | 3.3 s | 240 ms | 14× | 40 ms | 0.3 ms | 133× |
-| `memory_viewer` | 65 ms | 21 ms | 3.1× | 64 ms | 0.3 ms | 213× |
+| `trace_viewer@` | 5.35 ± 0.05 s | 387 ± 12 ms | 14× | 622 ± 1 ms | 1.76 ± 0.10 ms | 353× |
+| `overview_page` | 3.94 ± 0.01 s | 245 ± 6 ms | 16× | 56.8 ± 0.3 ms | 0.458 ± 0.028 ms | 124× |
+| `op_profile` | 4.45 ± 0.03 s | 263 ± 4 ms | 17× | 576 ± 4 ms | 0.658 ± 0.034 ms | 876× |
+| `hlo_stats` | 4.06 ± 0.02 s | 249 ± 3 ms | 16× | 178 ± 1 ms | 0.513 ± 0.022 ms | 346× |
+| `framework_op_stats` | 3.98 ± 0.01 s | 251 ± 5 ms | 16× | 99.3 ± 1.6 ms | 0.446 ± 0.025 ms | 223× |
+| `input_pipeline_analyzer` | 3.95 ± 0.02 s | 245 ± 3 ms | 16× | 56.0 ± 1.5 ms | 0.453 ± 0.020 ms | 123× |
+| `roofline_model` | 4.15 ± 0.02 s | 260 ± 6 ms | 16× | 273 ± 3 ms | 0.582 ± 0.022 ms | 468× |
+| `memory_profile` | 1.71 ± 0.00 s | 124 ± 2 ms | 14× | 1.53 ± 0.01 s | 0.452 ± 0.037 ms | 3378× |
+| `pod_viewer` | 3.95 ± 0.02 s | 247 ± 10 ms | 16× | 56.1 ± 0.3 ms | 0.428 ± 0.046 ms (!) | 131× |
+| `memory_viewer` | 87.4 ± 0.6 ms | 21.6 ± 0.6 ms | 4.1× | 81.0 ± 1.6 ms | 0.370 ± 0.015 ms | 219× |
 
 | Command | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
 |---|---|---|---|---|---|---|
-| `get_overview` | 4.1 s | 232 ms | 18× | 229 ms | 233 ms | 1.0× |
-| `get_top_hlo_ops` | 5.3 s | 147 ms | 36× | 230 ms | 148 ms | 1.6× |
-| `get_hlo_op_profile` | 5.3 s | 143 ms | 37× | 232 ms | 147 ms | 1.6× |
-| `get_hlo_stats` | 4.0 s | 126 ms | 32× | 230 ms | 129 ms | 1.8× |
-| `get_roofline_model` | 4.1 s | 217 ms | 19× | 230 ms | 219 ms | 1.1× |
-| `get_step_trace` | 3.9 s | 232 ms | 17× | 230 ms | 236 ms | 1.0× |
-| `check_host_boundness` | 66.4 s | 300 ms | 221× | 230 ms | 295 ms | 0.8× |
-| `get_memory_profile` | 1.8 s | 134 ms | 13× | 229 ms | 135 ms | 1.7× |
-| `list_hlo_modules` | 231 ms | 5.7 ms | 41× | 231 ms | 5.2 ms | 44× |
-| `aggregate_xplane_events` | 22.2 s | 117 ms | 190× | 253 ms | 119 ms | 2.1× |
+| `get_overview` | 4.31 ± 0.07 s | 235 ± 3 ms | 18× | 233 ± 5 ms | 239 ± 6 ms | 1.0× |
+| `get_top_hlo_ops` | 5.55 ± 0.05 s | 144 ± 5 ms | 38× | 234 ± 2 ms | 149 ± 5 ms | 1.6× |
+| `get_hlo_op_profile` | 5.55 ± 0.09 s | 145 ± 5 ms | 38× | 252 ± 48 ms (!) | 148 ± 6 ms | 1.7× |
+| `get_hlo_stats` | 4.16 ± 0.03 s | 129 ± 3 ms | 32× | 233 ± 1 ms | 131 ± 5 ms | 1.8× |
+| `get_roofline_model` | 4.25 ± 0.01 s | 218 ± 5 ms | 20× | 234 ± 2 ms | 223 ± 7 ms | 1.1× |
+| `get_step_trace` | 4.09 ± 0.02 s | 236 ± 4 ms | 17× | 232 ± 2 ms | 236 ± 4 ms | 1.0× |
+| `check_host_boundness` | 66.4 ± 0.1 s | 304 ± 8 ms | 219× | 232 ± 2 ms | 306 ± 6 ms | 0.8× |
+| `get_memory_profile` | 1.85 ± 0.02 s | 136 ± 2 ms | 14× | 233 ± 4 ms | 138 ± 3 ms | 1.7× |
+| `list_hlo_modules` | 251 ± 24 ms | 5.91 ± 0.40 ms | 42× | 234 ± 4 ms | 5.31 ± 0.14 ms | 44× |
+| `aggregate_xplane_events` | 22.5 ± 1.1 s | 131 ± 16 ms (!) | 171× | 249 ± 3 ms | 134 ± 16 ms (!) | 1.9× |
 
 Some warm XProf commands are as fast as xprof-rs or faster. XProf keeps each result in a cache in `$TMPDIR`, and a second call reads this cache. xprof-rs has no result cache. It reads the profile again for each call.
 
@@ -82,7 +84,7 @@ These numbers are for the 80 MB profile:
 | Size of the installed files | 127 MB (Python packages, without Python) | 27 MB (one binary) |
 | Size of the download | 52 Python packages | 12.6 MB archive |
 
-More cores make xprof-rs faster. The next table shows the cold times of xprof-rs on the 80 MB profile. XProf on 4 cores takes 4.7 s for the trace viewer and 3.4 s for the overview page.
+More cores make xprof-rs faster. The next table shows the cold times of xprof-rs on the 80 MB profile. XProf on 4 cores takes 5.4 s for the trace viewer and 3.9 s for the overview page.
 
 | Cores | Trace viewer | Overview page | Peak memory |
 |---|---|---|---|
@@ -94,7 +96,7 @@ More cores make xprof-rs faster. The next table shows the cold times of xprof-rs
 | 32 | 0.36 s | 0.16 s | 0.81 GB |
 | 64 | 0.35 s | 0.14 s | 0.80 GB |
 
-To measure the times of the first two tables on your profile, run [`examples/benchmark.py`](examples/benchmark.py) `SESSION_DIR --xprof PATH --cores 0-3`.
+To measure the times of the first two tables on your profile, run [`examples/benchmark.py`](examples/benchmark.py) `SESSION_DIR --xprof PATH --cores 0-3 --trials 8`.
 
 ## Install and start
 
