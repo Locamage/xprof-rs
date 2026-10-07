@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+The tools and the CLI commands are faster, and they use less memory. The responses do not change.
+
+- On an 80 MB TPU v4 profile with 4 cores, `get_hlo_stats`, `get_top_hlo_ops`, `get_hlo_op_profile` and `get_profile_summary` take 0.14 s to 0.15 s. In 0.1.1, they took 0.29 s to 0.31 s. Their peak memory is approximately 40% less.
+- `get_roofline_model` takes 0.22 s, and `get_device_information` takes 0.20 s. In 0.1.1, they took 0.30 s and 0.29 s.
+- The first request of the trace viewer takes 0.37 s. In 0.1.1, it took 0.41 s. The first request of the other tools takes 0.24 s to 0.26 s. In 0.1.1, it took 0.27 s to 0.32 s.
+- The `trace_viewer` tool checks the file at the same time as it reads the trace. Before, the check ran first.
+
 ## 0.1.1
 
 The tools and the CLI commands are faster, and they use less memory. The responses do not change.
