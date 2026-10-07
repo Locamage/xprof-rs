@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The browser keeps the files of the user interface. When the page opens again, the server sends a short "not modified" response, not 1.3 MB of files. The browser also keeps its compiled scripts, so the trace viewer opens approximately 20% faster when you open it again. The page looks the same.
+
 ## 0.1.2
 
 The tools and the CLI commands are faster, and they use less memory. The responses do not change.

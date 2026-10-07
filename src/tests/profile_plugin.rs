@@ -283,6 +283,18 @@ async fn read_static_file_with_xprof_static_dir_success_and_fallbacks() {
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 
+#[tokio::test]
+async fn embedded_static_file_is_not_sent_again_when_the_tag_matches() {
+    let state = plugin(Path::new(""));
+    let (status, headers, body) = fetch(&state, "/bundle.js").await;
+    assert_eq!((status, headers[header::CACHE_CONTROL].to_str().unwrap()), (StatusCode::OK, "no-cache"));
+    assert!(!body.is_empty());
+    let request = axum::http::Request::builder().uri("/bundle.js").header(header::IF_NONE_MATCH, &headers[header::ETAG]).body(Body::empty()).unwrap();
+    let reply = app(state).oneshot(request).await.unwrap();
+    assert_eq!((reply.status(), &reply.headers()[header::ETAG]), (StatusCode::NOT_MODIFIED, &headers[header::ETAG]));
+    assert!(axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap().is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn generate_cache_task_generates_cache() {
     let logdir = temp_logdir("generate-cache-task");
