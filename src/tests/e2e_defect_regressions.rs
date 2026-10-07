@@ -94,15 +94,8 @@ fn test_d15_roofline_bottleneck_intensity_and_deduplication() {
     assert!(!result.has("error"));
     let program = result.at("program");
     for key in [
-        "bottleneck_operational_intensity_flop_per_byte",
-        "optimal_flop_rate_gflops",
-        "dma_stall_percent",
-        "hbm_read_bw_utilization_percent",
-        "hbm_write_bw_utilization_percent",
-        "vmem_read_bw_utilization_percent",
-        "vmem_write_bw_utilization_percent",
-        "cmem_read_bw_utilization_percent",
-        "cmem_write_bw_utilization_percent",
+        "bottleneck_operational_intensity_flop_per_byte", "optimal_flop_rate_gflops", "dma_stall_percent", "hbm_read_bw_utilization_percent", "hbm_write_bw_utilization_percent",
+        "vmem_read_bw_utilization_percent", "vmem_write_bw_utilization_percent", "cmem_read_bw_utilization_percent", "cmem_write_bw_utilization_percent",
     ] {
         assert!(program.has(key), "{key}");
     }

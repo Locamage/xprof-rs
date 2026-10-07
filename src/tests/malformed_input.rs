@@ -221,31 +221,8 @@ fn json_deeper_than_the_serde_limit() {
     let wrap = |text: &str, depth: usize| format!("{}{text}{}", "[ ".repeat(depth), "\n]".repeat(depth));
     let nest = |value: J, depth: usize| (0..depth).fold(value, |inner, _| J::List(vec![inner]));
     for text in [
-        "null",
-        "true",
-        "-0",
-        "12345678901234567890123",
-        "1.5e300",
-        "-7",
-        "1e400",
-        "01",
-        "1.",
-        "-",
-        "nul",
-        "\"\\ud83d\\ude00\"",
-        "\"\\ud800\"",
-        "\"a\\\"b\\\\\"",
-        "\"\\x\"",
-        "\"\n\"",
-        "{\"k\": 1, \"j\": [], \"k\": {\"x\": 2}}",
-        "{\"k\" 1}",
-        "{1: 2}",
-        "[1, 2,]",
-        "[1 2]",
-        "{}",
-        "[]",
-        "1 2",
-        "[1]]",
+        "null", "true", "-0", "12345678901234567890123", "1.5e300", "-7", "1e400", "01", "1.", "-", "nul", "\"\\ud83d\\ude00\"", "\"\\ud800\"", "\"a\\\"b\\\\\"", "\"\\x\"", "\"\n\"",
+        "{\"k\": 1, \"j\": [], \"k\": {\"x\": 2}}", "{\"k\" 1}", "{1: 2}", "[1, 2,]", "[1 2]", "{}", "[]", "1 2", "[1]]",
     ] {
         let expected = serde_json::from_str::<J>(text).ok();
         assert_eq!(J::parse(&wrap(text, 300)), expected.map(|value| nest(value, 300)), "{text}");

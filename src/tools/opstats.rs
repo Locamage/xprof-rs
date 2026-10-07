@@ -532,13 +532,8 @@ pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, spa
 
 fn perf_env(plane: &Plane) -> Perf {
     let bandwidths = [
-        "peak_hbm_bw_gigabytes_per_second",
-        "peak_sram_rd_bw_gigabytes_per_second",
-        "peak_sram_wr_bw_gigabytes_per_second",
-        "peak_cmem_rd_bw_gigabytes_per_second",
-        "peak_cmem_wr_bw_gigabytes_per_second",
-        "peak_vmem_rd_bw_gigabytes_per_second",
-        "peak_vmem_wr_bw_gigabytes_per_second",
+        "peak_hbm_bw_gigabytes_per_second", "peak_sram_rd_bw_gigabytes_per_second", "peak_sram_wr_bw_gigabytes_per_second", "peak_cmem_rd_bw_gigabytes_per_second",
+        "peak_cmem_wr_bw_gigabytes_per_second", "peak_vmem_rd_bw_gigabytes_per_second", "peak_vmem_wr_bw_gigabytes_per_second",
     ]
     .map(|name| plane.own_double(name))
     .to_vec();

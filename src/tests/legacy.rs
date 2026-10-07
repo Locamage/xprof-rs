@@ -422,16 +422,9 @@ fn gpu_kernels_join_their_launch_step_and_derive_stream_lines() {
     let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&EVERYTHING) };
     let json = String::from_utf8(render(&[view], false, true)).unwrap();
     for expected in [
-        "/device:GPU:0\"},\"name\":\"process_name\"",
-        "{\"args\":{\"name\":\"XLA Modules - from #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":4}",
-        "{\"args\":{\"name\":\"XLA Ops - from #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":5}",
-        "\"tid\":3735928559,\"name\":\"train 7\"",
-        "\"step_name\":\"train 7\"",
-        "\"name\":\"Launch Stats for train 7\"",
-        "\"num_launches\":1,\"max_launch_time_us\":1,\"avg_launch_time_us\":1",
-        "\"name\":\"jit_f(3)\"",
-        "\"name\":\"fusion\"",
-        "\"long_name\":\"3/fusion\"",
+        "/device:GPU:0\"},\"name\":\"process_name\"", "{\"args\":{\"name\":\"XLA Modules - from #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":4}",
+        "{\"args\":{\"name\":\"XLA Ops - from #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":5}", "\"tid\":3735928559,\"name\":\"train 7\"", "\"step_name\":\"train 7\"",
+        "\"name\":\"Launch Stats for train 7\"", "\"num_launches\":1,\"max_launch_time_us\":1,\"avg_launch_time_us\":1", "\"name\":\"jit_f(3)\"", "\"name\":\"fusion\"", "\"long_name\":\"3/fusion\"",
         "\"cat\":\"gpu_launch\"",
     ] {
         assert!(json.contains(expected), "{expected} missing from {json}");
@@ -730,16 +723,7 @@ fn command_line_errors_are_reported_not_panicked() {
     assert_eq!(run(&[&format!("--logdir={path}"), "--port", "9000", "--host", "127.0.0.1"]), Ok(Settings { port: 9000, host: Some("127.0.0.1".into()), ..base }));
     assert_eq!(
         run(&[
-            "--logdir",
-            &path,
-            "--src_prefix",
-            "/src",
-            "--hide_capture_profile_button",
-            "--enable_tab_name_label",
-            "--grpc_port",
-            "1",
-            "--worker_service_address",
-            "h:1",
+            "--logdir", &path, "--src_prefix", "/src", "--hide_capture_profile_button", "--enable_tab_name_label", "--grpc_port", "1", "--worker_service_address", "h:1",
             "--max_concurrent_worker_requests=2"
         ]),
         Ok(Settings { logdir: dir.clone(), port: DEFAULT_PORT, src_prefix: Some("/src".into()), hide_capture_profile_button: true, enable_tab_name_label: true, ..Default::default() })

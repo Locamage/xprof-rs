@@ -8,23 +8,8 @@ const SESSION: &str = "session_123";
 const MISSING: &str = "Path not found: session_123";
 const REPORT: &str = "https://github.com/openxla/xprof/issues";
 const TOOL_MODULES: [&str; 17] = [
-    "check_host_boundness",
-    "get_hlo_stats",
-    "get_kernel_stats",
-    "get_kpi_metrics",
-    "get_llo_analysis",
-    "get_llo_debug_string",
-    "get_memory_profile",
-    "get_overview",
-    "get_peak_allocations",
-    "get_roofline_model",
-    "get_step_trace",
-    "get_top_hlo_ops",
-    "get_utilization_viewer",
-    "verify_numerical_parity",
-    "get_graph_viewer",
-    "get_kernel_utilization",
-    "upload_trace",
+    "check_host_boundness", "get_hlo_stats", "get_kernel_stats", "get_kpi_metrics", "get_llo_analysis", "get_llo_debug_string", "get_memory_profile", "get_overview", "get_peak_allocations",
+    "get_roofline_model", "get_step_trace", "get_top_hlo_ops", "get_utilization_viewer", "verify_numerical_parity", "get_graph_viewer", "get_kernel_utilization", "upload_trace",
 ];
 
 fn error(argv: &[&str], code: i32, reason: &str) -> J {

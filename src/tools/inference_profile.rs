@@ -787,17 +787,8 @@ macro_rules! wrapping_add {
 fn add_request(sum: &mut RequestDetail, request: &RequestDetail) {
     sum.end_time_ps = sum.end_time_ps.wrapping_add(request.end_time_ps.wrapping_sub(request.start_time_ps));
     wrapping_add!(
-        sum,
-        request,
-        device_time_ps,
-        read_from_device_time_ps,
-        write_to_device_time_ps,
-        batching_request_delay_ps,
-        batching_request_size,
-        host_preprocessing_ps,
-        host_batch_formation_ps,
-        host_runtime_ps,
-        host_postprocessing_ps
+        sum, request, device_time_ps, read_from_device_time_ps, write_to_device_time_ps, batching_request_delay_ps, batching_request_size, host_preprocessing_ps, host_batch_formation_ps,
+        host_runtime_ps, host_postprocessing_ps
     );
     sum.idle_time_ps += request.idle_time_ps;
 }
@@ -1010,12 +1001,7 @@ fn request_table(model: &PerModelInferenceStats, sampled: &SampledPerModelInfere
             row.extend([Cell::Number(request.batching_request_size.into()), Cell::Number(ms(request.batching_request_delay_ps)), Cell::Text(throughput)]);
         }
         let parts = [
-            request.host_preprocessing_ps,
-            request.host_runtime_ps,
-            request.write_to_device_time_ps,
-            request.read_from_device_time_ps,
-            request.device_time_ps,
-            request.host_postprocessing_ps,
+            request.host_preprocessing_ps, request.host_runtime_ps, request.write_to_device_time_ps, request.read_from_device_time_ps, request.device_time_ps, request.host_postprocessing_ps,
             request.idle_time_ps as u64,
         ];
         row.extend(parts.into_iter().map(|ps| Cell::Number(ms(ps))));

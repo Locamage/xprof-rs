@@ -12,26 +12,8 @@ const CACHE_VERSION: i64 = 1;
 const XPLANE_EXTENSIONS: [&str; 2] = ["xplane.pb", "xplane.riegeli"];
 const TOOL_EXTENSIONS: [&str; 3] = ["xplane.pb", "hlo_proto.pb", "xplane.riegeli"];
 const SORT_ORDER: [&str; 20] = [
-    "overview_page",
-    "trace_viewer",
-    "trace_viewer@",
-    "graph_viewer",
-    "op_profile",
-    "hlo_op_profile",
-    "input_pipeline_analyzer",
-    "input_pipeline",
-    "kernel_stats",
-    "memory_profile",
-    "memory_viewer",
-    "roofline_model",
-    "perf_counters",
-    "pod_viewer",
-    "framework_op_stats",
-    "tensorflow_stats",
-    "hlo_op_stats",
-    "hlo_stats",
-    "inference_profile",
-    "megascale_stats",
+    "overview_page", "trace_viewer", "trace_viewer@", "graph_viewer", "op_profile", "hlo_op_profile", "input_pipeline_analyzer", "input_pipeline", "kernel_stats", "memory_profile", "memory_viewer",
+    "roofline_model", "perf_counters", "pod_viewer", "framework_op_stats", "tensorflow_stats", "hlo_op_stats", "hlo_stats", "inference_profile", "megascale_stats",
 ];
 const BASE_TOOLS: [&str; 8] = ["trace_viewer@", "overview_page", "input_pipeline_analyzer", "framework_op_stats", "memory_profile", "op_profile", "hlo_stats", "roofline_model"];
 const GPU_PREFIX: &str = "/device:GPU:";
