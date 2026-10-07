@@ -8129,7 +8129,7 @@ const reservedColorsByName={thread_state_uninterruptible:new tr.b.Color(182,125,
 const paletteBase=[];paletteBase.push.apply(paletteBase,generalPurposeColors);paletteBase.push.apply(paletteBase,Object.values(reservedColorsByName));ColorScheme.colors=[];ColorScheme.properties={};ColorScheme.properties={numColorsPerVariant,};function pushVariant(func){const variantColors=paletteBase.map(func);ColorScheme.colors.push.apply(ColorScheme.colors,variantColors);}
 pushVariant(function(c){return c;});ColorScheme.properties.brightenedOffsets=[];ColorScheme.properties.brightenedOffsets.push(ColorScheme.colors.length);pushVariant(function(c){return c.lighten(0.3,0.8);});ColorScheme.properties.brightenedOffsets.push(ColorScheme.colors.length);pushVariant(function(c){return c.lighten(0.48,0.85);});ColorScheme.properties.brightenedOffsets.push(ColorScheme.colors.length);pushVariant(function(c){return c.lighten(0.65,0.9);});ColorScheme.properties.dimmedOffsets=[];ColorScheme.properties.dimmedOffsets.push(ColorScheme.colors.length);pushVariant(function(c){return c.desaturate();});ColorScheme.properties.dimmedOffsets.push(ColorScheme.colors.length);pushVariant(function(c){return c.desaturate(0.5);});ColorScheme.properties.dimmedOffsets.push(ColorScheme.colors.length);pushVariant(function(c){return c.desaturate(0.3);});ColorScheme.colorsAsStrings=ColorScheme.colors.map(function(c){return c.toString();});const reservedColorNameToIdMap=(function(){const m=new Map();let i=generalPurposeColors.length;for(const key of Object.keys(reservedColorsByName)){m.set(key,i++);}
 return m;})();ColorScheme.getColorIdForReservedName=function(name){const id=reservedColorNameToIdMap.get(name);if(id===undefined){throw new Error('Unrecognized color '+name);}
-return id;};ColorScheme.getColorForReservedNameAsString=function(reservedName){const id=ColorScheme.getColorIdForReservedName(reservedName);return ColorScheme.colorsAsStrings[id];};ColorScheme.getStringHash=function(name){let hash=0;for(let i=0;i<name.length;++i){hash=(hash+37*hash+11*name.charCodeAt(i))%0xFFFFFFFF;}
+return id;};ColorScheme.getColorForReservedNameAsString=function(reservedName){const id=ColorScheme.getColorIdForReservedName(reservedName);return ColorScheme.colorsAsStrings[id];};ColorScheme.getStringHash=function(name){let hash=0;for(let i=0;i<name.length;++i){const x=38*hash+11*name.charCodeAt(i),high=Math.floor(x/4294967296);hash=x-high*4294967295;if(hash>=4294967295)hash-=4294967295;}
 return hash;};const stringColorIdCache=new Map();ColorScheme.getColorIdForGeneralPurposeString=function(string){if(stringColorIdCache.get(string)===undefined){const hash=ColorScheme.getStringHash(string);stringColorIdCache.set(string,hash%numGeneralPurposeColorIds);}
 return stringColorIdCache.get(string);};ColorScheme.getAnotherColorId=function(colorId,n){return(colorId+n)%numColorsPerVariant;};ColorScheme.getVariantColorId=function(colorId,offset){return colorId+offset;};return{ColorScheme,};});'use strict';tr.exportTo('tr.model',function(){const ColorScheme=tr.b.ColorScheme;function EventInfo(title,description,docLinks){this.title=title;this.description=description;this.docLinks=docLinks;this.colorId=ColorScheme.getColorIdForGeneralPurposeString(title);}
 return{EventInfo,};});'use strict';tr.exportTo('tr.b',function(){let nextGUID=1;const UUID4_PATTERN='xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';const GUID={allocateSimple(){return nextGUID++;},getLastSimpleGuid(){return nextGUID-1;},allocateUUID4(){return UUID4_PATTERN.replace(/[xy]/g,function(c){let r=parseInt(Math.random()*16);if(c==='y')r=(r&3)+8;return r.toString(16);});}};return{GUID,};});'use strict';tr.exportTo('tr.model',function(){function EventRegistry(){}
@@ -15567,14 +15567,19 @@ var tf_component_traceviewer;
       const thread = process.threads[tid];
       if (!thread) return;
 
-      // Find the slice in memory with matching start time (with epsilon tolerance)
-      for (const slice of thread.sliceGroup.slices) {
-        if (Math.abs(slice.start - tsMs) < 0.001) {
-          if (!slice.args) slice.args = {};
-          for (const key in event["args"]) {
-            slice.args[key] = event["args"][key];
-          }
-          break;
+      // Find the slice in memory with matching start time (with epsilon tolerance).
+      // The import sorts the slices by start time, so the first match is the first slice after tsMs - 0.001.
+      const slices = thread.sliceGroup.slices;
+      let low = 0, high = slices.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (slices[middle].start - tsMs > -0.001) high = middle; else low = middle + 1;
+      }
+      const slice = slices[low];
+      if (slice && Math.abs(slice.start - tsMs) < 0.001) {
+        if (!slice.args) slice.args = {};
+        for (const key in event["args"]) {
+          slice.args[key] = event["args"][key];
         }
       }
     },
