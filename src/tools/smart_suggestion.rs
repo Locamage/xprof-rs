@@ -29,23 +29,8 @@ const MAD_THRESHOLD: f64 = 0.1;
 const MODIFIED_Z: f64 = 0.6745;
 const THIRD_PARTY_RULES: [&str; 1] = ["BarrierCoresRule"];
 const COLLECTIVES: [&str; 17] = [
-    "all-reduce",
-    "all-reduce fusion",
-    "all-reduce-scatter fusion",
-    "all-to-all",
-    "all-gather",
-    "all-gather-start",
-    "all-gather-done",
-    "all-gather fusion",
-    "reduce-scatter",
-    "collective-permute",
-    "collective-permute-done",
-    "collective-permute-start",
-    "megacore fusion",
-    "host recv",
-    "host recv-done",
-    "host send",
-    "host send-done",
+    "all-reduce", "all-reduce fusion", "all-reduce-scatter fusion", "all-to-all", "all-gather", "all-gather-start", "all-gather-done", "all-gather fusion", "reduce-scatter", "collective-permute",
+    "collective-permute-done", "collective-permute-start", "megacore fusion", "host recv", "host recv-done", "host send", "host send-done",
 ];
 const DATA_SHUFFLE: [&str; 14] =
     ["broadcast", "concatenate", "data formatting", "dynamic-slice", "dynamic-update-slice", "gather", "pad", "reverse", "scatter", "select", "select-and-scatter", "shuffle", "slice", "sort"];

@@ -59,19 +59,7 @@ const KERNEL_COLUMNS: [(&str, &str, &str); 15] = [
     ("max_duration_us", "number", "Max Duration (\u{3bc}s)"),
 ];
 const STATS: [&str; 14] = [
-    "tf_op",
-    "hlo_op",
-    "program_id",
-    "kernel_details",
-    "correlation_id",
-    "group_id",
-    "is_eager",
-    "equation",
-    "cuda_graph_exec_id",
-    "hlo_module",
-    "scope_range_id",
-    "cuda_graph_id",
-    "flops",
+    "tf_op", "hlo_op", "program_id", "kernel_details", "correlation_id", "group_id", "is_eager", "equation", "cuda_graph_exec_id", "hlo_module", "scope_range_id", "cuda_graph_id", "flops",
     "bytes_accessed",
 ];
 const UNWANTED: u8 = u8::MAX;

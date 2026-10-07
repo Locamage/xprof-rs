@@ -6,28 +6,10 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 const PERFORMANCE_SUMMARY_KEYS: [&str; 22] = [
-    "steptime_ms_average",
-    "steptime_ms_standard_deviation",
-    "tc_idle_ms_average",
-    "tc_infeed_ms_average",
-    "tc_outfeed_ms_average",
-    "host_transfer_ms_average",
-    "sc_step_time_ms_average",
-    "sc_idle_ms_average",
-    "sc_infeed_ms_average",
-    "sc_outfeed_ms_average",
-    "mxu_utilization_percent",
-    "flop_rate_utilization_relative_to_roofline",
-    "device_duty_cycle_percent",
-    "memory_bw_utilization_relative_to_hw_limit",
-    "program_goodput_percent",
-    "host_tf_op_percent",
-    "device_tf_op_percent",
-    "host_op_time_eager_percent",
-    "device_op_time_eager_percent",
-    "device_idle_time_percent",
-    "hbm_bw_utilization_percent",
-    "host_idle_time_percent",
+    "steptime_ms_average", "steptime_ms_standard_deviation", "tc_idle_ms_average", "tc_infeed_ms_average", "tc_outfeed_ms_average", "host_transfer_ms_average", "sc_step_time_ms_average",
+    "sc_idle_ms_average", "sc_infeed_ms_average", "sc_outfeed_ms_average", "mxu_utilization_percent", "flop_rate_utilization_relative_to_roofline", "device_duty_cycle_percent",
+    "memory_bw_utilization_relative_to_hw_limit", "program_goodput_percent", "host_tf_op_percent", "device_tf_op_percent", "host_op_time_eager_percent", "device_op_time_eager_percent",
+    "device_idle_time_percent", "hbm_bw_utilization_percent", "host_idle_time_percent",
 ];
 const RUN_ENVIRONMENT_KEYS: [&str; 10] =
     ["is_training", "profile_start_time", "profile_duration_ms", "host_count", "task_count", "device_type", "device_core_count", "change_list", "build_time", "build_target"];

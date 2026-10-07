@@ -64,25 +64,8 @@ const PREFIX: &str = "/data/plugin/profile";
 const VERSION: &str = "2.23.2";
 const CACHE_TOOLS: [&str; 2] = ["overview_page", "trace_viewer@"];
 pub(crate) const XPLANE_TOOLS: [&str; 19] = [
-    "trace_viewer",
-    "trace_viewer@",
-    "overview_page",
-    "input_pipeline_analyzer",
-    "framework_op_stats",
-    "kernel_stats",
-    "memory_profile",
-    "pod_viewer",
-    "op_profile",
-    "hlo_stats",
-    "roofline_model",
-    "inference_profile",
-    "memory_viewer",
-    "graph_viewer",
-    "megascale_stats",
-    "perf_counters",
-    "utilization_viewer",
-    "kernel_utilization",
-    "smart_suggestion",
+    "trace_viewer", "trace_viewer@", "overview_page", "input_pipeline_analyzer", "framework_op_stats", "kernel_stats", "memory_profile", "pod_viewer", "op_profile", "hlo_stats", "roofline_model",
+    "inference_profile", "memory_viewer", "graph_viewer", "megascale_stats", "perf_counters", "utilization_viewer", "kernel_utilization", "smart_suggestion",
 ];
 const SWITCHES: [&str; 2] = ["--hide_capture_profile_button", "--enable_tab_name_label"];
 const VALUE_FLAGS: [&str; 7] = ["--logdir", "--port", "--host", "--src_prefix", "--grpc_port", "--worker_service_address", "--max_concurrent_worker_requests"];

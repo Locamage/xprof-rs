@@ -21,21 +21,8 @@ fn tool_list_follows_planes_of_the_first_host() {
     assert_eq!(
         sorted(tools(&space).unwrap()),
         [
-            "overview_page",
-            "trace_viewer@",
-            "graph_viewer",
-            "op_profile",
-            "input_pipeline_analyzer",
-            "kernel_stats",
-            "memory_profile",
-            "memory_viewer",
-            "roofline_model",
-            "perf_counters",
-            "framework_op_stats",
-            "hlo_stats",
-            "megascale_stats",
-            "kernel_utilization",
-            "utilization_viewer"
+            "overview_page", "trace_viewer@", "graph_viewer", "op_profile", "input_pipeline_analyzer", "kernel_stats", "memory_profile", "memory_viewer", "roofline_model", "perf_counters",
+            "framework_op_stats", "hlo_stats", "megascale_stats", "kernel_utilization", "utilization_viewer"
         ]
     );
 }
