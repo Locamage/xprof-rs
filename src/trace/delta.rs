@@ -143,7 +143,11 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
                 last = event.ts;
                 let mut metadata = EventMetadata::default();
                 if tag == 2 {
-                    metadata.counter_value = first_value(view, event);
+                    metadata.counter_value = match view.planes[event.plane as usize].named_stats(view.map, event.meta, event.raw).next().map(|stat| stat.2.value) {
+                        Some(Value::Double(value)) => Some(CounterValue::Double(value)),
+                        Some(Value::Uint(value)) => Some(CounterValue::Uint(value)),
+                        _ => None,
+                    };
                 } else {
                     series.durations.push(event.dur);
                     if !unbound {
@@ -200,12 +204,4 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
     let mut raw = parts.concat();
     response.encode(&mut raw).unwrap();
     zstd::bulk::compress(&raw, 1).unwrap()
-}
-
-fn first_value(view: &View, event: &crate::trace::Event) -> Option<CounterValue> {
-    match view.planes[event.plane as usize].named_stats(view.map, event.meta, event.raw).next()?.2.value {
-        Value::Double(value) => Some(CounterValue::Double(value)),
-        Value::Uint(value) => Some(CounterValue::Uint(value)),
-        _ => None,
-    }
 }

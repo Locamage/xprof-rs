@@ -170,13 +170,6 @@ impl Visibility {
         }
         visible
     }
-
-    fn set_visible_at_resolution(&mut self, event: &Event) {
-        if let Some(flow) = self.flows.get_mut(event.flow as usize).filter(|_| event.resource != NONE_RESOURCE) {
-            *flow = if event.flow_entry == FLOW_END { None } else { flow.or(Some(true)) };
-        }
-        self.rows[event.track as usize].set(event.ts, event.dur, event.resource == NONE_RESOURCE, event.flow != NONE_FLOW);
-    }
 }
 
 pub fn is_tpu_core_device_name(name: &str) -> bool {
@@ -501,7 +494,11 @@ fn assign_levels(events: &[Event], by_track: &[Vec<u32>], flow_count: usize) -> 
             level += 1;
         }
         for deeper in level + 1..SPLIT {
-            global[deeper].set_visible_at_resolution(event);
+            let resolution = &mut global[deeper];
+            if let Some(flow) = resolution.flows.get_mut(event.flow as usize).filter(|_| event.resource != NONE_RESOURCE) {
+                *flow = if event.flow_entry == FLOW_END { None } else { flow.or(Some(true)) };
+            }
+            resolution.rows[event.track as usize].set(event.ts, event.dur, event.resource == NONE_RESOURCE, event.flow != NONE_FLOW);
             flow_visible[deeper][event.flow as usize].get_or_insert(true);
         }
     }
