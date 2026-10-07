@@ -1,5 +1,19 @@
+use std::io::Write;
+
 fn main() {
     println!("cargo:rerun-if-changed=src/data/hlo_descriptors.pb");
+    println!("cargo:rerun-if-changed=ui");
+    let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    let mut names: Vec<_> = std::fs::read_dir("ui").unwrap().map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+    names.sort();
+    let mut table = String::from("static ASSETS: &[(&str, &[u8])] = &[\n");
+    for name in names {
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        encoder.write_all(&std::fs::read(format!("ui/{name}")).unwrap()).unwrap();
+        std::fs::write(out.join(format!("{name}.gz")), encoder.finish().unwrap()).unwrap();
+        table += &format!("    ({name:?}, include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{name}.gz\"))),\n");
+    }
+    std::fs::write(out.join("assets.rs"), table + "];\n").unwrap();
     let mut pool = prost_reflect::DescriptorPool::global();
     pool.decode_file_descriptor_set(&include_bytes!("src/data/hlo_descriptors.pb")[..]).unwrap();
     let mut config = prost_build::Config::new();

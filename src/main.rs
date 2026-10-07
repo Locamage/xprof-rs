@@ -18,7 +18,6 @@ use axum::response::Response;
 use axum::{Router, routing::any};
 use cli::json::py_repr;
 use futures_util::future::{BoxFuture, FutureExt, Shared as Joined, try_join_all};
-use include_dir::{Dir, include_dir};
 use rayon::prelude::*;
 use server::remote::Remote;
 use std::any::Any;
@@ -78,7 +77,7 @@ const ALL_HOSTS_ALSO: [&str; 6] = ["input_pipeline_analyzer", "framework_op_stat
 const CONTENT_TYPES: [(&str, &str); 4] = [("html", "text/html"), ("js", "application/javascript"), ("css", "text/css"), ("wasm", "application/wasm")];
 const RENDERED_FROM: [&str; 2] = [".xplane.pb", ".hlo_proto.pb"];
 const STATIC_DIR: &str = "XPROF_STATIC_DIR";
-static ASSETS: Dir = include_dir!("$CARGO_MANIFEST_DIR/static");
+include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 
 struct Host {
     bytes: u64,
@@ -378,7 +377,7 @@ async fn assets(request: Request) -> Response {
         "" | "local" => "index.html",
         name => name,
     };
-    let Some(file) = ASSETS.get_file(format!("{name}.gz")) else { return response(StatusCode::NOT_FOUND, "text/plain", "Not Found") };
+    let Some(&(_, file)) = ASSETS.iter().find(|(known, _)| *known == name) else { return response(StatusCode::NOT_FOUND, "text/plain", "Not Found") };
     let extension = name.rsplit('.').next().unwrap_or("");
     let content_type = CONTENT_TYPES.iter().find(|(known, _)| *known == extension).map_or("application/octet-stream", |(_, kind)| kind);
     if let Some(base) = std::env::var_os(STATIC_DIR).and_then(|dir| PathBuf::from(dir).canonicalize().ok()).filter(|dir| dir.is_dir()) {
@@ -387,12 +386,12 @@ async fn assets(request: Request) -> Response {
             None => response(StatusCode::NOT_FOUND, "text/plain", "Fail to read the files."),
         };
     }
-    let tag = format!("W/\"{:08x}\"", crc32fast::hash(file.contents()));
+    let tag = format!("W/\"{:08x}\"", crc32fast::hash(file));
     let fresh = request.headers().get(header::IF_NONE_MATCH).is_some_and(|value| value.as_bytes() == tag.as_bytes());
     let mut reply = if fresh {
         response(StatusCode::NOT_MODIFIED, content_type, Body::empty())
     } else {
-        negotiate(response(StatusCode::OK, content_type, Body::empty()), Bytes::from_static(file.contents()), accepts_gzip(request.headers()))
+        negotiate(response(StatusCode::OK, content_type, Body::empty()), Bytes::from_static(file), accepts_gzip(request.headers()))
     };
     // The names of the files do not change between versions, so the browser must ask again each time.
     reply.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
