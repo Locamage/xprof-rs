@@ -137,7 +137,22 @@ pub fn host_db(planes: &[Plane], map: &[u8]) -> (Db, (u64, u64)) {
     let Some(plane) = planes.iter().find(|plane| plane.name == HOST_PLANE) else { return Default::default() };
     let ids = ["is_eager", "tf_op", "_ipl_stage_id", "_ipl_stage_cat", "input_pipeline_stage_id", "input_pipeline_stage_category"].map(|wanted| plane.id(wanted));
     let (mut ops, mut parsed) = (FxHashMap::default(), vec![false; plane.meta.len()]);
-    for event in plane.lines.iter().flat_map(|line| &line.events) {
+    // Without stages, the ops come from the metadata only, and the lines look up only the metadata of their events.
+    let stages = if ids[2].is_none() && ids[4].is_none() {
+        ops = plane
+            .meta
+            .par_iter()
+            .enumerate()
+            .filter(|(_, meta)| !meta.name.is_empty())
+            .map(|(index, meta)| (index as i64, parse_tf_op(&meta.name)))
+            .filter(|(_, op)| op.known)
+            .map(|(index, op)| (index, shared(op)))
+            .collect();
+        &[][..]
+    } else {
+        &plane.lines[..]
+    };
+    for event in stages.iter().flat_map(|line| &line.events) {
         let meta = &plane.meta[event.meta as usize];
         if meta.name.is_empty() {
             continue;
