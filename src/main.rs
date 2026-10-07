@@ -387,7 +387,18 @@ async fn assets(request: Request) -> Response {
             None => response(StatusCode::NOT_FOUND, "text/plain", "Fail to read the files."),
         };
     }
-    negotiate(response(StatusCode::OK, content_type, Body::empty()), Bytes::from_static(file.contents()), accepts_gzip(request.headers()))
+    let tag = format!("W/\"{:08x}\"", crc32fast::hash(file.contents()));
+    let fresh = request.headers().get(header::IF_NONE_MATCH).is_some_and(|value| value.as_bytes() == tag.as_bytes());
+    let mut reply = if fresh {
+        response(StatusCode::NOT_MODIFIED, content_type, Body::empty())
+    } else {
+        negotiate(response(StatusCode::OK, content_type, Body::empty()), Bytes::from_static(file.contents()), accepts_gzip(request.headers()))
+    };
+    // The names of the files do not change between versions, so the browser must ask again each time.
+    reply.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    reply.headers_mut().insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+    reply.headers_mut().insert(header::ETAG, HeaderValue::from_str(&tag).unwrap());
+    reply
 }
 
 /// Sets a gzip body without changes when the client accepts gzip, and decoded when it does not.
