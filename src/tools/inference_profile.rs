@@ -443,15 +443,6 @@ fn stamp(requests: &mut BTreeMap<i64, Request>, relatives: &Metadata, group: i64
     }
 }
 
-fn stamp_schedules(events: &Events, relatives: &Metadata, ids: &StatIds, requests: &mut BTreeMap<i64, Request>) {
-    for (event, group) in events.grouped(&SCHEDULE_EVENTS) {
-        stamp(requests, relatives, group, &|stamps| stamps.schedule = Some(event.ts));
-        if let (Some(request), Some(size)) = (requests.get_mut(&group), event_stat(event.raw, ids.task_size)) {
-            request.size = size.signed() as i32;
-        }
-    }
-}
-
 fn build_batches<'a>(events: &Events, relatives: &Metadata, ids: &StatIds, requests: &mut BTreeMap<i64, Request>) -> BTreeMap<i64, Batch<'a>> {
     let mut batches: BTreeMap<i64, Batch> = BTreeMap::new();
     for (event, group) in events.grouped(&PROCESS_BATCH_EVENTS) {
@@ -523,18 +514,6 @@ fn attach_device_events(relatives: &Metadata, requests: &mut BTreeMap<i64, Reque
                 batch.detail.program_ids.push(program);
             }
         }
-    }
-}
-
-fn stamp_host_events(events: &Events, relatives: &Metadata, requests: &mut BTreeMap<i64, Request>) {
-    for (event, group) in events.grouped(&EXECUTE_EVENTS) {
-        stamp(requests, relatives, group, &|stamps| stamps.execute = Some(event.ts));
-    }
-    for (event, group) in events.grouped(&LAUNCH_EVENTS) {
-        stamp(requests, relatives, group, &|stamps| stamps.launch = Some(stamps.launch.map_or(event.ts, |launch| launch.min(event.ts))));
-    }
-    for (event, group) in events.grouped(&CALLBACK_EVENTS) {
-        stamp(requests, relatives, group, &|stamps| stamps.callback = Some(event.ts));
     }
 }
 
@@ -705,10 +684,23 @@ pub fn generate(planes: &[Plane], map: &[u8], relatives: &Metadata, host_id: i32
     let events = Events::collect(host, map, &names, &ids);
     let model_ids = model_ids(&events, host, &ids);
     let mut requests = build_requests(&events, relatives, &model_ids, &mut result.model_id_db);
-    stamp_schedules(&events, relatives, &ids, &mut requests);
+    for (event, group) in events.grouped(&SCHEDULE_EVENTS) {
+        stamp(&mut requests, relatives, group, &|stamps| stamps.schedule = Some(event.ts));
+        if let (Some(request), Some(size)) = (requests.get_mut(&group), event_stat(event.raw, ids.task_size)) {
+            request.size = size.signed() as i32;
+        }
+    }
     let mut batches = build_batches(&events, relatives, &ids, &mut requests);
     attach_device_events(relatives, &mut requests, &mut batches, device_events(planes, map, &events, &ids));
-    stamp_host_events(&events, relatives, &mut requests);
+    for (event, group) in events.grouped(&EXECUTE_EVENTS) {
+        stamp(&mut requests, relatives, group, &|stamps| stamps.execute = Some(event.ts));
+    }
+    for (event, group) in events.grouped(&LAUNCH_EVENTS) {
+        stamp(&mut requests, relatives, group, &|stamps| stamps.launch = Some(stamps.launch.map_or(event.ts, |launch| launch.min(event.ts))));
+    }
+    for (event, group) in events.grouped(&CALLBACK_EVENTS) {
+        stamp(&mut requests, relatives, group, &|stamps| stamps.callback = Some(event.ts));
+    }
     apply_batch_timing(&mut requests, &mut batches);
     add_host_phases(&mut requests);
     result.tensor_patterns = tensor_patterns(&events, host, &ids, &mut requests, &mut batches);

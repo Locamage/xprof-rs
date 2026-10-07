@@ -303,14 +303,6 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
     trace
 }
 
-fn sort_track(track: &mut Track) {
-    let mut order: Vec<usize> = (0..track.events.len()).collect();
-    let events = &track.events;
-    std_sort(&mut order, &|a, b| if events[a].ts == events[b].ts { events[a].dur > events[b].dur } else { events[a].ts < events[b].ts });
-    let mut taken = std::mem::take(&mut track.events);
-    track.events = order.into_iter().map(|index| std::mem::take(&mut taken[index])).collect();
-}
-
 fn assign_run_ids(trace: &mut Trace) {
     let run_id = trace.strings.intern("run_id");
     let mut runs: HashMap<i64, Vec<(i64, i64)>> = HashMap::default();
@@ -571,29 +563,33 @@ fn add_global_counters(trace: &mut Trace) {
     trace.counters = [int(rx), int(tx), double(rx_bandwidth), double(tx_bandwidth), int(count), int(bytes)];
 }
 
-fn rename_track(track: &mut Track) {
-    if let Some((device, part)) = graph_name(&track.name).and_then(|(device, part)| Some((device.parse::<u64>().ok()?, part))) {
-        track.name = format!("{part} ({device})");
-        return;
-    }
-    let renamed = match track.name.as_str() {
-        "Steps" => "1. Steps",
-        "XLA Modules" => "2. XLA Modules",
-        "XLA Ops" => "3. XLA Ops",
-        "XLA TraceMe" => "4. XLA TraceMe",
-        _ => return,
-    };
-    track.name = renamed.into();
-}
-
 fn process(trace: &mut Trace) {
-    trace.tpu.values_mut().chain(trace.megascale.values_mut()).flatten().for_each(sort_track);
+    for track in trace.tpu.values_mut().chain(trace.megascale.values_mut()).flatten() {
+        let mut order: Vec<usize> = (0..track.events.len()).collect();
+        let events = &track.events;
+        std_sort(&mut order, &|a, b| if events[a].ts == events[b].ts { events[a].dur > events[b].dur } else { events[a].ts < events[b].ts });
+        let mut taken = std::mem::take(&mut track.events);
+        track.events = order.into_iter().map(|index| std::mem::take(&mut taken[index])).collect();
+    }
     assign_run_ids(trace);
     group_tiny_events(trace);
     mark_last_dma_events(trace);
     resolve_flows(trace);
     add_global_counters(trace);
-    trace.tpu.values_mut().chain(trace.megascale.values_mut()).flatten().for_each(rename_track);
+    for track in trace.tpu.values_mut().chain(trace.megascale.values_mut()).flatten() {
+        if let Some((device, part)) = graph_name(&track.name).and_then(|(device, part)| Some((device.parse::<u64>().ok()?, part))) {
+            track.name = format!("{part} ({device})");
+            continue;
+        }
+        track.name = match track.name.as_str() {
+            "Steps" => "1. Steps",
+            "XLA Modules" => "2. XLA Modules",
+            "XLA Ops" => "3. XLA Ops",
+            "XLA TraceMe" => "4. XLA TraceMe",
+            _ => continue,
+        }
+        .into();
+    }
 }
 
 #[derive(Clone, PartialEq, prost::Message)]

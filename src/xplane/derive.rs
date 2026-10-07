@@ -1,7 +1,7 @@
 use crate::hlo::xla::HloInstructionMeta;
 use crate::tools::framework_op_stats::{is_jax_op_type, is_tf_op_name, is_tf_op_type};
 use crate::xplane::gpu;
-use crate::xplane::{Ev, Line, NONE_GROUP, Plane, Value, event_group, slice, stats};
+use crate::xplane::{Ev, GROUP, Line, NONE_GROUP, Plane, Value, event_group, slice, stats};
 use prost::Message;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -293,7 +293,13 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
             if tf_op.is_empty() && source.is_empty() && own.is_none() {
                 return None;
             }
-            let group = if event.group == NONE_GROUP { plane.group_of(event.meta, raw).unwrap_or(NONE_GROUP) } else { event.group };
+            let group = if event.group == NONE_GROUP {
+                let mut out = plane.meta[event.meta as usize].base.as_deref().copied().unwrap_or_default();
+                plane.apply(&mut out, raw, 4, |kind| kind == GROUP);
+                out[GROUP].map_or(NONE_GROUP, |group| group as i64)
+            } else {
+                event.group
+            };
             Some(((event.ts, Reverse(event.dur), line_index, index), group, own))
         }));
     }

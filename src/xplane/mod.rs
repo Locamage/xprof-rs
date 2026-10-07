@@ -553,12 +553,6 @@ impl Plane {
         found.filter(|stat| matches!(stat.value, Value::Str(_) | Value::Ref(_))).last().map(|stat| self.text(&stat.value))
     }
 
-    pub fn group_of(&self, meta: u32, raw: &[u8]) -> Option<i64> {
-        let mut out = self.meta[meta as usize].base.as_deref().copied().unwrap_or_default();
-        self.apply(&mut out, raw, 4, |kind| kind == GROUP);
-        out[GROUP].map(|group| group as i64)
-    }
-
     pub fn links(&self, meta: u32, raw: &[u8], ordinal: Option<u64>) -> Links {
         let mut out = self.meta[meta as usize].base.as_deref().copied().unwrap_or_default();
         let (mut correlation, mut step, mut first_correlation) = (None, None, None);
