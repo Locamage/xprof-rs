@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>XProf</title>
+  <script>
+    const base = document.createElement("base");
+    const defaultPath = '/data/plugin/profile';
+    let newPath = defaultPath + '/';
+    if (document.location.pathname.includes(defaultPath)) {
+      newPath = document.location.pathname.split(defaultPath)[0] + defaultPath + '/';
+    }
+    base.setAttribute("href", newPath);
+    const header = document.getElementsByTagName("head")[0];
+    header.insertBefore(base, header.firstChild);
+  </script>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link rel="stylesheet" href="styles.css">
+  <script src="zone.js"></script>
+</head>
+<body>
+  <app></app>
+  <script>
+    let bundleLoaded = false;
+    function loadBundle() {
+      if (bundleLoaded) return;
+      bundleLoaded = true;
+      const runtimeScript = document.createElement('script');
+      runtimeScript.src = 'runtime.js';
+      document.body.appendChild(runtimeScript);
+      runtimeScript.onload = () => {
+        const bundleScript = document.createElement('script');
+        bundleScript.src = 'bundle.js';
+        document.body.appendChild(bundleScript);
+      };
+      runtimeScript.onerror = () => {
+        // If runtime.js fails to load (e.g. Google3 build where runtime is pre-bundled in bundle.js),
+        // fallback to loading bundle.js directly.
+        const bundleScript = document.createElement('script');
+        bundleScript.src = 'bundle.js';
+        document.body.appendChild(bundleScript);
+      };
+    }
+
+    function loadChart(domain) {
+      const script = document.createElement('script');
+      script.src = `https://${domain}/charts/loader.js`;
+      document.body.appendChild(script);
+      script.onload = () => {
+        loadBundle();
+      };
+      return script;
+    }
+
+    function setReloadOfIFrame() {
+      try {
+        const iFrame = window.parent?.document?.querySelector('iframe');
+        if (iFrame) {
+          iFrame.reload = () => {
+            document.dispatchEvent(new Event('tensorboard-reload'));
+          };
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    const script = loadChart('www.gstatic.com');
+    script.onerror = () => {
+      script.onerror = null;
+      if (script.parentNode) {
+        document.body.removeChild(script);
+      }
+
+      if (!bundleLoaded) {
+        const backupScript = loadChart('www.gstatic.cn');
+        backupScript.onerror = () => {
+          backupScript.onerror = null;
+          if (backupScript.parentNode) {
+            document.body.removeChild(backupScript);
+          }
+          loadBundle();
+        };
+      }
+    };
+
+    // Ensure Angular bundle boots within 2.5s even on offline/blocked networks
+    setTimeout(() => {
+      loadBundle();
+    }, 2500);
+
+    setReloadOfIFrame();
+  </script>
+</body>
+</html>

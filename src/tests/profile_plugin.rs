@@ -371,7 +371,7 @@ async fn hlo_module_list_impl_sorts_module_names() {
 
 #[tokio::test]
 async fn static_files_are_gzip_only_for_clients_that_accept_gzip() {
-    let packed = axum::body::Bytes::from_static(crate::ASSETS.get_file("runtime.js.gz").unwrap().contents());
+    let packed = axum::body::Bytes::from_static(crate::ASSETS.iter().find(|(name, _)| *name == "runtime.js").unwrap().1);
     let reply = |accepts| crate::negotiate(crate::response(StatusCode::OK, "application/javascript", Body::empty()), packed.clone(), accepts);
     let (plain, gzipped) = (reply(false), reply(true));
     assert!(plain.headers().get(header::CONTENT_ENCODING).is_none());

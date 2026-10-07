@@ -125,7 +125,7 @@ xprof-rs [--logdir DIR|URL] [--port 8791] [--host ADDRESS] [--src_prefix PREFIX]
 ```
 
 - The user interface is the prebuilt frontend of the XProf 2.23.2 Python package. It uses the Apache License 2.0. The copyright holder is The TensorFlow Authors.
-- The binary includes the unchanged files from `static/`. To serve other files, set `XPROF_STATIC_DIR` to a directory.
+- The binary includes the files from `ui/`. To serve other files, set `XPROF_STATIC_DIR` to a directory.
 - Each route answers at the root and under `/data/plugin/profile`.
 - The server listens on `127.0.0.1` port 8791. There is no authentication. To let other computers connect, use `--host 0.0.0.0` (all IPv4 interfaces) or `--host ::` (all interfaces). XProf listens on all interfaces.
 - With `--logdir`, a request can read only the files in the log directory.
