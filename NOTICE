@@ -13,5 +13,7 @@ Python package (Apache License 2.0, copyright The TensorFlow Authors), with thes
 - bundle.js draws a chart one time when its data and its filters change. The memory viewer draws its charts one time.
 - trace_viewer_index.js calculates the hash of a string with fewer operations. To find the slice of an event, it uses a
   binary search.
+- trace_viewer_index.js gets new data 200 ms after the last change of the view. Before, it waited 500 ms. When the view
+  changes during a load, it gets new data after the load.
 The build compresses these files, and the binary includes them. ui/materialicons.woff2 is the Material Icons font of
 Google (Apache License 2.0). The JavaScript bundles include third-party libraries with their licenses, as in the XProf package.
