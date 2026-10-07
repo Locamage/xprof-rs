@@ -1,5 +1,5 @@
 use crate::xplane::derive::{Category, is_tensor_core, tf_op};
-use crate::xplane::{C, CT, Ev, Line, NONE_GROUP, P, PT, Plane, ROOT, Step, Value, slice, stats};
+use crate::xplane::{C, CT, Ev, Line, Links, NONE_GROUP, P, PT, Plane, ROLES, ROOT, Step, Value, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::cmp::Reverse;
@@ -198,12 +198,16 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
         .into_par_iter()
         .map(|chunk| {
             let indices = chunk * 1024..(chunk * 1024 + 1024).min(count);
-            let (mut part, mut nested, mut plain) = (Out::default(), Vec::with_capacity(if generic { indices.len() } else { 0 }), FxHashMap::default());
+            let (mut part, mut nested, mut plain, empty) = (Out::default(), Vec::with_capacity(if generic { indices.len() } else { 0 }), FxHashMap::default(), Links::default());
             for (event, node) in indices.map(node) {
+                let meta = &plane.meta[event.meta as usize];
                 let fresh;
                 let links = if event.linked {
                     fresh = plane.links(event.meta, slice(map, event.raw), ordinal);
                     &fresh
+                } else if meta.base.is_none() && meta.root.is_none() && meta.role == [0; ROLES] {
+                    // Without base stats, a root or a role, the links of the metadata have no values that a job uses.
+                    &empty
                 } else {
                     &*plain.entry(event.meta).or_insert_with(|| plane.links(event.meta, &[], ordinal))
                 };
