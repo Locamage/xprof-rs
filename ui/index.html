@@ -13,12 +13,24 @@
     base.setAttribute("href", newPath);
     const header = document.getElementsByTagName("head")[0];
     header.insertBefore(base, header.firstChild);
+    // Static tags would resolve against the page URL before <base> exists, so the browser would fetch them twice.
+    document.write('<link rel="stylesheet" href="styles.css"><link rel="preload" href="runtime.js" as="script"><link rel="preload" href="bundle.js" as="script"><script src="zone.js"><\/script>');
+    // Each toLocaleString call with options builds a new Intl.NumberFormat, which takes 20 microseconds or more.
+    (() => {
+      'use strict';
+      const toLocaleString = Number.prototype.toLocaleString, formats = new Map();
+      const plain = (options) => options === undefined || (options !== null && Object.getPrototypeOf(options) === Object.prototype);
+      Number.prototype.toLocaleString = function (locales, options) {
+        if (typeof this !== 'number' || (locales !== undefined && typeof locales !== 'string') || !plain(options)) return toLocaleString.call(this, locales, options);
+        const key = (locales ?? '') + JSON.stringify(options ?? {});
+        let format = formats.get(key);
+        if (!format) formats.set(key, (format = new Intl.NumberFormat(locales, options)));
+        return format.format(this);
+      };
+    })();
   </script>
 
   <meta name="viewport" content="width=device-width, initial-scale=1">
-
-  <link rel="stylesheet" href="styles.css">
-  <script src="zone.js"></script>
 </head>
 <body>
   <app></app>
@@ -49,7 +61,9 @@
       script.src = `https://${domain}/charts/loader.js`;
       document.body.appendChild(script);
       script.onload = () => {
-        loadBundle();
+        // The tools call google.visualization when their data arrives, so the packages must load first.
+        google.charts.safeLoad({packages: ['corechart', 'table', 'line']});
+        google.charts.setOnLoadCallback(loadBundle);
       };
       return script;
     }
