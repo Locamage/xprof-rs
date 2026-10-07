@@ -9,7 +9,6 @@ use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 pub const HOST_PID_STRIDE: u32 = 1000;
 const IEEE_LIMIT: u64 = 1 << 53;
 const INTERN_THRESHOLD: usize = 16;
-const ORDER_CHUNK: usize = 1 << 16;
 const FRAME_CHUNK: usize = 2048;
 const FRAME_OPEN: &str = "\u{1}";
 const FRAME_CLOSE: &str = "\u{2}";
@@ -218,28 +217,33 @@ fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &m
 }
 
 pub fn ordered(views: &[View]) -> Vec<(u32, u32)> {
-    views
-        .iter()
-        .enumerate()
-        .flat_map(|(host, view)| {
-            let parts: Vec<Vec<Vec<u32>>> = view
-                .events
-                .par_chunks(ORDER_CHUNK)
-                .map(|chunk| {
-                    let mut buckets = vec![Vec::new(); view.trace.tracks];
-                    chunk.iter().for_each(|&index| buckets[view.trace.events[index as usize].track as usize].push(index));
-                    buckets
-                })
-                .collect();
-            let mut buckets: Vec<Vec<u32>> = (0..view.trace.tracks).into_par_iter().map(|track| parts.iter().flat_map(|part| part[track].iter().copied()).collect()).collect();
-            buckets.retain(|bucket| !bucket.is_empty());
-            buckets.sort_by_key(|bucket| {
-                let event = &view.trace.events[bucket[0] as usize];
-                (event.device, event.resource != NONE_RESOURCE, if event.resource == NONE_RESOURCE { &*view.trace.names[event.name as usize] } else { "" }, event.resource)
-            });
-            buckets.into_iter().flatten().map(move |index| (host as u32, index))
-        })
-        .collect()
+    let mut out = vec![(0, 0); views.iter().map(|view| view.events.len()).sum()];
+    let mut base = 0;
+    for (host, view) in views.iter().enumerate() {
+        let (events, tracks) = (&view.trace.events, view.trace.tracks);
+        let (mut first, mut starts) = (vec![u32::MAX; tracks], vec![0; tracks]);
+        for &index in &view.events {
+            let track = events[index as usize].track as usize;
+            if first[track] == u32::MAX {
+                first[track] = index;
+            }
+            starts[track] += 1;
+        }
+        let mut order: Vec<usize> = (0..tracks).filter(|&track| starts[track] > 0).collect();
+        order.sort_by_key(|&track| {
+            let event = &events[first[track] as usize];
+            (event.device, event.resource != NONE_RESOURCE, if event.resource == NONE_RESOURCE { &*view.trace.names[event.name as usize] } else { "" }, event.resource)
+        });
+        for track in order {
+            (starts[track], base) = (base, base + starts[track]);
+        }
+        for &index in &view.events {
+            let track = events[index as usize].track as usize;
+            out[starts[track]] = (host as u32, index);
+            starts[track] += 1;
+        }
+    }
+    out
 }
 
 pub fn devices<'a>(views: &'a [View]) -> Vec<(u32, &'a Device)> {
