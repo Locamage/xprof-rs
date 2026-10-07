@@ -15352,6 +15352,7 @@ var tf_component_traceviewer;
       this._replaceModel = replaceModel;
       const startTime = performance.now();
       this._throbber.className = 'active';
+      const startViewport = this._isStreaming && this._traceViewer.trackView ? this._trackViewRange(this._traceViewer.trackView) : null;
       const showWaitMsgLater = tf_component_traceviewer.debounce(
           this._showWaitMessage.bind(this), 20000);  // 20 seconds
       showWaitMsgLater(true);
@@ -15392,6 +15393,11 @@ var tf_component_traceviewer;
       this._updateModeSelectorBehavior();
       this._updateProcessHeader();
       this._addDragEventListeners();
+      // _maybeLoad ignores the viewport changes that occur during a load.
+      if (startViewport && this._traceViewer.trackView) {
+        const viewport = this._trackViewRange(this._traceViewer.trackView);
+        if (viewport.min !== startViewport.min || viewport.max !== startViewport.max) this._maybeLoad();
+      }
     },
 
     _loadNonStreamingTrace: async function() {
@@ -15947,7 +15953,7 @@ var tf_component_traceviewer;
      */
     _listenForViewportChanges: function() {
       const _trackViewChanged = this._trackViewChanged.bind(this);
-      const _debouncedOnViewportChanged = tf_component_traceviewer.debounce(this._onViewportChanged.bind(this));
+      const _debouncedOnViewportChanged = tf_component_traceviewer.debounce(this._onViewportChanged.bind(this), 200);
       const superOnViewportChanged_ = this._traceViewer.onViewportChanged_.bind(this._traceViewer);
       let prevTrackView = this._traceViewer.trackView;
       this._traceViewer.onViewportChanged_ = (...args) => {
