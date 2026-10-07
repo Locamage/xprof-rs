@@ -268,9 +268,9 @@ fn prepare(path: &Path, trace: bool) -> anyhow::Result<(Vec<u8>, Vec<Plane>)> {
 }
 
 /// A file that is not a valid `XSpace` gives `None`. The parse checks the events, and the check of the other fields runs at the same time.
-fn parse_checked(map: &[u8]) -> anyhow::Result<Option<Vec<Plane>>> {
+fn parse_checked(map: &[u8], bare: bool) -> anyhow::Result<Option<Vec<Plane>>> {
     let stats = AtomicBool::new(true);
-    let (valid, planes) = rayon::join(|| tools::counters::valid_besides_events(map), || xplane::parse_checking(map, Some(&stats)));
+    let (valid, planes) = rayon::join(|| tools::counters::valid_besides_events(map), || xplane::parse_checking(map, Some(&stats), bare));
     match planes {
         _ if !valid => Ok(None),
         Ok(planes) => Ok(stats.into_inner().then_some(planes)),

@@ -575,7 +575,11 @@ impl Kept {
 
     /// Adds the regions and the groups, and with `derived`, the derived lines, if the planes do not have them.
     pub fn finish(&mut self, derived: bool) {
-        let underived = self.underived.get_or_insert_with(|| crate::group(&mut self.planes, &self.map, false));
+        let underived = self.underived.get_or_insert_with(|| {
+            // Before the groups, the planes are as `load_kept` parsed them, and the host plane can have no events.
+            self.planes = crate::xplane::parse(&self.map).unwrap_or_default();
+            crate::group(&mut self.planes, &self.map, false)
+        });
         if derived && std::mem::take(underived) {
             crate::derive(&mut self.planes, &self.map);
         }
@@ -623,7 +627,7 @@ fn steps(planes: &[Plane], map: &[u8], templates: &[Templates], part: Part) -> c
 
 /// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
 pub fn load_kept(map: Vec<u8>, fused: bool, part: Part) -> anyhow::Result<Option<(Arc<OpStats>, Kept)>> {
-    let Some(mut planes) = crate::parse_checked(&map)? else { return Ok(None) };
+    let Some(mut planes) = crate::parse_checked(&map, part == Part::Device)? else { return Ok(None) };
     // The modules come from the metadata plane only, so they parse at the same time as the other planes change.
     let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
     // The operations of the TPUs do not use the groups, and of the derived lines, the op statistics use only the span that `op_span` gives.
