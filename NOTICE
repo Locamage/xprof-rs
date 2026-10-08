@@ -13,8 +13,9 @@ Python package (Apache License 2.0, copyright The TensorFlow Authors), with thes
 - bundle.js draws a chart one time when its data and its filters change. The memory viewer draws its charts one time.
 - trace_viewer_index.js calculates the hash of a string with fewer operations. To find the slice of an event, it uses a
   binary search.
-- trace_viewer_index.js gets new data 200 ms after the last change of the view. Before, it waited 500 ms. When the view
-  changes during a load, it gets new data after the load.
+- trace_viewer_index.js gets new data 200 ms after the last change of the view. Before, it waited 500 ms. Until a new
+  track view shows its first view, it waits 500 ms. When the view changes during a zoom load, it gets new data
+  after the load.
 - trace_viewer_index.js makes the colors of the stack frames when it uses them, and the tracks of one build share their
   model settings. Two auditors read the slice arrays directly, and the style shim does not apply an expression to text
   that it cannot match. It makes the keys of the first load of events when the browser is idle.
