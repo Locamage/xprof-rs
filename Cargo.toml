@@ -1,6 +1,6 @@
 [package]
 name = "xprof-rs"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 rust-version = "1.95"
 description = "Fast Rust backend for the XProf trace viewer. Its output is the same as the output of XProf 2.23.2."

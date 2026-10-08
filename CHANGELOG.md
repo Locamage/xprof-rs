@@ -1,15 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
-- The browser keeps the files of the user interface. When the page opens again, the server sends a short "not modified" response, not 1.3 MB of files. The browser also keeps its compiled scripts, so the trace viewer opens approximately 20% faster when you open it again. The page looks the same.
+The user interface and the trace viewer are faster, and they look the same. The JSON text of the trace viewer is now the same as the text of XProf.
+
+- The trace viewer writes the times as XProf does. XProf writes `%.17g` of the time in microseconds, for example `660215.41857099999`. Before, xprof-rs wrote six decimal places, for example `660215.418571`. The two texts have the same value, but the bytes were different. The response is approximately 4% larger, and its first render takes approximately 5% more time.
 - Charts that did not show now show. Before, a tool sometimes got its data before Google Charts loaded its packages. Then some charts stayed empty, for example the heap chart of the memory viewer and the device charts of the framework op stats. Now the interface starts after Google Charts is ready.
+- The browser keeps the files of the user interface. When the page opens again, the server sends a short "not modified" response, not 1.3 MB of files. The browser also keeps its compiled scripts, so the trace viewer opens approximately 20% faster when you open it again. The page looks the same.
 - The user interface is faster, and the pages look the same. On a 280 MB TPU v4 profile, the roofline model opens in 1.1 s. Before, it opened in 2.8 s. A chart draws one time when its data and its filters change. Before, it drew two times.
-- When you zoom the trace viewer, it gets new data 200 ms after the last change of the view. Before, it waited 500 ms. On a CLIP profile, the zoomed view shows in 245 ms. Before, it showed in 540 ms.
-- The first request of the op statistics tools is approximately 5% faster. The server does not do a text comparison for each event, and it checks valid text faster.
 - The trace viewer opens faster, and it shows the same trace. On a 280 MB TPU v4 profile, it opens in 1.8 s. Before, it opened in 2.0 s when the server had the trace, and in 2.3 s when the server did not have it. When the browser asks for the hosts of a profile with one host, the server starts to load the profile. Thus the load and the start of the trace viewer occur at the same time.
+- When you zoom the trace viewer, it gets new data 200 ms after the last change of the view. Before, it waited 500 ms. On a CLIP profile, the zoomed view shows in 245 ms. Before, it showed in 540 ms.
 - When you zoom the trace viewer on a 280 MB TPU v4 profile, the new view shows approximately 60 ms faster.
 - When you zoom the trace viewer during a load, it gets the data for the new view after the load. Before, it kept the data of the old view until you zoomed again.
+- The first request of the op statistics tools is approximately 5% faster. The server does not do a text comparison for each event, and it checks valid text faster.
 
 ## 0.1.2
 
