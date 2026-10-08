@@ -332,10 +332,7 @@ fn demo_trace_matches_xprof_outputs() {
     let golden = include_str!("../../tests/data/trace_viewer.json");
     assert!(same(&normalized(serde_json::from_str(golden).unwrap()), &normalized(serde_json::from_str(&produced).unwrap())), "trace viewer differs from XProf");
     let times = |text: &str| {
-        let mut times: Vec<String> = ["\"ts\":", "\"dur\":"]
-            .iter()
-            .flat_map(|key| text.split(key).skip(1).map(move |rest| format!("{key}{}", &rest[..rest.find([',', '}']).unwrap()])))
-            .collect();
+        let mut times: Vec<String> = ["\"ts\":", "\"dur\":"].iter().flat_map(|key| text.split(key).skip(1).map(move |rest| format!("{key}{}", &rest[..rest.find([',', '}']).unwrap()]))).collect();
         times.sort_unstable();
         times
     };
