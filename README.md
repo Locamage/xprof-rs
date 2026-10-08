@@ -10,7 +10,7 @@ xprof-rs is an independent project. Google and the OpenXLA project do not mainta
 
 We wrote xprof-rs with [Claude](https://www.anthropic.com/claude), an AI model from Anthropic. The tests compare the output of each tool with the output of XProf 2.23.2.
 
-On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.39 s (XProf: 5.4 s). After the first request, it opens in less than 2 ms (XProf: 0.62 s). The [performance](#performance) section has the times of all tools.
+On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.37 s (XProf: 5.3 s). After the first request, it opens in approximately 2 ms (XProf: 0.62 s). The [performance](#performance) section has the times of all tools.
 
 ![XProf 2.23.2 on the left and xprof-rs on the right open the same 279 MB TPU v4 profile for the first time](docs/demo.gif)
 
@@ -38,29 +38,29 @@ Each cell is the mean and the standard deviation of 8 trials, after 1 warmup tri
 
 | Tool | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
 |---|---|---|---|---|---|---|
-| `trace_viewer@` | 5.35 ± 0.05 s | 387 ± 12 ms | 14× | 622 ± 1 ms | 1.76 ± 0.10 ms | 353× |
-| `overview_page` | 3.94 ± 0.01 s | 245 ± 6 ms | 16× | 56.8 ± 0.3 ms | 0.458 ± 0.028 ms | 124× |
-| `op_profile` | 4.45 ± 0.03 s | 263 ± 4 ms | 17× | 576 ± 4 ms | 0.658 ± 0.034 ms | 876× |
-| `hlo_stats` | 4.06 ± 0.02 s | 249 ± 3 ms | 16× | 178 ± 1 ms | 0.513 ± 0.022 ms | 346× |
-| `framework_op_stats` | 3.98 ± 0.01 s | 251 ± 5 ms | 16× | 99.3 ± 1.6 ms | 0.446 ± 0.025 ms | 223× |
-| `input_pipeline_analyzer` | 3.95 ± 0.02 s | 245 ± 3 ms | 16× | 56.0 ± 1.5 ms | 0.453 ± 0.020 ms | 123× |
-| `roofline_model` | 4.15 ± 0.02 s | 260 ± 6 ms | 16× | 273 ± 3 ms | 0.582 ± 0.022 ms | 468× |
-| `memory_profile` | 1.71 ± 0.00 s | 124 ± 2 ms | 14× | 1.53 ± 0.01 s | 0.452 ± 0.037 ms | 3378× |
-| `pod_viewer` | 3.95 ± 0.02 s | 247 ± 10 ms | 16× | 56.1 ± 0.3 ms | 0.428 ± 0.046 ms (!) | 131× |
-| `memory_viewer` | 87.4 ± 0.6 ms | 21.6 ± 0.6 ms | 4.1× | 81.0 ± 1.6 ms | 0.370 ± 0.015 ms | 219× |
+| `trace_viewer@` | 5.34 ± 0.07 s | 373 ± 11 ms | 14× | 616 ± 2 ms | 2.05 ± 0.03 ms | 300× |
+| `overview_page` | 3.89 ± 0.02 s | 243 ± 4 ms | 16× | 55.4 ± 0.2 ms | 0.472 ± 0.029 ms | 117× |
+| `op_profile` | 4.39 ± 0.01 s | 261 ± 6 ms | 17× | 561 ± 2 ms | 0.692 ± 0.034 ms | 811× |
+| `hlo_stats` | 4.02 ± 0.01 s | 249 ± 7 ms | 16× | 175 ± 2 ms | 0.530 ± 0.032 ms | 331× |
+| `framework_op_stats` | 3.95 ± 0.01 s | 245 ± 4 ms | 16× | 97.1 ± 0.4 ms | 0.454 ± 0.032 ms | 214× |
+| `input_pipeline_analyzer` | 3.90 ± 0.02 s | 240 ± 4 ms | 16× | 54.2 ± 0.2 ms | 0.457 ± 0.038 ms | 119× |
+| `roofline_model` | 4.09 ± 0.01 s | 258 ± 4 ms | 16× | 267 ± 3 ms | 0.583 ± 0.027 ms | 458× |
+| `memory_profile` | 1.69 ± 0.01 s | 123 ± 2 ms | 14× | 1.48 ± 0.01 s | 0.469 ± 0.026 ms | 3153× |
+| `pod_viewer` | 3.89 ± 0.01 s | 242 ± 4 ms | 16× | 54.6 ± 0.3 ms | 0.449 ± 0.040 ms | 122× |
+| `memory_viewer` | 87.3 ± 0.5 ms | 21.2 ± 0.3 ms | 4.1× | 80.0 ± 1.3 ms | 0.367 ± 0.014 ms | 218× |
 
 | Command | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
 |---|---|---|---|---|---|---|
-| `get_overview` | 4.31 ± 0.07 s | 235 ± 3 ms | 18× | 233 ± 5 ms | 239 ± 6 ms | 1.0× |
-| `get_top_hlo_ops` | 5.55 ± 0.05 s | 144 ± 5 ms | 38× | 234 ± 2 ms | 149 ± 5 ms | 1.6× |
-| `get_hlo_op_profile` | 5.55 ± 0.09 s | 145 ± 5 ms | 38× | 252 ± 48 ms (!) | 148 ± 6 ms | 1.7× |
-| `get_hlo_stats` | 4.16 ± 0.03 s | 129 ± 3 ms | 32× | 233 ± 1 ms | 131 ± 5 ms | 1.8× |
-| `get_roofline_model` | 4.25 ± 0.01 s | 218 ± 5 ms | 20× | 234 ± 2 ms | 223 ± 7 ms | 1.1× |
-| `get_step_trace` | 4.09 ± 0.02 s | 236 ± 4 ms | 17× | 232 ± 2 ms | 236 ± 4 ms | 1.0× |
-| `check_host_boundness` | 66.4 ± 0.1 s | 304 ± 8 ms | 219× | 232 ± 2 ms | 306 ± 6 ms | 0.8× |
-| `get_memory_profile` | 1.85 ± 0.02 s | 136 ± 2 ms | 14× | 233 ± 4 ms | 138 ± 3 ms | 1.7× |
-| `list_hlo_modules` | 251 ± 24 ms | 5.91 ± 0.40 ms | 42× | 234 ± 4 ms | 5.31 ± 0.14 ms | 44× |
-| `aggregate_xplane_events` | 22.5 ± 1.1 s | 131 ± 16 ms (!) | 171× | 249 ± 3 ms | 134 ± 16 ms (!) | 1.9× |
+| `get_overview` | 4.21 ± 0.02 s | 237 ± 10 ms | 18× | 228 ± 1 ms | 239 ± 4 ms | 1.0× |
+| `get_top_hlo_ops` | 5.46 ± 0.02 s | 143 ± 7 ms | 38× | 228 ± 1 ms | 150 ± 8 ms | 1.5× |
+| `get_hlo_op_profile` | 5.50 ± 0.08 s | 145 ± 6 ms | 38× | 231 ± 2 ms | 146 ± 4 ms | 1.6× |
+| `get_hlo_stats` | 4.14 ± 0.01 s | 125 ± 5 ms | 33× | 230 ± 5 ms | 127 ± 3 ms | 1.8× |
+| `get_roofline_model` | 4.24 ± 0.01 s | 218 ± 4 ms | 19× | 227 ± 1 ms | 219 ± 5 ms | 1.0× |
+| `get_step_trace` | 4.07 ± 0.01 s | 236 ± 4 ms | 17× | 227 ± 1 ms | 236 ± 5 ms | 1.0× |
+| `check_host_boundness` | 65.6 ± 0.3 s | 300 ± 10 ms | 218× | 227 ± 1 ms | 300 ± 6 ms | 0.8× |
+| `get_memory_profile` | 1.84 ± 0.00 s | 135 ± 2 ms | 14× | 226 ± 1 ms | 134 ± 2 ms | 1.7× |
+| `list_hlo_modules` | 238 ± 2 ms | 5.73 ± 0.31 ms | 42× | 227 ± 2 ms | 5.30 ± 0.22 ms | 43× |
+| `aggregate_xplane_events` | 21.8 ± 0.1 s | 120 ± 7 ms | 182× | 243 ± 2 ms | 118 ± 3 ms | 2.0× |
 
 Some warm XProf commands are as fast as xprof-rs or faster. XProf keeps each result in a cache in `$TMPDIR`, and a second call reads this cache. xprof-rs has no result cache. It reads the profile again for each call.
 
