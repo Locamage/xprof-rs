@@ -4,7 +4,7 @@ use crate::tools::opstats::{Builder, Db, EventReader, IDLE, Metrics, Templates, 
 use crate::tools::roofline::accumulate;
 use crate::xplane::derive::{STEP_LINE, is_derived, is_tensor_core};
 use crate::xplane::group::is_sparse_core;
-use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, event_stats, fields, nested, slice, stats};
+use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, event_stats, fields, lossy, nested, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -594,7 +594,7 @@ fn is_training(planes: &[Plane], map: &[u8]) -> bool {
     let modules = crate::hlo::protos(planes, map);
     let instructions: Vec<&[u8]> = modules.iter().flat_map(|(_, proto)| nested(proto, 1)).flat_map(|module| nested(module, 3)).flat_map(|computation| nested(computation, 2)).collect();
     instructions.par_iter().flat_map_iter(|instruction| nested(instruction, 7)).any(|metadata| {
-        let text = |wanted: u32| nested(metadata, wanted).last().map(|bytes| String::from_utf8_lossy(bytes).into_owned()).unwrap_or_default();
+        let text = |wanted: u32| nested(metadata, wanted).last().map(|bytes| lossy(bytes).into_owned()).unwrap_or_default();
         training(&text(2), &text(1))
     })
 }
@@ -610,7 +610,7 @@ fn add_metrics(total: &mut [Metrics; 2], part: &[Metrics; 2], times: [u64; 2]) {
 pub fn header(planes: &[Plane], map: &[u8]) -> Extra {
     let texts = |tag: u32| {
         let mut seen = HashSet::new();
-        nested(map, tag).map(|bytes| String::from_utf8_lossy(bytes).into_owned()).filter(|text| seen.insert(text.clone())).collect::<Vec<String>>()
+        nested(map, tag).map(|bytes| lossy(bytes).into_owned()).filter(|text| seen.insert(text.clone())).collect::<Vec<String>>()
     };
     let hostname = texts(4).into_iter().next().unwrap_or_else(|| "localhost".into());
     let mut extra = Extra { errors: texts(2), warnings: texts(3), hostnames: vec![hostname.clone()], tasks: 1, device_type: "CPU".into(), hardware: CPU_ONLY, ..Default::default() };
