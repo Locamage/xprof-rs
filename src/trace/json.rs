@@ -15,6 +15,15 @@ const FRAME_CLOSE: &str = "\u{2}";
 const LONG_NAME_LIMIT: usize = 10_000;
 const HASH_MUL: u64 = 0xc6a4a7935bd1e995;
 const HASH_SEED: u64 = 0xc70f6907;
+const POWERS: [u128; 21] = {
+    let mut powers = [1; 21];
+    let mut index = 1;
+    while index < 21 {
+        powers[index] = powers[index - 1] * 10;
+        index += 1;
+    }
+    powers
+};
 pub const CONTEXT_TYPES: &str =
     "||tf_exec|tfrt_exec|batch_sched|PjRt|as_batch_sched|tfrt_rt|tpu_embed|gpu_launch|batcher|tpu_stream|tpu_launch|pathways_exec|pjrt_library_call|threadpool_event|jax_serving|sparsecore_offload";
 
@@ -55,15 +64,6 @@ pub fn micros(out: &mut String, ps: u64) {
     }
     let bits = value.to_bits();
     let (mantissa, shift) = (u128::from(bits & ((1 << 52) - 1) | 1 << 52), 1075 - (bits >> 52) as u32);
-    const POWERS: [u128; 21] = {
-        let mut powers = [1; 21];
-        let mut index = 1;
-        while index < 21 {
-            powers[index] = powers[index - 1] * 10;
-            index += 1;
-        }
-        powers
-    };
     let mut exponent = ps.ilog10() as i32 - 6;
     let digits = loop {
         let scaled = mantissa * POWERS[(16 - exponent) as usize];
