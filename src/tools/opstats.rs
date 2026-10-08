@@ -342,10 +342,10 @@ impl<'a> Builder<'a> {
         let (meta, min_time_ps) = (event.meta as usize, stats.min_time_ps.unwrap_or(event.dur));
         let slot = self.templates.slots[meta];
         let (Some(position), Some((_, template))) = (self.positions.get_mut(slot as usize), &self.templates.metas[meta]) else { return };
-        let (custom, fresh) = (template.category == CUSTOM_CALL, *position == u32::MAX);
+        let fresh = *position == u32::MAX;
         if fresh {
             *position = self.entries.len() as u32;
-            self.entries.push((slot, Accumulator { template, custom, totals: Totals { min_time_ps, ..Default::default() } }));
+            self.entries.push((slot, Accumulator { template, custom: template.category == CUSTOM_CALL, totals: Totals { min_time_ps, ..Default::default() } }));
         }
         let entry = &mut self.entries[*position as usize].1;
         let totals = &mut entry.totals;
@@ -360,7 +360,7 @@ impl<'a> Builder<'a> {
             totals.vdd_energy = Some(stats.vdd_energy.unwrap_or(0.0) + totals.vdd_energy.unwrap_or(0.0));
         }
         if fresh || entry.custom {
-            let custom = if custom { stats.custom } else { [0; 3] };
+            let custom = if entry.custom { stats.custom } else { [0; 3] };
             totals.flops_v2 += template.flops_v2 + custom[2] as f64;
             totals.model_flops_v2 += template.model_flops_v2 + custom[1] as f64;
             totals.bytes_accessed += template.bytes_accessed + custom[0];

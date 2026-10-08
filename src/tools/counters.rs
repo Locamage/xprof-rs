@@ -1,6 +1,6 @@
 use crate::tools::table::{Cell, Table, number, string};
 use crate::tools::utilization::{Device, Metric, compute};
-use crate::xplane::{Field, Value, fields, nested, stats, varint};
+use crate::xplane::{Field, Value, fields, lossy, nested, stats, varint};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use serde_json::{Value as Json, json};
@@ -227,7 +227,7 @@ pub fn planes(map: &[u8], keep: impl Fn(&[u8]) -> bool) -> Vec<Plane<'_>> {
             let mut plane = Plane { name: String::new(), bytes, stat_names: FxHashMap::default(), metadata: FxHashMap::default(), lines: Vec::new() };
             for (tag, field) in fields(bytes) {
                 match (tag, field) {
-                    (2, Field::Bytes(_, name)) => plane.name = String::from_utf8_lossy(name).into_owned(),
+                    (2, Field::Bytes(_, name)) => plane.name = lossy(name).into_owned(),
                     (3, Field::Bytes(_, line)) => plane.lines.push(line),
                     (4, Field::Bytes(_, item)) => {
                         let (key, value) = entry(item);
@@ -247,7 +247,7 @@ pub fn planes(map: &[u8], keep: impl Fn(&[u8]) -> bool) -> Vec<Plane<'_>> {
 
 fn line(bytes: &[u8]) -> Line<'_> {
     let (id, name) = entry(bytes);
-    Line { id: id as i64, name: String::from_utf8_lossy(name).into_owned(), bytes }
+    Line { id: id as i64, name: lossy(name).into_owned(), bytes }
 }
 
 fn chunks(bytes: &[u8]) -> Vec<&[u8]> {
@@ -288,8 +288,8 @@ impl<'a> Plane<'a> {
 
     fn text(&self, value: &Value) -> String {
         match value {
-            Value::Str(bytes) => String::from_utf8_lossy(bytes).into_owned(),
-            Value::Ref(id) => self.stat_names.get(id).map(|name| String::from_utf8_lossy(name).into_owned()).unwrap_or_default(),
+            Value::Str(bytes) => lossy(bytes).into_owned(),
+            Value::Ref(id) => self.stat_names.get(id).map(|name| lossy(name).into_owned()).unwrap_or_default(),
             _ => String::new(),
         }
     }
@@ -396,7 +396,7 @@ fn perf_rows(plane: &Plane, host: &str) -> Vec<String> {
                             out.push(',');
                         }
                         out.push_str(&prefix);
-                        let name = names.entry(event.meta).or_insert_with(|| plane.metadata.get(&event.meta).map_or_else(String::new, |(name, _)| String::from_utf8_lossy(name).to_ascii_lowercase()));
+                        let name = names.entry(event.meta).or_insert_with(|| plane.metadata.get(&event.meta).map_or_else(String::new, |(name, _)| lossy(name).to_ascii_lowercase()));
                         string(&mut out, name);
                         write!(out, "}},{{\"f\":\"0x{value:x}\",\"v\":").unwrap();
                         number(&mut out, value as f64);
@@ -516,7 +516,7 @@ fn first_kernel(plane: &Plane, sort: bool) -> String {
         let pieces = chunks(line.bytes);
         if sort { pieces.par_iter().filter_map(named).collect::<Vec<_>>().into_iter().min_by_key(|found| found.0) } else { pieces.par_iter().find_map_first(named) }
     });
-    found.map(|(_, name)| String::from_utf8_lossy(name).into_owned()).unwrap_or_default()
+    found.map(|(_, name)| lossy(name).into_owned()).unwrap_or_default()
 }
 
 pub struct Filter {

@@ -6,6 +6,7 @@
 - Charts that did not show now show. Before, a tool sometimes got its data before Google Charts loaded its packages. Then some charts stayed empty, for example the heap chart of the memory viewer and the device charts of the framework op stats. Now the interface starts after Google Charts is ready.
 - The user interface is faster, and the pages look the same. On a 280 MB TPU v4 profile, the roofline model opens in 1.1 s. Before, it opened in 2.8 s. A chart draws one time when its data and its filters change. Before, it drew two times.
 - When you zoom the trace viewer, it gets new data 200 ms after the last change of the view. Before, it waited 500 ms. On a CLIP profile, the zoomed view shows in 245 ms. Before, it showed in 540 ms.
+- The first request of the op statistics tools is approximately 5% faster. The server does not do a text comparison for each event, and it checks valid text faster.
 - When you zoom the trace viewer during a load, it gets the data for the new view after the load. Before, it kept the data of the old view until you zoomed again.
 
 ## 0.1.2
