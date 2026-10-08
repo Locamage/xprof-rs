@@ -15353,7 +15353,7 @@ var tf_component_traceviewer;
       this._replaceModel = replaceModel;
       const startTime = performance.now();
       this._throbber.className = 'active';
-      const startViewport = this._isStreaming && this._traceViewer.trackView ? this._trackViewRange(this._traceViewer.trackView) : null;
+      const startViewport = this._isStreaming && !replaceModel && this._traceViewer.trackView ? this._trackViewRange(this._traceViewer.trackView) : null;
       const showWaitMsgLater = tf_component_traceviewer.debounce(
           this._showWaitMessage.bind(this), 20000);  // 20 seconds
       showWaitMsgLater(true);
@@ -15977,18 +15977,22 @@ var tf_component_traceviewer;
      */
     _listenForViewportChanges: function() {
       const _trackViewChanged = this._trackViewChanged.bind(this);
-      const _debouncedOnViewportChanged = tf_component_traceviewer.debounce(this._onViewportChanged.bind(this), 200);
+      const _onViewportChanged = this._onViewportChanged.bind(this);
+      let timer;
       const superOnViewportChanged_ = this._traceViewer.onViewportChanged_.bind(this._traceViewer);
       let prevTrackView = this._traceViewer.trackView;
       this._traceViewer.onViewportChanged_ = (...args) => {
         superOnViewportChanged_(...args);
 
         if (this._traceViewer.trackView != undefined) {
-          _debouncedOnViewportChanged();
           if (this._traceViewer.trackView !== prevTrackView) {
             prevTrackView = this._traceViewer.trackView;
             _trackViewChanged(this._traceViewer.trackView);
           }
+          // Until the initial viewport is set, the changes come from the build, and the wait is 500 ms as in XProf.
+          // A shorter wait records the empty viewport, and _initViewport then restores it.
+          clearTimeout(timer);
+          timer = setTimeout(_onViewportChanged, this._initialViewportSet ? 200 : 500);
         }
       };
       // if called after trackView already created, then reset listener
@@ -16005,9 +16009,11 @@ var tf_component_traceviewer;
      */
     _trackViewChanged: function(newTrackView) {
       const superSetInitialViewport_ = newTrackView.setInitialViewport_.bind(newTrackView);
+      this._initialViewportSet = false;
       newTrackView.setInitialViewport_ = () => {
         superSetInitialViewport_();
         this._initViewport();
+        this._initialViewportSet = true;
       };
     },
   });
