@@ -254,7 +254,7 @@ xprof-rs replaces the backend. It does not replace the complete XProf distributi
 
 xprof-rs cannot copy these outputs.
 
-- The order of tied rows in `hlo_stats`, `op_profile`, `memory_viewer`, and `get_peak_allocations`. XProf uses hash order. The seed changes for each process.
+- The order of tied rows in `hlo_stats`, `op_profile`, `memory_viewer`, and `get_peak_allocations`. XProf uses hash order. The seed changes for each process. A node of `op_profile` shows at most 100 children. When children have the same time, the tie order selects the children that show. The category sums of `get_hlo_op_profile` add the children that show, so these sums can also change.
 - The order of processes and threads in the protobuf.
 - The allocator peaks and the fragmentation snapshot of the memory profile.
 - The `bind_id` flow ids of the trace viewer.
