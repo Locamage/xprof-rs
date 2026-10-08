@@ -63,6 +63,17 @@ fn picos_to_micros_test() {
         micros(&mut out, ps);
         assert_eq!(out.parse::<f64>().unwrap(), expected);
     }
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let edges = [0, 1, 99, 100, 101, 999_999, 1_000_000, 660_215_418_571, 999_999_999_999_999_999, 10u64.pow(19), u64::MAX];
+    let random = (0..200_000).map(|index| {
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        state >> (index % 64)
+    });
+    for ps in edges.into_iter().chain(random) {
+        let mut out = String::new();
+        micros(&mut out, ps);
+        assert_eq!(out, crate::hlo::general(ps as f64 / 1e6, 17), "{ps}");
+    }
 }
 
 #[test]
