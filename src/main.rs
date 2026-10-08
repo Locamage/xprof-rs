@@ -72,6 +72,7 @@ const NO_DATA: &str = "No Data";
 const OUTSIDE: &str = "Path outside logdir";
 const USAGE: &str = "usage: xprof-rs [--logdir DIR|URL] [--port PORT] [--host ADDRESS] [--src_prefix PREFIX] [--hide_capture_profile_button] [--enable_tab_name_label]\n       [--grpc_port PORT] [--worker_service_address ADDRESS] [--max_concurrent_worker_requests N]  (The server accepts the last three flags and does not use them.)";
 const SECURITY_POLICY: &str = "default-src 'self';script-src 'self' 'unsafe-eval' 'unsafe-inline' https://www.gstatic.com;object-src 'none';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com;font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com data:;connect-src 'self' data: www.gstatic.com;img-src 'self' blob: data:;frame-src 'self' https://ui.perfetto.dev;script-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/ https://www.gstatic.com";
+const STATS_TOOLS: [&str; 8] = ["hlo_stats", "kernel_stats", "framework_op_stats", "overview_page", "input_pipeline_analyzer", "op_profile", "roofline_model", "pod_viewer"];
 const ALL_HOSTS_ONLY: [&str; 3] = ["overview_page", "pod_viewer", "smart_suggestion"];
 const ALL_HOSTS_ALSO: [&str; 6] = ["input_pipeline_analyzer", "framework_op_stats", "kernel_stats", "overview_page", "pod_viewer", "megascale_stats"];
 const CONTENT_TYPES: [(&str, &str); 4] = [("html", "text/html"), ("js", "application/javascript"), ("css", "text/css"), ("wasm", "application/wasm")];
@@ -555,8 +556,18 @@ async fn run_tools(State(state): State<Shared>, Query(params): Query<Params>) ->
 
 async fn hosts(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
     let dir = or_fail!(session(&state, &params));
-    let mut names: Vec<String> = xplanes(&dir).iter().map(|path| host_name(path)).collect();
+    let files = xplanes(&dir);
+    let mut names: Vec<String> = files.iter().map(|path| host_name(path)).collect();
     let tool = params.get("tag").map_or("", String::as_str);
+    // The browser asks for the hosts before it asks for the data of a tool. The load of a single host starts now, and the request for the data joins it.
+    if let [file] = &files[..] {
+        let file = file.clone();
+        if tool == "trace_viewer@" {
+            tokio::spawn(async move { _ = state.hosts.get(file, &state.loads, shared_host).await });
+        } else if STATS_TOOLS.contains(&tool) {
+            tokio::spawn(async move { _ = state.stats.get(file, &state.loads, tools::opstats::load).await });
+        }
+    }
     if names.len() > 1 && ALL_HOSTS_ONLY.contains(&tool) {
         names = vec!["ALL_HOSTS".into()];
     } else if names.len() > 1 && ALL_HOSTS_ALSO.contains(&tool) {
