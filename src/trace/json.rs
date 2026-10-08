@@ -47,10 +47,44 @@ fn number(out: &mut String, value: u64) {
     out.push_str(itoa::Buffer::new().format(value));
 }
 
+/// Writes `%.17g` of `ps / 1e6` as glibc does. Below 100 ps, `%g` uses an exponent, and `snprintf` writes the text.
 pub fn micros(out: &mut String, ps: u64) {
-    number(out, ps / 1_000_000);
-    out.push('.');
-    out.push_str(&itoa::Buffer::new().format(ps % 1_000_000 + 1_000_000)[1..]);
+    let value = ps as f64 / 1e6;
+    if ps < 100 {
+        return out.push_str(&crate::hlo::general(value, 17));
+    }
+    let bits = value.to_bits();
+    let (mantissa, shift) = (u128::from(bits & ((1 << 52) - 1) | 1 << 52), 1075 - (bits >> 52) as u32);
+    const POWERS: [u128; 21] = {
+        let mut powers = [1; 21];
+        let mut index = 1;
+        while index < 21 {
+            powers[index] = powers[index - 1] * 10;
+            index += 1;
+        }
+        powers
+    };
+    let mut exponent = ps.ilog10() as i32 - 6;
+    let digits = loop {
+        let scaled = mantissa * POWERS[(16 - exponent) as usize];
+        let (mut digits, rest, half) = (scaled >> shift, scaled & ((1 << shift) - 1), 1u128 << (shift - 1));
+        digits += u128::from(rest > half || rest == half && digits & 1 == 1);
+        match digits {
+            ..10_000_000_000_000_000 => exponent -= 1,
+            100_000_000_000_000_000.. => exponent += 1,
+            _ => break digits as u64,
+        }
+    };
+    let mut buffer = itoa::Buffer::new();
+    let text = buffer.format(digits);
+    let (whole, fraction) = if exponent < 0 { ("0", text) } else { text.split_at(exponent as usize + 1) };
+    out.push_str(whole);
+    let fraction = fraction.trim_end_matches('0');
+    if !fraction.is_empty() {
+        out.push('.');
+        (exponent + 1..0).for_each(|_| out.push('0'));
+        out.push_str(fraction);
+    }
 }
 
 pub fn double(value: f64) -> String {

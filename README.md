@@ -258,6 +258,7 @@ xprof-rs cannot copy these outputs.
 - The order of processes and threads in the protobuf.
 - The allocator peaks and the fragmentation snapshot of the memory profile.
 - The `bind_id` flow ids of the trace viewer.
+- The order of the `stackFrames` entries of the trace viewer. XProf writes them in hash order.
 - The graph node ids. They are heap pointers.
 - The hover CSS rules and the caller lists of the graph viewer.
 - The `Launch Stats` line of a GPU device. XProf writes it in hash order. The `uid` of host events at the same timestamp can differ.

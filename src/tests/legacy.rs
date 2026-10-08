@@ -328,9 +328,18 @@ fn demo_trace_matches_xprof_outputs() {
     let host = load_host(&path).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
     let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&Options { start_ms: 0.0, end_ms: 0.0, resolution: 8000.0, full_dma: false }) };
-    let produced: serde_json::Value = serde_json::from_slice(&render(&[view], false, false)).unwrap();
-    let golden = serde_json::from_str(include_str!("../../tests/data/trace_viewer.json")).unwrap();
-    assert!(same(&normalized(golden), &normalized(produced)), "trace viewer differs from XProf");
+    let produced = String::from_utf8(render(&[view], false, false)).unwrap();
+    let golden = include_str!("../../tests/data/trace_viewer.json");
+    assert!(same(&normalized(serde_json::from_str(golden).unwrap()), &normalized(serde_json::from_str(&produced).unwrap())), "trace viewer differs from XProf");
+    let times = |text: &str| {
+        let mut times: Vec<String> = ["\"ts\":", "\"dur\":"]
+            .iter()
+            .flat_map(|key| text.split(key).skip(1).map(move |rest| format!("{key}{}", &rest[..rest.find([',', '}']).unwrap()])))
+            .collect();
+        times.sort_unstable();
+        times
+    };
+    assert!(times(golden) == times(&produced), "the text of the trace viewer times differs from XProf");
 }
 
 #[test]
