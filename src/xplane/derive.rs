@@ -271,15 +271,38 @@ fn meta_tags(plane: &Plane, map: &[u8]) -> Vec<Tags> {
 
 /// The first start and the last end of the events of the "Framework Ops" line that `derive` adds.
 pub fn op_span(plane: &Plane, map: &[u8]) -> Option<(u64, u64)> {
-    let (tags, scan) = (meta_tags(plane, map), tagger(plane));
-    let ops = plane.lines.par_iter().flat_map(|line| &line.events).filter(|event| {
-        let (tf_op, _, is_async) = &tags[event.meta as usize];
-        match scan(slice(map, event.raw), 4) {
-            Some(own) => (if own.2 != 0 { own.2 } else { *is_async }) == 0 && !(own.0.is_empty() && tf_op.is_empty()),
-            None => *is_async == 0 && !tf_op.is_empty(),
-        }
-    });
-    ops.map(|event| (event.ts, event.ts + event.dur)).reduce_with(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+    let scan = tagger(plane);
+    plane
+        .lines
+        .par_iter()
+        .filter_map(|line| {
+            let mut tags: FxHashMap<u32, Tags> = FxHashMap::default();
+            let mut op = |event: &Ev| {
+                let (tf_op, _, is_async) = &*tags.entry(event.meta).or_insert_with(|| scan(slice(map, plane.meta[event.meta as usize].raw), 5).unwrap_or_default());
+                match scan(slice(map, event.raw), 4) {
+                    Some(own) => (if own.2 != 0 { own.2 } else { *is_async }) == 0 && !(own.0.is_empty() && tf_op.is_empty()),
+                    None => *is_async == 0 && !tf_op.is_empty(),
+                }
+            };
+            let events = &line.events;
+            if !events.is_sorted_by_key(|event| event.ts) {
+                return events.iter().filter(|event| op(event)).map(|event| (event.ts, event.ts + event.dur)).reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)));
+            }
+            // In time order, the first op has the first start. From the back, no earlier event ends after `last` when its start plus the longest duration is not after `last`.
+            let first = events.iter().position(&mut op)?;
+            let longest = events.iter().map(|event| event.dur).max().unwrap_or(0);
+            let mut last = 0;
+            for event in events[first..].iter().rev() {
+                if event.ts.saturating_add(longest) <= last {
+                    break;
+                }
+                if event.ts + event.dur > last && op(event) {
+                    last = event.ts + event.dur;
+                }
+            }
+            Some((events[first].ts, last))
+        })
+        .reduce_with(|a, b| (a.0.min(b.0), a.1.max(b.1)))
 }
 
 pub fn derive(plane: &mut Plane, map: &[u8]) {

@@ -29,6 +29,11 @@
       };
     })();
   </script>
+  <style>
+    /* Google Charts puts all the rows of each chart in a table outside the page for screen readers. The layout of a
+       large table takes more than one second, but the page does not show it. */
+    div[aria-label="A tabular representation of the data in the chart."] { content-visibility: auto; }
+  </style>
 
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>

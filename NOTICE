@@ -9,7 +9,8 @@ The TensorFlow Authors hold the copyright of both projects. Both projects use th
 The web interface that xprof-rs serves is the interface of XProf. The files in ui/ are the files of the XProf 2.23.2
 Python package (Apache License 2.0, copyright The TensorFlow Authors), with these changes:
 - index.html starts the bundle after Google Charts loads its packages. It keeps the Intl.NumberFormat objects that
-  Number.prototype.toLocaleString makes, and it gets styles.css and zone.js only one time.
+  Number.prototype.toLocaleString makes, and it gets styles.css and zone.js only one time. The browser does not do the
+  layout of the hidden tables that Google Charts makes for screen readers until they come into view.
 - bundle.js draws a chart one time when its data and its filters change. The memory viewer draws its charts one time.
 - trace_viewer_index.js calculates the hash of a string with fewer operations. To find the slice of an event, it uses a
   binary search.
