@@ -15,6 +15,8 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - When you zoom the trace viewer during a load, it gets the data for the new view after the load. Before, it kept the data of the old view until you zoomed again.
 - On a 280 MB TPU v4 profile, the first request of the op statistics tools is 2% to 3% faster. The server does not do a text comparison for each event, and it checks valid text faster.
 - On a 280 MB TPU v4 profile with 4 cores, the CLI commands that read op statistics are 4% to 6% faster. On an 80 MB profile, they are 1% to 5% faster. For the time span of the XLA ops on a line, xprof-rs reads only the first and the last events of the line. Before, it read the stats of all the events.
+- `get_xspace_proto` removes the old file in `/tmp` before it writes the new file. On ext4, a write over a large file waits until the disk has the data. On an 80 MB profile, the command takes 0.10 s. Before, it took 0.60 s. The file does not change.
+- The README shows the times of all the CLI commands that need only a session.
 
 ## 0.1.2
 
