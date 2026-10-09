@@ -507,8 +507,8 @@ pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, spa
         }
         let mut stack: Vec<(&Ev, EventStats, (u64, u64), u64)> = Vec::new();
         let mut finish = |(event, stats, span, children): (&Ev, EventStats, (u64, u64), u64)| builder.add(event, &stats, (span.1, span.1.saturating_sub(children)), true);
-        for event in &line.events {
-            let stats = reader.read(map, event);
+        // The reads of a chunk run in parallel. One chunk at a time keeps the memory small.
+        for (event, stats) in line.events.chunks(1 << 14).flat_map(|chunk| chunk.iter().zip(chunk.par_iter().with_min_len(1024).map(|event| reader.read(map, event)).collect::<Vec<_>>())) {
             let span = stats.span(event);
             first = first.min(span.0);
             last = last.max(span.0.saturating_add(span.1));
