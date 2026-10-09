@@ -28,7 +28,11 @@ from pathlib import Path
 TOOLS = ["trace_viewer@", "overview_page", "op_profile", "hlo_stats", "framework_op_stats", "input_pipeline_analyzer",
          "roofline_model", "memory_profile", "pod_viewer", "memory_viewer"]
 COMMANDS = ["get_overview", "get_top_hlo_ops", "get_hlo_op_profile", "get_hlo_stats", "get_roofline_model", "get_step_trace",
-            "check_host_boundness", "get_memory_profile", "list_hlo_modules", "aggregate_xplane_events"]
+            "check_host_boundness", "get_memory_profile", "list_hlo_modules", "aggregate_xplane_events", "compute_utilization",
+            "get_avg_step_time", "get_device_information", "get_graph_viewer", "get_hlo_module_content", "get_hlo_text",
+            "get_hosts", "get_kernel_stats", "get_kernel_utilization", "get_kpi_metrics", "get_llo_analysis",
+            "get_llo_debug_string", "get_peak_allocations", "get_profile_summary", "get_utilization_viewer",
+            "get_xspace_proto", "list_xplane_events"]
 WARM_REQUESTS = 5
 UNSTABLE = 0.10
 

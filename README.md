@@ -38,31 +38,50 @@ Each cell is the mean and the standard deviation of 8 trials, after 1 warmup tri
 
 | Tool | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
 |---|---|---|---|---|---|---|
-| `trace_viewer@` | 5.34 ± 0.07 s | 373 ± 11 ms | 14× | 616 ± 2 ms | 2.05 ± 0.03 ms | 300× |
-| `overview_page` | 3.89 ± 0.02 s | 243 ± 4 ms | 16× | 55.4 ± 0.2 ms | 0.472 ± 0.029 ms | 117× |
-| `op_profile` | 4.39 ± 0.01 s | 261 ± 6 ms | 17× | 561 ± 2 ms | 0.692 ± 0.034 ms | 811× |
-| `hlo_stats` | 4.02 ± 0.01 s | 249 ± 7 ms | 16× | 175 ± 2 ms | 0.530 ± 0.032 ms | 331× |
-| `framework_op_stats` | 3.95 ± 0.01 s | 245 ± 4 ms | 16× | 97.1 ± 0.4 ms | 0.454 ± 0.032 ms | 214× |
-| `input_pipeline_analyzer` | 3.90 ± 0.02 s | 240 ± 4 ms | 16× | 54.2 ± 0.2 ms | 0.457 ± 0.038 ms | 119× |
-| `roofline_model` | 4.09 ± 0.01 s | 258 ± 4 ms | 16× | 267 ± 3 ms | 0.583 ± 0.027 ms | 458× |
-| `memory_profile` | 1.69 ± 0.01 s | 123 ± 2 ms | 14× | 1.48 ± 0.01 s | 0.469 ± 0.026 ms | 3153× |
-| `pod_viewer` | 3.89 ± 0.01 s | 242 ± 4 ms | 16× | 54.6 ± 0.3 ms | 0.449 ± 0.040 ms | 122× |
-| `memory_viewer` | 87.3 ± 0.5 ms | 21.2 ± 0.3 ms | 4.1× | 80.0 ± 1.3 ms | 0.367 ± 0.014 ms | 218× |
+| `trace_viewer@` | 5.62 ± 0.06 s | 376 ± 14 ms | 15× | 621 ± 1 ms | 2.01 ± 0.07 ms | 310× |
+| `overview_page` | 3.94 ± 0.02 s | 238 ± 4 ms | 17× | 57.5 ± 1.4 ms | 0.455 ± 0.025 ms | 126× |
+| `op_profile` | 4.43 ± 0.02 s | 259 ± 6 ms | 17× | 571 ± 2 ms | 0.675 ± 0.040 ms | 846× |
+| `hlo_stats` | 4.05 ± 0.01 s | 246 ± 6 ms | 16× | 179 ± 2 ms | 0.513 ± 0.032 ms | 348× |
+| `framework_op_stats` | 3.98 ± 0.02 s | 244 ± 8 ms | 16× | 99.6 ± 1.5 ms | 0.442 ± 0.033 ms | 225× |
+| `input_pipeline_analyzer` | 3.93 ± 0.02 s | 238 ± 5 ms | 17× | 56.1 ± 1.5 ms | 0.447 ± 0.037 ms | 126× |
+| `roofline_model` | 4.12 ± 0.01 s | 253 ± 4 ms | 16× | 270 ± 1 ms | 0.567 ± 0.035 ms | 476× |
+| `memory_profile` | 1.70 ± 0.01 s | 125 ± 1 ms | 14× | 1.55 ± 0.01 s | 0.446 ± 0.032 ms | 3487× |
+| `pod_viewer` | 3.92 ± 0.01 s | 234 ± 3 ms | 17× | 55.7 ± 0.2 ms | 0.441 ± 0.031 ms | 126× |
+| `memory_viewer` | 85.9 ± 0.2 ms | 21.7 ± 0.7 ms | 4.0× | 79.9 ± 0.1 ms | 0.389 ± 0.027 ms | 205× |
 
 | Command | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
 |---|---|---|---|---|---|---|
-| `get_overview` | 4.21 ± 0.02 s | 237 ± 10 ms | 18× | 228 ± 1 ms | 239 ± 4 ms | 1.0× |
-| `get_top_hlo_ops` | 5.46 ± 0.02 s | 143 ± 7 ms | 38× | 228 ± 1 ms | 150 ± 8 ms | 1.5× |
-| `get_hlo_op_profile` | 5.50 ± 0.08 s | 145 ± 6 ms | 38× | 231 ± 2 ms | 146 ± 4 ms | 1.6× |
-| `get_hlo_stats` | 4.14 ± 0.01 s | 125 ± 5 ms | 33× | 230 ± 5 ms | 127 ± 3 ms | 1.8× |
-| `get_roofline_model` | 4.24 ± 0.01 s | 218 ± 4 ms | 19× | 227 ± 1 ms | 219 ± 5 ms | 1.0× |
-| `get_step_trace` | 4.07 ± 0.01 s | 236 ± 4 ms | 17× | 227 ± 1 ms | 236 ± 5 ms | 1.0× |
-| `check_host_boundness` | 65.6 ± 0.3 s | 300 ± 10 ms | 218× | 227 ± 1 ms | 300 ± 6 ms | 0.8× |
-| `get_memory_profile` | 1.84 ± 0.00 s | 135 ± 2 ms | 14× | 226 ± 1 ms | 134 ± 2 ms | 1.7× |
-| `list_hlo_modules` | 238 ± 2 ms | 5.73 ± 0.31 ms | 42× | 227 ± 2 ms | 5.30 ± 0.22 ms | 43× |
-| `aggregate_xplane_events` | 21.8 ± 0.1 s | 120 ± 7 ms | 182× | 243 ± 2 ms | 118 ± 3 ms | 2.0× |
+| `get_overview` | 4.22 ± 0.01 s | 239 ± 13 ms | 18× | 226 ± 1 ms | 234 ± 10 ms | 1.0× |
+| `get_top_hlo_ops` | 5.47 ± 0.01 s | 138 ± 2 ms | 40× | 227 ± 1 ms | 137 ± 2 ms | 1.7× |
+| `get_hlo_op_profile` | 5.48 ± 0.02 s | 141 ± 8 ms | 39× | 230 ± 2 ms | 136 ± 4 ms | 1.7× |
+| `get_hlo_stats` | 4.14 ± 0.02 s | 123 ± 4 ms | 34× | 227 ± 1 ms | 121 ± 4 ms | 1.9× |
+| `get_roofline_model` | 4.24 ± 0.01 s | 214 ± 6 ms | 20× | 227 ± 1 ms | 210 ± 2 ms | 1.1× |
+| `get_step_trace` | 4.08 ± 0.02 s | 230 ± 3 ms | 18× | 226 ± 1 ms | 228 ± 2 ms | 1.0× |
+| `check_host_boundness` | 67.6 ± 0.3 s | 293 ± 8 ms | 231× | 227 ± 1 ms | 293 ± 9 ms | 0.8× |
+| `get_memory_profile` | 1.84 ± 0.00 s | 137 ± 2 ms | 13× | 226 ± 2 ms | 134 ± 2 ms | 1.7× |
+| `list_hlo_modules` | 226 ± 3 ms | 5.81 ± 0.25 ms | 39× | 225 ± 1 ms | 5.27 ± 0.17 ms | 43× |
+| `aggregate_xplane_events` | 22.0 ± 0.1 s | 127 ± 3 ms | 173× | 244 ± 5 ms | 121 ± 4 ms | 2.0× |
+| `compute_utilization` | 3.11 ± 0.01 s | 46.8 ± 0.6 ms | 67× | 226 ± 1 ms | 45.6 ± 0.3 ms | 5.0× |
+| `get_avg_step_time` | 1.35 ± 0.00 s | 53.1 ± 2.5 ms | 25× | 226 ± 1 ms | 50.3 ± 0.9 ms | 4.5× |
+| `get_device_information` | 4.18 ± 0.01 s | 190 ± 3 ms | 22× | 226 ± 1 ms | 188 ± 5 ms | 1.2× |
+| `get_graph_viewer` | 342 ± 1 ms | 32.3 ± 0.9 ms | 11× | 342 ± 1 ms | 32.3 ± 0.7 ms | 11× |
+| `get_hlo_module_content` | 349 ± 2 ms | 33.2 ± 1.4 ms | 10× | 227 ± 1 ms | 32.5 ± 0.7 ms | 7.0× |
+| `get_hlo_text` | 349 ± 1 ms | 32.7 ± 0.6 ms | 11× | 228 ± 1 ms | 32.9 ± 1.0 ms | 6.9× |
+| `get_hosts` | 225 ± 1 ms | 5.77 ± 0.31 ms | 39× | 225 ± 1 ms | 5.35 ± 0.14 ms | 42× |
+| `get_kernel_stats` | 11.9 ± 0.0 s | 72.4 ± 2.6 ms | 165× | 226 ± 1 ms | 71.0 ± 2.8 ms | 3.2× |
+| `get_kernel_utilization` | 3.11 ± 0.01 s | 46.5 ± 0.5 ms | 67× | 226 ± 1 ms | 45.4 ± 0.4 ms | 5.0× |
+| `get_kpi_metrics` | 5.44 ± 0.01 s | 252 ± 3 ms | 22× | 228 ± 1 ms | 253 ± 4 ms | 0.9× |
+| `get_llo_analysis` | 1.31 ± 0.00 s | 6.13 ± 0.20 ms | 213× | 1.30 ± 0.00 s | 5.27 ± 0.27 ms | 247× |
+| `get_llo_debug_string` | 1.30 ± 0.01 s | 5.99 ± 0.17 ms | 217× | 1.30 ± 0.00 s | 5.32 ± 0.26 ms | 245× |
+| `get_peak_allocations` | 301 ± 1 ms | 28.3 ± 0.5 ms | 11× | 226 ± 1 ms | 28.5 ± 0.4 ms | 7.9× |
+| `get_profile_summary` | 5.45 ± 0.01 s | 131 ± 3 ms | 42× | 226 ± 1 ms | 129 ± 3 ms | 1.8× |
+| `get_utilization_viewer` | 2.19 ± 0.01 s | 46.9 ± 0.6 ms | 47× | 226 ± 1 ms | 45.4 ± 0.5 ms | 5.0× |
+| `get_xspace_proto` | 772 ± 68 ms | 102 ± 10 ms (!) | 7.6× | 768 ± 59 ms | 95.1 ± 0.6 ms | 8.1× |
+| `list_xplane_events` | 22.0 ± 0.0 s | 85.1 ± 6.9 ms | 259× | 226 ± 1 ms | 81.8 ± 2.6 ms | 2.8× |
 
 Some warm XProf commands are as fast as xprof-rs or faster. XProf keeps each result in a cache in `$TMPDIR`, and a second call reads this cache. xprof-rs has no result cache. It reads the profile again for each call.
+
+The table has all the commands that need only a session. `get_hlo_neighborhood`, `verify_numerical_parity`, and `upload_trace` need more input, so the table does not show them. `get_xspace_proto` writes the 80 MB profile to `/tmp` on a disk, so its time changes with the disk.
 
 The next table shows five profiles of jobs that train CLIP models. The trace viewer time is for a cold server. The peak memory is the peak of the server process after the trace viewer and seven other tools.
 
