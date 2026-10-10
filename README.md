@@ -295,7 +295,7 @@ More cores make a command faster, up to about 16 cores.
 The CLI is different from the Python CLI in these points:
 
 - There is no result cache. Each call computes the result again, as with `--bypass_cache`. There are no `__cached__` fields.
-- Regex errors are the errors of Rust.
+- The regex options find text as Python `re` does, and a bad pattern gives the error message of Python. But `\N{name}` always gives the error `undefined character name`, and a pattern with more than approximately 60 levels of nested groups gives an error.
 - `--help` prints a short synopsis.
 - `get_graph_viewer --output_type=pb` returns the bytes of the module file. XProf serializes the module again with hash-ordered maps.
 - For a multi-host session, the tools that use combined op statistics report no data. `memory_profile` fails. XProf needs its worker service for these sessions.
