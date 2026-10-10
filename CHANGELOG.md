@@ -20,6 +20,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The CLI commands that scan all the events start with the largest lines. Before, one thread sometimes scanned all the large lines one after the other. On a 280 MB TPU v4 profile with 4 cores, `get_kernel_stats` takes 0.37 s (before: 0.59 s), `aggregate_xplane_events` takes 0.42 s (before: 0.58 s), and `list_xplane_events` takes 0.21 s (before: 0.32 s). On an 80 MB profile, these commands and `get_avg_step_time` are 2% to 10% faster.
 - When a profile has more than 5,000,000 events, `aggregate_xplane_events` uses the results of the parallel scan. Before, it scanned the profile again on one thread. On a 1.7 GB profile with 4 cores, it takes 2.2 s. Before, it took 6.4 s.
 - The README shows the times of all the CLI commands that need only a session.
+- The README shows the times of a new server on a disk and on Cloudflare R2.
 
 ## 0.1.2
 
