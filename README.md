@@ -76,12 +76,12 @@ Each cell is the mean and the standard deviation of 8 trials, after 1 warmup tri
 | `get_peak_allocations` | 301 ± 1 ms | 28.3 ± 0.5 ms | 11× | 226 ± 1 ms | 28.5 ± 0.4 ms | 7.9× |
 | `get_profile_summary` | 5.45 ± 0.01 s | 131 ± 3 ms | 42× | 226 ± 1 ms | 129 ± 3 ms | 1.8× |
 | `get_utilization_viewer` | 2.19 ± 0.01 s | 46.9 ± 0.6 ms | 47× | 226 ± 1 ms | 45.4 ± 0.5 ms | 5.0× |
-| `get_xspace_proto` | 772 ± 68 ms | 102 ± 10 ms (!) | 7.6× | 768 ± 59 ms | 95.1 ± 0.6 ms | 8.1× |
+| `get_xspace_proto` | 354 ± 3 ms | 83.8 ± 1.4 ms | 4.2× | 799 ± 46 ms | 100 ± 3 ms | 8.0× |
 | `list_xplane_events` | 22.0 ± 0.0 s | 85.1 ± 6.9 ms | 259× | 226 ± 1 ms | 81.8 ± 2.6 ms | 2.8× |
 
 Some warm XProf commands are as fast as xprof-rs or faster. XProf keeps each result in a cache in `$TMPDIR`, and a second call reads this cache. xprof-rs has no result cache. It reads the profile again for each call.
 
-The table has all the commands that need only a session. `get_hlo_neighborhood`, `verify_numerical_parity`, and `upload_trace` need more input, so the table does not show them. `get_xspace_proto` writes the 80 MB profile to `/tmp` on a disk, so its time changes with the disk.
+The table has all the commands that need only a session. `get_hlo_neighborhood`, `verify_numerical_parity`, and `upload_trace` need more input, so the table does not show them. `get_xspace_proto` writes the 80 MB profile to `/tmp` on a disk. On a warm call, XProf writes over the file of the cold call, and the write waits until the disk has the data.
 
 The next table shows five profiles of jobs that train CLIP models. The trace viewer time is for a cold server. The peak memory is the peak of the server process after the trace viewer and seven other tools.
 
