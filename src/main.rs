@@ -261,6 +261,32 @@ fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Writes a new file, then moves it to the path. A reader sees the full old file or the full new file. Two writers of the same path do not truncate the file of the other.
+fn replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    static WRITES: AtomicUsize = AtomicUsize::new(0);
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let partial = path.with_file_name(format!(".{name}.{}.{}.partial", std::process::id(), WRITES.fetch_add(1, Ordering::Relaxed)));
+    std::fs::write(&partial, bytes).and_then(|()| swap(&partial, path)).inspect_err(|_| _ = std::fs::remove_file(&partial))
+}
+
+/// On ext4, a rename that replaces a large file waits until the disk has the new data. An exchange of the two files does not wait.
+#[cfg(target_os = "linux")]
+fn swap(partial: &Path, path: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let name = |path: &Path| std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(std::io::Error::other);
+    let (from, to) = (name(partial)?, name(path)?);
+    if unsafe { libc::renameat2(libc::AT_FDCWD, from.as_ptr(), libc::AT_FDCWD, to.as_ptr(), libc::RENAME_EXCHANGE) } == 0 {
+        return std::fs::remove_file(partial);
+    }
+    std::fs::rename(partial, path)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn swap(partial: &Path, path: &Path) -> std::io::Result<()> {
+    _ = std::fs::remove_file(path);
+    std::fs::rename(partial, path)
+}
+
 fn prepare(path: &Path, trace: bool) -> anyhow::Result<(Vec<u8>, Vec<Plane>)> {
     let map = read_file(path)?;
     let mut planes = xplane::parse(&map)?;

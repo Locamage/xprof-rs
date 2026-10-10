@@ -678,8 +678,7 @@ pub fn extract(dir: &Path, xspaces: &[PathBuf]) -> Option<()> {
         modules.insert("NO_MODULE".into(), Vec::new());
     }
     for (name, bytes) in modules {
-        let (path, partial) = (dir.join(format!("{name}{SUFFIX}")), dir.join(format!(".{name}{SUFFIX}.partial")));
-        std::fs::write(&partial, bytes).and_then(|()| std::fs::rename(&partial, path)).ok()?;
+        crate::replace_file(&dir.join(format!("{name}{SUFFIX}")), &bytes).ok()?;
     }
     Some(())
 }
