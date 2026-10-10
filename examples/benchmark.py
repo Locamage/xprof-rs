@@ -17,6 +17,7 @@ import http.client
 import json
 import math
 import os
+import re
 import shutil
 import statistics
 import subprocess
@@ -45,6 +46,8 @@ def fresh(session, scratch):
     for source in session.iterdir():
         if source.name.endswith((".xplane.pb", ".hlo_proto.pb")):
             shutil.copy2(source, target)
+    # get_xspace_proto writes this file. A cold call must not find the file of the last trial.
+    Path("/tmp", "xspace_" + re.sub(r"[^A-Za-z0-9_-]", "_", str(scratch / "logs/run")) + ".pb").unlink(missing_ok=True)
     env = {key: value for key, value in os.environ.items() if key != "LD_PRELOAD"}
     return scratch / "logs", {**env, "TMPDIR": str(scratch / "tmp")}
 
