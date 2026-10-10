@@ -126,7 +126,12 @@ fn add_texts(texts: &mut FxHashMap<u64, String>, planes: &[Plane], map: &[u8], e
         stats(raw, field, |_| true).filter(|stat| matches!(stat.value, Value::Str(_) | Value::Ref(_)) && named(stat.id)).map(|stat| long_text(&plane.text_cow(&stat.value))).collect()
     };
     let used: Vec<Vec<AtomicBool>> = planes.iter().map(|plane| plane.meta.iter().map(|_| AtomicBool::new(false)).collect()).collect();
-    events.par_iter().filter(|event| event.meta != DERIVED_META && event.ts != u64::MAX).for_each(|event| used[event.plane as usize][event.meta as usize].store(true, Relaxed));
+    events.par_iter().filter(|event| event.meta != DERIVED_META && event.ts != u64::MAX).for_each(|event| {
+        let flag = &used[event.plane as usize][event.meta as usize];
+        if !flag.load(Relaxed) {
+            flag.store(true, Relaxed);
+        }
+    });
     long_names.values().for_each(|long| put(texts, long_text(long)));
     let metas: Vec<(&Plane, &Meta, bool)> =
         planes.iter().zip(&used).flat_map(|(plane, flags)| plane.meta.iter().zip(flags).filter(|(_, used)| used.load(Relaxed)).map(move |(meta, _)| (plane, meta, framed(plane)))).collect();
