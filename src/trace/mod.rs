@@ -23,6 +23,8 @@ const STREAMING_THRESHOLD: usize = 500_000;
 pub const MAX_SERIAL: u32 = 256;
 const BAD_TIMESTAMP: u64 = u64::MAX / 2;
 const LEVEL_CHUNK: usize = 1 << 16;
+/// From this event count, the events sort in place. A sort by keys is faster, but it keeps two copies of the events. The tests use both sorts.
+const IN_PLACE_SORT: usize = if cfg!(test) { 64 } else { 1 << 24 };
 
 /// Strings with dense ids in the order of their first use.
 #[derive(Default)]
@@ -306,46 +308,50 @@ fn convert(planes: &[Plane], map: &[u8], layout: &Layout) -> (Vec<Event>, Vec<Bo
 impl Trace {
     pub fn build(planes: &[Plane], host: &str, map: &[u8]) -> Self {
         let layout = layout(planes, host);
-        let (events, extra, args) = convert(planes, map, &layout);
+        let (mut events, extra, args) = convert(planes, map, &layout);
         let Layout { devices, tracks, mut names, long_names, steps, .. } = layout;
         names.extend(extra);
-        // The stack frames do not depend on the order of the events, so they build at the same time as the order.
-        let (stack_frames, (mut events, by_track, flow_ids, span, assigned, ties)) = rayon::join(
+        if events.len() < IN_PLACE_SORT {
+            let mut keys: Vec<(u64, u32)> = events.par_iter().enumerate().map(|(index, event)| (event.ts, index as u32)).collect();
+            keys.par_sort_by(|a, b| a.0.cmp(&b.0).then_with(|| compare(&names, &events[a.1 as usize], &events[b.1 as usize])));
+            keys.truncate(keys.partition_point(|key| key.0 != u64::MAX));
+            events = keys.par_iter().map(|key| events[key.1 as usize]).collect();
+        } else {
+            // The serial field holds the input index until the serial loop, so that equal events keep their input order.
+            events.par_iter_mut().enumerate().for_each(|(index, event)| event.serial = index as u32);
+            events.par_sort_unstable_by(|a, b| compare(&names, a, b).then(a.serial.cmp(&b.serial)));
+            events.truncate(events.partition_point(|event| event.ts != u64::MAX));
+        }
+        let (mut async_tracks, mut by_track) = (FxHashMap::<(u32, &str), u32>::default(), vec![Vec::new(); tracks]);
+        let (mut flow_index, mut flow_ids, mut flowing, mut previous) = (FxHashMap::<u64, u64>::default(), Vec::new(), Vec::new(), (u64::MAX, 0));
+        for (index, event) in events.iter_mut().enumerate() {
+            previous = (event.ts, if event.ts == previous.0 { previous.1 + 1 } else { 0 });
+            event.serial = previous.1;
+            if event.resource == NONE_RESOURCE {
+                event.track = *async_tracks.entry((event.device, &*names[event.name as usize])).or_insert_with(|| {
+                    by_track.push(Vec::new());
+                    by_track.len() as u32 - 1
+                });
+            }
+            if event.flow != NONE_FLOW {
+                event.flow = *flow_index.entry(event.flow).or_insert_with(|| {
+                    flow_ids.push(event.flow);
+                    flow_ids.len() as u64 - 1
+                });
+                flowing.push(index as u32);
+            }
+            by_track[event.track as usize].push(index as u32);
+        }
+        let span = (
+            events.iter().map(|event| event.ts).find(|&ts| ts <= BAD_TIMESTAMP).unwrap_or(0),
+            events.par_iter().map(|event| event.ts.saturating_add(event.dur)).filter(|&end| end <= BAD_TIMESTAMP).max().unwrap_or(0),
+        );
+        let (stack_frames, (assigned, ties)) = rayon::join(
             || crate::trace::json::stack_frames(planes, map, &events, &long_names),
             || {
-                let mut keys: Vec<(u64, u32)> = events.par_iter().enumerate().map(|(index, event)| (event.ts, index as u32)).collect();
-                keys.par_sort_by(|a, b| a.0.cmp(&b.0).then_with(|| compare(&names, &events[a.1 as usize], &events[b.1 as usize])));
-                keys.truncate(keys.partition_point(|key| key.0 != u64::MAX));
-                let mut events: Vec<Event> = keys.par_iter().map(|key| events[key.1 as usize]).collect();
-                drop(keys);
-                let (mut async_tracks, mut by_track) = (FxHashMap::<(u32, &str), u32>::default(), vec![Vec::new(); tracks]);
-                let (mut flow_index, mut flow_ids, mut flowing, mut previous) = (FxHashMap::<u64, u64>::default(), Vec::new(), Vec::new(), (u64::MAX, 0));
-                for (index, event) in events.iter_mut().enumerate() {
-                    previous = (event.ts, if event.ts == previous.0 { previous.1 + 1 } else { 0 });
-                    event.serial = previous.1;
-                    if event.resource == NONE_RESOURCE {
-                        event.track = *async_tracks.entry((event.device, &*names[event.name as usize])).or_insert_with(|| {
-                            by_track.push(Vec::new());
-                            by_track.len() as u32 - 1
-                        });
-                    }
-                    if event.flow != NONE_FLOW {
-                        event.flow = *flow_index.entry(event.flow).or_insert_with(|| {
-                            flow_ids.push(event.flow);
-                            flow_ids.len() as u64 - 1
-                        });
-                        flowing.push(index as u32);
-                    }
-                    by_track[event.track as usize].push(index as u32);
-                }
-                let span = (
-                    events.iter().map(|event| event.ts).find(|&ts| ts <= BAD_TIMESTAMP).unwrap_or(0),
-                    events.par_iter().map(|event| event.ts.saturating_add(event.dur)).filter(|&end| end <= BAD_TIMESTAMP).max().unwrap_or(0),
-                );
                 let assigned = assign_levels(&events, &by_track, &flowing, flow_ids.len());
                 let tie = |index: usize| index > 0 && index < events.len() && compare(&names, &events[index - 1], &events[index]).is_eq();
-                let ties = (0..events.len().div_ceil(64)).into_par_iter().map(|word| (0..64).filter(|bit| tie(word * 64 + bit)).fold(0, |bits, bit| bits | 1 << bit)).collect();
-                (events, by_track, flow_ids, span, assigned, ties)
+                (assigned, (0..events.len().div_ceil(64)).into_par_iter().map(|word| (0..64).filter(|bit| tie(word * 64 + bit)).fold(0, |bits, bit| bits | 1 << bit)).collect())
             },
         );
         let chunks: Vec<Vec<Vec<u32>>> = events
