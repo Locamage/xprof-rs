@@ -416,7 +416,7 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
 }
 
 fn merged_active(mut intervals: Vec<(u64, u64)>) -> u64 {
-    intervals.par_sort_unstable_by_key(|&(begin, end)| (begin, std::cmp::Reverse(end)));
+    intervals.sort_by_key(|&(begin, _)| begin);
     let Some(&first) = intervals.first() else { return 0 };
     let (sum, (start, stop)) = intervals[1..]
         .iter()
