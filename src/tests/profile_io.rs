@@ -1,5 +1,5 @@
 use super::legacy::fetch;
-use crate::{Settings, Shared, state, xplanes};
+use crate::{Settings, Shared, replace_file, state, xplanes};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
@@ -55,5 +55,23 @@ async fn test_get_session_paths_oserror() {
     let listed = fetch(&served(&dir), &format!("/data/plugin/profile/runs?run_path={}", runs.display())).await.2;
     std::fs::set_permissions(&runs, std::fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(listed, "[]");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_replaced_file_has_the_new_bytes_and_no_partial_file_stays() {
+    let dir = temp_dir("replace");
+    let path = dir.join("out.pb");
+    replace_file(&path, b"new file").unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"new file");
+    let contents = [b"first".repeat(1000), b"second".repeat(1000)];
+    std::thread::scope(|scope| {
+        for bytes in &contents {
+            scope.spawn(|| replace_file(&path, bytes).unwrap());
+        }
+    });
+    assert!(contents.contains(&std::fs::read(&path).unwrap()));
+    assert!(replace_file(&dir.join("missing/out.pb"), b"x").is_err());
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
     std::fs::remove_dir_all(&dir).unwrap();
 }

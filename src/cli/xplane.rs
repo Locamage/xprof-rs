@@ -345,9 +345,7 @@ pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> 
     if data.len() > XSPACE_SPILL_BYTES {
         let safe: String = session.chars().map(|character| if character.is_ascii_alphanumeric() || character == '_' || character == '-' { character } else { '_' }).collect();
         let path = PathBuf::from(format!("/tmp/xspace_{safe}.pb"));
-        // On ext4, a write that truncates a large file waits until the disk has the new data. A new file does not wait.
-        _ = std::fs::remove_file(&path);
-        std::fs::write(&path, &data).map_err(|error| Error::new(Kind::Os, error.to_string()))?;
+        crate::replace_file(&path, &data).map_err(|error| Error::new(Kind::Os, error.to_string()))?;
         return Ok(obj! {
             "status" => "SAVED_TO_FILE",
             "size_bytes" => data.len(),
