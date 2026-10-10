@@ -65,7 +65,7 @@ fn tensor_core_device_op_metrics_db() {
     plane.event(10, "MatMul", 0, 10 * NS, &[("Time Scale Multiplier", 2.0.into())]).set_num_occurrences(2);
     let (map, planes) = space.parsed();
     assert_db(
-        &convert_tensor_core(&planes[0], &map, &templates(&planes[0], &map), None),
+        &convert_tensor_core(&planes[0], &map, &templates(&planes[0], &map), None, false).0,
         r#"metrics_db {
              hlo_module_id: 1
              self_time_ps: 10000
@@ -97,7 +97,7 @@ fn tensor_core_device_op_metrics_db_extracts_vdd_energy() {
     plane.metadata_stats("MatMul", &[("hlo_op", "while:MatMul".into()), ("symbol_id", 1.into()), ("program_id", 1.into()), ("hlo_category", "MatMul".into()), ("flops", 0u64.into())]);
     plane.event(10, "MatMul", 0, 10 * NS, &[("vdd_energy_j", 42.0.into())]).set_num_occurrences(1);
     let (map, planes) = space.parsed();
-    let db = convert_tensor_core(&planes[0], &map, &templates(&planes[0], &map), None);
+    let db = convert_tensor_core(&planes[0], &map, &templates(&planes[0], &map), None, false).0;
     assert!(!db.metrics.is_empty());
     assert_eq!(db.metrics[0].vdd_energy, Some(42.0));
 }

@@ -82,7 +82,7 @@ pub struct Db {
 
 pub type Template = Option<(Option<(u64, u64)>, Metrics)>;
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct EventStats {
     occurrences: u64,
     min_time_ps: Option<u64>,
@@ -497,18 +497,29 @@ impl Db {
 }
 
 /// `span` is the first start and the last end of the derived operations, if the plane does not have them.
-pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, span: Option<(u64, u64)>) -> Db {
+/// With `programs`, the same reads of the events also give the programs of the steps.
+pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, span: Option<(u64, u64)>, programs: bool) -> (Db, HashMap<i64, crate::xplane::steps::StepPrograms>) {
     let ((mut first, mut last), mut builder, reader) = (span.unwrap_or((u64::MAX, 0)), Builder::new(templates), EventReader::new(plane));
-    for line in &plane.lines {
+    let mut programs = programs.then(|| crate::xplane::steps::Programs::new(plane, templates));
+    for (line_index, line) in plane.lines.iter().enumerate() {
         let is_step = line.name == "Steps" || line.name == "Sparse Core Steps";
         let is_op = matches!(line.name.as_str(), "XLA Ops" | "Framework Ops" | "Sparse Core Ops");
-        if !is_step && !is_op {
+        let mut programs = programs.as_mut().filter(|programs| programs.reads(line_index));
+        if !is_step && !is_op && programs.is_none() {
             continue;
         }
         let mut stack: Vec<(&Ev, EventStats, (u64, u64), u64)> = Vec::new();
         let mut finish = |(event, stats, span, children): (&Ev, EventStats, (u64, u64), u64)| builder.add(event, &stats, (span.1, span.1.saturating_sub(children)), true);
         // The reads of a chunk run in parallel. One chunk at a time keeps the memory small.
-        for (event, stats) in line.events.chunks(1 << 14).flat_map(|chunk| chunk.iter().zip(chunk.par_iter().with_min_len(1024).map(|event| reader.read(map, event)).collect::<Vec<_>>())) {
+        for (index, (event, stats)) in
+            line.events.chunks(1 << 14).flat_map(|chunk| chunk.iter().zip(chunk.par_iter().with_min_len(1024).map(|event| reader.read(map, event)).collect::<Vec<_>>())).enumerate()
+        {
+            if let Some(programs) = programs.as_deref_mut() {
+                programs.add(line_index, line, index, event, &stats);
+            }
+            if !is_step && !is_op {
+                continue;
+            }
             let span = stats.span(event);
             first = first.min(span.0);
             last = last.max(span.0.saturating_add(span.1));
@@ -527,7 +538,7 @@ pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, spa
         }
         stack.into_iter().rev().for_each(finish);
     }
-    builder.finish().with_idle(last.wrapping_sub(first))
+    (builder.finish().with_idle(last.wrapping_sub(first)), programs.map(crate::xplane::steps::Programs::finish).unwrap_or_default())
 }
 
 fn perf_env(plane: &Plane) -> Perf {
@@ -595,7 +606,7 @@ impl Kept {
     pub fn upgrade(&mut self, stats: &mut OpStats, part: Part) {
         self.finish(false);
         let (planes, map) = (&self.planes, &self.map[..]);
-        let (mut extra, host) = rayon::join(|| steps(planes, map, &all_templates(planes, map), part), || (part == Part::All).then(|| crate::tools::framework_op_stats::host_db(planes, map)));
+        let (mut extra, host) = rayon::join(|| steps(planes, map, &all_templates(planes, map), part, true), || (part == Part::All).then(|| crate::tools::framework_op_stats::host_db(planes, map)));
         if stats.tpu {
             crate::xplane::steps::fix(&mut extra, &stats.db);
         }
@@ -611,12 +622,18 @@ fn all_templates(planes: &[Plane], map: &[u8]) -> Vec<Templates> {
     planes.par_iter().map(|plane| if is_tensor_core(&plane.name) { templates(plane, map) } else { Templates::default() }).collect()
 }
 
-/// The steps that `part` has. The programs of the steps on a GPU come with the other fields.
-fn steps(planes: &[Plane], map: &[u8], templates: &[Templates], part: Part) -> crate::xplane::steps::Extra {
+/// The steps that `part` has. The programs of the steps on a GPU come with the other fields. Without `read`, the steps do not have the programs.
+fn steps(planes: &[Plane], map: &[u8], templates: &[Templates], part: Part, read: bool) -> crate::xplane::steps::Extra {
     match part {
         Part::Device => crate::xplane::steps::header(planes, map),
-        Part::Programs if crate::xplane::gpu::devices(planes).is_empty() => crate::xplane::steps::programs(planes, map, templates),
-        _ => crate::xplane::steps::extra(planes, map, templates),
+        Part::Programs if crate::xplane::gpu::devices(planes).is_empty() => {
+            if read {
+                crate::xplane::steps::programs(planes, map, templates)
+            } else {
+                crate::xplane::steps::header(planes, map)
+            }
+        }
+        _ => crate::xplane::steps::extra(planes, map, templates, read),
     }
 }
 
@@ -681,36 +698,48 @@ fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)],
     let tpu = first.is_some();
     let gpus = crate::xplane::gpu::devices(planes);
     let templates = all_templates(planes, map);
+    // The op statistics of the TPUs read each event, so they also make the programs of the steps.
+    let combined = part > Part::Device && gpus.is_empty();
     let device = || {
         if !gpus.is_empty() {
-            return crate::xplane::gpu::device(planes, map, &gpus);
+            return (crate::xplane::gpu::device(planes, map, &gpus), Vec::new());
         }
-        let parts: Vec<Db> = planes
+        let (parts, programs): (Vec<Option<Db>>, Vec<_>) = planes
             .par_iter()
             .zip(&templates)
-            .filter(|(plane, _)| is_tensor_core(&plane.name))
-            .map(|(plane, templates)| convert_tensor_core(plane, map, templates, spans.then(|| crate::xplane::derive::op_span(plane, map)).flatten()))
-            .collect();
+            .filter(|(plane, _)| plane.name.starts_with("/device:TPU:"))
+            .map(|(plane, templates)| {
+                if !is_tensor_core(&plane.name) {
+                    return (None, HashMap::new());
+                }
+                let (db, programs) = convert_tensor_core(plane, map, templates, spans.then(|| crate::xplane::derive::op_span(plane, map)).flatten(), combined);
+                (Some(db), programs)
+            })
+            .unzip();
+        let parts: Vec<Db> = parts.into_iter().flatten().collect();
         let mut db = Db::combined(&parts, true);
         crate::release(parts);
         if !modules.is_empty() {
             crate::hlo::attach_fused(modules, &mut db);
         }
-        (db, Vec::new())
+        ((db, Vec::new()), programs)
     };
     // Each part runs on a thread outside the pool, so no part waits for the work of another that the pool stole.
-    let ((db, kernels), mut extra, ((host, infeed_enqueue), programs)) = std::thread::scope(|scope| {
+    let (((db, kernels), step_programs), mut extra, ((host, infeed_enqueue), programs)) = std::thread::scope(|scope| {
         let side = scope.spawn(|| {
             rayon::join(
                 || if part == Part::All { crate::tools::framework_op_stats::host_db(planes, map) } else { Default::default() },
                 || crate::hlo::protos(planes, map).into_par_iter().map(|(id, proto)| (id, crate::hlo::module_name(proto))).collect::<HashMap<u64, String>>(),
             )
         });
-        let extra = scope.spawn(|| steps(planes, map, &templates, part));
+        let extra = scope.spawn(|| steps(planes, map, &templates, part, !combined));
         let device = scope.spawn(device);
         (device.join().unwrap(), extra.join().unwrap(), side.join().unwrap())
     });
     crate::release(templates);
+    if combined {
+        crate::xplane::steps::add_programs(&mut extra, step_programs);
+    }
     if tpu {
         crate::xplane::steps::fix(&mut extra, &db);
     }
