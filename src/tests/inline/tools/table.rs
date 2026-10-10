@@ -16,3 +16,19 @@ fn numbers_at_the_limits_read_back_the_same() {
         assert_eq!(out.parse::<f64>().ok(), Some(value), "{out}");
     }
 }
+
+#[test]
+fn a_value_halfway_between_two_short_texts_gets_the_text_of_python() {
+    let cases = [
+        (616143034000.0 / 8192.0, "75212772.70507812"),
+        (2f64.powi(-24), "5.960464477539063e-08"),
+        (267482433784154.12, "267482433784154.12"),
+        (1205923225069621.2, "1205923225069621.2"),
+        (102443481793115.38, "102443481793115.38"),
+        (1690473088489775.8, "1690473088489775.8"),
+        (-1432706413306937.2, "-1432706413306937.2"),
+    ];
+    for (value, text) in cases {
+        assert_eq!(repr(value), text);
+    }
+}
