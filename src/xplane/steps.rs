@@ -1,10 +1,10 @@
 use crate::tools::framework_op_stats::{parse_tf_op, training};
 use crate::tools::input_pipeline_analyzer::{TC_IDLE, tpu_step_details};
-use crate::tools::opstats::{Builder, Db, EventReader, IDLE, Metrics, Templates, safe_divide};
+use crate::tools::opstats::{Builder, Db, EventReader, EventStats, IDLE, Metrics, Templates, safe_divide};
 use crate::tools::roofline::accumulate;
 use crate::xplane::derive::{STEP_LINE, is_derived, is_tensor_core};
 use crate::xplane::group::is_sparse_core;
-use crate::xplane::{Ev, Field, NONE_GROUP, Own, Plane, Value, event_stats, fields, lossy, nested, slice, stats};
+use crate::xplane::{Ev, Field, Line, NONE_GROUP, Own, Plane, Value, event_stats, fields, lossy, nested, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -160,7 +160,7 @@ pub struct Extra {
 }
 
 #[derive(Default)]
-struct StepPrograms {
+pub struct StepPrograms {
     markers: Vec<u64>,
     cores: Vec<(u64, [Metrics; 2], u64)>,
 }
@@ -193,59 +193,105 @@ fn scan<'a>(plane: &'a Plane, raw: &'a [u8], field: u32, slots: &[u8]) -> Scanne
     out
 }
 
-fn nest<T>(items: impl Iterator<Item = (Span, T)>, mut finish: impl FnMut(T, Span, u64)) {
-    let mut stack: Vec<(Span, u64, T)> = Vec::new();
-    for (span, item) in items {
-        while stack.last().is_some_and(|top| !top.0.includes(span)) {
-            let (span, children, item) = stack.pop().unwrap();
+/// The spans that are open. A span finishes with its self time when a later span is not in it.
+struct Nest<T>(Vec<(Span, u64, T)>);
+
+impl<T> Nest<T> {
+    fn push(&mut self, span: Span, item: T, finish: &mut impl FnMut(T, Span, u64)) {
+        while self.0.last().is_some_and(|top| !top.0.includes(span)) {
+            let (span, children, item) = self.0.pop().unwrap();
             finish(item, span, span.duration.saturating_sub(children));
         }
-        if let Some(top) = stack.last_mut() {
+        if let Some(top) = self.0.last_mut() {
             top.1 = top.1.saturating_add(span.duration);
         }
-        stack.push((span, 0, item));
+        self.0.push((span, 0, item));
     }
-    for (span, children, item) in stack.into_iter().rev() {
-        finish(item, span, span.duration.saturating_sub(children));
-    }
-}
 
-fn step_programs<'a>(plane: &Plane, map: &[u8], templates: &'a Templates) -> HashMap<i64, StepPrograms> {
-    let mut markers: FxHashMap<i64, Vec<u64>> = FxHashMap::default();
-    let mut builders: FxHashMap<i64, Builder<'a>> = FxHashMap::default();
-    let reader = EventReader::new(plane);
-    for line in &plane.lines {
-        if line.name == "Steps" {
-            markers.clear();
-            for (index, event) in line.events.iter().enumerate().filter(|(_, event)| event.group != NONE_GROUP) {
-                let merged =
-                    line.steps.get(&index).and_then(|step| step.stats.iter().find(|(key, _)| *key == "device_duration_ps").filter(|_| step.stats.iter().any(|(key, _)| *key == "device_offset_ps")));
-                let duration = merged.map_or_else(|| reader.span(map, event).1, |&(_, duration)| duration as u64);
-                markers.entry(event.group).or_default().push(duration);
-            }
-        } else if PROGRAM_LINES.contains(&line.name.as_str()) {
-            builders.clear();
-            let spans = line.events.iter().filter(|event| event.group != NONE_GROUP).map(|event| {
-                let stats = reader.read(map, event);
-                let (begin, duration) = stats.span(event);
-                (Span { begin, duration }, (event, stats))
-            });
-            nest(spans, |(event, stats), span, self_time| builders.entry(event.group).or_insert_with(|| Builder::new(templates)).add(event, &stats, (span.duration, self_time), false));
+    fn end(self, finish: &mut impl FnMut(T, Span, u64)) {
+        for (span, children, item) in self.0.into_iter().rev() {
+            finish(item, span, span.duration.saturating_sub(children));
         }
     }
-    builders
-        .into_par_iter()
-        .filter_map(|(group, builder)| {
-            let markers = markers.get(&group)?.clone();
-            let (total_op_time_ps, (sums, infeed_outfeed)) = builder.program();
-            Some((group, StepPrograms { markers, cores: vec![(total_op_time_ps, sums, infeed_outfeed)] }))
-        })
-        .collect()
 }
 
-pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &Templates, origin: u64, hostname: &str) -> Device {
+fn nest<T>(items: impl Iterator<Item = (Span, T)>, mut finish: impl FnMut(T, Span, u64)) {
+    let mut open = Nest(Vec::new());
+    items.for_each(|(span, item)| open.push(span, item, &mut finish));
+    open.end(&mut finish);
+}
+
+/// The programs of the steps of a TPU core. Each step line and each program line replaces the data of the lines before it, so only the last of each counts.
+pub struct Programs<'a> {
+    templates: &'a Templates,
+    steps: Option<usize>,
+    ops: Option<usize>,
+    markers: FxHashMap<i64, Vec<u64>>,
+    builders: FxHashMap<i64, Builder<'a>>,
+    open: Nest<(&'a Ev, EventStats)>,
+}
+
+impl<'a> Programs<'a> {
+    pub fn new(plane: &Plane, templates: &'a Templates) -> Self {
+        let (steps, ops) = (plane.lines.iter().rposition(|line| line.name == "Steps"), plane.lines.iter().rposition(|line| PROGRAM_LINES.contains(&line.name.as_str())));
+        Self { templates, steps, ops, markers: FxHashMap::default(), builders: FxHashMap::default(), open: Nest(Vec::new()) }
+    }
+
+    /// Whether the programs need the events of line `index`.
+    pub fn reads(&self, index: usize) -> bool {
+        self.steps == Some(index) || self.ops == Some(index)
+    }
+
+    /// Adds event `index` of line `line_index`.
+    pub fn add(&mut self, line_index: usize, line: &Line, index: usize, event: &'a Ev, stats: &EventStats) {
+        if event.group == NONE_GROUP {
+            return;
+        }
+        if self.steps == Some(line_index) {
+            let merged =
+                line.steps.get(&index).and_then(|step| step.stats.iter().find(|(key, _)| *key == "device_duration_ps").filter(|_| step.stats.iter().any(|(key, _)| *key == "device_offset_ps")));
+            self.markers.entry(event.group).or_default().push(merged.map_or_else(|| stats.span(event).1, |&(_, duration)| duration as u64));
+        } else if self.ops == Some(line_index) {
+            let (begin, duration) = stats.span(event);
+            let (templates, builders) = (self.templates, &mut self.builders);
+            self.open.push(Span { begin, duration }, (event, *stats), &mut |op, span, self_time| add_op(builders, templates, op, span, self_time));
+        }
+    }
+
+    pub fn finish(self) -> HashMap<i64, StepPrograms> {
+        let Self { templates, markers, mut builders, open, .. } = self;
+        open.end(&mut |op, span, self_time| add_op(&mut builders, templates, op, span, self_time));
+        builders
+            .into_par_iter()
+            .filter_map(|(group, builder)| {
+                let markers = markers.get(&group)?.clone();
+                let (total_op_time_ps, (sums, infeed_outfeed)) = builder.program();
+                Some((group, StepPrograms { markers, cores: vec![(total_op_time_ps, sums, infeed_outfeed)] }))
+            })
+            .collect()
+    }
+}
+
+fn add_op<'a>(builders: &mut FxHashMap<i64, Builder<'a>>, templates: &'a Templates, (event, stats): (&Ev, EventStats), span: Span, self_time: u64) {
+    builders.entry(event.group).or_insert_with(|| Builder::new(templates)).add(event, &stats, (span.duration, self_time), false);
+}
+
+fn step_programs(plane: &Plane, map: &[u8], templates: &Templates) -> HashMap<i64, StepPrograms> {
+    let (mut programs, reader) = (Programs::new(plane, templates), EventReader::new(plane));
+    for (line_index, line) in plane.lines.iter().enumerate() {
+        if !programs.reads(line_index) {
+            continue;
+        }
+        for (index, event) in line.events.iter().enumerate().filter(|(_, event)| event.group != NONE_GROUP) {
+            programs.add(line_index, line, index, event, &reader.read(map, event));
+        }
+    }
+    programs.finish()
+}
+
+pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &Templates, origin: u64, hostname: &str, read: bool) -> Device {
     let (programs, mut device) =
-        rayon::join(|| if is_tensor_core(&plane.name) { step_programs(plane, map, templates) } else { HashMap::new() }, || device_lines(plane, raw_plane, map, origin, hostname));
+        rayon::join(|| if read && is_tensor_core(&plane.name) { step_programs(plane, map, templates) } else { HashMap::new() }, || device_lines(plane, raw_plane, map, origin, hostname));
     device.programs = programs;
     device
 }
@@ -646,7 +692,7 @@ pub fn programs(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra 
 }
 
 /// Adds the program steps of the devices, in the order of the devices.
-fn add_programs(extra: &mut Extra, devices: Vec<HashMap<i64, StepPrograms>>) {
+pub fn add_programs(extra: &mut Extra, devices: Vec<HashMap<i64, StepPrograms>>) {
     let mut programs: HashMap<i64, StepPrograms> = HashMap::new();
     for device in devices {
         if programs.is_empty() || !device.is_empty() {
@@ -675,7 +721,8 @@ fn add_programs(extra: &mut Extra, devices: Vec<HashMap<i64, StepPrograms>>) {
     extra.program_steps = sequence;
 }
 
-pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
+/// Without `read`, the steps do not have the programs, and the caller adds them with `add_programs`.
+pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates], read: bool) -> Extra {
     let mut extra = header(planes, map);
     let hostname = extra.hostnames[0].clone();
     let raw_planes: Vec<&[u8]> = nested(map, 1).collect();
@@ -686,7 +733,12 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
     let ((outputs, gpu_events), (training, host_events)) = rayon::join(
         || {
             rayon::join(
-                || devices.par_iter().map(|&(index, plane)| device_plane(plane, raw_planes.get(index).copied().unwrap_or(&[]), map, &templates[index], origin, &hostname)).collect::<Vec<Device>>(),
+                || {
+                    devices
+                        .par_iter()
+                        .map(|&(index, plane)| device_plane(plane, raw_planes.get(index).copied().unwrap_or(&[]), map, &templates[index], origin, &hostname, read))
+                        .collect::<Vec<Device>>()
+                },
                 || gpus.par_iter().map(|plane| gpu_device(plane, map, origin)).collect::<Vec<StepEvents>>(),
             )
         },
@@ -720,7 +772,9 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
         extra.busy_ps[index % 2] += active_ps;
         extra.idle_ps[index % 2] += total_ps.wrapping_sub(active_ps);
     }
-    add_programs(&mut extra, programs);
+    if read {
+        add_programs(&mut extra, programs);
+    }
     if let Some(plane) = host {
         extra.mxu = plane.own_double("matrix_unit_utilization_percent");
         extra.hbm = plane.own_double("hbm_utilization_percent");

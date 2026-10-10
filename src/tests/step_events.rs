@@ -1,13 +1,13 @@
 use super::xspace::{V, XPlane, XSpace, grouped};
 use crate::tools::opstats::templates;
-use crate::xplane::Plane;
 use crate::xplane::derive::derive_gpu;
 use crate::xplane::steps::{HOST_WAIT_INPUT, SPARSE_CORE_START, Span, StepEvents, device_plane, gpu_device, host_steps};
+use crate::xplane::{NONE_GROUP, Plane};
 
 const TFRT_TPU_RUNTIME: i64 = 7;
 
 fn device_steps(planes: &[Plane], map: &[u8], index: usize) -> StepEvents {
-    device_plane(&planes[index], &[], map, &templates(&planes[index], map), 0, "localhost").events
+    device_plane(&planes[index], &[], map, &templates(&planes[index], map), 0, "localhost", true).events
 }
 
 fn host_step_events(planes: &[Plane], map: &[u8], device: &StepEvents) -> StepEvents {
@@ -139,4 +139,36 @@ fn cpu_only_py_grain_single_process_input_pipeline_test() {
     assert_eq!(step.events.len(), 15);
     let waits: Vec<Span> = step.events.iter().filter(|(kind, _)| *kind == HOST_WAIT_INPUT).map(|(_, span)| *span).collect();
     assert_eq!(waits, [Span { begin: 1, duration: 90 }]);
+}
+
+#[test]
+fn the_reads_of_the_op_statistics_give_the_same_program_steps() {
+    let mut space = XSpace::default();
+    let plane = space.plane("/device:TPU:0");
+    plane.id = 1;
+    plane.named_line(0, "Steps");
+    plane.named_line(1, "TensorFlow Ops");
+    plane.named_line(2, "XLA Ops");
+    op_metadata(plane, "op_long_name", "op_name", 1);
+    op_metadata(plane, "op_long_name2", "op_name2", 2);
+    plane.event(0, "", 0, 100, &[("group_id", 1.into())]);
+    plane.event(0, "", 100, 100, &[("group_id", 2.into())]);
+    plane.event(1, "op_long_name2", 0, 90, &[("group_id", 1.into())]);
+    plane.event(2, "op_long_name", 0, 80, &[("group_id", 1.into())]);
+    plane.event(2, "op_long_name2", 10, 30, &[("group_id", 1.into())]);
+    plane.event(2, "op_long_name2", 50, 20, &[]);
+    plane.event(2, "op_long_name", 100, 60, &[("group_id", 2.into())]);
+    let (map, mut planes) = space.parsed();
+    for (line, groups) in planes[0].lines.iter_mut().zip([&[1, 2][..], &[1], &[1, 1, NONE_GROUP, 2]]) {
+        line.events.iter_mut().zip(groups).for_each(|(event, &group)| event.group = group);
+    }
+    let templates = [templates(&planes[0], &map)];
+    let sums = |extra: &crate::xplane::steps::Extra| {
+        extra.program_steps.iter().map(|(group, sums)| (*group, sums.each_ref().map(|metrics| (metrics.occurrences, metrics.time_ps, metrics.self_time_ps)))).collect::<Vec<_>>()
+    };
+    let separate = crate::xplane::steps::programs(&planes, &map, &templates);
+    let mut shared = crate::xplane::steps::header(&planes, &map);
+    crate::xplane::steps::add_programs(&mut shared, vec![crate::tools::opstats::convert_tensor_core(&planes[0], &map, &templates[0], None, true).1]);
+    assert_eq!(sums(&separate).len(), 2);
+    assert_eq!(sums(&shared), sums(&separate));
 }
