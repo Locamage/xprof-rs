@@ -276,7 +276,7 @@ pub fn get_device_information(client: &dyn Client, args: &Args) -> Result<Out, E
     let session = args.session();
     let params = [bypass(args.flag("bypass_cache", false))];
     let compute = || -> Result<J, Error> {
-        let data = client.fetch_text("roofline_model.json", &session, &params)?.ok_or_else(|| Error::new(Kind::FileNotFound, format!("No roofline model data returned for session {session}.")))?;
+        let data = client.roofline_properties(&session, &params)?.ok_or_else(|| Error::new(Kind::FileNotFound, format!("No roofline model data returned for session {session}.")))?;
         let parsed = J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse roofline model data: JSONDecodeError('Expecting value: line 1 column 1 (char 0)')"))?;
         let table = parsed.items().first().ok_or_else(|| Error::new(Kind::Value, "Unexpected roofline model data format"))?;
         let info = device_info(table.at("p"));

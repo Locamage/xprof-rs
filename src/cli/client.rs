@@ -1,5 +1,6 @@
 use super::{Error, Kind, fail, json::py_repr};
 use crate::tools::opstats::{Kept, OpStats, Part, load_kept};
+use crate::tools::roofline::Rows;
 use crate::xplane::Plane;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -57,6 +58,11 @@ pub trait Client {
         let times = profile.as_ref().map(|profile| super::ops::field(profile, "by_category")).filter(|node| matches!(node, super::json::J::Map(_)) && node.truthy()).map(super::steps::hlo_times);
         crate::release(profile);
         times
+    }
+
+    /// The roofline table, of which the device information reads the properties only.
+    fn roofline_properties(&self, session: &str, params: &Params) -> Result<Option<String>, Error> {
+        self.fetch_text("roofline_model.json", session, params)
     }
 
     /// The roofline table, of which the overview reads the first row only.
@@ -179,6 +185,11 @@ impl Client for Local {
         self.fetch_text("roofline_model.json", session, &[(TOTAL_ONLY, String::new())]).ok()?.or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
     }
 
+    fn roofline_properties(&self, session: &str, _: &Params) -> Result<Option<String>, Error> {
+        let paths = self.xspace_paths(&self.run_dir(session)?)?;
+        Ok(self.stats(&paths, false, Part::Device).map(|stats| crate::tools::roofline::json_rows(&stats, Rows::None)))
+    }
+
     fn category_times(&self, session: &str, _: &Params) -> Option<[f64; 3]> {
         let stats = self.stats(&self.xspace_paths(&self.run_dir(session).ok()?).ok()?, true, Part::Device)?;
         Some(crate::tools::op_profile::category_times(&stats, super::steps::time_class))
@@ -244,7 +255,7 @@ impl Client for Local {
             "pod_viewer" => stats(false, Part::All).map(|stats| crate::tools::pod_viewer::json(&stats)),
             "op_profile" => stats(true, Part::Device).map(|stats| crate::tools::op_profile::json_trees(&stats, Some(option("group_by").unwrap_or("program")), false)),
             "hlo_stats" => stats(false, Part::Device).map(|stats| crate::tools::hlo_stats::json(&stats)),
-            "roofline_model" => stats(false, Part::Programs).map(|stats| crate::tools::roofline::json_rows(&stats, option(TOTAL_ONLY).is_some())),
+            "roofline_model" => stats(false, Part::Programs).map(|stats| crate::tools::roofline::json_rows(&stats, if option(TOTAL_ONLY).is_some() { Rows::Total } else { Rows::All })),
             "memory_viewer" => crate::hlo::memory::serve(&dir, &options).map(|(body, _)| body),
             "graph_viewer" => return crate::hlo::graph::serve(&dir, &options).map(|(body, _)| Some(body)).map_err(|message| Error::new(Kind::Value, message)),
             "utilization_viewer" | "perf_counters" => {

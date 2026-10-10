@@ -222,12 +222,20 @@ fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool, 
     }
 }
 
-pub fn json(stats: &OpStats) -> String {
-    json_rows(stats, false)
+/// The rows of the table. The overview command needs only the first row, and the device information needs no row.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Rows {
+    All,
+    Total,
+    None,
 }
 
-/// With `total_only`, the table has the first row only. The overview command needs no other row.
-pub fn json_rows(stats: &OpStats, total_only: bool) -> String {
+pub fn json(stats: &OpStats) -> String {
+    json_rows(stats, Rows::All)
+}
+
+pub fn json_rows(stats: &OpStats, rows: Rows) -> String {
+    let total_only = rows == Rows::Total;
     let extra = &*stats.extra;
     let bandwidth = |index: usize| giga_to_gibi(stats.perf.bandwidths.get(index).copied().unwrap_or(0.0));
     if extra.hardware == GPU {
@@ -243,8 +251,10 @@ pub fn json_rows(stats: &OpStats, total_only: bool) -> String {
         table.prop("peak_vmem_write_bw", general(peaks[5], 6));
         table.prop("hbm_ridge_point", general(safe_divide(peaks[0], peaks[1] * GIBI_IN_GIGA), 6));
         table.prop("vmem_write_ridge_point", general(safe_divide(peaks[0], peaks[5] * GIBI_IN_GIGA), 6));
-        records(&mut table, stats, &peaks, true, total_only);
-        records(&mut table, stats, &peaks, false, total_only);
+        if rows != Rows::None {
+            records(&mut table, stats, &peaks, true, total_only);
+            records(&mut table, stats, &peaks, false, total_only);
+        }
         let warnings = if extra.steps.is_empty() { vec![NO_STEP_MARKER.to_string()] } else { Vec::new() };
         return format!("[{},{}]", table.json(), diagnostics_table(&warnings, &[]).json());
     }
@@ -266,8 +276,10 @@ pub fn json_rows(stats: &OpStats, total_only: bool) -> String {
     table.prop("device_type", if stats.tpu { extra.device_type.as_str() } else { "" });
     let mut warnings = Vec::new();
     if stats.tpu {
-        records(&mut table, stats, &peaks, true, total_only);
-        if !total_only {
+        if rows != Rows::None {
+            records(&mut table, stats, &peaks, true, total_only);
+        }
+        if rows == Rows::All {
             records(&mut table, stats, &peaks, false, false);
         }
         if extra.program_steps.is_empty() {

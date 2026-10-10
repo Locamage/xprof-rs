@@ -57,13 +57,13 @@ Each cell is the mean and the standard deviation of 8 trials, after 1 warmup tri
 | `get_hlo_stats` | 4.14 ± 0.02 s | 110 ± 2 ms | 38× | 227 ± 1 ms | 107 ± 3 ms | 2.1× |
 | `get_roofline_model` | 4.24 ± 0.01 s | 214 ± 6 ms | 20× | 227 ± 1 ms | 210 ± 2 ms | 1.1× |
 | `get_step_trace` | 4.08 ± 0.02 s | 230 ± 3 ms | 18× | 226 ± 1 ms | 228 ± 2 ms | 1.0× |
-| `check_host_boundness` | 67.6 ± 0.3 s | 293 ± 8 ms | 231× | 227 ± 1 ms | 293 ± 9 ms | 0.8× |
+| `check_host_boundness` | 67.6 ± 0.3 s | 284 ± 4 ms | 238× | 227 ± 1 ms | 285 ± 4 ms | 0.8× |
 | `get_memory_profile` | 1.84 ± 0.00 s | 137 ± 2 ms | 13× | 226 ± 2 ms | 134 ± 2 ms | 1.7× |
 | `list_hlo_modules` | 226 ± 3 ms | 5.81 ± 0.25 ms | 39× | 225 ± 1 ms | 5.27 ± 0.17 ms | 43× |
 | `aggregate_xplane_events` | 22.0 ± 0.1 s | 117 ± 2 ms | 188× | 244 ± 5 ms | 113 ± 1 ms | 2.2× |
 | `compute_utilization` | 3.11 ± 0.01 s | 46.8 ± 0.6 ms | 67× | 226 ± 1 ms | 45.6 ± 0.3 ms | 5.0× |
 | `get_avg_step_time` | 1.35 ± 0.00 s | 53.1 ± 2.5 ms | 25× | 226 ± 1 ms | 50.3 ± 0.9 ms | 4.5× |
-| `get_device_information` | 4.18 ± 0.01 s | 190 ± 3 ms | 22× | 226 ± 1 ms | 188 ± 5 ms | 1.2× |
+| `get_device_information` | 4.18 ± 0.01 s | 93.2 ± 2.2 ms | 45× | 226 ± 1 ms | 90.9 ± 3.6 ms | 2.5× |
 | `get_graph_viewer` | 342 ± 1 ms | 32.3 ± 0.9 ms | 11× | 342 ± 1 ms | 32.3 ± 0.7 ms | 11× |
 | `get_hlo_module_content` | 349 ± 2 ms | 33.2 ± 1.4 ms | 10× | 227 ± 1 ms | 32.5 ± 0.7 ms | 7.0× |
 | `get_hlo_text` | 349 ± 1 ms | 32.7 ± 0.6 ms | 11× | 228 ± 1 ms | 32.9 ± 1.0 ms | 6.9× |
