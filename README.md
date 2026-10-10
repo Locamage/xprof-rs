@@ -190,6 +190,22 @@ The server copies the store to a local directory, and all tools read this copy. 
 
 Set the URL to the directory that holds the profiles. The server visits each directory under it.
 
+The next table shows the cold times of a new server with 4 cores, from the start of the process to the end of the first response. Before each disk trial, the page cache did not have the files. Before each R2 trial, the cache directory was empty. The responses were the same for the three sources.
+
+| Profile and tool | tmpfs | Persistent disk of a cloud VM | Cloudflare R2 |
+|---|---|---|---|
+| 80 MB, trace viewer | 0.44 s | 0.94 s | 1.38 s |
+| 80 MB, overview page | 0.27 s | 0.75 s | 1.28 s |
+| 279 MB, trace viewer | 0.86 s | 3.07 s | 2.68 s |
+| 279 MB, overview page | 1.01 s | 3.22 s | 2.88 s |
+
+- The first list of the store takes approximately 0.3 s.
+- The download from R2 is approximately 210 MB/s. This is approximately the same as `rclone` with 8 to 32 streams.
+- The disk gave approximately 150 MB/s. This is the limit of the disk, and it changes with the load of the disk.
+- After the first request, the times are the same for the three sources.
+- When the server starts again with the same cache directory, it does not download the files again. The first overview page of the 279 MB profile then takes 1.05 s.
+- XProf 2.23.2 does not read `s3://` URLs.
+
 ## Command line
 
 Use `xprof-rs <command> <session> [--flag=value ...]` to run the agent CLI of XProf. The stdout and the exit codes are the same as in XProf 2.23.2.
