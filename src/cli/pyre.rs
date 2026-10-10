@@ -144,7 +144,8 @@ pub struct Pattern(fancy_regex::Regex, usize);
 
 impl Pattern {
     pub fn search(&self, text: &str) -> bool {
-        (text.len() >= self.1 && text.chars().count() >= self.1) && self.0.is_match(text).unwrap_or(false)
+        let least = self.1;
+        (least == 0 || text.len() >= least && (text.len() >= 4 * least || text.chars().count() >= least)) && self.0.is_match(text).unwrap_or(false)
     }
 }
 

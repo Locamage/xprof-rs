@@ -250,8 +250,35 @@ pub fn repr(value: f64) -> String {
     }
     let scientific = format!("{:e}", value.abs());
     let (mantissa, exponent) = scientific.split_once('e').unwrap();
-    decimal(&mut out, &mantissa.replace('.', ""), exponent.parse::<i32>().unwrap() + 1, MAX_EXPONENT + 1);
+    let (mut digits, exponent) = (mantissa.replace('.', "").into_bytes(), exponent.parse::<i32>().unwrap());
+    let last = digits.len() - 1;
+    if digits[last] % 2 == 1 {
+        let number: u128 = std::str::from_utf8(&digits).unwrap().parse().unwrap();
+        let place = exponent - last as i32;
+        let reads_back = |number: u128| format!("{number}e{place}").parse() == Ok(value.abs());
+        if halfway(value.abs(), 2 * number - 1, place) && reads_back(number - 1) {
+            digits[last] -= 1;
+        } else if digits[last] != b'9' && halfway(value.abs(), 2 * number + 1, place) && reads_back(number + 1) {
+            digits[last] += 1;
+        }
+    }
+    decimal(&mut out, std::str::from_utf8(&digits).unwrap(), exponent + 1, MAX_EXPONENT + 1);
     out
+}
+
+/// Tells if `value` is `odd / 2 * 10^place`. Then two shortest texts are equally near, and Python writes the text with the even last digit.
+fn halfway(value: f64, odd: u128, place: i32) -> bool {
+    let bits = value.to_bits();
+    let (mut mantissa, mut power) = (bits & ((1 << 52) - 1), ((bits >> 52) & 0x7ff) as i32);
+    if power == 0 {
+        power = 1;
+    } else {
+        mantissa |= 1 << 52;
+    }
+    let zeros = mantissa.trailing_zeros();
+    let (mantissa, power) = (u128::from(mantissa >> zeros), power - 1075 + zeros as i32);
+    let five = 5u128.checked_pow(place.unsigned_abs());
+    power + 1 == place && if place >= 0 { five.and_then(|five| odd.checked_mul(five)) == Some(mantissa) } else { five.and_then(|five| mantissa.checked_mul(five)) == Some(odd) }
 }
 
 #[cfg(test)]
