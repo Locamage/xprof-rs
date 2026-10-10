@@ -319,7 +319,7 @@ impl Trace {
                 let mut events: Vec<Event> = keys.par_iter().map(|key| events[key.1 as usize]).collect();
                 drop(keys);
                 let (mut async_tracks, mut by_track) = (FxHashMap::<(u32, &str), u32>::default(), vec![Vec::new(); tracks]);
-                let (mut flow_index, mut flow_ids, mut previous) = (FxHashMap::<u64, u64>::default(), Vec::new(), (u64::MAX, 0));
+                let (mut flow_index, mut flow_ids, mut flowing, mut previous) = (FxHashMap::<u64, u64>::default(), Vec::new(), Vec::new(), (u64::MAX, 0));
                 for (index, event) in events.iter_mut().enumerate() {
                     previous = (event.ts, if event.ts == previous.0 { previous.1 + 1 } else { 0 });
                     event.serial = previous.1;
@@ -334,6 +334,7 @@ impl Trace {
                             flow_ids.push(event.flow);
                             flow_ids.len() as u64 - 1
                         });
+                        flowing.push(index as u32);
                     }
                     by_track[event.track as usize].push(index as u32);
                 }
@@ -341,7 +342,7 @@ impl Trace {
                     events.iter().map(|event| event.ts).find(|&ts| ts <= BAD_TIMESTAMP).unwrap_or(0),
                     events.par_iter().map(|event| event.ts.saturating_add(event.dur)).filter(|&end| end <= BAD_TIMESTAMP).max().unwrap_or(0),
                 );
-                let assigned = assign_levels(&events, &by_track, flow_ids.len());
+                let assigned = assign_levels(&events, &by_track, &flowing, flow_ids.len());
                 let tie = |index: usize| index > 0 && index < events.len() && compare(&names, &events[index - 1], &events[index]).is_eq();
                 let ties = (0..events.len().div_ceil(64)).into_par_iter().map(|word| (0..64).filter(|bit| tie(word * 64 + bit)).fold(0, |bits, bit| bits | 1 << bit)).collect();
                 (events, by_track, flow_ids, span, assigned, ties)
@@ -480,10 +481,11 @@ impl Trace {
     }
 }
 
-fn assign_levels(events: &[Event], by_track: &[Vec<u32>], flow_count: usize) -> Vec<u8> {
+/// `flowing` has the indices of the events with a flow, in order.
+fn assign_levels(events: &[Event], by_track: &[Vec<u32>], flowing: &[u32], flow_count: usize) -> Vec<u8> {
     let mut global: Vec<Visibility> = LAYER_PS[..SPLIT].iter().map(|&resolution| Visibility { resolution, rows: vec![Row::default(); by_track.len()], flows: vec![None; flow_count] }).collect();
     let mut flow_visible = vec![vec![None; flow_count]; SPLIT];
-    for event in events.iter().filter(|event| event.flow != NONE_FLOW) {
+    for event in flowing.iter().map(|&index| &events[index as usize]) {
         let mut level = 0;
         while level < SPLIT {
             let visible = global[level].visible_at_resolution(event);
