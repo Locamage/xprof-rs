@@ -2,7 +2,7 @@ use super::client::{Client, TRACE_SUFFIXES, traces};
 use super::json::{J, py_repr};
 use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round, stdev};
 use crate::obj;
-use crate::tools::counters::{Event, Plane, checked, events, planes, valid_space};
+use crate::tools::counters::{Event, Plane, checked, events, planes};
 use crate::xplane::{Field, Value, fields, stats};
 use indexmap::IndexMap;
 use rayon::prelude::*;
@@ -11,6 +11,7 @@ use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::borrow::Cow;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 const MAX_SCANNED: usize = 5_000_000;
 const NAME_STATS: [&str; 4] = ["msg", "message", "annotation", "label"];
@@ -81,12 +82,40 @@ fn value_text(value: Value) -> String {
 
 /// Runs `scan` on every line of every trace file, with its plane and its index. The lines run in parallel. The results keep the order of the planes and of the lines.
 fn scan_lines<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize) -> R + Sync) -> Result<Vec<R>, Error> {
+    scan_until(paths, |plane, index, _| scan(plane, index), |_| 0, usize::MAX)
+}
+
+/// The results of `scan` for each line, in the order of the files. The scan stops after `limit` events. `count` gives the number of events in a result.
+fn scan_until<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize, usize) -> R + Sync, count: impl Fn(&R) -> usize + Sync, mut limit: usize) -> Result<Vec<R>, Error> {
     let mut results = Vec::new();
     for path in paths {
         let scanned = checked(&super::read(path)?, |map| {
             let planes = planes(map, |_| true);
             let lines: Vec<(&Plane, usize)> = planes.iter().flat_map(|plane| (0..plane.lines.len()).map(move |index| (plane, index))).collect();
-            lines.into_par_iter().map(|(plane, index)| scan(plane, index)).collect::<Vec<R>>()
+            // A few lines can hold most of the events. The largest lines start first, so that the scan does not wait for a large line at the end.
+            let mut order: Vec<usize> = (0..lines.len()).collect();
+            order.sort_unstable_by_key(|&at| std::cmp::Reverse(lines[at].0.lines[lines[at].1].len()));
+            let next = AtomicUsize::new(0);
+            let mut done: Vec<(usize, R)> = (0..rayon::current_num_threads())
+                .into_par_iter()
+                .with_max_len(1)
+                .flat_map_iter(|_| std::iter::from_fn(|| order.get(next.fetch_add(1, Relaxed)).map(|&at| (at, scan(lines[at].0, lines[at].1, usize::MAX)))))
+                .collect();
+            done.sort_unstable_by_key(|item| item.0);
+            let mut found: Vec<R> = done.into_iter().map(|item| item.1).collect();
+            let mut at = 0;
+            while at < found.len() && count(&found[at]) <= limit {
+                limit -= count(&found[at]);
+                at += 1;
+            }
+            if at < found.len() {
+                found.truncate(at);
+                if limit > 0 {
+                    found.push(scan(lines[at].0, lines[at].1, limit));
+                }
+                limit = 0;
+            }
+            found
         });
         results.extend(scanned.ok_or_else(|| Error::new(Kind::Value, "Failed to parse XSpace protobuf data"))?);
     }
@@ -103,20 +132,6 @@ fn visit_line(plane: &Plane, index: usize, mut each: impl FnMut(&Visit) -> bool)
         }
     }
     events(bytes).all(|event| each(&Visit { plane, line: &line, timestamp, event }))
-}
-
-/// Calls `each` on every event of every trace file, until it returns false.
-fn visit_all(paths: &[PathBuf], mut each: impl FnMut(&Visit) -> bool) -> Result<(), Error> {
-    for path in paths {
-        let map = super::read(path)?;
-        if !valid_space(&map) {
-            return fail(Kind::Value, "Failed to parse XSpace protobuf data");
-        }
-        if !planes(&map, |_| true).iter().all(|plane| (0..plane.lines.len()).all(|index| visit_line(plane, index, &mut each))) {
-            break;
-        }
-    }
-    Ok(())
 }
 
 /// The name of an event and if it matches. Only the events with a number as name need work for each event.
@@ -236,53 +251,44 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
         let keep = plane_filter(&planes_re);
         let (mut durations, mut scanned): (IndexMap<String, Vec<i128>, FxBuildHasher>, usize) = (IndexMap::default(), 0);
         let paths = sources(client, &session)?;
-        let parts = scan_lines(&paths, |plane, index| {
-            let (mut found, mut count, mut names) = (IndexMap::<String, Vec<i128>, FxBuildHasher>::default(), 0usize, Names::new(&events_re));
-            // The slot in `found` of each metadata with a name that is not a number. `None` is a name that does not match.
-            let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
-            if keep(plane) {
-                visit_line(plane, index, |visit| {
-                    count += 1;
-                    let duration = || (visit.duration_ns() * 1000.0).trunc() as i128;
-                    if let Some(slot) = slots.get(&visit.event.meta) {
-                        if let Some(slot) = *slot {
+        // The scan stops after the first event above the limit, also in the middle of a line.
+        let parts = scan_until(
+            &paths,
+            |plane, index, cap| {
+                let (mut found, mut count, mut names) = (IndexMap::<String, Vec<i128>, FxBuildHasher>::default(), 0usize, Names::new(&events_re));
+                // The slot in `found` of each metadata with a name that is not a number. `None` is a name that does not match.
+                let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
+                if keep(plane) {
+                    visit_line(plane, index, |visit| {
+                        count += 1;
+                        let duration = || (visit.duration_ns() * 1000.0).trunc() as i128;
+                        if let Some(slot) = slots.get(&visit.event.meta) {
+                            if let Some(slot) = *slot {
+                                found[slot].push(duration());
+                            }
+                            return count < cap;
+                        }
+                        let (name, matched) = names.resolve(visit);
+                        let slot = matched.then(|| found.get_index_of(&*name).unwrap_or_else(|| found.insert_full(name.to_string(), Vec::new()).0));
+                        if let Some(slot) = slot {
                             found[slot].push(duration());
                         }
-                        return true;
-                    }
-                    let (name, matched) = names.resolve(visit);
-                    let slot = matched.then(|| found.get_index_of(&*name).unwrap_or_else(|| found.insert_full(name.to_string(), Vec::new()).0));
-                    if let Some(slot) = slot {
-                        found[slot].push(duration());
-                    }
-                    if let Cow::Borrowed(_) = name {
-                        slots.insert(visit.event.meta, slot);
-                    }
-                    true
-                });
+                        if let Cow::Borrowed(_) = name {
+                            slots.insert(visit.event.meta, slot);
+                        }
+                        count < cap
+                    });
+                }
+                (found, count)
+            },
+            |part| part.1,
+            MAX_SCANNED + 1,
+        )?;
+        for (found, count) in parts {
+            scanned += count;
+            for (name, values) in found {
+                durations.entry(name).or_default().extend(values);
             }
-            (found, count)
-        })?;
-        if parts.iter().map(|part| part.1).sum::<usize>() <= MAX_SCANNED {
-            for (found, count) in parts {
-                scanned += count;
-                for (name, values) in found {
-                    durations.entry(name).or_default().extend(values);
-                }
-            }
-        } else {
-            // The scan stops at the limit, in the middle of a plane.
-            visit_all(&paths, |visit| {
-                if !keep(visit.plane) {
-                    return true;
-                }
-                let name = visit.name();
-                if events_re.is_match(&name) {
-                    durations.entry(name).or_default().push((visit.duration_ns() * 1000.0).trunc() as i128);
-                }
-                scanned += 1;
-                scanned <= MAX_SCANNED
-            })?;
         }
         let mut results: Vec<J> = durations
             .into_iter()
