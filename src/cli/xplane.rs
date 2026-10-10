@@ -1,17 +1,17 @@
 use super::client::{Client, TRACE_SUFFIXES, traces};
 use super::json::{J, py_repr};
+use super::pyre::{self, Pattern};
 use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round, stdev};
 use crate::obj;
 use crate::tools::counters::{Event, Plane, checked, events, planes};
 use crate::xplane::{Field, Value, fields, stats};
 use indexmap::IndexMap;
 use rayon::prelude::*;
-use regex::Regex;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::borrow::Cow;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
 
 const MAX_SCANNED: usize = 5_000_000;
 const NAME_STATS: [&str; 4] = ["msg", "message", "annotation", "label"];
@@ -136,12 +136,12 @@ fn visit_line(plane: &Plane, index: usize, mut each: impl FnMut(&Visit) -> bool)
 
 /// The name of an event and if it matches. Only the events with a number as name need work for each event.
 struct Names<'a> {
-    pattern: &'a Regex,
+    pattern: &'a Pattern,
     known: FxHashMap<u64, (String, bool, bool)>,
 }
 
 impl<'a> Names<'a> {
-    fn new(pattern: &'a Regex) -> Self {
+    fn new(pattern: &'a Pattern) -> Self {
         Names { pattern, known: FxHashMap::default() }
     }
 
@@ -149,12 +149,12 @@ impl<'a> Names<'a> {
         let pattern = self.pattern;
         let (name, numeric, matched) = self.known.entry(visit.event.meta).or_insert_with(|| {
             let name = visit.raw_name();
-            let matched = pattern.is_match(&name);
+            let matched = pattern.search(&name);
             (name.clone(), is_number(&name), matched)
         });
         if *numeric {
             let name = visit.name();
-            let matched = pattern.is_match(&name);
+            let matched = pattern.search(&name);
             return (Cow::Owned(name), matched);
         }
         (Cow::Borrowed(name.as_str()), *matched)
@@ -179,12 +179,12 @@ fn sources(client: &dyn Client, source: &str) -> Result<Vec<PathBuf>, Error> {
     client.xspace_paths(&client.run_dir(source)?)
 }
 
-fn regex(pattern: &str) -> Result<Regex, Error> {
-    Regex::new(pattern).map_err(|error| Error::new(Kind::Runtime, error.to_string()))
+fn regex(pattern: &str) -> Result<Pattern, Error> {
+    pyre::compile(pattern, 986).map_err(|message| Error::new(Kind::Runtime, message))
 }
 
-fn plane_filter(pattern: &Regex) -> impl Fn(&Plane) -> bool {
-    move |plane| pattern.is_match(&plane.name)
+fn plane_filter(pattern: &Pattern) -> impl Fn(&Plane) -> bool {
+    move |plane| pattern.search(&plane.name)
 }
 
 pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -396,7 +396,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         _ => Vec::new(),
     };
     let compute = || -> Result<Out, Error> {
-        let patterns: Vec<(Option<Regex>, &String)> = matchers.iter().map(|pattern| (Regex::new(pattern).ok(), pattern)).collect();
+        let patterns: Vec<_> = matchers.iter().map(|pattern| (pyre::compile(pattern, 982), pattern)).collect();
+        let deep = AtomicBool::new(false);
         let parts = scan_lines(&sources(client, &source)?, |plane, index| {
             let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
             if !plane.name.starts_with("/device:") {
@@ -405,7 +406,15 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             let (tpu, mut kind) = (plane.name.to_uppercase().contains("TPU"), None);
             let wanted = |name: &str| {
                 kernel.as_ref().is_none_or(|kernel| kernel == name)
-                    && (patterns.is_empty() || patterns.iter().any(|(compiled, pattern)| compiled.as_ref().is_some_and(|compiled| compiled.is_match(name)) || name.contains(pattern.as_str())))
+                    && (patterns.is_empty()
+                        || patterns.iter().any(|(compiled, pattern)| match compiled {
+                            Ok(compiled) => compiled.search(name) || name.contains(pattern.as_str()),
+                            Err(message) if message == pyre::RECURSION => {
+                                deep.store(true, Relaxed);
+                                true
+                            }
+                            Err(_) => name.contains(pattern.as_str()),
+                        }))
             };
             // The slot in `durations` of each metadata with a name that is not a number, for the events without `tf_op_name`. `None` is a name that the filters skip.
             let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
@@ -442,6 +451,9 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             });
             (durations, intervals, steps)
         })?;
+        if deep.into_inner() {
+            return Err(Error::new(Kind::Runtime, pyre::RECURSION));
+        }
         let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
         for (found, spans, times) in parts {
             for (name, values) in found {

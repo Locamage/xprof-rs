@@ -3,6 +3,7 @@ pub mod hlo;
 pub mod json;
 pub mod ops;
 pub mod overview;
+pub mod pyre;
 pub mod steps;
 pub mod xplane;
 
@@ -580,6 +581,7 @@ fn render(out: Out) -> Vec<u8> {
             text.push(quote as char);
             text.into_bytes()
         }
+        Out::Value(J::List(items)) if items.is_empty() => return Vec::new(),
         Out::Value(J::List(items)) => items.iter().map(display).collect::<Vec<_>>().join("\n").into_bytes(),
         Out::Value(J::Map(entries)) => {
             let visible: Vec<&(String, J)> = entries.iter().filter(|(key, _)| !key.starts_with('_')).collect();
