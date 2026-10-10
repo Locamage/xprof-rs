@@ -237,9 +237,15 @@ fn private_dir(dir: &Path) -> std::io::Result<PathBuf> {
 }
 
 fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    let file = std::fs::File::open(path)?;
+    let mut file = std::fs::File::open(path)?;
     let mut bytes = vec![0; file.metadata()?.len() as usize];
-    bytes.par_chunks_mut(READ_CHUNK).enumerate().try_for_each(|(index, chunk)| file.read_exact_at(chunk, (index * READ_CHUNK) as u64))?;
+    let mut info: libc::statfs = unsafe { std::mem::zeroed() };
+    // A FUSE mount of a store (rclone mount, gcsfuse) reads fast only in order. On rclone, 4 parallel reads give 1 MB/s.
+    if unsafe { libc::fstatfs(std::os::fd::AsRawFd::as_raw_fd(&file), &raw mut info) } == 0 && info.f_type == libc::FUSE_SUPER_MAGIC {
+        std::io::Read::read_exact(&mut file, &mut bytes)?;
+    } else {
+        bytes.par_chunks_mut(READ_CHUNK).enumerate().try_for_each(|(index, chunk)| file.read_exact_at(chunk, (index * READ_CHUNK) as u64))?;
+    }
     Ok(bytes)
 }
 

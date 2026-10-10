@@ -190,21 +190,56 @@ The server copies the store to a local directory, and all tools read this copy. 
 
 Set the URL to the directory that holds the profiles. The server visits each directory under it.
 
-The next table shows the cold times of a new server with 4 cores, from the start of the process to the end of the first response. Before each disk trial, the page cache did not have the files. Before each R2 trial, the cache directory was empty. The responses were the same for the three sources.
+### Times on a disk and on R2
 
-| Profile and tool | tmpfs | Persistent disk of a cloud VM | Cloudflare R2 |
-|---|---|---|---|
-| 80 MB, trace viewer | 0.44 s | 0.94 s | 1.38 s |
-| 80 MB, overview page | 0.27 s | 0.75 s | 1.28 s |
-| 279 MB, trace viewer | 0.86 s | 3.07 s | 2.68 s |
-| 279 MB, overview page | 1.01 s | 3.22 s | 2.88 s |
+XProf 2.23.2 does not read `s3://` URLs. Its server and its file code know only `gs://` and local paths. To read R2, XProf needs a FUSE mount of the bucket, for example `rclone mount`. xprof-rs can read R2 through the `s3://` URL or through the mount.
 
-- The first list of the store takes approximately 0.3 s.
-- The download from R2 is approximately 210 MB/s. This is approximately the same as `rclone` with 8 to 32 streams.
+The next tables show the cold times of a new server with 4 cores, from the start of the process to the end of the first response.
+
+- tmpfs: the files are in memory.
+- Disk: the persistent disk of a cloud VM. Before each trial, the page cache did not have the files.
+- R2 mount: a new `rclone mount --vfs-cache-mode writes` of Cloudflare R2 for each trial. XProf writes its cache files into the session directory, so the mount must accept writes.
+- R2: xprof-rs reads the `s3://` URL. Before each trial, the cache directory was empty.
+
+Before each trial, we removed the files that the servers wrote. Each cell is the mean of 3 trials on the 80 MB profile and of 2 trials on the 279 MB profile.
+
+80 MB profile:
+
+| Tool | XProf, tmpfs | xprof-rs, tmpfs | XProf, disk | xprof-rs, disk | XProf, R2 mount | xprof-rs, R2 mount | xprof-rs, R2 |
+|---|---|---|---|---|---|---|---|
+| Trace viewer | 5.71 s | 0.46 s | 7.33 s | 1.48 s | 7.32 s | 2.40 s | 1.77 s |
+| Overview page | 4.31 s | 0.26 s | 5.79 s | 1.11 s | 6.06 s | 3.49 s | 1.45 s |
+| Op profile | 4.83 s | 0.32 s | 6.27 s | 0.81 s | 6.34 s | 2.72 s | 1.43 s |
+| HLO op stats | 4.41 s | 0.28 s | 5.93 s | 1.21 s | 5.92 s | 4.64 s | 1.80 s |
+| Framework op stats | 4.31 s | 0.27 s | 5.75 s | 0.79 s | 5.84 s | 2.25 s | 1.57 s |
+| Input pipeline | 4.26 s | 0.26 s | 5.88 s | 0.74 s | 6.92 s | 2.58 s | 1.37 s |
+| Roofline model | 4.49 s | 0.29 s | 6.00 s | 0.78 s | 6.14 s | 2.52 s | 1.45 s |
+| Memory profile | 2.09 s | 0.16 s | 3.71 s | 0.83 s | 4.31 s | 2.01 s | 1.47 s |
+| Pod viewer | 4.32 s | 0.26 s | 5.90 s | 0.75 s | 6.38 s | 2.38 s | 1.44 s |
+| Memory viewer | 0.46 s | 0.05 s | 0.58 s | 0.11 s | 1.52 s | 1.00 s | 1.15 s |
+
+279 MB profile:
+
+| Tool | XProf, tmpfs | xprof-rs, tmpfs | XProf, disk | xprof-rs, disk | XProf, R2 mount | xprof-rs, R2 mount | xprof-rs, R2 |
+|---|---|---|---|---|---|---|---|
+| Trace viewer | 14.7 s | 0.84 s | 18.0 s | 3.51 s | 20.0 s | 7.76 s | 3.02 s |
+| Overview page | 21.3 s | 1.05 s | 25.2 s | 3.30 s | 24.9 s | 5.81 s | 3.47 s |
+| Op profile | 27.3 s | 1.29 s | 31.0 s | 3.59 s | 33.5 s | 5.56 s | 2.97 s |
+| HLO op stats | 23.2 s | 1.21 s | 26.4 s | 3.56 s | 28.8 s | 4.73 s | 3.29 s |
+| Framework op stats | 21.3 s | 1.03 s | 24.8 s | 3.34 s | 24.2 s | 7.02 s | 2.83 s |
+| Input pipeline | 21.3 s | 1.01 s | 24.6 s | 3.27 s | 25.4 s | 8.37 s | 2.71 s |
+| Roofline model | 21.6 s | 1.06 s | 25.0 s | 3.33 s | 25.2 s | 7.12 s | 2.90 s |
+| Memory profile | 3.88 s | 0.28 s | 7.18 s | 2.61 s | 7.89 s | 6.62 s | 1.96 s |
+| Pod viewer | 21.3 s | 1.05 s | 24.7 s | 3.27 s | 26.6 s | 6.14 s | 2.70 s |
+| Memory viewer | 2.06 s | 0.33 s | 2.53 s | 1.17 s | 3.16 s | 1.84 s | 2.09 s |
+
+- After the first request, xprof-rs answers in 0.4 ms to 6 ms from all sources. XProf answers in 55 ms to 2.2 s on the 80 MB profile and in 0.6 s to 6.9 s on the 279 MB profile.
+- The responses of xprof-rs were the same for all sources. For 5 tools, the bytes of XProf change from one process to the next: the order of map keys and of equal items, and the `bind_id` values of the trace viewer. Without these changes, the responses of XProf and xprof-rs have the same data.
 - The disk gave approximately 150 MB/s. This is the limit of the disk, and it changes with the load of the disk.
-- After the first request, the times are the same for the three sources.
+- A read through `rclone mount` is approximately 46 MB/s, because the mount reads a file in order with one stream. On a FUSE mount, xprof-rs reads each file in order. On other file systems, it reads parts of the file in parallel.
+- With the `s3://` URL, the first list of the store takes approximately 0.3 s. The download is approximately 210 MB/s, approximately the same as `rclone` with 8 to 32 streams. The server downloads all the files of the session, also for the memory viewer, which needs only the HLO file.
+- The R2 times change with the network. One XProf trial of the op profile on the mount took 149 s, and we measured it again.
 - When the server starts again with the same cache directory, it does not download the files again. The first overview page of the 279 MB profile then takes 1.05 s.
-- XProf 2.23.2 does not read `s3://` URLs.
 
 ## Command line
 
