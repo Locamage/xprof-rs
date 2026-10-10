@@ -133,6 +133,26 @@ fn numbers_print_like_nlohmann_grisu2() {
     }
 }
 
+#[test]
+fn barriers_after_the_event_limit_follow_the_stable_time_order() {
+    let first = [number(1, 1), bytes(2, b"a"), event(1, 10, 1_000_000, &[]), event(2, 20, 0, &[])].concat();
+    let second = [number(1, 2), bytes(2, b"b"), event(1, 20, 2_000_000, &[]), event(1, 5, 3_000_000, &[]), event(1, 30, 4_000_000, &[])].concat();
+    let plane = [bytes(2, b"/device:TPU:0"), bytes(3, &first), bytes(3, &second), entries(4, &["barrier-cores", "other"])].concat();
+    let space = bytes(1, &plane);
+    let planes = crate::xplane::parse(&space).unwrap();
+    let within = |limit| trace::legacy::barriers_within(&planes, &space, limit);
+    assert_eq!(within(3), [3.0, 1.0]);
+    assert_eq!(within(4), [3.0, 1.0, 2.0]);
+    assert_eq!(within(5).len(), 4);
+    for limit in 1..=6 {
+        let trace: serde_json::Value = serde_json::from_str(&trace::legacy::render_within(&planes, &space, limit)).unwrap();
+        let events = trace["traceEvents"].as_array().unwrap().iter().filter(|event| event.get("ph").is_some_and(|phase| phase != "M"));
+        assert_eq!(events.clone().count(), limit.min(5), "{trace}");
+        let barriers: Vec<f64> = events.filter(|event| event["name"] == "barrier-cores").map(|event| event["dur"].as_f64().unwrap()).collect();
+        assert_eq!(barriers, within(limit), "{trace}");
+    }
+}
+
 fn op_stats_of(space: &[u8]) -> std::sync::Arc<OpStats> {
     crate::tests::with_file(space, tools::opstats::load).unwrap().unwrap()
 }

@@ -51,6 +51,14 @@ pub trait Client {
         )
     }
 
+    /// The compute, HBM and ICI sums of the times of the leaves of the op profile by category.
+    fn category_times(&self, session: &str, params: &Params) -> Option<[f64; 3]> {
+        let profile = self.fetch_text("hlo_op_profile.json", session, params).ok().flatten().and_then(|raw| super::json::J::parse(&raw));
+        let times = profile.as_ref().map(|profile| super::ops::field(profile, "by_category")).filter(|node| matches!(node, super::json::J::Map(_)) && node.truthy()).map(super::steps::hlo_times);
+        crate::release(profile);
+        times
+    }
+
     /// The roofline table, of which the overview reads the first row only.
     fn roofline_total(&self, session: &str) -> Option<String> {
         self.fetch_text("roofline_model.json", session, &[]).ok()?.or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
@@ -126,6 +134,27 @@ pub struct Local {
 }
 
 impl Local {
+    /// The op statistics of a single file, which the process loads one time and extends when a tool needs more.
+    fn stats(&self, paths: &[PathBuf], fused: bool, part: Part) -> Option<Arc<OpStats>> {
+        let mut loaded = self.loaded.lock().unwrap();
+        let [path] = paths else { return None };
+        let mut kept = self.kept.write().unwrap();
+        let stats = loaded.entry(path.clone()).or_insert_with(|| {
+            let (stats, found) = load_kept(crate::read_file(path).ok()?, fused || self.fused, part).ok()??;
+            kept.insert(path.clone(), found);
+            Some(stats)
+        });
+        if let (Some(stats), Some(kept)) = (stats.as_mut(), kept.get_mut(path)) {
+            if fused && !kept.fused {
+                kept.fuse(Arc::make_mut(stats));
+            }
+            if kept.part < part {
+                kept.upgrade(Arc::make_mut(stats), part);
+            }
+        }
+        stats.clone()
+    }
+
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
     fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> Option<T> {
         if let Some(kept) = self.kept.write().unwrap().get_mut(path).filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))) {
@@ -148,6 +177,11 @@ impl Client for Local {
 
     fn roofline_total(&self, session: &str) -> Option<String> {
         self.fetch_text("roofline_model.json", session, &[(TOTAL_ONLY, String::new())]).ok()?.or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
+    }
+
+    fn category_times(&self, session: &str, _: &Params) -> Option<[f64; 3]> {
+        let stats = self.stats(&self.xspace_paths(&self.run_dir(session).ok()?).ok()?, true, Part::Device)?;
+        Some(crate::tools::op_profile::category_times(&stats, super::steps::time_class))
     }
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
@@ -193,27 +227,7 @@ impl Client for Local {
         let options: HashMap<String, String> = params.iter().map(|(key, value)| (key.to_string(), flag(key, value))).collect();
         let option = |key: &str| options.get(key).map(String::as_str);
         let dir = paths[0].parent().map(Path::to_path_buf).unwrap_or_default();
-        let stats = |fused: bool, part: Part| {
-            let mut loaded = self.loaded.lock().unwrap();
-            if paths.len() > 1 {
-                return None;
-            }
-            let mut kept = self.kept.write().unwrap();
-            let stats = loaded.entry(paths[0].clone()).or_insert_with(|| {
-                let (stats, found) = load_kept(crate::read_file(&paths[0]).ok()?, fused || self.fused, part).ok()??;
-                kept.insert(paths[0].clone(), found);
-                Some(stats)
-            });
-            if let (Some(stats), Some(kept)) = (stats.as_mut(), kept.get_mut(&paths[0])) {
-                if fused && !kept.fused {
-                    kept.fuse(Arc::make_mut(stats));
-                }
-                if kept.part < part {
-                    kept.upgrade(Arc::make_mut(stats), part);
-                }
-            }
-            stats.clone()
-        };
+        let stats = |fused: bool, part: Part| self.stats(&paths, fused, part);
         let rendered = match name {
             "memory_profile" if paths.len() != 1 => return fail(Kind::Assertion, ""),
             "memory_profile" => match self.kept.write().unwrap().get_mut(&paths[0]) {

@@ -1,6 +1,5 @@
 use super::client::Client;
 use super::json::J;
-use super::ops::field;
 use super::overview::utilization_viewer;
 use super::{Args, Error, Kind, Out, bypass, fsum, rethrow, round, stdev};
 use crate::obj;
@@ -306,26 +305,24 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     Ok(out.into())
 }
 
-fn hlo_times(node: &J) -> (f64, f64, f64) {
+/// The index of the sum for the time of a leaf of the op profile: 0 for compute, 1 for HBM, 2 for ICI.
+pub fn time_class(name: &str, category: &str) -> usize {
+    let (name, category) = (name.to_lowercase(), category.to_lowercase());
+    let matches = |patterns: &[&str]| patterns.iter().any(|pattern| name.contains(pattern) || category.contains(pattern));
+    if matches(&ICI_PATTERNS) { 2 } else { usize::from(matches(&HBM_PATTERNS)) }
+}
+
+pub fn hlo_times(node: &J) -> [f64; 3] {
     let metrics = node.at("metrics");
     let children = node.at("children").items();
-    let mut times = (0.0, 0.0, 0.0);
+    let mut times = [0.0; 3];
     if children.is_empty() && metrics.at("occurrences").float().unwrap_or(0.0) > 0.0 {
-        let name = node.at("name").text().to_lowercase();
-        let category = node.at("xla").get("category").map_or(String::new(), |category| category.text().to_lowercase());
-        let time = Some(metrics.at("rawTime")).filter(|value| value.truthy()).and_then(J::float).unwrap_or(0.0);
-        let matches = |patterns: &[&str]| patterns.iter().any(|pattern| name.contains(pattern) || category.contains(pattern));
-        if matches(&ICI_PATTERNS) {
-            times.2 += time;
-        } else if matches(&HBM_PATTERNS) {
-            times.1 += time;
-        } else {
-            times.0 += time;
-        }
+        let category = node.at("xla").get("category").map_or(String::new(), J::text);
+        times[time_class(&node.at("name").text(), &category)] += Some(metrics.at("rawTime")).filter(|value| value.truthy()).and_then(J::float).unwrap_or(0.0);
     }
     for child in children.iter().filter(|child| matches!(child, J::Map(_))) {
-        let (compute, hbm, ici) = hlo_times(child);
-        times = (times.0 + compute, times.1 + hbm, times.2 + ici);
+        let child = hlo_times(child);
+        times = std::array::from_fn(|index| times[index] + child[index]);
     }
     times
 }
@@ -408,16 +405,11 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         }
         let mut hlo_params = vec![("group_by", "category".to_string())];
         hlo_params.push(super::bypass(bypass));
-        let profile_times = |client: &dyn Client| {
-            let profile = client.fetch_text("hlo_op_profile.json", &session, &hlo_params).ok().flatten().and_then(|raw| J::parse(&raw));
-            let times = profile.as_ref().map(|profile| field(profile, "by_category")).filter(|node| matches!(node, J::Map(_)) && node.truthy()).map(hlo_times);
-            crate::release(profile);
-            times
-        };
+        let profile_times = |client: &dyn Client| client.category_times(&session, &hlo_params);
         let others = |client: &dyn Client| (barrier(client, &session), utilization_metrics(client, &session, hosts, bypass));
         let (times, ((barrier_average, barriers), [idleness, hbm, ici_read, ici_write])) = super::both(client, profile_times, others);
         let available = times.is_some();
-        let (compute_ps, hbm_ps, ici_ps) = times.unwrap_or((0.0, 0.0, 0.0));
+        let [compute_ps, hbm_ps, ici_ps] = times.unwrap_or([0.0; 3]);
         let scale = |picoseconds: f64| picoseconds / 1e9 / cores as f64;
         let (compute_ms, hbm_ms, ici_ms) = (scale(compute_ps), scale(hbm_ps), scale(ici_ps));
         let barrier_ms = if barriers > 0 { barrier_average * steps as f64 } else { 0.0 };

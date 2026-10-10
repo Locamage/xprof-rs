@@ -411,11 +411,35 @@ pub fn proto_double(out: &mut String, value: f64) {
 }
 
 fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> String {
-    let db = &stats.db;
     let mut out = String::new();
+    match build(stats, grouping, exclude_idle) {
+        Some(builder) => builder.write(&mut out, ROOT, PARALLEL_LEVELS),
+        None => out.push_str("{\"name\":\"\",\"children\":[],\"numChildren\":0}"),
+    }
+    out
+}
+
+/// The sums of the `rawTime` of the leaves of the tree by category, in the order of the JSON tree. `class` gives the sum for the name and the category of a leaf.
+pub fn category_times(stats: &OpStats, class: impl Fn(&str, &str) -> usize + Copy) -> [f64; 3] {
+    fn walk(nodes: &[Node], index: usize, class: impl Fn(&str, &str) -> usize + Copy) -> [f64; 3] {
+        let node = &nodes[index];
+        let mut times = [0.0; 3];
+        if node.children.is_empty() && node.metrics.occurrences as u32 > 0 {
+            times[class(&node.name, node.xla.as_ref().map_or("", |xla| xla.category))] += node.metrics.time_ps as f64;
+        }
+        for &child in &node.children {
+            let child = walk(nodes, child, class);
+            times = std::array::from_fn(|index| times[index] + child[index]);
+        }
+        times
+    }
+    build(stats, CATEGORY, false).map_or([0.0; 3], |builder| walk(&builder.nodes, ROOT, class))
+}
+
+fn build(stats: &OpStats, grouping: usize, exclude_idle: bool) -> Option<Builder<'_>> {
+    let db = &stats.db;
     if db.metrics.is_empty() {
-        out.push_str("{\"name\":\"\",\"children\":[],\"numChildren\":0}");
-        return out;
+        return None;
     }
     let mut builder = Builder {
         grouping,
@@ -435,8 +459,7 @@ fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> String {
     builder.sort_and_prune(CHILDREN_PER_NODE, GROUPINGS[grouping].2, ROOT);
     builder.sort_and_prune(CHILDREN_PER_NODE, GROUPINGS[grouping].2, ROOT);
     builder.finalize_deduplicated(ROOT);
-    builder.write(&mut out, ROOT, PARALLEL_LEVELS);
-    out
+    Some(builder)
 }
 
 pub fn json(stats: &OpStats, group_by: Option<&str>) -> String {
