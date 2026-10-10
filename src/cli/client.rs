@@ -229,7 +229,7 @@ impl Client for Local {
             "kernel_stats" => stats(false, Part::Device).map(|stats| crate::xplane::gpu::kernel_stats_json(&stats)),
             "pod_viewer" => stats(false, Part::All).map(|stats| crate::tools::pod_viewer::json(&stats)),
             "op_profile" => stats(true, Part::Device).map(|stats| crate::tools::op_profile::json_trees(&stats, Some(option("group_by").unwrap_or("program")), false)),
-            "hlo_stats" => stats(true, Part::Device).map(|stats| crate::tools::hlo_stats::json(&stats)),
+            "hlo_stats" => stats(false, Part::Device).map(|stats| crate::tools::hlo_stats::json(&stats)),
             "roofline_model" => stats(false, Part::Programs).map(|stats| crate::tools::roofline::json_rows(&stats, option(TOTAL_ONLY).is_some())),
             "memory_viewer" => crate::hlo::memory::serve(&dir, &options).map(|(body, _)| body),
             "graph_viewer" => return crate::hlo::graph::serve(&dir, &options).map(|(body, _)| Some(body)).map_err(|message| Error::new(Kind::Value, message)),

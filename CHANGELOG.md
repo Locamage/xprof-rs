@@ -16,6 +16,9 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - On a 280 MB TPU v4 profile, the first request of the op statistics tools is 2% to 3% faster. The server does not do a text comparison for each event, and it checks valid text faster.
 - On a 280 MB TPU v4 profile with 4 cores, the CLI commands that read op statistics are 4% to 6% faster. On an 80 MB profile, they are 1% to 5% faster. For the time span of the XLA ops on a line, xprof-rs reads only the first and the last events of the line. Before, it read the stats of all the events.
 - `get_xspace_proto` removes the old file in `/tmp` before it writes the new file. On ext4, a write over a large file waits until the disk has the data. When you call the command again for the same session on an 80 MB profile, it takes 0.10 s. Before, it took 0.60 s. The first call does not change. The file does not change.
+- `get_hlo_stats` does not make the statistics of the instructions in fusions, because its output does not show them. On a 280 MB TPU v4 profile with 4 cores, it takes 0.58 s. Before, it took 0.80 s. On an 80 MB profile, it takes 0.12 s. Before, it took 0.14 s.
+- The CLI commands that scan all the events start with the largest lines. Before, one thread sometimes scanned all the large lines one after the other. On a 280 MB TPU v4 profile with 4 cores, `get_kernel_stats` takes 0.37 s (before: 0.59 s), `aggregate_xplane_events` takes 0.42 s (before: 0.58 s), and `list_xplane_events` takes 0.21 s (before: 0.32 s). On an 80 MB profile, these commands and `get_avg_step_time` are 2% to 10% faster.
+- When a profile has more than 5,000,000 events, `aggregate_xplane_events` uses the results of the parallel scan. Before, it scanned the profile again on one thread. On a 1.7 GB profile with 4 cores, it takes 2.2 s. Before, it took 6.4 s.
 - The README shows the times of all the CLI commands that need only a session.
 
 ## 0.1.2

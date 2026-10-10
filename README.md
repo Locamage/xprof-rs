@@ -54,13 +54,13 @@ Each cell is the mean and the standard deviation of 8 trials, after 1 warmup tri
 | `get_overview` | 4.22 ± 0.01 s | 239 ± 13 ms | 18× | 226 ± 1 ms | 234 ± 10 ms | 1.0× |
 | `get_top_hlo_ops` | 5.47 ± 0.01 s | 138 ± 2 ms | 40× | 227 ± 1 ms | 137 ± 2 ms | 1.7× |
 | `get_hlo_op_profile` | 5.48 ± 0.02 s | 141 ± 8 ms | 39× | 230 ± 2 ms | 136 ± 4 ms | 1.7× |
-| `get_hlo_stats` | 4.14 ± 0.02 s | 123 ± 4 ms | 34× | 227 ± 1 ms | 121 ± 4 ms | 1.9× |
+| `get_hlo_stats` | 4.14 ± 0.02 s | 110 ± 2 ms | 38× | 227 ± 1 ms | 107 ± 3 ms | 2.1× |
 | `get_roofline_model` | 4.24 ± 0.01 s | 214 ± 6 ms | 20× | 227 ± 1 ms | 210 ± 2 ms | 1.1× |
 | `get_step_trace` | 4.08 ± 0.02 s | 230 ± 3 ms | 18× | 226 ± 1 ms | 228 ± 2 ms | 1.0× |
 | `check_host_boundness` | 67.6 ± 0.3 s | 293 ± 8 ms | 231× | 227 ± 1 ms | 293 ± 9 ms | 0.8× |
 | `get_memory_profile` | 1.84 ± 0.00 s | 137 ± 2 ms | 13× | 226 ± 2 ms | 134 ± 2 ms | 1.7× |
 | `list_hlo_modules` | 226 ± 3 ms | 5.81 ± 0.25 ms | 39× | 225 ± 1 ms | 5.27 ± 0.17 ms | 43× |
-| `aggregate_xplane_events` | 22.0 ± 0.1 s | 127 ± 3 ms | 173× | 244 ± 5 ms | 121 ± 4 ms | 2.0× |
+| `aggregate_xplane_events` | 22.0 ± 0.1 s | 117 ± 2 ms | 188× | 244 ± 5 ms | 113 ± 1 ms | 2.2× |
 | `compute_utilization` | 3.11 ± 0.01 s | 46.8 ± 0.6 ms | 67× | 226 ± 1 ms | 45.6 ± 0.3 ms | 5.0× |
 | `get_avg_step_time` | 1.35 ± 0.00 s | 53.1 ± 2.5 ms | 25× | 226 ± 1 ms | 50.3 ± 0.9 ms | 4.5× |
 | `get_device_information` | 4.18 ± 0.01 s | 190 ± 3 ms | 22× | 226 ± 1 ms | 188 ± 5 ms | 1.2× |
@@ -77,7 +77,7 @@ Each cell is the mean and the standard deviation of 8 trials, after 1 warmup tri
 | `get_profile_summary` | 5.45 ± 0.01 s | 131 ± 3 ms | 42× | 226 ± 1 ms | 129 ± 3 ms | 1.8× |
 | `get_utilization_viewer` | 2.19 ± 0.01 s | 46.9 ± 0.6 ms | 47× | 226 ± 1 ms | 45.4 ± 0.5 ms | 5.0× |
 | `get_xspace_proto` | 354 ± 3 ms | 83.8 ± 1.4 ms | 4.2× | 799 ± 46 ms | 100 ± 3 ms | 8.0× |
-| `list_xplane_events` | 22.0 ± 0.0 s | 85.1 ± 6.9 ms | 259× | 226 ± 1 ms | 81.8 ± 2.6 ms | 2.8× |
+| `list_xplane_events` | 22.0 ± 0.0 s | 81.9 ± 1.1 ms | 269× | 226 ± 1 ms | 78.4 ± 1.5 ms | 2.9× |
 
 Some warm XProf commands are as fast as xprof-rs or faster. XProf keeps each result in a cache in `$TMPDIR`, and a second call reads this cache. xprof-rs has no result cache. It reads the profile again for each call.
 
