@@ -10,7 +10,7 @@ xprof-rs is an independent project. Google and the OpenXLA project do not mainta
 
 We wrote xprof-rs with [Claude](https://www.anthropic.com/claude), an AI model from Anthropic. The tests compare the output of each tool with the output of XProf 2.23.2.
 
-On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.37 s (XProf: 5.3 s). After the first request, it opens in approximately 2 ms (XProf: 0.62 s). The [performance](#performance) section has the times of all tools.
+On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.37 s (XProf: 5.3 s). After the first request, it opens in approximately 2 ms (XProf: 0.62 s). xprof-rs also reads profiles from S3-compatible stores such as Cloudflare R2. XProf 2.23.2 cannot read them. The [performance](#performance) section has the times of all tools, also on a disk and on R2.
 
 ![XProf 2.23.2 on the left and xprof-rs on the right open the same 279 MB TPU v4 profile for the first time](docs/demo.gif)
 
@@ -116,6 +116,17 @@ More cores make xprof-rs faster. The next table shows the cold times of xprof-rs
 | 64 | 0.35 s | 0.14 s | 0.80 GB |
 
 To measure the times of the first two tables on your profile, run [`examples/benchmark.py`](examples/benchmark.py) `SESSION_DIR --xprof PATH --cores 0-3 --trials 8`.
+
+The next table shows the cold times of the overview page on a disk and on Cloudflare R2, from the start of a new server to the end of the first response. XProf 2.23.2 cannot read `s3://` URLs, so it reads R2 through `rclone mount`. The section [Times on a disk and on R2](#times-on-a-disk-and-on-r2) has all the tools and the method.
+
+| Profile | Source | XProf | xprof-rs |
+|---|---|---|---|
+| 80 MB | Disk of a cloud VM | 5.79 s | 1.11 s |
+| 80 MB | R2, `rclone mount` | 6.06 s | 3.49 s |
+| 80 MB | R2, `s3://` URL | not available | 1.45 s |
+| 279 MB | Disk of a cloud VM | 25.2 s | 3.30 s |
+| 279 MB | R2, `rclone mount` | 24.9 s | 5.81 s |
+| 279 MB | R2, `s3://` URL | not available | 3.47 s |
 
 ## Install and start
 
