@@ -86,6 +86,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - A response of 4 GiB or more is complete when the client does not accept gzip, for example `curl` without `--compressed`. Before, the server used the gzip size field, which keeps only the low 32 bits. Thus the response was too short.
 - The cost analysis of an HLO module with a graph that two `async-start` instructions call is now linear in the number of instructions. Before, each instruction read the full log of calls again. For an entry graph with 30,000 instructions, the analysis takes 0.12 s. Before, it took 0.57 s.
 - The megascale stats keep the result of each instruction search, also when the HLO module does not have the instruction. Before, the search read all the instructions of the module again for each event of an instruction that it did not find. The output does not change.
+- With a remote log directory, a request for a session that the mirror has does not list the full store again. Before, such a request listed all the folders of the store each 5 s, and an error in any folder gave "502 Bad Gateway".
 
 ## 0.1.2
 

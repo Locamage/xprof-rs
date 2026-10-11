@@ -163,6 +163,27 @@ async fn an_unreadable_store_answers_bad_gateway() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_request_for_a_mirrored_session_does_not_list_the_whole_store() {
+    use std::os::unix::fs::PermissionsExt;
+    let bucket = logdir("remote-mirrored");
+    std::fs::create_dir_all(bucket.join("run/plugins/profile/s")).unwrap();
+    std::fs::create_dir_all(bucket.join("other")).unwrap();
+    std::fs::write(bucket.join("run/plugins/profile/s/h.xplane.pb"), DEMO).unwrap();
+    let settings = arguments(["--logdir".to_string(), format!("file://{}", bucket.display())]).unwrap();
+    let state = state(&settings);
+    assert_eq!(fetch(&state, "/data/plugin/profile/runs").await.2, "[\"run/s\"]");
+    std::fs::set_permissions(bucket.join("other"), std::fs::Permissions::from_mode(0)).unwrap();
+    state.remote.as_ref().unwrap().checked.lock().unwrap().clear();
+    let served = fetch(&state, "/data/plugin/profile/run_tools?run=run/s").await;
+    let listed = fetch(&state, "/data/plugin/profile/runs").await;
+    std::fs::set_permissions(bucket.join("other"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(served.0, StatusCode::OK, "{}", served.2);
+    assert_eq!(listed.0, StatusCode::BAD_GATEWAY);
+    std::fs::remove_dir_all(&bucket).unwrap();
+    std::fs::remove_dir_all(&settings.remote.unwrap().mirror).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_download_leaves_no_partial_file_and_no_lock() {
     let (store, remote) = memory("partial");
     put(&store, "logs/plugins/profile/s/a.xplane.pb", vec![1; PART_BYTES as usize * 3]).await;

@@ -214,18 +214,26 @@ pub async fn mirror(State(state): State<Shared>, request: Request, next: Next) -
     let Some(remote) = state.remote.clone() else { return next.run(request).await };
     let params: Params = form_urlencoded::parse(request.uri().query().unwrap_or_default().as_bytes()).into_owned().collect();
     let named = |key: &str| params.get(key).filter(|value| !value.is_empty());
-    if !request.uri().path().ends_with("/runs") && SESSION_PARAMS.iter().all(|key| named(key).is_none()) {
+    let runs = request.uri().path().ends_with("/runs");
+    if !runs && SESSION_PARAMS.iter().all(|key| named(key).is_none()) {
         return next.run(request).await;
     }
-    if let Err(message) = remote.sync(&remote.mirror, false).await {
-        return response(StatusCode::BAD_GATEWAY, "text/plain", message);
-    }
-    let dirs: Vec<PathBuf> = match (named("session_path"), named("run_path"), named("run")) {
-        (Some(path), _, _) => vec![state.logdir.join(path)],
-        (None, Some(path), Some(run)) => vec![state.logdir.join(path).join(run)],
-        (None, Some(path), None) => list(&state.logdir.join(path), |entry| entry.file_type().is_ok_and(|kind| kind.is_dir())),
-        (None, None, run) => run.and_then(|run| run_dir(&state, run)).into_iter().collect(),
+    let wanted = || -> Vec<PathBuf> {
+        match (named("session_path"), named("run_path"), named("run")) {
+            (Some(path), _, _) => vec![state.logdir.join(path)],
+            (None, Some(path), Some(run)) => vec![state.logdir.join(path).join(run)],
+            (None, Some(path), None) => list(&state.logdir.join(path), |entry| entry.file_type().is_ok_and(|kind| kind.is_dir())),
+            (None, None, run) => run.and_then(|run| run_dir(&state, run)).into_iter().collect(),
+        }
     };
+    // The list of all sessions walks the whole store, so a request for a session that the mirror has does not wait for it.
+    let mut dirs = wanted();
+    if runs || dirs.is_empty() || dirs.iter().any(|dir| !dir.is_dir()) {
+        if let Err(message) = remote.sync(&remote.mirror, false).await {
+            return response(StatusCode::BAD_GATEWAY, "text/plain", message);
+        }
+        dirs = wanted();
+    }
     match try_join_all(dirs.into_iter().filter_map(|dir| confine(&state, &dir)).filter(|dir| dir.is_dir()).map(async |dir| remote.sync(&dir, true).await)).await {
         Ok(_) => next.run(request).await,
         Err(message) => response(StatusCode::BAD_GATEWAY, "text/plain", message),
