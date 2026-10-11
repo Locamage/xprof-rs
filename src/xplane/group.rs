@@ -162,15 +162,17 @@ fn csr(nodes: usize, parts: &[&[(u32, u32)]], by_child: bool) -> Members {
     let key = |edge: &(u32, u32)| if by_child { edge.1 } else { edge.0 } as usize;
     let edges = || parts.iter().flat_map(|part| part.iter()).filter(|edge| edge.0 != NO_PARENT);
     let mut offsets = vec![0u32; nodes + 1];
-    edges().for_each(|edge| offsets[key(edge) + 1] += 1);
+    edges().for_each(|edge| offsets[key(edge)] += 1);
     offsets.iter_mut().fold(0, |sum, offset| {
         *offset += sum;
         *offset
     });
-    let (mut cursor, mut targets) = (offsets.clone(), vec![0u32; offsets[nodes] as usize]);
-    for edge in edges() {
-        targets[cursor[key(edge)] as usize] = if by_child { edge.0 } else { edge.1 };
-        cursor[key(edge)] += 1;
+    // The offset of a node goes from its end to its start while the edges go in from the last one, so that the targets of a node keep their order.
+    let mut targets = vec![0u32; offsets[nodes] as usize];
+    for edge in edges().rev() {
+        let offset = &mut offsets[key(edge)];
+        *offset -= 1;
+        targets[*offset as usize] = if by_child { edge.0 } else { edge.1 };
     }
     (offsets, targets)
 }
