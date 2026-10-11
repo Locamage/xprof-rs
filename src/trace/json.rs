@@ -2,6 +2,7 @@ use crate::trace::{DERIVED_META, Device, Event, FLOW_END, FLOW_MID, FLOW_START, 
 use crate::xplane::{Meta, NONE_GROUP, Plane, Value, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
@@ -103,36 +104,45 @@ pub fn double(value: f64) -> String {
     }
 }
 
-fn long_text(text: &str) -> String {
-    if text.len() > LONG_NAME_LIMIT { format!("{}...<truncated>", String::from_utf8_lossy(&text.as_bytes()[..LONG_NAME_LIMIT])) } else { text.to_string() }
+fn long_text(text: Cow<'_, str>) -> Cow<'_, str> {
+    if text.len() > LONG_NAME_LIMIT { format!("{}...<truncated>", String::from_utf8_lossy(&text.as_bytes()[..LONG_NAME_LIMIT])).into() } else { text }
 }
 
+/// The hash of "@@" and `text`, in words of 8 bytes. The first word has "@@" and the first 6 bytes of the text.
 fn fingerprint(text: &str) -> u64 {
     let shift = |value: u64| value ^ (value >> 47);
-    let bytes = [b"@@", text.as_bytes()].concat();
-    let mut hash = HASH_SEED ^ (bytes.len() as u64).wrapping_mul(HASH_MUL);
-    let (words, tail) = bytes.as_chunks::<8>();
-    for word in words {
-        hash = (hash ^ shift(u64::from_le_bytes(*word).wrapping_mul(HASH_MUL)).wrapping_mul(HASH_MUL)).wrapping_mul(HASH_MUL);
-    }
+    let mix = |hash: u64, word: [u8; 8]| (hash ^ shift(u64::from_le_bytes(word).wrapping_mul(HASH_MUL)).wrapping_mul(HASH_MUL)).wrapping_mul(HASH_MUL);
+    let (head, rest) = text.as_bytes().split_at(text.len().min(6));
+    let mut first = [b'@'; 8];
+    first[2..2 + head.len()].copy_from_slice(head);
+    let mut hash = HASH_SEED ^ (text.len() as u64 + 2).wrapping_mul(HASH_MUL);
+    let tail = if head.len() < 6 {
+        &first[..2 + head.len()]
+    } else {
+        let (words, tail) = rest.as_chunks::<8>();
+        hash = words.iter().fold(mix(hash, first), |hash, &word| mix(hash, word));
+        tail
+    };
     if !tail.is_empty() {
         hash = (hash ^ tail.iter().rev().fold(0u64, |acc, &byte| acc << 8 | u64::from(byte))).wrapping_mul(HASH_MUL);
     }
     shift(shift(hash).wrapping_mul(HASH_MUL))
 }
 
-fn put(texts: &mut FxHashMap<u64, String>, text: String) {
+fn put(texts: &mut FxHashMap<u64, String>, text: Cow<str>) {
     if text.len() > INTERN_THRESHOLD {
-        texts.entry(fingerprint(&text)).or_insert(text);
+        texts.entry(fingerprint(&text)).or_insert_with(|| text.into_owned());
     }
+}
+
+/// The texts of the stats of `raw` that the stack frames keep.
+fn frame_texts<'a>(plane: &'a Plane, raw: &'a [u8], field: u32) -> impl Iterator<Item = Cow<'a, str>> {
+    let named = |id: usize| plane.stat_names.get(id).is_some_and(|name| matches!(&**name, "long_name" | "hlo_text"));
+    stats(raw, field, |_| true).filter(move |stat| matches!(stat.value, Value::Str(_) | Value::Ref(_)) && named(stat.id)).map(|stat| long_text(plane.text_cow(&stat.value)))
 }
 
 fn add_texts(texts: &mut FxHashMap<u64, String>, planes: &[Plane], map: &[u8], events: &[Event], long_names: &HashMap<u32, Box<str>>) {
     let framed = |plane: &Plane| plane.stat_names.iter().any(|name| matches!(&**name, "long_name" | "hlo_text"));
-    let strings = |plane: &Plane, raw: &[u8], field: u32| -> Vec<String> {
-        let named = |id: usize| plane.stat_names.get(id).is_some_and(|name| matches!(&**name, "long_name" | "hlo_text"));
-        stats(raw, field, |_| true).filter(|stat| matches!(stat.value, Value::Str(_) | Value::Ref(_)) && named(stat.id)).map(|stat| long_text(&plane.text_cow(&stat.value))).collect()
-    };
     let used: Vec<Vec<AtomicBool>> = planes.iter().map(|plane| plane.meta.iter().map(|_| AtomicBool::new(false)).collect()).collect();
     events.par_iter().filter(|event| event.meta != DERIVED_META && event.ts != u64::MAX).for_each(|event| {
         let flag = &used[event.plane as usize][event.meta as usize];
@@ -140,17 +150,17 @@ fn add_texts(texts: &mut FxHashMap<u64, String>, planes: &[Plane], map: &[u8], e
             flag.store(true, Relaxed);
         }
     });
-    long_names.values().for_each(|long| put(texts, long_text(long)));
+    long_names.values().for_each(|long| put(texts, long_text(Cow::Borrowed(long))));
     let metas: Vec<(&Plane, &Meta, bool)> =
         planes.iter().zip(&used).flat_map(|(plane, flags)| plane.meta.iter().zip(flags).filter(|(_, used)| used.load(Relaxed)).map(move |(meta, _)| (plane, meta, framed(plane)))).collect();
     let found = metas
         .par_iter()
         .fold(FxHashMap::default, |mut found, &(plane, meta, framed)| {
             if !meta.display.is_empty() {
-                put(&mut found, long_text(&meta.long_name(map)));
+                put(&mut found, long_text(meta.long_name(map)));
             }
             if framed {
-                strings(plane, slice(map, meta.raw), 5).into_iter().for_each(|text| put(&mut found, text));
+                frame_texts(plane, slice(map, meta.raw), 5).for_each(|text| put(&mut found, text));
             }
             found
         })
@@ -160,10 +170,10 @@ fn add_texts(texts: &mut FxHashMap<u64, String>, planes: &[Plane], map: &[u8], e
         });
     texts.extend(found);
     let framed: Vec<bool> = planes.iter().map(framed).collect();
-    let events: Vec<String> = events
+    let events: Vec<Cow<str>> = events
         .par_iter()
         .filter(|event| event.meta != DERIVED_META && event.ts != u64::MAX && framed[event.plane as usize])
-        .flat_map_iter(|event| strings(&planes[event.plane as usize], slice(map, event.raw), 4))
+        .flat_map_iter(|event| frame_texts(&planes[event.plane as usize], slice(map, event.raw), 4))
         .collect();
     events.into_iter().for_each(|text| put(texts, text));
 }
@@ -213,7 +223,7 @@ fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &m
     };
     if event.meta == DERIVED_META {
         if let Some(long) = trace.long_names.get(&event.name) {
-            text_arg(&mut args, "long_name", long_text(long));
+            text_arg(&mut args, "long_name", long_text(Cow::Borrowed(long)).into_owned());
         }
         if event.raw.0 == u32::MAX {
             args.extend(trace.args[event.raw.1 as usize].iter().cloned());
@@ -222,7 +232,7 @@ fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &m
     }
     let meta = &plane.meta[event.meta as usize];
     if !meta.display.is_empty() {
-        text_arg(&mut args, "long_name", long_text(&meta.long_name(map)));
+        text_arg(&mut args, "long_name", long_text(meta.long_name(map)).into_owned());
     }
     let step = trace.steps.get(&event.raw);
     let mut used = Vec::new();
