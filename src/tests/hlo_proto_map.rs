@@ -43,3 +43,14 @@ fn get_original_hlo_proto() {
     assert!(load(&dir, "module(2)").is_none());
     assert!(load(&dir, "module2(1)").is_none());
 }
+
+#[test]
+fn no_modules_from_a_space_that_does_not_parse() {
+    let mut space = XSpace::default();
+    add_original_hlo_proto(&mut space, "module");
+    let dir = session_dir("hlo-proto-map-bad-space");
+    let xspace = dir.join("host.xplane.pb");
+    std::fs::write(&xspace, [space.encode_to_vec(), b"\x12\x01\xff".to_vec()].concat()).unwrap();
+    assert!(extract(&dir, &[xspace]).is_none());
+    assert!(modules(&dir).is_empty());
+}

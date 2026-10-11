@@ -725,20 +725,27 @@ pub fn extract(dir: &Path, xspaces: &[PathBuf]) -> Option<()> {
     let mut modules: IndexMap<String, Vec<u8>> = IndexMap::new();
     for path in xspaces {
         let data = std::fs::read(path).ok()?;
-        let mut metadata = Vec::new();
-        for (tag, plane) in fields(&data) {
-            if let Field::Bytes(_, plane) = plane
-                && tag == 1
-                && last_bytes(plane, 2) == b"/host:metadata"
-            {
-                metadata.push(10);
-                encode_varint(plane.len() as u64, &mut metadata);
-                metadata.extend_from_slice(plane);
+        let found = || {
+            let mut metadata = Vec::new();
+            for (tag, plane) in fields(&data) {
+                if let Field::Bytes(_, plane) = plane
+                    && tag == 1
+                    && last_bytes(plane, 2) == b"/host:metadata"
+                {
+                    metadata.push(10);
+                    encode_varint(plane.len() as u64, &mut metadata);
+                    metadata.extend_from_slice(plane);
+                }
             }
+            let planes = crate::xplane::parse(&metadata).ok()?;
+            Some(protos(&planes, &metadata).into_iter().map(|(program, bytes)| (format!("{}({program})", module_name(bytes)).replace('/', "_"), bytes.to_vec())).collect::<Vec<_>>())
+        };
+        let (valid, found) = rayon::join(|| crate::tools::counters::valid_space(&data), found);
+        if !valid {
+            return None;
         }
-        for (program, bytes) in protos(&crate::xplane::parse(&metadata).ok()?, &metadata) {
-            let name = format!("{}({program})", module_name(bytes)).replace('/', "_");
-            modules.entry(name).or_insert_with(|| bytes.to_vec());
+        for (name, bytes) in found? {
+            modules.entry(name).or_insert(bytes);
         }
     }
     if modules.is_empty() {
