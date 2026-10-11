@@ -68,6 +68,16 @@ fn test_get_kernel_utilization_from_empty_directory_raises_file_not_found() {
 }
 
 #[test]
+fn test_get_kernel_utilization_dangling_trace_link_raises_path_error() {
+    let dir = scratch("ku-dangling");
+    let link = dir.join("host.xplane.pb");
+    std::os::unix::fs::symlink(dir.join("missing"), &link).unwrap();
+    let error = get_kernel_utilization(&Fake::fixed(""), &args(&dir.to_string_lossy(), &[])).unwrap_err();
+    assert_eq!(error.kind, Kind::FileNotFound);
+    assert_eq!(error.message, format!("[Errno 2] No such file or directory: '{}'", link.display()));
+}
+
+#[test]
 fn test_get_kernel_utilization_from_session_id_with_client() {
     let fake = Fake::fixed(MATMUL_JSON);
     let result = json(get_kernel_utilization(&fake, &args("session_12345", &[("kernel_name", J::from("matmul")), ("output_format", J::from("dict")), ("bypass_cache", J::Bool(true))])));

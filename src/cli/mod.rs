@@ -783,10 +783,20 @@ pub fn run(argv: &[String]) -> Option<i32> {
 
 pub fn read(path: &Path) -> Result<Vec<u8>, Error> {
     let big = std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() > (16 << 20));
-    (if big { crate::read_file(path) } else { std::fs::read(path) }).map_err(|error| {
-        Error::new(
-            if error.kind() == std::io::ErrorKind::NotFound { Kind::FileNotFound } else { Kind::Os },
-            format!("[Errno {}] {}: {}", error.raw_os_error().unwrap_or(0), error.to_string().split(" (os error").next().unwrap_or_default(), json::py_repr(&path.to_string_lossy())),
-        )
-    })
+    (if big { crate::read_file(path) } else { std::fs::read(path) }).map_err(|error| os_error(path, &error))
+}
+
+pub fn openable(path: &Path) -> Result<(), Error> {
+    let file = std::fs::File::open(path).map_err(|error| os_error(path, &error))?;
+    if file.metadata().is_ok_and(|meta| meta.is_dir()) {
+        return Err(os_error(path, &std::io::Error::from_raw_os_error(21)));
+    }
+    Ok(())
+}
+
+fn os_error(path: &Path, error: &std::io::Error) -> Error {
+    Error::new(
+        if error.kind() == std::io::ErrorKind::NotFound { Kind::FileNotFound } else { Kind::Os },
+        format!("[Errno {}] {}: {}", error.raw_os_error().unwrap_or(0), error.to_string().split(" (os error").next().unwrap_or_default(), json::py_repr(&path.to_string_lossy())),
+    )
 }

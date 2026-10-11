@@ -41,6 +41,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The steps of a TPU read only the operation metadata that the op lines use, and threads read them at the same time. The steps add the self time of each category by a number, not by the text of the category in a sorted map. On a 1.7 GB profile with 4 cores, `get_overview` takes 5.7 s (before: 6.3 s). On a 280 MB TPU v4 profile, it takes 0.65 s (before: 0.67 s).
 - The HLO modules parse at the same time as the op statistics, and the fused children wait for them only at the end. Before, the op statistics waited for the modules at the start. On a 280 MB TPU v4 profile with 4 cores, `get_hlo_op_profile` and `get_top_hlo_ops` take 0.57 s (before: 0.60 s).
 - The op statistics sort the operations of each step by small keys, and they find the stats of an operation by a table. Before, they compared the name of each stat. On a 280 MB TPU v4 profile with 4 cores, `check_host_boundness` takes 1.02 s. Before, it took 1.15 s.
+- `compute_utilization` and `get_kernel_utilization` open each trace file before they read the profile. When a file is a broken link or you cannot read it, they give the `PATH_ERROR` of XProf. The error text is the text of Python, for example `[Errno 2] No such file or directory`. Before, they gave an `INTERNAL_ERROR` with the text "no data returned".
 
 ## 0.1.2
 
