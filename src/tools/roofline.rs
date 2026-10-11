@@ -158,24 +158,31 @@ pub fn program(db: &Db) -> ([Metrics; 2], u64) {
     let mut program = Default::default();
     db.metrics
         .iter()
-        .for_each(|metrics| add_scaled(&mut program, metrics, (metrics.core_type, metrics.time_ps), (metrics.flops_v2, metrics.model_flops_v2, metrics.bytes_accessed), &metrics.memory, 1));
+        .for_each(|metrics| add_scaled(&mut program, sums(metrics), (metrics.core_type, metrics.time_ps), (metrics.flops_v2, metrics.model_flops_v2, metrics.bytes_accessed), &metrics.memory, 1));
     program
 }
 
-/// Adds `part`, an operation of `kind`, with the given flops, model flops and bytes, and with `memory` times `scale`.
-pub fn add_scaled((sums, infeed_outfeed): &mut ([Metrics; 2], u64), kind: &Metrics, (core_type, time_ps): (u8, u64), (flops, model, bytes): (f64, f64, u64), memory: &[(u8, u64, u64)], scale: u64) {
-    let category = category(kind);
-    if matches!(category, "call" | "conditional" | "while" | "megacore fusion") || core_type == SPARSE_CORE {
+/// The number of program sums that an operation adds to: none for the operations that contain others, only the first for infeed and outfeed, else both.
+pub fn sums(metrics: &Metrics) -> u8 {
+    match category(metrics) {
+        "call" | "conditional" | "while" | "megacore fusion" => 0,
+        category if is_infeed_or_outfeed(category) => 1,
+        _ => 2,
+    }
+}
+
+/// Adds an operation to the first `count` sums, with the given flops, model flops and bytes, and with `memory` times `scale`.
+pub fn add_scaled((sums, infeed_outfeed): &mut ([Metrics; 2], u64), count: u8, (core_type, time_ps): (u8, u64), (flops, model, bytes): (f64, f64, u64), memory: &[(u8, u64, u64)], scale: u64) {
+    if count == 0 || core_type == SPARSE_CORE {
         return;
     }
-    let infeed = is_infeed_or_outfeed(category);
-    for sum in &mut sums[..if infeed { 1 } else { 2 }] {
+    for sum in &mut sums[..count as usize] {
         sum.flops_v2 += flops;
         sum.model_flops_v2 += model;
         sum.bytes_accessed += bytes;
         combine_memory(memory.iter().map(|&(operation, space, amount)| (operation, space, amount.saturating_mul(scale))), &mut sum.memory);
     }
-    if infeed {
+    if count == 1 {
         *infeed_outfeed += time_ps;
     }
 }

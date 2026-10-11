@@ -230,6 +230,8 @@ fn from_metadata(plane: &Plane, map: &[u8], kinds: &[u8], meta: usize, path: &mu
 pub struct Templates {
     metas: Vec<Template>,
     slots: Vec<u32>,
+    /// For each operation, the number of program sums that it adds to.
+    sums: Vec<u8>,
     keys: usize,
 }
 
@@ -247,7 +249,8 @@ pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
     keys.sort_unstable();
     keys.dedup();
     let slots = metas.iter().map(|template| key(template).map_or(u32::MAX, |key| keys.binary_search(&key).unwrap() as u32)).collect();
-    Templates { metas, slots, keys: keys.len() }
+    let sums = metas.iter().map(|template| template.as_ref().map_or(0, |(_, metrics)| crate::tools::roofline::sums(metrics))).collect();
+    Templates { metas, slots, sums, keys: keys.len() }
 }
 
 pub struct EventReader(Vec<u8>);
@@ -317,6 +320,7 @@ struct Totals {
 struct Accumulator<'a> {
     template: &'a Metrics,
     custom: bool,
+    sums: u8,
     totals: Totals,
 }
 
@@ -360,7 +364,7 @@ impl<'a> Builder<'a> {
         let fresh = *position == u32::MAX;
         if fresh {
             *position = self.entries.len() as u32;
-            self.entries.push((slot, Accumulator { template, custom: template.category == CUSTOM_CALL, totals: Totals { min_time_ps, ..Default::default() } }));
+            self.entries.push((slot, Accumulator { template, custom: template.category == CUSTOM_CALL, sums: self.templates.sums[meta], totals: Totals { min_time_ps, ..Default::default() } }));
         }
         let entry = &mut self.entries[*position as usize].1;
         let totals = &mut entry.totals;
@@ -417,7 +421,7 @@ impl<'a> Builder<'a> {
         let (mut total_op_time_ps, mut program) = (0, Default::default());
         for entry in self.sorted() {
             total_op_time_ps += entry.totals.self_time_ps;
-            add_scaled(&mut program, entry.template, (entry.totals.core_type, entry.totals.time_ps), entry.counts(), &entry.template.memory, entry.totals.occurrences);
+            add_scaled(&mut program, entry.sums, (entry.totals.core_type, entry.totals.time_ps), entry.counts(), &entry.template.memory, entry.totals.occurrences);
         }
         (total_op_time_ps, program)
     }
