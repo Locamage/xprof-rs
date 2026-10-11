@@ -765,7 +765,12 @@ pub fn protos<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, &'a [u8])> {
         for (index, meta) in plane.meta.iter().enumerate() {
             let raw = slice(map, meta.raw);
             let Some(Value::Bytes(body)) = stats(raw, 5, |stat| stat == proto).next().map(|stat| stat.value) else { continue };
-            if !proto_text::parses_hlo(body) {
+            let parses = meta.hlo_parses.get().copied().unwrap_or_else(|| {
+                let parses = proto_text::parses_hlo(body);
+                meta.hlo_parses.set(parses).ok();
+                parses
+            });
+            if !parses {
                 continue;
             }
             let name = meta.long_name(map);

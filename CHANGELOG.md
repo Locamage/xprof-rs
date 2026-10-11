@@ -60,7 +60,8 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - When the start time of the trace viewer is after the end time, the visible time is one instant at the start, as in XProf. This change occurs before an end time of 0 becomes the end of the trace. Before, `start_time_ms=5` with no end time showed all events after 5 ms.
 - The trace viewer reads its time options as `absl::SimpleAtod` does. It accepts hexadecimal numbers after `0x`, and it removes only ASCII spaces around the number. It reads `resolution` and `unique_id` as integers first. A negative time, NaN or infinity gives the same number of picoseconds as XProf on x86-64. Before, xprof-rs returned 404 for `0x10`, and it showed different events for -1, NaN or infinity.
 - A search with `search_metadata=true` shows the stack frames of the full trace, as XProf does. Before, the `stackFrames` object had only the frames of the events that the search found, with different numbers.
-- The check of an HLO proto examines the nested messages of a large message at the same time, and it finds the rule of a field in a table. On a 280 MB TPU v4 profile with 8 cores, the check takes 17 ms (before: 103 ms), and the first `overview_page` request takes 0.55 s (before: 0.62 s).
+- The check of an HLO proto examines the nested messages of a large message at the same time. It finds the rule of a field in a table. On a 280 MB TPU v4 profile with 8 cores, the check takes 17 ms (before: 103 ms), and the first `overview_page` request takes 0.55 s (before: 0.62 s).
+- Each metadata entry keeps the result of the check of its HLO proto. Before, one cold request for op statistics checked the same proto four times. On a 280 MB TPU v4 profile, this removes 0.35 s of CPU time from the first `overview_page` request.
 
 ## 0.1.2
 

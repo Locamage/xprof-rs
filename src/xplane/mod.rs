@@ -9,8 +9,8 @@ use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::collections::HashMap;
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{LazyLock, OnceLock};
 
 static NAMES: LazyLock<HashMap<&str, (bool, [u8; ROLES])>> = LazyLock::new(|| {
     let mut names: HashMap<&str, (bool, [u8; ROLES])> = HashMap::new();
@@ -222,6 +222,8 @@ pub struct Meta {
     step: Option<String>,
     base: Option<Box<Stats>>,
     role: [u8; ROLES],
+    /// If C++ protobuf parses the HLO proto of the metadata. The first call of `hlo::protos` sets it.
+    pub hlo_parses: OnceLock<bool>,
 }
 
 impl Meta {
