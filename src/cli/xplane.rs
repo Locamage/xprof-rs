@@ -278,7 +278,7 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
     let compute = || -> Result<J, Error> {
         let (planes_re, events_re) = (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
         let keep = plane_filter(&planes_re);
-        let (mut durations, mut scanned): (IndexMap<String, Vec<i128>, FxBuildHasher>, usize) = (IndexMap::default(), 0);
+        let (mut durations, mut scanned): (IndexMap<String, Vec<Vec<i128>>, FxBuildHasher>, usize) = (IndexMap::default(), 0);
         let paths = sources(client, &session)?;
         // The scan stops after the first event above the limit, also in the middle of a line.
         let parts = scan_until(
@@ -316,14 +316,15 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
         for (found, count) in parts {
             scanned += count;
             for (name, values) in found {
-                durations.entry(name).or_default().extend(values);
+                durations.entry(name).or_default().push(values);
             }
         }
         let mut results: Vec<J> = durations
             .into_iter()
             .collect::<Vec<_>>()
             .into_par_iter()
-            .map(|(name, values)| {
+            .map(|(name, parts)| {
+                let values: Vec<i128> = parts.concat();
                 let total: i128 = values.iter().sum();
                 let floats: Vec<f64> = values.iter().map(|value| *value as f64).collect();
                 obj! {
