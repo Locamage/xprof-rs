@@ -733,7 +733,7 @@ async fn caches_keep_entries_heavier_than_the_budget_and_count_tiny_ones() {
 
 #[test]
 fn graph_html_escapes_the_dot_inside_its_template_literal() {
-    let plain = "digraph G {\nlabel = <<b>fusion.1</b>>;\n}";
+    let plain = "digraph G {\nlabel = <<b>fusion.1</b><br/>{\"debug\":\"\\nring\"}>;\n}";
     assert!(hlo::graph::wrap_dot_html(plain, "dot").contains(&format!("const data = `{plain}`;")));
     let hostile = hlo::graph::wrap_dot_html("a`b${c}\\d</SCRIPT><!--", "dot");
     assert!(hostile.contains("const data = `a\\`b\\${c}\\\\d<\\/SCRIPT><\\!--`;"), "{hostile}");

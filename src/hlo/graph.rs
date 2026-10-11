@@ -19,7 +19,12 @@ const SCHEMES: &str = "blue:filled:#bbdefb:#8aacc8:black brown:filled:#bcaaa4:#8
 const STATISTIC_FILLS: &str = "#f7d4cc #f8b2a3 #f9a28f #fa917b #fb8066 #fc7052 #fd5f3d #fd4e29 #fe3e14 #ff2d00";
 const BROWN: &str = "all-gather all-gather-start all-gather-done all-reduce reduce-scatter all-reduce-start all-reduce-done all-to-all collective-broadcast collective-reduce collective-permute collective-permute-start collective-permute-done infeed outfeed partition-id ragged-all-to-all recv recv-done send send-done replica-id";
 
+/// The template literal gets the DOT text without changes, as in the original tool. When the text can end the literal, start an expression, or end the script, the special characters get a backslash.
 pub fn wrap_dot_html(dot: &str, engine: &str) -> String {
+    let hostile = dot.contains('`') || dot.contains("${") || dot.contains("<!--") || dot.as_bytes().windows(8).any(|tag| tag.eq_ignore_ascii_case(b"</script"));
+    if !hostile {
+        return GRAPH_HTML.replace("$LAYOUT_ENGINE", engine).replace("$DOT", dot);
+    }
     let mut escaped = String::with_capacity(dot.len());
     for (index, character) in dot.char_indices() {
         let rest = &dot.as_bytes()[index + 1..];
