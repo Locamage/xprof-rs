@@ -80,6 +80,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - To connect the producers and the consumers of the events, xprof-rs sorts one list of all links in parallel. Before, it put the links in a hash map on one thread, and then sorted the map. The edges do not change. On a 1.7 GB profile, the first `memory_profile` request takes 1.69 s, not 1.78 s.
 - The memory profile releases its parsed profile on a separate thread after the response, as the other tools do. On a 1.7 GB profile, the first `memory_profile` request takes 1.53 s, not 1.67 s.
 - The memory profile decodes its memory events in parallel. On a 1.7 GB profile, the first `memory_profile` request takes 1.40 s, not 1.51 s.
+- The CLI finds a trace when you give only its file name in the current directory, for example `get_hosts host0.xplane.pb`. Before, the command failed with "No .xplane.pb or .xspace.pb files found".
 
 ## 0.1.2
 

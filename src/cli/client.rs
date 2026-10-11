@@ -223,7 +223,7 @@ impl Client for Local {
         if !session.is_empty() {
             let path = super::expand(session);
             if path.is_file() {
-                return Ok(path.parent().map(Path::to_path_buf).unwrap_or_default());
+                return Ok(path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf());
             }
             if path.is_dir() {
                 return Ok(latest_run(&path).unwrap_or(path));

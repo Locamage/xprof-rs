@@ -103,6 +103,12 @@ fn test_main_fire_usage_error_exit_2() {
 }
 
 #[test]
+fn test_run_dir_of_bare_file_name_is_current_dir() {
+    use crate::cli::client::{Client, Local};
+    assert_eq!(Local::default().run_dir("Cargo.toml").unwrap(), std::path::Path::new("."));
+}
+
+#[test]
 fn test_main_file_not_found_exit_3() {
     error(&["get_overview", "non_existent_dir"], 3, "PATH_ERROR");
 }
