@@ -54,6 +54,8 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - To find events by name, xprof-rs uses the name of the metadata, as XProf does, also when the metadata has a display name. This applies to memory events, threadpool regions, the roots and links of the groups, the step markers, and the framework ops of the host. Before, xprof-rs did not find these events.
 - A `ThreadpoolListener::StartRegion` event starts a region when it has a `_c` stat of any type, as in XProf. Before, xprof-rs ignored the event when the stat was not an integer. Then the trace viewer did not show the region, or it showed a region from an earlier start.
 - xprof-rs uses an HLO module only when C++ protobuf can parse all of its proto, as XProf does. Before, xprof-rs showed a module with a bad nested field or with text that is not UTF-8. XProf removes such a module from the module list, the op profile and the HLO tools. Text in `pbtxt` format now also accepts unknown groups, as C++ protobuf does.
+- When a profile file is not a valid `XSpace`, xprof-rs extracts no HLO modules from it, as XProf does. Before, it extracted the modules from the metadata plane, for example when an event name was not UTF-8. The check of the file and the extraction occur at the same time, so the extraction takes the same time.
+- `aggregate_xplane_events` rounds the average duration one time, as Python does when it divides two integers. Before, a total of more than 2^53 ps sometimes gave a different last digit in `avg_duration_ps`.
 
 ## 0.1.2
 

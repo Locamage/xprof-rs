@@ -159,6 +159,18 @@ pub fn round(value: f64, digits: usize) -> f64 {
     if value.is_finite() { format!("{value:.digits$}").parse().unwrap_or(value) } else { value }
 }
 
+/// `numerator / denominator`, rounded one time, as Python divides two integers. The quotient gets at least 55 bits, and a last bit records a remainder.
+pub fn ratio(numerator: i128, denominator: u64) -> f64 {
+    let (magnitude, denominator) = (numerator.unsigned_abs(), u128::from(denominator));
+    if magnitude == 0 {
+        return 0.0;
+    }
+    let shift = (55 + magnitude.leading_zeros()).saturating_sub(denominator.leading_zeros());
+    let scaled = magnitude << shift;
+    let value = ((scaled / denominator) << 1 | u128::from(scaled % denominator != 0)) as f64 * 2f64.powi(-(shift as i32) - 1);
+    if numerator < 0 { -value } else { value }
+}
+
 pub fn fsum(values: impl IntoIterator<Item = f64>) -> f64 {
     let mut values = values.into_iter();
     let Some(mut total) = values.next().map(|first| 0.0 + first) else { return 0.0 };

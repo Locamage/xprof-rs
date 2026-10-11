@@ -127,3 +127,21 @@ fn test_n15_disjoint_interval_union_invariants() {
     let violations = datasheet_violations(oracle_step_time_ms(&path), oracle_duty_cycle(&path));
     assert!(violations.is_empty(), "{violations:?}");
 }
+
+#[test]
+fn integer_ratio_rounds_one_time_as_python() {
+    let cases: [(i128, u64, f64); 9] = [
+        (9223372036855845808, 5, 1.8446744073711693e18),
+        (-9223372036855845808, 5, -1.8446744073711693e18),
+        (0, 3, 0.0),
+        (7, 2, 3.5),
+        ((1 << 64) + 1, 3, 6.148914691236517e18),
+        (10i128.pow(30), 7, 1.4285714285714285e29),
+        (1, 3, 1.0 / 3.0),
+        ((1 << 53) + 1, 1, 9007199254740992.0),
+        ((1 << 53) + 3, 2, 4503599627370498.0),
+    ];
+    for (numerator, denominator, expected) in cases {
+        assert_eq!(crate::cli::ratio(numerator, denominator).to_bits(), expected.to_bits(), "{numerator} / {denominator}");
+    }
+}
