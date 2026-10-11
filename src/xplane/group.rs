@@ -12,6 +12,9 @@ const MODULES: [&str; 2] = ["XLA Modules", "Sparse Core Modules"];
 const COUNTERS: &str = "_counters_";
 const IMPLICIT_ROOTS: [&str; 4] = ["Steps", "Sparse Core Steps", "XLA Modules", "Sparse Core Modules"];
 const FANOUT_LIMIT: usize = 64;
+const NO_PARENT: u32 = u32::MAX;
+/// The events of a chunk that `run` decodes on one thread. The tests use a small value, so that they have many chunks.
+const CHUNK: usize = if cfg!(test) { 4 } else { 1024 };
 const IDLE: &str = "step_idle_time_ps";
 const OFFSET: &str = "device_offset_ps";
 const DURATION: &str = "device_duration_ps";
@@ -37,7 +40,8 @@ type Members = (Vec<u32>, Vec<u32>);
 
 #[derive(Default)]
 struct Out {
-    edges: Vec<(u32, u32)>,
+    /// The edges of each chunk of events.
+    edges: Vec<Vec<(u32, u32)>>,
     contexts: Vec<(Key, bool, u32)>,
     roots: Vec<(u32, i64)>,
     launches: Vec<(u64, u32)>,
@@ -156,7 +160,7 @@ fn grouping_line(plane: &Plane) -> Option<usize> {
 
 fn csr(nodes: usize, parts: &[&[(u32, u32)]], by_child: bool) -> Members {
     let key = |edge: &(u32, u32)| if by_child { edge.1 } else { edge.0 } as usize;
-    let edges = || parts.iter().flat_map(|part| part.iter());
+    let edges = || parts.iter().flat_map(|part| part.iter()).filter(|edge| edge.0 != NO_PARENT);
     let mut offsets = vec![0u32; nodes + 1];
     edges().for_each(|edge| offsets[key(edge) + 1] += 1);
     offsets.iter_mut().fold(0, |sum, offset| {
@@ -174,6 +178,16 @@ fn csr(nodes: usize, parts: &[&[(u32, u32)]], by_child: bool) -> Members {
 fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
     let (plane, line) = (&planes[job.plane], &planes[job.plane].lines[job.line]);
     let (ordinal, mut out, mut stack) = (ordinal(plane, line), Out::default(), Vec::<(u32, u64, u64)>::new());
+    // A nested event finds its parent in a stack of the events that can contain it.
+    let parent = |stack: &mut Vec<(u32, u64, u64)>, begin: u64, end: u64| {
+        while let Some(&(top, top_begin, top_end)) = stack.last() {
+            if top_begin <= begin && end <= top_end {
+                return Some(top);
+            }
+            stack.pop();
+        }
+        None
+    };
     let generic = matches!(job.kind, Kind::Generic);
     // Only a child line keeps a list of its events and their nodes. The node of another event comes from its index.
     let mut children: Vec<(&Ev, u32)> = Vec::new();
@@ -193,12 +207,12 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
     }
     let count = if matches!(job.kind, Kind::Child(..)) { children.len() } else { line.events.len() };
     let node = |index: usize| if matches!(job.kind, Kind::Child(..)) { children[index] } else { (&line.events[index], job.base + index as u32) };
-    // Chunks decode their events in parallel. Only the nested structure of the events must have them in order. It uses one flag for each event.
-    let parts: Vec<(Out, Vec<bool>)> = (0..count.div_ceil(1024))
+    // Chunks decode their events in parallel. When a nested event empties the stack of its chunk, its parent can be in the stack of the chunks before it. Then the merge finds the parent. An edge without a parent stays, and `csr` ignores it.
+    let parts: Vec<_> = (0..count.div_ceil(CHUNK))
         .into_par_iter()
         .map(|chunk| {
-            let indices = chunk * 1024..(chunk * 1024 + 1024).min(count);
-            let (mut part, mut nested, mut plain, empty) = (Out::default(), Vec::with_capacity(if generic { indices.len() } else { 0 }), FxHashMap::default(), Links::default());
+            let indices = chunk * CHUNK..(chunk * CHUNK + CHUNK).min(count);
+            let (mut part, mut edges, mut stack, mut spans, mut plain, empty) = (Out::default(), Vec::new(), Vec::new(), Vec::new(), FxHashMap::default(), Links::default());
             for (event, node) in indices.map(node) {
                 let meta = &plane.meta[event.meta as usize];
                 let fresh;
@@ -236,15 +250,20 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
                         part.contexts.push(((kind, id, links.pid), producer, node));
                     }
                 }
-                if generic {
-                    nested.push(links.asynchronous.is_none_or(|value| value == 0));
+                if generic && links.asynchronous.is_none_or(|value| value == 0) {
+                    let end = event.ts + event.dur;
+                    let top = parent(&mut stack, event.ts, end);
+                    if top.is_none() {
+                        spans.push((edges.len(), event.ts, end));
+                    }
+                    edges.push((top.unwrap_or(NO_PARENT), node));
+                    stack.push((node, event.ts, end));
                 }
             }
-            (part, nested)
+            (part, edges, stack, spans)
         })
         .collect();
-    let mut nested = Vec::with_capacity(if generic { count } else { 0 });
-    for (part, flags) in parts {
+    for (part, mut edges, top, spans) in parts {
         out.roots.extend(part.roots);
         out.launches.extend(part.launches);
         out.executes.extend(part.executes);
@@ -253,20 +272,11 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
         out.executors.extend(part.executors);
         out.tf_data.extend(part.tf_data);
         out.contexts.extend(part.contexts);
-        nested.extend(flags);
-    }
-    for ((event, node), nested) in (0..count).map(node).zip(nested) {
-        if nested {
-            let end = event.ts + event.dur;
-            while let Some(&(top, begin, top_end)) = stack.last() {
-                if begin <= event.ts && end <= top_end {
-                    out.edges.push((top, node));
-                    break;
-                }
-                stack.pop();
-            }
-            stack.push((node, event.ts, end));
+        for (position, begin, end) in spans {
+            edges[position].0 = parent(&mut stack, begin, end).unwrap_or(NO_PARENT);
         }
+        out.edges.push(edges);
+        stack.extend(top);
     }
     out
 }
@@ -489,7 +499,7 @@ fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Gra
     for (_, (producers, consumers)) in ordered.into_iter().filter(|(_, (producers, consumers))| producers.len() < FANOUT_LIMIT || consumers.len() < FANOUT_LIMIT) {
         edges.extend(producers.iter().flat_map(|&producer| consumers.iter().map(move |&consumer| (producer, consumer))));
     }
-    let parts: Vec<&[(u32, u32)]> = outs.iter().map(|out| &out.edges[..]).chain([&edges[..]]).collect();
+    let parts: Vec<&[(u32, u32)]> = outs.iter().flat_map(|out| out.edges.iter().map(Vec::as_slice)).chain([&edges[..]]).collect();
     let (kids, parents) = rayon::join(|| csr(nodes as usize, &parts, false), || csr(nodes as usize, &parts, true));
     (Graph { starts, kids, parents }, iterations)
 }
