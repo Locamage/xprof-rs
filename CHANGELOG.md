@@ -65,6 +65,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The parse of a profile reads the metadata of each plane on all cores. It reads the stats of an event metadata in the same pass as its name. On a 280 MB TPU v4 profile with 8 cores, the parse takes 39 ms (before: 52 ms).
 - The op statistics find the program sums of each operation once for each plane. Before, they found them again for each operation in each step. On a 280 MB TPU v4 profile, this removes 0.15 s of CPU time from the first `overview_page` request.
 - The stack frames of the trace viewer copy a text only when they keep it. Before, they copied each long name and HLO text twice before they removed the copies with the same text.
+- A cached response for a client without gzip decodes its parts of 1 MiB on all cores. On a 280 MB TPU v4 profile with 8 cores, the warm `trace_viewer` response takes 16 ms (before: 53 ms).
 
 ## 0.1.2
 

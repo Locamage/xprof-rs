@@ -169,7 +169,8 @@ struct Rendered {
     status: StatusCode,
     headers: HeaderMap,
     body: Bytes,
-    gzipped: bool,
+    /// If the body is gzip, the end of each deflate part in it. A part decodes alone to `GZIP_CHUNK` bytes, or to the rest for the last part.
+    gzipped: Option<Arc<[usize]>>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -436,7 +437,7 @@ async fn assets(request: Request) -> Response {
     let mut reply = if fresh {
         response(StatusCode::NOT_MODIFIED, content_type, Body::empty())
     } else {
-        negotiate(response(StatusCode::OK, content_type, Body::empty()), Bytes::from_static(file), accepts_gzip(request.headers()))
+        negotiate(response(StatusCode::OK, content_type, Body::empty()), Bytes::from_static(file), accepts_gzip(request.headers()), None)
     };
     // The names of the files do not change between versions, so the browser must ask again each time.
     reply.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
@@ -445,8 +446,8 @@ async fn assets(request: Request) -> Response {
     reply
 }
 
-/// Sets a gzip body without changes when the client accepts gzip, and decoded when it does not.
-fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool) -> Response {
+/// Sets a gzip body without changes when the client accepts gzip, and decoded when it does not. The parts of `ends` decode in parallel.
+fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool, ends: Option<&[usize]>) -> Response {
     let headers = reply.headers_mut();
     headers.insert(header::VARY, HeaderValue::from_static("accept-encoding"));
     if accepts_gzip {
@@ -454,7 +455,15 @@ fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool) -> Response {
         *reply.body_mut() = Body::from(body);
     } else {
         let mut raw = Vec::new();
-        flate2::read::GzDecoder::new(&body[..]).read_to_end(&mut raw).unwrap();
+        if let Some(ends) = ends {
+            raw.resize(u32::from_le_bytes(body[body.len() - 4..].try_into().unwrap()) as usize, 0);
+            raw.par_chunks_mut(GZIP_CHUNK).zip(ends).enumerate().for_each(|(index, (out, &end))| {
+                let start = if index == 0 { GZIP_HEADER.len() } else { ends[index - 1] };
+                flate2::Decompress::new(false).decompress(&body[start..end], out, flate2::FlushDecompress::Sync).unwrap();
+            });
+        } else {
+            flate2::read::GzDecoder::new(&body[..]).read_to_end(&mut raw).unwrap();
+        }
         *reply.body_mut() = Body::from(raw);
     }
     reply
@@ -524,6 +533,41 @@ fn accepts_gzip(headers: &HeaderMap) -> bool {
     weight("gzip").or_else(|| weight("*")).is_some_and(|weight| weight > 0.0)
 }
 
+/// The gzip of `body`, from parts of `GZIP_CHUNK` bytes that compress in parallel, and the end of each part.
+fn gzip(body: &[u8]) -> (Bytes, Arc<[usize]>) {
+    let chunks = body.len().div_ceil(GZIP_CHUNK).max(1);
+    let parts: Vec<(Vec<u8>, crc32fast::Hasher)> = (0..chunks)
+        .into_par_iter()
+        .map(|index| {
+            let chunk = &body[(index * GZIP_CHUNK).min(body.len())..((index + 1) * GZIP_CHUNK).min(body.len())];
+            let flush = if index + 1 == chunks { flate2::FlushCompress::Finish } else { flate2::FlushCompress::Sync };
+            let (mut deflate, mut out) = (flate2::Compress::new(flate2::Compression::fast(), false), Vec::with_capacity(chunk.len() / 2 + 128));
+            // The writer of flate2 can stop a sync flush when its buffer is full. This loop gives more space until the flush is complete.
+            loop {
+                let consumed = deflate.total_in() as usize;
+                let status = deflate.compress_vec(&chunk[consumed..], &mut out, flush).unwrap();
+                if status == flate2::Status::StreamEnd || (deflate.total_in() as usize == chunk.len() && out.len() < out.capacity()) {
+                    break;
+                }
+                out.reserve(out.capacity() / 2 + 1024);
+            }
+            let mut crc = crc32fast::Hasher::new();
+            crc.update(chunk);
+            (out, crc)
+        })
+        .collect();
+    let (mut packed, mut ends) = (GZIP_HEADER.to_vec(), Vec::with_capacity(chunks));
+    let mut crc = crc32fast::Hasher::new();
+    for (deflated, part) in &parts {
+        packed.extend_from_slice(deflated);
+        ends.push(packed.len());
+        crc.combine(part);
+    }
+    packed.extend_from_slice(&crc.finalize().to_le_bytes());
+    packed.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    (Bytes::from(packed), ends.into())
+}
+
 async fn cached(state: &Shared, key: String, dir: &Path, accepts_gzip: bool, render: impl Future<Output = Response> + Send + 'static) -> Response {
     let mut sources = list(dir, |entry| RENDERED_FROM.iter().any(|suffix| entry.file_name().to_string_lossy().ends_with(suffix)));
     sources.sort();
@@ -540,42 +584,10 @@ async fn cached(state: &Shared, key: String, dir: &Path, accepts_gzip: bool, ren
             let (parts, body) = render.await.into_parts();
             let body = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
             if parts.status != StatusCode::OK {
-                return Rendered { status: parts.status, headers: parts.headers, body, gzipped: false };
+                return Rendered { status: parts.status, headers: parts.headers, body, gzipped: None };
             }
-            let body = blocking(move || {
-                let chunks = body.len().div_ceil(GZIP_CHUNK).max(1);
-                let parts: Vec<(Vec<u8>, crc32fast::Hasher)> = (0..chunks)
-                    .into_par_iter()
-                    .map(|index| {
-                        let chunk = &body[(index * GZIP_CHUNK).min(body.len())..((index + 1) * GZIP_CHUNK).min(body.len())];
-                        let flush = if index + 1 == chunks { flate2::FlushCompress::Finish } else { flate2::FlushCompress::Sync };
-                        let (mut deflate, mut out) = (flate2::Compress::new(flate2::Compression::fast(), false), Vec::with_capacity(chunk.len() / 2 + 128));
-                        // The writer of flate2 can stop a sync flush when its buffer is full. This loop gives more space until the flush is complete.
-                        loop {
-                            let consumed = deflate.total_in() as usize;
-                            let status = deflate.compress_vec(&chunk[consumed..], &mut out, flush).unwrap();
-                            if status == flate2::Status::StreamEnd || (deflate.total_in() as usize == chunk.len() && out.len() < out.capacity()) {
-                                break;
-                            }
-                            out.reserve(out.capacity() / 2 + 1024);
-                        }
-                        let mut crc = crc32fast::Hasher::new();
-                        crc.update(chunk);
-                        (out, crc)
-                    })
-                    .collect();
-                let mut packed = GZIP_HEADER.to_vec();
-                let mut crc = crc32fast::Hasher::new();
-                for (deflated, part) in &parts {
-                    packed.extend_from_slice(deflated);
-                    crc.combine(part);
-                }
-                packed.extend_from_slice(&crc.finalize().to_le_bytes());
-                packed.extend_from_slice(&(body.len() as u32).to_le_bytes());
-                Bytes::from(packed)
-            })
-            .await;
-            let rendered = Rendered { status: parts.status, headers: parts.headers, body, gzipped: true };
+            let (body, ends) = blocking(move || gzip(&body)).await;
+            let rendered = Rendered { status: parts.status, headers: parts.headers, body, gzipped: Some(ends) };
             if settled {
                 cache.insert(stored, rendered.clone()).await;
             }
@@ -590,7 +602,10 @@ async fn cached(state: &Shared, key: String, dir: &Path, accepts_gzip: bool, ren
     let mut reply = Response::new(Body::from(body.clone()));
     *reply.status_mut() = status;
     *reply.headers_mut() = headers;
-    if gzipped { negotiate(reply, body, accepts_gzip) } else { reply }
+    match gzipped {
+        Some(ends) => negotiate(reply, body, accepts_gzip, Some(&ends)),
+        None => reply,
+    }
 }
 
 async fn run_tools(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
