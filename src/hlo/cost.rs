@@ -400,6 +400,8 @@ struct Analysis<'c, 'm> {
     bottleneck: bool,
     properties: FxHashMap<usize, Props>,
     log: Vec<Op>,
+    /// With revisits, the graphs under the calls in the log, and the nodes that they have properties for.
+    called: (FxHashSet<usize>, FxHashSet<usize>),
     sum: Props,
     state: FxHashMap<usize, u8>,
     use_roots: FxHashMap<usize, Vec<usize>>,
@@ -414,6 +416,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
             bottleneck: true,
             properties: FxHashMap::default(),
             log: Vec::new(),
+            called: Default::default(),
             sum: Props::default(),
             state: FxHashMap::default(),
             use_roots: FxHashMap::default(),
@@ -432,22 +435,19 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.properties.entry(node).or_default().slot(key)
     }
 
-    /// Tells if a call in the log so far has properties for `node`.
-    fn called_has(&self, node: usize) -> bool {
+    /// Adds the graphs under a call to `graph` and their nodes to `called`. With revisits, the cached graphs do not change.
+    fn cover(&mut self, graph: usize) {
         let cache = self.context.nested.borrow();
-        let (mut seen, mut stack) = (vec![false; cache.len()], self.log.clone());
-        while let Some(op) = stack.pop() {
-            let Op::Graph(graph) = op else { continue };
-            if !std::mem::replace(&mut seen[graph], true)
+        let (graphs, nodes) = &mut self.called;
+        let mut stack = vec![graph];
+        while let Some(graph) = stack.pop() {
+            if graphs.insert(graph)
                 && let Some(Ok(nested)) = cache[graph].as_deref()
             {
-                if nested.properties.contains_key(&node) {
-                    return true;
-                }
-                stack.extend_from_slice(&nested.log);
+                nodes.extend(nested.properties.keys());
+                stack.extend(nested.log.iter().filter_map(|op| if let Op::Graph(called) = op { Some(*called) } else { None }));
             }
         }
-        false
     }
 
     fn set_output(&mut self, index: &[i64], value: f32) {
@@ -551,7 +551,7 @@ impl<'c, 'm> Analysis<'c, 'm> {
         }
         let current = std::mem::take(&mut self.current);
         self.sum.merge(&current, |sum, value| sum + value);
-        if self.properties.contains_key(&node) || (context.revisits && self.called_has(node)) {
+        if self.properties.contains_key(&node) || self.called.1.contains(&node) {
             return Err(format!("{} already exists in hlo_properties_", context.module.nodes[node].name));
         }
         self.properties.insert(node, current);
@@ -568,7 +568,11 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let nested = self.context.nested(graph);
         let nested = nested.as_ref().as_ref().map_err(String::clone)?;
         self.log.push(Op::Graph(graph));
-        Ok(nested.sum.clone())
+        let sum = nested.sum.clone();
+        if self.context.revisits {
+            self.cover(graph);
+        }
+        Ok(sum)
     }
 
     /// Copies the properties of the nodes of a fused graph, because the fusion reads them. The fusion writes all of them again, so when

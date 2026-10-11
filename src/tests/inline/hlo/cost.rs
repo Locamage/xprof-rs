@@ -218,6 +218,14 @@ fn deep_call_chains_do_not_overflow_the_stack() {
 }
 
 #[test]
+fn a_large_graph_that_starts_a_shared_graph_two_times() {
+    let mut entry = vec![parameter(20, 0, shape(F32, &[4])), calling(2, 1, "async-start"), calling(2, 2, "async-start")];
+    entry.extend((0..30_000).map(|index| inst(100 + index, "cosine", shape(F32, &[4]), &[if index == 0 { 20 } else { 99 + index }])));
+    let result = analyze(vec![computation(1, vec![parameter(10, 0, shape(F32, &[4])), inst(11, "cosine", shape(F32, &[4]), &[10])]), computation(2, entry)]).unwrap();
+    assert_eq!(result.len(), 30_005);
+}
+
+#[test]
 fn graphs_that_many_callers_share_are_analyzed_one_time() {
     let result = chain(40, |id| vec![calling(id, 1, "call"), calling(id, 2, "call")]).unwrap();
     assert_eq!(result.last().unwrap().model_flops, 2648 << 38);
