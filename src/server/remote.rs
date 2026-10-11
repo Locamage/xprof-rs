@@ -176,7 +176,9 @@ impl Remote {
                 .collect();
             let mut total: u64 = held.iter().flat_map(|(_, _, files)| files).map(|(len, _)| len).sum();
             held.sort_by_key(|(at, _, _)| *at);
-            for (_, session, files) in held.into_iter().filter(|(at, session, _)| session != dir && at.is_none_or(|at| at.elapsed() >= IN_USE)) {
+            // A session with a lock has a sync that can still write its files.
+            let busy = |session: &PathBuf| self.locks.lock().unwrap().contains_key(session);
+            for (_, session, files) in held.into_iter().filter(|(at, session, _)| session != dir && at.is_none_or(|at| at.elapsed() >= IN_USE) && !busy(session)) {
                 if total <= self.budget {
                     break;
                 }

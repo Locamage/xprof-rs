@@ -82,6 +82,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The memory profile decodes its memory events in parallel. On a 1.7 GB profile, the first `memory_profile` request takes 1.40 s, not 1.51 s.
 - The CLI finds a trace when you give only its file name in the current directory, for example `get_hosts host0.xplane.pb`. Before, the command failed with "No .xplane.pb or .xspace.pb files found".
 - When the overview data gives a negative number of steps, `check_host_boundness` keeps the negative number, as XProf does. Before, the number changed to 18446744073709551615, and the times were very large.
+- The server does not remove the files of a session that a download still writes, when the remote mirror is too large. Before, a long download sometimes lost its file, and the request failed with "Cannot write the mirror".
 
 ## 0.1.2
 

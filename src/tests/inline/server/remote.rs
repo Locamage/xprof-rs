@@ -85,6 +85,26 @@ async fn least_recently_used_sessions_are_evicted_beyond_the_budget() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_with_a_running_sync_is_not_evicted() {
+    let (store, mut remote) = memory("busy");
+    for session in ["s1", "s2"] {
+        put(&store, &format!("logs/plugins/profile/{session}/h.xplane.pb"), vec![1; 300]).await;
+    }
+    remote.budget = 400;
+    remote.sync(&remote.mirror, false).await.unwrap();
+    let dir = |session: &str| remote.mirror.join("plugins/profile").join(session);
+    remote.sync(&dir("s1"), false).await.unwrap();
+    remote.locks.lock().unwrap().insert(dir("s1"), Arc::default());
+    remote.sync(&dir("s2"), true).await.unwrap();
+    assert!(dir("s1").join("h.xplane.pb").exists());
+    remote.locks.lock().unwrap().clear();
+    remote.checked.lock().unwrap().clear();
+    remote.sync(&dir("s2"), true).await.unwrap();
+    assert!(!dir("s1").join("h.xplane.pb").exists());
+    std::fs::remove_dir_all(&remote.mirror).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_file_url_logdir_serves_what_the_same_local_logdir_serves() {
     let bucket = logdir("remote-bucket");
     std::fs::create_dir_all(bucket.join("nested/run/plugins/profile/t")).unwrap();
