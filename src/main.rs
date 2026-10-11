@@ -37,7 +37,7 @@ use trace::json::{Args, View, quoted, render};
 use trace::{MAX_SERIAL, Options, Trace};
 use xplane::Plane;
 
-/// The physical memory, which sizes the caches and the number of loads at once. A load needs about seven times the size of its file.
+/// The physical memory, which sizes the caches and the number of loads at once. A load needs about four to six times the size of its file.
 static MEMORY: LazyLock<u64> = LazyLock::new(|| {
     let (pages, size) = unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES), libc::sysconf(libc::_SC_PAGESIZE)) };
     (pages.max(0) as u64).saturating_mul(size.max(0) as u64)
