@@ -22,6 +22,13 @@ static NAMES: LazyLock<HashMap<&str, (bool, [u8; ROLES])>> = LazyLock::new(|| {
     names
 });
 
+static LONGEST_NAME: LazyLock<usize> = LazyLock::new(|| NAMES.keys().map(|name| name.len()).max().unwrap_or(0));
+
+/// If the event name is internal, and its roles in the connections. The length check skips the long names of the HLO operations.
+fn known(name: &[u8]) -> (bool, [u8; ROLES]) {
+    (name.len() <= *LONGEST_NAME).then(|| std::str::from_utf8(name).ok().and_then(|name| NAMES.get(name))).flatten().copied().unwrap_or_default()
+}
+
 pub const NONE_GROUP: i64 = i64::MIN;
 const EPOCH_NS: i64 = 1_000_000_000_000_000;
 const INTERNAL_EVENTS: &str = "MemoryAllocation MemoryDeallocation PrefetchProduce PrefetchConsume ParallelInterleaveProduce ParallelInterleaveConsume ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce MapAndBatchConsume ParseExampleProduce ParseExampleConsume";
@@ -488,13 +495,13 @@ impl Plane {
                         };
                         let (id, long, display) = named(value).context("The metadata is not valid")?;
                         let id = key.unwrap_or(id);
-                        let raw_name = lossy(long);
-                        let name: Box<str> = if display.is_empty() { raw_name.as_ref().into() } else { Box::default() };
+                        let name: Box<str> = if display.is_empty() { lossy(long).into() } else { Box::default() };
                         if tag == 4 {
                             let raw = ((offset + entry_start + value_start) as u32, value.len() as u32);
+                            let (internal, role) = known(long);
+                            let root = ROOTS.iter().find(|root| root.0.as_bytes() == long).map(|root| (root.1, root.2));
                             let long = if long.is_empty() { (0, 0) } else { ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32) };
-                            let (internal, root) = (NAMES.get(&*raw_name).is_some_and(|known| known.0), ROOTS.iter().find(|root| root.0 == &*raw_name).map(|root| (root.1, root.2)));
-                            metas.push((id, Meta { internal, root, name, display: lossy(display).into(), raw, long, ..Default::default() }));
+                            metas.push((id, Meta { internal, root, role, name, display: lossy(display).into(), raw, long, ..Default::default() }));
                         } else {
                             names.push((id, name));
                         }
@@ -547,8 +554,7 @@ impl Plane {
             })
             .collect();
         for (meta, (base, step)) in plane.meta.iter_mut().zip(bases) {
-            let roles = NAMES.get(&*meta.full_name(buf)).map_or([0; ROLES], |known| known.1);
-            (meta.base, meta.step, meta.role) = (base, step, std::array::from_fn(|index| if ready[index] { roles[index] } else { 0 }));
+            (meta.base, meta.step, meta.role) = (base, step, std::array::from_fn(|index| if ready[index] { meta.role[index] } else { 0 }));
         }
         Ok(plane)
     }
