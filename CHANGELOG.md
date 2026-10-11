@@ -72,6 +72,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - A `bitcast-convert` instruction is in the category "non-fusion elementwise" only when its input and output types have the same number of bits, as in XLA. Before, xprof-rs used 8 bits for the types `s1`, `s2`, `s4`, `u1`, `u2` and `u4`. Thus a `bitcast-convert` from `s4` to `u8` had the incorrect category.
 - To find the thread pool regions, xprof-rs reads the names of the event types one time, and it compares the bytes. Before, it checked the text of each long name three times. On a 280 MB TPU v4 profile with 8 cores, the first `memory_profile` request takes 147 ms (before: 158 ms).
 - The trace viewer sorts its events in time buckets, in parallel. Before, one sort of all events moved each event many times. The order of the events does not change. On a 1.7 GB profile with 8 cores, the first trace viewer request takes 9.0 s, not 12.1 s. Its CPU time is 47 s, not 63 s. On a 280 MB TPU v4 profile, the time does not change, and the peak memory decreases from 1.11 GB to 0.92 GB.
+- The trace viewer gives the levels of a very large track faster. Each level is a pass over the events of the track. These passes now run at the same time, and each pass stays a part behind the pass before it. The levels do not change. On a 1.7 GB profile with a track of 20 million events, the first trace viewer request takes 8.2 s, not 8.9 s.
 
 ## 0.1.2
 

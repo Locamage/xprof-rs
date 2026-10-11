@@ -9,8 +9,9 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem::MaybeUninit;
 use std::ops::Range;
-use std::sync::Mutex;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+use std::sync::atomic::{AtomicU8, AtomicUsize};
+use std::sync::{Condvar, Mutex};
 
 pub const NONE_RESOURCE: u32 = u32::MAX;
 const COUNTERS: &str = "_counters_";
@@ -25,6 +26,10 @@ const STREAMING_THRESHOLD: usize = 500_000;
 pub const MAX_SERIAL: u32 = 256;
 const BAD_TIMESTAMP: u64 = u64::MAX / 2;
 const LEVEL_CHUNK: usize = 1 << 16;
+/// From this event count, and from the share of the events of one thread, the level passes of a track run at the same time, a part of `PART` events apart. The tests use small values, and no share.
+const PIPELINE: usize = if cfg!(test) { 2 } else { 1 << 20 };
+const PART: usize = if cfg!(test) { 4 } else { 1 << 16 };
+const UNASSIGNED: u8 = u8::MAX;
 /// The events of a bucket of the sort, and of a part of the conversion. The tests use small values, so that they have many buckets and parts.
 const BUCKET: usize = if cfg!(test) { 4 } else { 1 << 16 };
 const MAX_BUCKETS: usize = 1024;
@@ -655,37 +660,68 @@ fn assign_levels(events: &[Event], by_track: &[Vec<u32>], flowing: &[u32], flow_
         }
     }
     let levels: Vec<AtomicU8> = (0..events.len()).map(|_| AtomicU8::new(0)).collect();
-    by_track.par_iter().for_each(|indices| {
+    // The large tracks start first, so that a large track does not run alone at the end.
+    let mut order: Vec<&Vec<u32>> = by_track.iter().collect();
+    order.sort_unstable_by_key(|indices| std::cmp::Reverse(indices.len()));
+    order.into_par_iter().with_max_len(1).for_each(|indices| {
         let track = || indices.iter().map(|&index| &events[index as usize]);
         let compact: Vec<(u64, u64, u8)> = track().map(|event| (event.ts, event.dur, u8::from(event.flow != NONE_FLOW) << 1 | u8::from(event.resource == NONE_RESOURCE))).collect();
-        let mut assigned: Vec<usize> =
-            track()
-                .map(|event| {
-                    if event.flow == NONE_FLOW { usize::MAX } else { (0..SPLIT).find(|&level| flow_visible[level][event.flow as usize] == Some(true) || event.dur >= LAYER_PS[level]).unwrap_or(SPLIT) }
+        let assigned: Vec<AtomicU8> = track()
+            .map(|event| {
+                AtomicU8::new(if event.flow == NONE_FLOW {
+                    UNASSIGNED
+                } else {
+                    (0..SPLIT).find(|&level| flow_visible[level][event.flow as usize] == Some(true) || event.dur >= LAYER_PS[level]).unwrap_or(SPLIT) as u8
                 })
-                .collect();
-        // The passes after all events have a level change nothing.
-        let mut remaining = assigned.iter().filter(|&&level| level == usize::MAX).count();
-        for (level, &resolution) in LAYER_PS[..SPLIT].iter().enumerate() {
-            if remaining == 0 {
-                break;
-            }
-            let mut row = Row::default();
-            for (position, &(ts, dur, kind)) in compact.iter().enumerate() {
-                if assigned[position] < level || (kind & 2 != 0 && assigned[position] == level) {
-                    row.set(ts, dur, kind & 1 != 0, false);
-                } else if kind & 2 == 0 && assigned[position] == usize::MAX {
-                    let (visible, depth) = if kind & 1 != 0 { (row.counter(ts, resolution), 0) } else { row.probe(ts, dur, resolution) };
-                    if visible {
-                        (assigned[position], remaining) = (level, remaining - 1);
-                        if kind & 1 == 0 {
-                            row.push(depth, ts + dur);
+            })
+            .collect();
+        let remaining = AtomicUsize::new(assigned.iter().filter(|level| level.load(Relaxed) == UNASSIGNED).count());
+        let (done, lock, wake): (Vec<AtomicUsize>, _, _) = ((0..SPLIT).map(|_| AtomicUsize::new(0)).collect(), Mutex::new(()), Condvar::new());
+        // The pass of a level reads the levels that the pass before it gave, so it stays behind that pass. The passes after all events have a level change nothing.
+        let pass = |level: usize| {
+            let (mut row, resolution) = (Row::default(), LAYER_PS[level]);
+            for start in (0..compact.len()).step_by(PART) {
+                let end = (start + PART).min(compact.len());
+                if level > 0 {
+                    let ready = || done[level - 1].load(Acquire) >= end || remaining.load(Relaxed) == 0;
+                    drop(wake.wait_while(lock.lock().unwrap(), |()| !ready()).unwrap());
+                }
+                if remaining.load(Relaxed) == 0 {
+                    break;
+                }
+                let mut found = 0;
+                for (position, &(ts, dur, kind)) in compact.iter().enumerate().take(end).skip(start) {
+                    let current = assigned[position].load(Relaxed);
+                    if usize::from(current) < level || (kind & 2 != 0 && usize::from(current) == level) {
+                        row.set(ts, dur, kind & 1 != 0, false);
+                    } else if kind & 2 == 0 && current == UNASSIGNED {
+                        let (visible, depth) = if kind & 1 != 0 { (row.counter(ts, resolution), 0) } else { row.probe(ts, dur, resolution) };
+                        if visible {
+                            assigned[position].store(level as u8, Relaxed);
+                            found += 1;
+                            if kind & 1 == 0 {
+                                row.push(depth, ts + dur);
+                            }
                         }
                     }
                 }
+                remaining.fetch_sub(found, Relaxed);
+                done[level].store(end, Release);
+                drop(lock.lock().unwrap());
+                wake.notify_all();
             }
+        };
+        if compact.len() < PIPELINE || (!cfg!(test) && compact.len() < events.len() / rayon::current_num_threads()) {
+            (0..SPLIT).for_each(pass);
+        } else {
+            std::thread::scope(|scope| {
+                for level in 1..SPLIT {
+                    scope.spawn(move || pass(level));
+                }
+                pass(0);
+            });
         }
-        indices.iter().zip(assigned).for_each(|(&index, level)| levels[index as usize].store(level.min(SPLIT) as u8, std::sync::atomic::Ordering::Relaxed));
+        indices.iter().zip(assigned).for_each(|(&index, level)| levels[index as usize].store(level.into_inner().min(SPLIT as u8), Relaxed));
     });
     levels.into_iter().map(AtomicU8::into_inner).collect()
 }
