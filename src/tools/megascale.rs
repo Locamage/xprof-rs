@@ -273,7 +273,7 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
     let Some(plane) = planes.iter().find(|plane| plane.name == FIRST_TPU).filter(|_| cores > 0) else { return Vec::new() };
     let modules: HashMap<String, &[u8]> = protos(planes, map).into_iter().rev().map(|(program, proto)| (format!("{}({program})", module_name(proto)), proto)).collect();
     let mut parsed: HashMap<String, Option<Module>> = HashMap::new();
-    let mut instructions: HashMap<String, Instruction> = HashMap::new();
+    let mut instructions: HashMap<String, Option<Instruction>> = HashMap::new();
     let mut tracker = Tracker::default();
     let origin = crate::xplane::origin_ns(planes);
     let Some(module_line) = plane.lines.iter().find(|line| line.name == "XLA Modules") else { return averaged(tracker.summaries) };
@@ -311,17 +311,16 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
             let module_meta = module_line.events[index].meta as usize;
             let module = if module_meta < plane.meta.len() { plane.meta[module_meta].full_name(map) } else { Cow::Borrowed("") };
             let display = plane.meta.get(event.meta as usize).map_or("", |meta| &meta.display);
-            let key = format!("{module}_{display}");
-            if !instructions.contains_key(&key) {
+            let found = instructions.entry(format!("{module}_{display}")).or_insert_with(|| {
                 let loaded = parsed.entry(module.to_string()).or_insert_with(|| modules.get(module.as_ref()).map(|proto| Module::parse(Cow::Borrowed(proto))).filter(|module| module.valid));
-                let Some(found) = loaded.as_ref().and_then(|module| instruction(module, display)) else { continue };
-                instructions.insert(key.clone(), found);
-            }
+                loaded.as_ref().and_then(|module| instruction(module, display))
+            });
+            let Some(found) = found else { continue };
             let info = match metadata_text(plane, map, event.meta, info_id) {
                 Some(Value::Bytes(bytes)) => bytes,
                 _ => &[],
             };
-            tracker.visit(&instructions[&key], &Visit { timestamp_ns, duration_ps: event.dur as i64, display_name: display, collective_info: info });
+            tracker.visit(found, &Visit { timestamp_ns, duration_ps: event.dur as i64, display_name: display, collective_info: info });
         }
     }
     averaged(tracker.summaries)
