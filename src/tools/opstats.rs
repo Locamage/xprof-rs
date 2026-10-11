@@ -648,17 +648,32 @@ fn steps(planes: &[Plane], map: &[u8], templates: &[Templates], part: Part, read
 /// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
 pub fn load_kept(map: Vec<u8>, fused: bool, part: Part) -> anyhow::Result<Option<(Arc<OpStats>, Kept)>> {
     let Some(mut planes) = crate::parse_checked(&map, part == Part::Device)? else { return Ok(None) };
-    // The modules come from the metadata plane only, so they parse at the same time as the other planes change.
+    // The modules come from the metadata plane only, so they parse at the same time as the groups and the op statistics.
     let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
     // The operations of the TPUs do not use the groups, and of the derived lines, the op statistics use only the span that `op_span` gives.
     let grouped = part > Part::Device || planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX));
     let spans = !crate::xplane::derive::is_grouped(&planes);
-    let (modules, underived) = std::thread::scope(|scope| {
-        let modules = scope.spawn(|| crate::hlo::parse_modules(protos));
+    let (stats, modules, underived) = std::thread::scope(|scope| {
+        let mut parsing = Some(scope.spawn(|| crate::hlo::parse_modules(protos)));
         let underived = grouped.then(|| crate::group(&mut planes, &map, false));
-        (modules.join().unwrap(), underived)
+        let mut modules = Vec::new();
+        let stats = op_stats(
+            &planes,
+            &map,
+            |db| {
+                modules = parsing.take().unwrap().join().unwrap();
+                if !modules.is_empty() {
+                    crate::hlo::attach_fused(&modules, db);
+                }
+            },
+            part,
+            spans,
+        );
+        if let Some(parsing) = parsing {
+            modules = parsing.join().unwrap();
+        }
+        (stats, modules, underived)
     });
-    let stats = op_stats(&planes, &map, &modules, part, spans);
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
     let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
     Ok(Some((Arc::new(stats), Kept { modules, fused, part, underived, map, planes })))
@@ -700,8 +715,8 @@ impl OpStats {
     }
 }
 
-/// Without `Part::All`, the host operations are empty.
-fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)], part: Part, spans: bool) -> OpStats {
+/// Without `Part::All`, the host operations are empty. `fuse` adds the fused children to the operations of the TPUs.
+fn op_stats(planes: &[Plane], map: &[u8], fuse: impl FnOnce(&mut Db) + Send, part: Part, spans: bool) -> OpStats {
     let first = planes.iter().find(|plane| plane.name.starts_with("/device:TPU:"));
     let tpu = first.is_some();
     let gpus = crate::xplane::gpu::devices(planes);
@@ -727,9 +742,7 @@ fn op_stats(planes: &[Plane], map: &[u8], modules: &[(u64, crate::hlo::Module)],
         let parts: Vec<Db> = parts.into_iter().flatten().collect();
         let mut db = Db::combined(&parts, true);
         crate::release(parts);
-        if !modules.is_empty() {
-            crate::hlo::attach_fused(modules, &mut db);
-        }
+        fuse(&mut db);
         ((db, Vec::new()), programs)
     };
     // Each part runs on a thread outside the pool, so no part waits for the work of another that the pool stole.
