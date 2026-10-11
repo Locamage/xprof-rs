@@ -57,6 +57,9 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - When a profile file is not a valid `XSpace`, xprof-rs extracts no HLO modules from it, as XProf does. Before, it extracted the modules from the metadata plane, for example when an event name was not UTF-8. The check of the file and the extraction occur at the same time, so the extraction takes the same time.
 - `aggregate_xplane_events` rounds the average duration one time, as Python does when it divides two integers. Before, a total of more than 2^53 ps sometimes gave a different last digit in `avg_duration_ps`.
 - The HTML page of the graph viewer and of the memory timeline has the same DOT text as XProf. Before, xprof-rs added a backslash before each backslash, for example in the backend configuration. xprof-rs still adds backslashes when the text has a backtick, `${`, `<!--` or `</script`, because then the text can run as a script.
+- When the start time of the trace viewer is after the end time, the visible time is one instant at the start, as in XProf. This change occurs before an end time of 0 becomes the end of the trace. Before, `start_time_ms=5` with no end time showed all events after 5 ms.
+- The trace viewer reads its time options as `absl::SimpleAtod` does. It accepts hexadecimal numbers after `0x`, and it removes only ASCII spaces around the number. It reads `resolution` and `unique_id` as integers first. A negative time, NaN or infinity gives the same number of picoseconds as XProf on x86-64. Before, xprof-rs returned 404 for `0x10`, and it showed different events for -1, NaN or infinity.
+- A search with `search_metadata=true` shows the stack frames of the full trace, as XProf does. Before, the `stackFrames` object had only the frames of the events that the search found, with different numbers.
 
 ## 0.1.2
 

@@ -33,7 +33,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::Semaphore;
 use tools::opstats::OpStats;
 use tower_http::{CompressionLevel, catch_panic::CatchPanicLayer, compression::CompressionLayer};
-use trace::json::{View, quoted, render};
+use trace::json::{Args, View, quoted, render};
 use trace::{MAX_SERIAL, Options, Trace};
 use xplane::Plane;
 
@@ -58,7 +58,7 @@ const MAX_THREADS: usize = 32;
 const PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
 const DEFAULT_PORT: u16 = 8791;
 const DEFAULT_GRPC_PORT: u16 = 50051;
-const DEFAULT_RESOLUTION: f64 = 8000.0;
+const DEFAULT_RESOLUTION: u64 = 8000;
 const PREFIX: &str = "/data/plugin/profile";
 const VERSION: &str = "2.23.2";
 const CACHE_TOOLS: [&str; 2] = ["overview_page", "trace_viewer@"];
@@ -921,16 +921,21 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
         Ok(hosts) => hosts,
         Err(message) => return if blocking(move || tools::counters::corrupt(&files)).await { not_found() } else { internal(&message) },
     };
-    let option = |key: &str, default: f64| params.get(key).map_or(Some(default), |value| value.trim().parse::<f64>().ok());
-    let (Some(start_ms), Some(end_ms), Some(resolution)) = (option("start_time_ms", 0.0), option("end_time_ms", 0.0), option("resolution", DEFAULT_RESOLUTION)) else {
+    let option = |key: &str| params.get(key).map_or(Some(0.0), |value| trace::atod(value));
+    let integer = |key: &str, default: u64| params.get(key).map_or(Some(default), |value| trace::atou(value));
+    let (Some(start_ms), Some(end_ms), Some(resolution)) = (option("start_time_ms"), option("end_time_ms"), integer("resolution", DEFAULT_RESOLUTION)) else {
         return not_found();
     };
-    let options = Options { start_ms, end_ms, resolution: resolution.trunc(), full_dma: params.get("full_dma").is_some_and(|value| value.eq_ignore_ascii_case("true")) };
+    let options = Options { start_ms, end_ms, resolution: resolution as f64, full_dma: params.get("full_dma").is_some_and(|value| value.eq_ignore_ascii_case("true")) };
     let query = params.get("search_prefix").filter(|prefix| !prefix.is_empty()).cloned();
-    let (Some(duration_ms), Some(unique_id)) = (option("duration_ms", 0.0), option("unique_id", 0.0)) else { return not_found() };
-    let detail = params.get("event_name").map(|name| (name.clone(), (start_ms * 1e9).round() as u64, (duration_ms * 1e9).round() as u64, unique_id as usize));
+    let (Some(duration_ms), Some(unique_id)) = (option("duration_ms"), integer("unique_id", 0)) else { return not_found() };
+    let detail = params.get("event_name").map(|name| (name.clone(), trace::to_u64((start_ms * 1e9).round()), trace::to_u64((duration_ms * 1e9).round()), unique_id as usize));
     let protobuf = detail.is_none() && params.get("format").is_some_and(|format| format == "pb");
-    let with_args = detail.is_some() || (query.is_some() && params.get("search_metadata").is_some_and(|value| value.eq_ignore_ascii_case("true")));
+    let args = match detail {
+        Some(_) => Args::Event,
+        None if query.is_some() && params.get("search_metadata").is_some_and(|value| value.eq_ignore_ascii_case("true")) => Args::Search,
+        None => Args::Brief,
+    };
     let body = blocking(move || {
         let views: Vec<View> = hosts
             .iter()
@@ -954,7 +959,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             })
             .collect();
         (detail.is_none() || views.iter().all(|view| !view.events.is_empty()))
-            .then(|| if protobuf { trace::delta::render(&views, Some(options.full_dma)) } else { render(&views, options.full_dma, with_args) })
+            .then(|| if protobuf { trace::delta::render(&views, Some(options.full_dma)) } else { render(&views, options.full_dma, args) })
     })
     .await;
     body.map_or_else(not_found, |body| response(StatusCode::OK, if protobuf { "application/octet-stream" } else { "application/json" }, body))

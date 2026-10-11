@@ -83,6 +83,7 @@ pub struct Trace {
     pub flow_ids: Vec<u64>,
     pub args: Vec<Vec<String>>,
     pub stack_frames: String,
+    pub frame_keys: Vec<u64>,
 }
 
 pub struct Options {
@@ -90,6 +91,65 @@ pub struct Options {
     pub end_ms: f64,
     pub resolution: f64,
     pub full_dma: bool,
+}
+
+/// `absl::SimpleAtod`: one `+` sign is permitted, and `0x` starts a hexadecimal number.
+pub fn atod(text: &str) -> Option<f64> {
+    let text = text.trim_matches(|c| matches!(c, ' ' | '\t' | '\n' | '\x0b' | '\x0c' | '\r'));
+    let (plus, text) = text.strip_prefix('+').map_or((false, text), |rest| (true, rest));
+    let (negative, body) = text.strip_prefix('-').map_or((false, text), |rest| (true, rest));
+    if (plus && negative) || body.starts_with(['+', '-']) {
+        return None;
+    }
+    let value = if let Some(hex) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
+        hex_float(hex)?
+    } else if body.len() > 5 && body[..4].eq_ignore_ascii_case("nan(") && body.ends_with(')') {
+        body[4..body.len() - 1].bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_').then_some(f64::NAN)?
+    } else {
+        body.parse::<f64>().ok()?
+    };
+    Some(if negative { -value } else { value })
+}
+
+fn hex_float(text: &str) -> Option<f64> {
+    let (mantissa, exponent) = text.split_once(['p', 'P']).unwrap_or((text, "0"));
+    let (sign, digits) = exponent.strip_prefix('-').map_or((1, exponent.strip_prefix('+').unwrap_or(exponent)), |rest| (-1, rest));
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) || whole.len() + fraction.len() == 0 {
+        return None;
+    }
+    let mut exponent = sign * digits.bytes().fold(0i64, |sum, byte| (sum * 10 + i64::from(byte - b'0')).min(1 << 20)) - 4 * fraction.len() as i64;
+    let (mut value, mut sticky) = (0u128, false);
+    for byte in whole.bytes().chain(fraction.bytes()) {
+        let digit = u128::from(char::from(byte).to_digit(16)?);
+        if value >> 120 == 0 {
+            value = value << 4 | digit;
+        } else {
+            sticky |= digit != 0;
+            exponent += 4;
+        }
+    }
+    let shift = (128 - value.leading_zeros()).saturating_sub(55);
+    let top = (value >> shift) as u64 | u64::from(sticky || value & ((1 << shift) - 1) != 0);
+    let exponent = (exponent + i64::from(shift)).clamp(-4000, 4000) as i32;
+    Some(if top == 0 { 0.0 } else { top as f64 * 2f64.powi(exponent / 2) * 2f64.powi(exponent - exponent / 2) })
+}
+
+/// The conversion of a C++ `double` to `uint64_t` on x86-64: a negative value wraps, and a value out of range gives 2^63.
+pub fn to_u64(value: f64) -> u64 {
+    if (0.0..(1u128 << 64) as f64).contains(&value) {
+        value as u64
+    } else if (-((1u64 << 63) as f64)..0.0).contains(&value) {
+        value as i64 as u64
+    } else {
+        1 << 63
+    }
+}
+
+/// `absl::SimpleAtoi` for `uint64_t`, else `absl::SimpleAtod` and a cast to `uint64_t`.
+pub fn atou(text: &str) -> Option<u64> {
+    let trimmed = text.trim_matches(|c| matches!(c, ' ' | '\t' | '\n' | '\x0b' | '\x0c' | '\r'));
+    trimmed.parse::<u64>().ok().or_else(|| atod(trimmed).map(to_u64))
 }
 
 #[derive(Clone, Default)]
@@ -346,7 +406,7 @@ impl Trace {
             events.iter().map(|event| event.ts).find(|&ts| ts <= BAD_TIMESTAMP).unwrap_or(0),
             events.par_iter().map(|event| event.ts.saturating_add(event.dur)).filter(|&end| end <= BAD_TIMESTAMP).max().unwrap_or(0),
         );
-        let (stack_frames, (assigned, ties)) = rayon::join(
+        let ((stack_frames, frame_keys), (assigned, ties)) = rayon::join(
             || crate::trace::json::stack_frames(planes, map, &events, &long_names),
             || {
                 let assigned = assign_levels(&events, &by_track, &flowing, flow_ids.len());
@@ -373,7 +433,7 @@ impl Trace {
         let tpu_devices: HashSet<u32> = devices.iter().filter(|(_, device)| is_tpu_core_device_name(&device.name)).map(|(id, _)| *id).collect();
         let dma_devices =
             devices.iter().filter(|(_, device)| !tpu_devices.is_empty() && (is_tpu_core_device_name(&device.name) || maybe_tpu_non_core_device_name(&device.name))).map(|(id, _)| *id).collect();
-        Self { devices, names, events, min_ps: span.0, max_ps: span.1, levels, ties, tpu_devices, dma_devices, long_names, steps, tracks: by_track.len(), flow_ids, args, stack_frames }
+        Self { devices, names, events, min_ps: span.0, max_ps: span.1, levels, ties, tpu_devices, dma_devices, long_names, steps, tracks: by_track.len(), flow_ids, args, stack_frames, frame_keys }
     }
 
     fn is_dma_flow(&self, index: u32) -> bool {
@@ -382,15 +442,15 @@ impl Trace {
     }
 
     pub fn load(&self, options: &Options) -> Vec<u32> {
-        let ms_to_ps = |ms: f64| (ms * 1e9) as u64;
-        let (mut begin, mut end) = (ms_to_ps(options.start_ms), ms_to_ps(options.end_ms));
+        let mut begin = to_u64(options.start_ms * 1e9);
+        let mut end = to_u64(options.end_ms * 1e9).max(begin);
         if !self.events.is_empty() {
             begin = begin.max(self.min_ps);
             if end == 0 || end > self.max_ps {
                 end = self.max_ps;
             }
+            end = end.max(begin);
         }
-        end = end.max(begin);
         let resolution = if self.events.len() >= STREAMING_THRESHOLD { options.resolution } else { 0.0 };
         let resolution_ps = if resolution == 0.0 { 0 } else { ((end - begin) as f64 / resolution).round() as u64 };
         let layer = |level: usize| LAYER_PS.get(level).copied().unwrap_or(0);

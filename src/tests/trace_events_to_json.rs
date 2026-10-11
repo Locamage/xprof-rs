@@ -22,6 +22,7 @@ fn trace_of(names: &[&str], flow_ids: &[u64]) -> Trace {
         flow_ids: flow_ids.to_vec(),
         args: Vec::new(),
         stack_frames: String::new(),
+        frame_keys: Vec::new(),
     }
 }
 
@@ -43,7 +44,7 @@ fn rendered(space: &XSpace) -> String {
     let (map, planes) = space.parsed();
     let trace = Trace::build(&planes, "localhost", &map);
     let view = View { trace: &trace, map: &map, planes: &planes, events: trace.load(&Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false }) };
-    String::from_utf8(render(&[view], false, false)).unwrap()
+    String::from_utf8(render(&[view], false, crate::trace::json::Args::Brief)).unwrap()
 }
 
 fn counter_space(events: &[(&str, &str, i64, i64)]) -> XSpace {
@@ -134,7 +135,7 @@ fn write_stack_frames_test() {
     let (map, planes) = space.parsed();
     let trace = Trace::build(&planes, "localhost", &map);
     let view = View { trace: &trace, map: &map, planes: &planes, events: vec![0, 1] };
-    let json = String::from_utf8(render(&[view], false, true)).unwrap();
+    let json = String::from_utf8(render(&[view], false, crate::trace::json::Args::Event)).unwrap();
     assert!(json.contains(r#""1":{"name":"stack1 is a long stack frame"}"#), "{json}");
     assert!(json.contains(r#""2":{"name":"stack2 is a long stack frame"}"#), "{json}");
 }
@@ -213,7 +214,7 @@ fn write_event_args() {
     let trace = Trace::build(&planes, "localhost", &map);
     let (mut out, mut frames) = (String::new(), Vec::new());
     let args_event = Event { group: 10, serial: 123_456, ..trace.events[0] };
-    write_event(&mut out, &trace, &args_event, 1, Some((&planes[0], &map, &mut frames)), None, false);
+    write_event(&mut out, &trace, &args_event, 1, Some((&planes[0], &map, &mut frames, None)), None, false);
     for expected in
         [r#""args":{"#, r#""group_id":10"#, r#""str_arg":"value""#, r#""int_arg":42"#, r#""uint_arg":100"#, r#""double_arg":3.14"#, r#""ref_arg":"ref_value""#, r#""sf":1"#, r#""z":123456"#]
     {

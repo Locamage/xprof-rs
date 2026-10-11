@@ -34,7 +34,15 @@ pub struct View<'a> {
     pub events: Vec<u32>,
 }
 
-type Extra<'a> = (&'a Plane, &'a [u8], &'a mut Vec<String>);
+type Extra<'a> = (&'a Plane, &'a [u8], &'a mut Vec<String>, Option<&'a [u64]>);
+
+/// The arguments in a trace response. A search takes its stack frames from the table of the full trace; one event has its own table.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Args {
+    Brief,
+    Search,
+    Event,
+}
 
 fn push_quoted(out: &mut String, text: &str) {
     if text.bytes().all(|byte| byte >= 0x20 && !matches!(byte, b'"' | b'\\' | b'<' | b'>' | b'&' | 0xe2)) {
@@ -185,18 +193,22 @@ fn stat_double(name: &str, v: f64) -> String {
     if (name.ends_with("(util %)") || name.ends_with(" (MB/sec)")) && v.is_finite() { format!("{v:.2}") } else { double(v) }
 }
 
-pub fn stack_frames(planes: &[Plane], map: &[u8], events: &[Event], long_names: &HashMap<u32, Box<str>>) -> String {
-    frames_json(&table([(planes, map, events, long_names)])).concat()
+pub fn stack_frames(planes: &[Plane], map: &[u8], events: &[Event], long_names: &HashMap<u32, Box<str>>) -> (String, Vec<u64>) {
+    let texts = table([(planes, map, events, long_names)]);
+    (frames_json(&texts).concat(), texts.iter().map(|text| fingerprint(text)).collect())
 }
 
-fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &mut Vec<String>) -> (Vec<String>, Option<usize>) {
+fn full_args(trace: &Trace, plane: &Plane, event: &Event, map: &[u8], frames: &mut Vec<String>, keys: Option<&[u64]>) -> (Vec<String>, Option<usize>) {
     let (mut args, mut frame) = (Vec::new(), None);
     let mut text_arg = |args: &mut Vec<String>, name: &str, text: String| {
-        if matches!(name, "long_name" | "hlo_text") && text.len() > INTERN_THRESHOLD && frame.is_none() {
-            frames.push(text);
-            frame = Some(frames.len());
-        } else {
-            args.push(format!("{}:{}", quoted(name), quoted(&text)));
+        let long = matches!(name, "long_name" | "hlo_text") && text.len() > INTERN_THRESHOLD && frame.is_none();
+        match keys.map(|keys| keys.binary_search(&fingerprint(&text))) {
+            None if long => {
+                frames.push(text);
+                frame = Some(frames.len());
+            }
+            Some(Ok(index)) if long => frame = Some(index + 1),
+            _ => args.push(format!("{}:{}", quoted(name), quoted(&text))),
         }
     };
     if event.meta == DERIVED_META {
@@ -352,8 +364,8 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
         match extra.filter(|_| forced_entry.is_none()) {
             None if forced_entry.is_none() => write!(out, "{}\"uid\":{}", if out.len() > start { "," } else { "" }, event.serial).unwrap(),
             None => {}
-            Some((plane, map, frames)) => {
-                let (args, stack) = full_args(trace, plane, event, map, frames);
+            Some((plane, map, frames, keys)) => {
+                let (args, stack) = full_args(trace, plane, event, map, frames, keys);
                 frame = stack;
                 for arg in args {
                     out.push_str(if out.len() > start { "," } else { "" });
@@ -378,7 +390,8 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
     }
 }
 
-pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
+pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
+    let (detail, fresh) = (args != Args::Brief, args == Args::Event);
     let total: usize = views.iter().map(|view| view.events.len()).sum();
     let (min_ps, max_ps) = (views.iter().map(|view| view.trace.min_ps).min().unwrap_or(0), views.iter().map(|view| view.trace.max_ps).max().unwrap_or(0));
     let seconds = |ps: u64| format!("{}", format!("{:.5e}", ps as f64 / 1e9).parse::<f64>().unwrap());
@@ -397,8 +410,10 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
         }
     }
     let ordered = ordered(views);
-    let reused = views.len() == 1 && !detail;
-    let mut frames = if detail || reused { Vec::new() } else { table(views.iter().map(|view| (view.planes, view.map, &view.trace.events[..], &view.trace.long_names))) };
+    let reused = views.len() == 1 && !fresh;
+    let mut frames = if fresh || reused { Vec::new() } else { table(views.iter().map(|view| (view.planes, view.map, &view.trace.events[..], &view.trace.long_names))) };
+    let merged: Vec<u64> = if args == Args::Search && !reused { frames.iter().map(|text| fingerprint(text)).collect() } else { Vec::new() };
+    let keys = (args == Args::Search).then(|| if reused { &views[0].trace.frame_keys[..] } else { &merged[..] });
     let is_counter = |&(host, index): &(u32, u32)| {
         let event = &views[host as usize].trace.events[index as usize];
         event.resource == NONE_RESOURCE && event.flow == NONE_FLOW
@@ -446,7 +461,7 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
                 text.push_str("]}");
             }
             text.push_str(if position > 0 { "," } else { "" });
-            write_event(&mut text, view.trace, event, pid, frames.as_deref_mut().map(|frames| (&view.planes[event.plane as usize], view.map, frames)), None, detail);
+            write_event(&mut text, view.trace, event, pid, frames.as_deref_mut().map(|frames| (&view.planes[event.plane as usize], view.map, frames, keys)), None, fresh);
         }
         if open.is_some() {
             text.push_str("]}");
@@ -462,7 +477,7 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
         bounds.push(end);
     }
     let pieces: Vec<&[(u32, u32)]> = bounds.windows(2).map(|window| &ordered[window[0]..window[1]]).collect();
-    let chunks: Vec<String> = if detail {
+    let chunks: Vec<String> = if fresh {
         let parts: Vec<(String, Vec<String>)> = pieces
             .par_iter()
             .map(|chunk| {
@@ -475,7 +490,7 @@ pub fn render(views: &[View], full_dma: bool, detail: bool) -> Vec<u8> {
         frames = parts.into_iter().flat_map(|(_, found)| found).collect();
         renumbered
     } else {
-        pieces.par_iter().map(|chunk| write_chunk(chunk, None)).collect()
+        pieces.par_iter().map(|chunk| write_chunk(chunk, detail.then(Vec::new).as_mut())).collect()
     };
     out.push_str("\"stackFrames\":{");
     let listed: Vec<String> = if reused { Vec::new() } else { frames_json(&frames) };

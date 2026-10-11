@@ -44,7 +44,7 @@ fn host_of(space: &[u8]) -> Host {
 fn render_space(space: &[u8], options: &Options) -> String {
     let host = host_of(space);
     let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(options) };
-    String::from_utf8(render(&[view], false, false)).unwrap()
+    String::from_utf8(render(&[view], false, crate::trace::json::Args::Brief)).unwrap()
 }
 
 #[test]
@@ -348,7 +348,7 @@ fn demo_trace_matches_xprof_outputs() {
     let host = load_host(&path).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
     let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&Options { start_ms: 0.0, end_ms: 0.0, resolution: 8000.0, full_dma: false }) };
-    let produced = String::from_utf8(render(&[view], false, false)).unwrap();
+    let produced = String::from_utf8(render(&[view], false, crate::trace::json::Args::Brief)).unwrap();
     let golden = include_str!("../../tests/data/trace_viewer.json");
     assert!(same(&normalized(serde_json::from_str(golden).unwrap()), &normalized(serde_json::from_str(&produced).unwrap())), "trace viewer differs from XProf");
     let times = |text: &str| {
@@ -446,7 +446,7 @@ fn gpu_space() -> Vec<u8> {
 fn gpu_kernels_join_their_launch_step_and_derive_stream_lines() {
     let host = host_of(&gpu_space());
     let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: host.trace.load(&EVERYTHING) };
-    let json = String::from_utf8(render(&[view], false, true)).unwrap();
+    let json = String::from_utf8(render(&[view], false, crate::trace::json::Args::Event)).unwrap();
     for expected in [
         "/device:GPU:0\"},\"name\":\"process_name\"", "{\"args\":{\"name\":\"XLA Modules - from #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":4}",
         "{\"args\":{\"name\":\"XLA Ops - from #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":5}", "\"tid\":3735928559,\"name\":\"train 7\"", "\"step_name\":\"train 7\"",
@@ -487,7 +487,7 @@ fn utilization_and_bandwidth_doubles_print_with_two_decimals() {
     let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entry(4, 1, "op"), entries(5, &["HBM (util %)", "ratio"])].concat();
     let host = host_of(&bytes(1, &plane));
     let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: vec![0] };
-    let json = String::from_utf8(render(&[view], false, true)).unwrap();
+    let json = String::from_utf8(render(&[view], false, crate::trace::json::Args::Event)).unwrap();
     assert!(json.contains("\"HBM (util %)\":12.35,\"ratio\":0.125"), "{json}");
 }
 
