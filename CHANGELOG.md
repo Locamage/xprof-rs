@@ -48,6 +48,8 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The normalized times of the op statistics change a double to an integer as XProf does on x86-64. A value that is too large gives 2^63, and a negative value wraps. Before, a very large time scale multiplier gave a different time scale for the roofline model.
 - When the `Time Scale Multiplier` stat of an op is not a double, its value is 0, as in XProf. Before, xprof-rs used 1.
 - When the `_p`, `_c`, `_pt` or `_ct` stat of an event is not an integer, its value is 0, as in XProf. Thus the event connects to its producer or consumer for the groups and the flows of the trace viewer. Before, xprof-rs ignored the stat.
+- When the `device_offset_ps`, `device_duration_ps`, `step_idle_time_ps` or connection stat of an event is not an integer, its value is 0, as in XProf. The connection stats are `run_id`, `queue_id`, `device_ordinal`, `core_type`, `request_id`, `queue_addr`, `id` and `iter_num`. Before, xprof-rs ignored these stats. Then a step had a different time, or the trace viewer did not show a flow.
+- A `group_id` stat of the host steps that is not a signed integer gives the group 0, as in XProf.
 - A `ThreadpoolListener::StartRegion` event starts a region when it has a `_c` stat of any type, as in XProf. Before, xprof-rs ignored the event when the stat was not an integer. Then the trace viewer did not show the region, or it showed a region from an earlier start.
 
 ## 0.1.2

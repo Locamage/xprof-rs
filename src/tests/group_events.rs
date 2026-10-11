@@ -224,6 +224,15 @@ fn tpu_program_callback_test() {
 }
 
 #[test]
+fn connection_stat_that_is_not_an_int_is_zero() {
+    let launch = |core_type: V| [("run_id", V::from(1)), ("queue_id", 0.into()), ("device_ordinal", 0.into()), ("core_type", core_type)];
+    let mut space = host_with_session_root("DoEnqueueProgram", &launch(0.into()));
+    space.planes[0].event(1, "CompleteCallbacks", 200, 10, &launch("7".into()));
+    let (_, planes, _) = grouped(&space);
+    assert!(groups(&planes[0]).iter().all(|(_, group)| group.is_some()), "{:?}", groups(&planes[0]));
+}
+
+#[test]
 fn module_root_event_test() {
     let mut space = XSpace::default();
     let device = space.tpu(0, "TPUv4", 0.0, 0.0, None);

@@ -36,6 +36,8 @@ const PROGRAM_LINES: [&str; 3] = ["XLA Ops", "TensorFlow Ops", "Sparse Core Ops"
 const EAGER_WRAPPERS: [&str; 4] = ["EagerExecute", "EagerLocalExecute", "EagerKernelExecute", "FunctionRun"];
 const DEVICE_STATS: [&str; 10] = ["group_id", "device_offset_ps", "device_duration_ps", "all_reduce_unique_id", "program_id", "symbol_id", "flops", "model_flops", "uses_ici", "hlo_category"];
 const GPU_MEMCPY: [(&str, u32); 3] = [("MemcpyHToD", HOST_TO_DEVICE), ("MemcpyDToH", DEVICE_TO_HOST), ("MemcpyDToD", DEVICE_TO_DEVICE)];
+const OFFSET: usize = 1;
+const DURATION: usize = 2;
 const PROGRAM: usize = 4;
 const SYMBOL: usize = 5;
 const FLOPS: usize = 6;
@@ -187,6 +189,7 @@ fn scan<'a>(plane: &'a Plane, raw: &'a [u8], field: u32, slots: &[u8]) -> Scanne
             Some(CATEGORY) => {
                 out.1 = Some(plane.text_cow(&stat.value));
             }
+            Some(index @ (OFFSET | DURATION)) => out.0[index] = Some(stat.value.int().unwrap_or(0)),
             Some(index) => out.0[index] = stat.value.int().or(out.0[index]),
             None => {}
         }
@@ -494,7 +497,7 @@ fn merged_active(mut intervals: Vec<(u64, u64)>) -> u64 {
 pub fn host_steps(plane: &Plane, map: &[u8], origin: u64, input_only: bool) -> StepEvents {
     let id = |name| plane.id(name);
     let mut ids = [id("group_id"), id("step_name"), id("_ipl_stage_name"), id("_ct"), id("_c")];
-    let number = |value: Option<Value>| value.and_then(|value| value.int());
+    let number = |value: Option<Value>| value.map(|value| value.int().unwrap_or(0));
     let producers = [id("_pt"), id("_p")];
     // An asynchronous parent changes the kind of time only below a stage of the input pipeline.
     let parents: HashSet<(i64, i64)> = if ids[2].is_some() && producers.iter().all(Option::is_some) {
@@ -554,7 +557,7 @@ pub fn host_steps(plane: &Plane, map: &[u8], origin: u64, input_only: bool) -> S
                 }
                 let current = (stage_name.is_some_and(|value| !plane.text_cow(&value).is_empty()), async_parent || stack.last().is_some_and(|top| top.1 || top.0), span);
                 stack.push(current);
-                let group = if event.group == NONE_GROUP { number(group_id).unwrap_or(-1) } else { event.group };
+                let group = if event.group == NONE_GROUP { group_id.map_or(-1, |value| value.signed()) } else { event.group };
                 if group < 0 {
                     continue;
                 }

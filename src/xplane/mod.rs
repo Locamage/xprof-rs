@@ -62,9 +62,9 @@ const CONNECTIONS: [Connection; ROLES] = [
     Connection { producers: "ExecutorState::Process", consumers: "TpuExecuteOp", context: LEGACY, stats: &[STEP_ID, ITER_NUM] },
 ];
 
-/// The number of a stat for the event links. A producer or consumer stat that is not an integer gives 0.
+/// The number of a stat for the event links. A producer, consumer or connection stat that is not an integer gives 0.
 fn number(kind: usize, value: &Value) -> Option<i64> {
-    if matches!(kind, P | C | PT | CT) { Some(value.int().unwrap_or(0)) } else { value.int() }
+    if matches!(kind, PT..=C | REQUEST_ID..=PID | STEP_ID | ITER_NUM) { Some(value.int().unwrap_or(0)) } else { value.int() }
 }
 
 pub enum Field<'a> {

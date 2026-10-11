@@ -393,7 +393,7 @@ fn merge(plane: &mut Plane, map: &[u8], index: usize, names: &HashMap<i64, Strin
         return;
     }
     let (idle_id, offset_id, duration_id) = (plane.id(IDLE), plane.id(OFFSET), plane.id(DURATION));
-    let stat = |event: &Ev, id: Option<usize>| plane.find(map, event.meta, event.raw, id)?.int();
+    let stat = |event: &Ev, id: Option<usize>| plane.find(map, event.meta, event.raw, id).map(|value| value.int().unwrap_or(0));
     let device_span = |event: &Ev| match (stat(event, offset_id), stat(event, duration_id)) {
         (Some(offset), Some(duration)) => (offset as u64, duration as u64),
         _ => (event.ts, event.dur),

@@ -94,6 +94,15 @@ fn sparse_core_should_have_step_markers() {
 }
 
 #[test]
+fn device_span_stat_that_is_not_an_int_is_zero() {
+    let mut space = tpu_op_plane(true, &[("op_long_name", 0, 1), ("op_long_name", 320, 3)]);
+    space.planes[0].event(1, "", 300, 100, &[("group_id", 3.into()), ("device_offset_ps", 310.into()), ("device_duration_ps", "x".into())]);
+    let (map, planes) = space.parsed();
+    let markers: Vec<Span> = device_steps(&planes, &map, 0)[&3].markers.iter().map(|marker| marker.span).collect();
+    assert_eq!(markers, [Span { begin: 310, duration: 0 }]);
+}
+
+#[test]
 fn tpu_device_plane_no_step_line() {
     let (map, planes) = tpu_op_plane(false, &[("op_long_name", 0, 1), ("op_long_name", 100, 2), ("op_long_name2", 50, 1), ("op_long_name2", 150, 2)]).parsed();
     assert!(device_steps(&planes, &map, 0).is_empty());
