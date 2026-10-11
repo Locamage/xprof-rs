@@ -118,6 +118,12 @@ pub fn traces(dir: &Path) -> Vec<PathBuf> {
 
 pub fn kernel_utilization<'a>(path: &Path, option: impl Fn(&str) -> Option<&'a str>) -> Option<String> {
     let map = crate::read_file(path).ok()?;
+    let name = path.file_name().unwrap_or_default().as_encoded_bytes();
+    let name = name.strip_suffix(b".xplane.pb").unwrap_or(name);
+    // XProf gives no data when the file name does not contain the first host name of the XSpace.
+    if crate::xplane::nested(&map, 4).next().is_some_and(|host| memchr::memmem::find(name, host).is_none()) {
+        return None;
+    }
     let filter = crate::tools::counters::Filter {
         kernel: option("kernel").or(option("kernel_name")).unwrap_or_default().to_string(),
         duration_us: option("duration_us").and_then(|value| value.trim().parse().ok()).unwrap_or(0.0),

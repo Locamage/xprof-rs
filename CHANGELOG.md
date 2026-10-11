@@ -42,6 +42,9 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The HLO modules parse at the same time as the op statistics, and the fused children wait for them only at the end. Before, the op statistics waited for the modules at the start. On a 280 MB TPU v4 profile with 4 cores, `get_hlo_op_profile` and `get_top_hlo_ops` take 0.57 s (before: 0.60 s).
 - The op statistics sort the operations of each step by small keys, and they find the stats of an operation by a table. Before, they compared the name of each stat. On a 280 MB TPU v4 profile with 4 cores, `check_host_boundness` takes 1.02 s. Before, it took 1.15 s.
 - `compute_utilization` and `get_kernel_utilization` open each trace file before they read the profile. When a file is a broken link or you cannot read it, they give the `PATH_ERROR` of XProf. The error text is the text of Python, for example `[Errno 2] No such file or directory`. Before, they gave an `INTERNAL_ERROR` with the text "no data returned".
+- For a local path, `compute_utilization` and `get_kernel_utilization` give data only when the file name contains the first host name of the profile. XProf has the same rule. For example, a profile of the host `worker-0` in the file `host.xplane.pb` gives the "no data returned" error.
+- When an event or a stat has no metadata, the CLI writes its ID as a signed number, as XProf does. For example, it writes `-1`, not `18446744073709551615`.
+- To find an event name that is a number, the CLI uses the rules of `str.isdigit` in Python. Thus `²` and `٣` are numbers, and `½` is not a number.
 
 ## 0.1.2
 

@@ -68,3 +68,20 @@ fn test_list_xplane_events_max_events_negative_one_returns_all() {
     let one = json(list_xplane_events(&Fake::fixed(""), &args(&session, &[("max_events", J::Int(1))]))).dumps();
     assert!(one.contains("event1") && !one.contains("event2"));
 }
+
+#[test]
+fn test_event_names_follow_python_int64_and_isdigit() {
+    let mut trace = XSpace::default();
+    let plane = trace.plane("plane1");
+    plane.named_line(0, "line1");
+    for name in ["½", "٣", "²"] {
+        plane.event(0, name, 0, 1000, &[("msg", "named".into())]);
+    }
+    plane.event(0, "unknown", 0, 1000, &[]).metadata_id = -1;
+    let path = scratch("xp-names").join("trace.xplane.pb");
+    std::fs::write(&path, trace.encode_to_vec()).unwrap();
+    let result = json(crate::cli::xplane::aggregate_xplane_events(&Fake::fixed(""), &args(&path.to_string_lossy(), &[])));
+    let mut names: Vec<&str> = result.at("aggregates").items().iter().filter_map(|row| row.at("event").str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["-1", "named", "½"]);
+}

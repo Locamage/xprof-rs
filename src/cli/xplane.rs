@@ -1,5 +1,5 @@
 use super::client::{Client, TRACE_SUFFIXES, traces};
-use super::json::{J, py_repr};
+use super::json::{J, py_isdigit, py_repr};
 use super::pyre::{self, Pattern};
 use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round, stdev};
 use crate::obj;
@@ -39,7 +39,7 @@ impl Visit<'_> {
 
     fn stats(&self) -> Vec<(String, String)> {
         stats(self.event.raw, 4, |_| true)
-            .map(|stat| (self.plane.stat_names.get(&(stat.id as u64)).map_or_else(|| stat.id.to_string(), |name| String::from_utf8_lossy(name).into_owned()), value_text(stat.value)))
+            .map(|stat| (self.plane.stat_names.get(&(stat.id as u64)).map_or_else(|| (stat.id as i64).to_string(), |name| String::from_utf8_lossy(name).into_owned()), value_text(stat.value)))
             .collect()
     }
 
@@ -52,21 +52,16 @@ impl Visit<'_> {
     }
 
     fn raw_name(&self) -> String {
-        self.plane.metadata.get(&self.event.meta).map_or_else(|| self.event.meta.to_string(), |(name, _)| String::from_utf8_lossy(name).into_owned())
+        self.plane.metadata.get(&self.event.meta).map_or_else(|| (self.event.meta as i64).to_string(), |(name, _)| String::from_utf8_lossy(name).into_owned())
     }
 
     fn name(&self) -> String {
         let name = self.raw_name();
-        if is_number(&name) {
+        if py_isdigit(&name) {
             return self.stats().into_iter().find(|(key, value)| NAME_STATS.contains(&key.as_str()) && !value.is_empty()).map_or(name, |(_, value)| value);
         }
         name
     }
-}
-
-/// A name that is a number gets its text from the stats of each event.
-fn is_number(name: &str) -> bool {
-    !name.is_empty() && name.chars().all(char::is_numeric)
 }
 
 fn value_text(value: Value) -> String {
@@ -150,7 +145,7 @@ impl<'a> Names<'a> {
         let (name, numeric, matched) = self.known.entry(visit.event.meta).or_insert_with(|| {
             let name = visit.raw_name();
             let matched = pattern.search(&name);
-            (name.clone(), is_number(&name), matched)
+            (name.clone(), py_isdigit(&name), matched)
         });
         if *numeric {
             let name = visit.name();
@@ -481,7 +476,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                 let tf_op = visit.stat("tf_op_name");
                 let cached = tf_op.is_none().then(|| slots.get(&visit.event.meta).copied()).flatten();
                 let slot = cached.unwrap_or_else(|| {
-                    let by_meta = tf_op.is_none() && !is_number(&visit.raw_name());
+                    let by_meta = tf_op.is_none() && !py_isdigit(&visit.raw_name());
                     let name = tf_op.unwrap_or_else(|| visit.name());
                     let slot = wanted(&name).then(|| durations.get_index_of(&name).unwrap_or_else(|| durations.insert_full(name, Vec::new()).0));
                     if by_meta {
