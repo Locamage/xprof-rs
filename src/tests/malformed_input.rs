@@ -42,20 +42,30 @@ fn metadata_with_a_display_name_and_no_name() {
     assert!(op_stats(&[space]).is_some());
 }
 
-#[test]
-fn threadpool_region_at_the_origin() {
+fn threadpool_regions(consumer: crate::tests::xspace::V) -> usize {
     use crate::tests::xspace::V;
     let mut space = XSpace::default();
     let plane = space.add_plane();
     plane.event(0, "ThreadpoolListener::Record", 100, 100, &[("_pt", 15.into()), ("_p", 123.into())]);
-    let consumer = [("_ct", V::from(15)), ("_c", 123.into())];
+    let consumer = [("_ct", V::from(15)), ("_c", consumer)];
     plane.event(1, "ThreadpoolListener::StartRegion", 0, 0, &consumer);
     plane.event(1, "ThreadpoolListener::StopRegion", 300, 0, &consumer);
     plane.lines.iter_mut().for_each(|line| line.timestamp_ns = 5);
     let (map, mut planes) = space.parsed();
     planes[0].add_threadpool_regions(&map);
     let plane = &planes[0];
-    assert!(plane.lines.iter().flat_map(|line| &line.events).any(|event| &*plane.meta[event.meta as usize].name == "ThreadpoolListener::Region"));
+    plane.lines.iter().flat_map(|line| &line.events).filter(|event| &*plane.meta[event.meta as usize].name == "ThreadpoolListener::Region").count()
+}
+
+#[test]
+fn threadpool_region_at_the_origin() {
+    assert_eq!(threadpool_regions(123.into()), 1);
+}
+
+#[test]
+fn threadpool_region_with_a_consumer_that_is_not_an_int() {
+    assert_eq!(threadpool_regions("abc".into()), 1);
+    assert_eq!(threadpool_regions((-1.0).into()), 1);
 }
 
 #[test]

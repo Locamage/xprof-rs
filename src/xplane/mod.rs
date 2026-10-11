@@ -696,7 +696,7 @@ impl Plane {
             let (mut started, mut regions) = (None, Vec::new());
             for event in &line.events {
                 if event.meta as usize == start {
-                    if stats(slice(map, event.raw), 4, |id| Some(id) == consumer).any(|stat| matches!(stat.value, Value::Int(_) | Value::Uint(_))) {
+                    if stats(slice(map, event.raw), 4, |id| Some(id) == consumer).next().is_some() {
                         started = Some(event.ts).filter(|&ts| line.absolute_ps(ts, origin) != 0);
                     }
                 } else if let Some(started) = started.filter(|_| event.meta as usize == stop) {
