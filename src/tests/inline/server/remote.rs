@@ -172,7 +172,7 @@ async fn a_request_for_a_mirrored_session_does_not_list_the_whole_store() {
     let settings = arguments(["--logdir".to_string(), format!("file://{}", bucket.display())]).unwrap();
     let state = state(&settings);
     assert_eq!(fetch(&state, "/data/plugin/profile/runs").await.2, "[\"run/s\"]");
-    std::fs::set_permissions(bucket.join("other"), std::fs::Permissions::from_mode(0)).unwrap();
+    std::fs::set_permissions(bucket.join("other"), std::fs::Permissions::from_mode(0o0)).unwrap();
     state.remote.as_ref().unwrap().checked.lock().unwrap().clear();
     let served = fetch(&state, "/data/plugin/profile/run_tools?run=run/s").await;
     let listed = fetch(&state, "/data/plugin/profile/runs").await;
