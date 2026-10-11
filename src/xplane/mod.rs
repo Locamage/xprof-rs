@@ -446,7 +446,7 @@ pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
     parse_checking(buf, None, false)
 }
 
-/// Clears `checked` if a stat of an event does not pass the check of `valid_space`. With `bare` and no GPU planes, the lines of the host plane have no events.
+/// Clears `checked` if a stat of an event does not pass the check of `valid_stat`. With `bare` and no GPU planes, the lines of the host plane have no events.
 pub fn parse_checking(buf: &[u8], checked: Option<&AtomicBool>, bare: bool) -> anyhow::Result<Vec<Plane>> {
     anyhow::ensure!(u32::try_from(buf.len()).is_ok(), "The profile is larger than 4 GiB");
     let mut entries = fields(buf);
