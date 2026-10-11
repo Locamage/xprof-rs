@@ -14,6 +14,10 @@ pub enum J {
     Str(String),
     List(Vec<Self>),
     Map(Vec<(String, Self)>),
+    /// The tuples, sets and dicts of the command line, which Python keeps apart from lists and objects.
+    Tuple(Vec<Self>),
+    Set(Vec<Self>),
+    Dict(Vec<(Self, Self)>),
 }
 
 #[macro_export]
@@ -131,8 +135,9 @@ impl J {
             Self::Int(number) => *number != 0,
             Self::Float(number) => *number != 0.0,
             Self::Str(text) => !text.is_empty(),
-            Self::List(items) => !items.is_empty(),
+            Self::List(items) | Self::Tuple(items) | Self::Set(items) => !items.is_empty(),
             Self::Map(entries) => !entries.is_empty(),
+            Self::Dict(entries) => !entries.is_empty(),
         }
     }
 
@@ -165,6 +170,26 @@ impl J {
             Self::Str(text) => text.clone(),
             Self::List(items) => format!("[{}]", items.iter().map(Self::repr).collect::<Vec<_>>().join(", ")),
             Self::Map(entries) => format!("{{{}}}", entries.iter().map(|(key, value)| format!("{}: {}", py_repr(key), value.repr())).collect::<Vec<_>>().join(", ")),
+            Self::Tuple(items) if items.len() == 1 => format!("({},)", items[0].repr()),
+            Self::Tuple(items) => format!("({})", items.iter().map(Self::repr).collect::<Vec<_>>().join(", ")),
+            Self::Set(items) => format!("{{{}}}", items.iter().map(Self::repr).collect::<Vec<_>>().join(", ")),
+            Self::Dict(entries) => format!("{{{}}}", entries.iter().map(|(key, value)| format!("{}: {}", key.repr(), value.repr())).collect::<Vec<_>>().join(", ")),
+        }
+    }
+
+    /// Python `==`, where `True == 1 == 1.0`.
+    pub fn equals(&self, other: &Self) -> bool {
+        let whole = |value: &Self| match value {
+            Self::Bool(flag) => Some(i128::from(*flag)),
+            Self::Int(number) => Some(*number),
+            _ => None,
+        };
+        match (self, other) {
+            (Self::Float(left), Self::Float(right)) => left == right,
+            (Self::Float(float), number) | (number, Self::Float(float)) if whole(number).is_some() => float.fract() == 0.0 && float.abs() < 1e38 && *float as i128 == whole(number).unwrap_or_default(),
+            _ if whole(self).is_some() && whole(other).is_some() => whole(self) == whole(other),
+            (Self::List(left), Self::List(right)) | (Self::Tuple(left), Self::Tuple(right)) => left.len() == right.len() && left.iter().zip(right).all(|(left, right)| left.equals(right)),
+            _ => self == other,
         }
     }
 
@@ -212,9 +237,10 @@ impl J {
             Self::Float(number) if number.is_infinite() => out.push_str(if *number > 0.0 { "Infinity" } else { "-Infinity" }),
             Self::Float(number) => out.push_str(&crate::tools::table::repr(*number)),
             Self::Str(text) => string(out, text, ascii),
-            Self::List(items) if items.is_empty() => out.push_str("[]"),
+            Self::List(items) | Self::Tuple(items) | Self::Set(items) if items.is_empty() => out.push_str("[]"),
             Self::Map(entries) if entries.is_empty() => out.push_str("{}"),
-            Self::List(items) => {
+            Self::Dict(entries) if entries.is_empty() => out.push_str("{}"),
+            Self::List(items) | Self::Tuple(items) | Self::Set(items) => {
                 out.push('[');
                 for (index, item) in items.iter().enumerate() {
                     out.push_str(separator(index));
@@ -236,6 +262,7 @@ impl J {
                 open(out, depth);
                 out.push('}');
             }
+            Self::Dict(entries) => Self::Map(entries.iter().map(|(key, value)| (key.text(), value.clone())).collect()).write(out, depth, ascii),
         }
     }
 }

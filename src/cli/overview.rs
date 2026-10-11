@@ -309,7 +309,7 @@ fn strip_html(text: &J) -> String {
 }
 
 pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    let (session, top_n) = (args.session(), args.int("top_n", 15)?);
+    let session = args.session();
     let params = [bypass(args.flag("bypass_cache", false))];
     let compute = || -> Result<J, Error> {
         let data = client.fetch_either("roofline_model.json", "roofline_model", &session, &params)?;
@@ -394,7 +394,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
         }
         let total = operations.len();
         operations.sort_by(|left, right| right.at("total_self_time_ms").float().partial_cmp(&left.at("total_self_time_ms").float()).unwrap_or(std::cmp::Ordering::Equal));
-        operations.truncate(top_n.max(0) as usize);
+        operations.truncate(super::slice_end(args.raw("top_n").unwrap_or(&J::Int(15)), total)?);
         let custom = operations.iter().any(|operation| operation.at("bound_by").str() == Some("CustomCall (opaque)"));
         if custom && (matches!(summary.at("bound_by"), J::Null) || matches!(summary.at("bound_by").str(), Some("Unknown" | ""))) {
             summary.set("bound_by", "CustomCall (opaque)");
@@ -517,7 +517,8 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
     output
 }
 
-pub fn utilization_viewer(client: &dyn Client, session: &str, host: i64, device: i64, node: i64, bypass: bool) -> Result<J, Error> {
+/// `indices` holds the host, device and node, or the error of Python `int()` for them.
+pub fn utilization_viewer(client: &dyn Client, session: &str, indices: Result<[i64; 3], Error>, bypass: bool) -> Result<J, Error> {
     let mut params = vec![("tqx", "out:csv".to_string())];
     params.push(super::bypass(bypass));
     let raw = client
@@ -525,11 +526,21 @@ pub fn utilization_viewer(client: &dyn Client, session: &str, host: i64, device:
         .map_err(|error| rethrow(error, |error| format!("Error fetching utilization_viewer.json for session {session}: {}", error.repr())))?;
     Ok(match raw {
         None => obj! {"status" => "NO_DATA", "message" => format!("No data returned for session {session}")},
-        Some(raw) => utilization(&raw, host, device, node),
+        Some(raw) => {
+            let [host, device, node] = indices.map_err(|error| rethrow(error, |error| format!("Error formatting utilization viewer output for session {session}: {}", error.repr())))?;
+            utilization(&raw, host, device, node)
+        }
     })
 }
 
 pub fn get_utilization_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    let index = |name: &str| args.int(name, 0).map_err(|_| Error::new(Kind::Value, format!("invalid literal for int() with base 10: {}", args.get(name).map_or_else(String::new, J::repr))));
-    Ok(utilization_viewer(client, &args.session(), index("host")?, index("device")?, index("node")?, args.flag("bypass_cache", false))?.into())
+    let index = |name: &str| match args.raw(name) {
+        None => Ok(0),
+        Some(value) => value.int().map(|number| number as i64).ok_or_else(|| match value {
+            J::Str(_) => Error::new(Kind::Value, format!("invalid literal for int() with base 10: {}", value.repr())),
+            _ => Error::new(Kind::Type, format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", super::kind(value))),
+        }),
+    };
+    let indices = (|| Ok([index("host")?, index("device")?, index("node")?]))();
+    Ok(utilization_viewer(client, &args.session(), indices, args.flag("bypass_cache", false))?.into())
 }

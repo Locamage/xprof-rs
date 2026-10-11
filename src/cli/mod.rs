@@ -25,6 +25,31 @@ const KEYWORDS: [&str; 32] = [
     "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
 ];
 
+/// The error of Python when a slice gets a float.
+pub const SLICE: &str = "slice indices must be integers or None or have an __index__ method";
+
+/// The end of the Python slice `items[:value]` for `len` items.
+pub fn slice_end(value: &J, len: usize) -> Result<usize, Error> {
+    let end = match value {
+        J::Null => return Ok(len),
+        J::Bool(flag) => i128::from(*flag),
+        J::Int(number) => *number,
+        _ => return fail(Kind::Type, SLICE),
+    };
+    Ok(if end < 0 { (len as i128 + end).max(0) as usize } else { end.min(len as i128) as usize })
+}
+
+/// The error of `heapq.nlargest(n, items)` for a float `n` above 0. A float 1 takes the path of `max`.
+pub fn nlargest_float(value: Option<&J>, n: f64, size: usize) -> Option<&'static str> {
+    if !matches!(value, Some(J::Float(_))) || n <= 0.0 || n == 1.0 {
+        None
+    } else if n >= size as f64 {
+        Some(SLICE)
+    } else {
+        Some("'float' object cannot be interpreted as an integer")
+    }
+}
+
 type Handler = fn(&dyn Client, &Args) -> Result<Out, Error>;
 
 pub const COMMANDS: [(&str, &str, Handler); 30] = [
@@ -76,6 +101,7 @@ pub enum Kind {
     Runtime,
     Assertion,
     Type,
+    Attribute,
     NotImplemented,
     Import,
     Fire,
@@ -100,6 +126,7 @@ impl Error {
             Kind::Runtime => "RuntimeError",
             Kind::Assertion => "AssertionError",
             Kind::Type => "TypeError",
+            Kind::Attribute => "AttributeError",
             Kind::NotImplemented => "NotImplementedError",
             Kind::Import => "ImportError",
             Kind::Fire => "FireError",
@@ -211,6 +238,11 @@ impl Args {
         self.values.iter().find(|(key, _)| key == name).map(|(_, value)| value).filter(|value| **value != J::Null)
     }
 
+    /// The value as the command line gave it, also when it is `None`.
+    pub fn raw(&self, name: &str) -> Option<&J> {
+        self.values.iter().find(|(key, _)| key == name).map(|(_, value)| value)
+    }
+
     pub fn text(&self, name: &str) -> Option<String> {
         self.get(name).map(J::text)
     }
@@ -223,14 +255,42 @@ impl Args {
         self.string("session_id", "")
     }
 
-    pub fn int(&self, name: &str, default: i64) -> Result<i64, Error> {
-        self.get(name)
-            .map_or(Ok(default), |value| value.int().map(|number| number as i64).ok_or_else(|| Error::new(Kind::Type, format!("'>' not supported between instances of '{}' and 'int'", kind(value)))))
+    /// The number for a comparison such as `limit > 0`. Python cannot compare the other kinds with a number, also `None`.
+    pub fn compared(&self, name: &str, default: f64, operator: &str) -> Result<f64, Error> {
+        match self.raw(name) {
+            None => Ok(default),
+            Some(value @ (J::Bool(_) | J::Int(_) | J::Float(_))) => Ok(value.float().unwrap_or_default()),
+            Some(value) => fail(Kind::Type, format!("'{operator}' not supported between instances of '{}' and 'int'", kind(value))),
+        }
+    }
+
+    /// The text that `.strip()` gets. Python has no `strip` for the other kinds, also `None`.
+    pub fn stripped(&self, name: &str, default: &str) -> Result<String, Error> {
+        match self.raw(name) {
+            None => Ok(default.to_string()),
+            Some(J::Str(text)) => Ok(text.clone()),
+            Some(value) => Err(no_attribute(value, "strip")),
+        }
     }
 
     pub fn flag(&self, name: &str, default: bool) -> bool {
         self.values.iter().find(|(key, _)| key == name).map_or(default, |(_, value)| value.truthy())
     }
+}
+
+/// The text that the native converter gets for an option, or `None` when the converter does not get the option.
+pub fn packed(key: &str, value: &J) -> Result<Option<String>, Error> {
+    match value {
+        J::Null | J::List(_) | J::Tuple(_) | J::Map(_) | J::Dict(_) => Ok(None),
+        J::Bool(flag) => Ok(Some(flag.to_string())),
+        J::Int(_) | J::Str(_) => Ok(Some(value.text())),
+        _ => fail(Kind::Type, format!("Unsupported option type for key '{key}': <class '{}'>", kind(value))),
+    }
+}
+
+/// The error of an option that the native converter cannot get. First, the client finds the session and its traces, because the converter packs the options after this step.
+pub fn unpackable(client: &dyn Client, session: &str, error: Error) -> Error {
+    client.run_dir(session).and_then(|dir| client.xspace_paths(&dir)).err().unwrap_or(error)
 }
 
 fn kind(value: &J) -> &'static str {
@@ -240,8 +300,23 @@ fn kind(value: &J) -> &'static str {
         J::Int(_) => "int",
         J::Float(_) => "float",
         J::Str(_) => "str",
-        J::List(_) => "tuple",
-        J::Map(_) => "dict",
+        J::List(_) => "list",
+        J::Tuple(_) => "tuple",
+        J::Set(_) => "set",
+        J::Map(_) | J::Dict(_) => "dict",
+    }
+}
+
+pub fn no_attribute(value: &J, attribute: &str) -> Error {
+    Error::new(Kind::Attribute, format!("'{}' object has no attribute '{attribute}'", kind(value)))
+}
+
+/// The kind of the first value in `value` that Python cannot hash.
+fn unhashable(value: &J) -> Option<&'static str> {
+    match value {
+        J::List(_) | J::Set(_) | J::Map(_) | J::Dict(_) => Some(kind(value)),
+        J::Tuple(items) => items.iter().find_map(unhashable),
+        _ => None,
     }
 }
 
@@ -311,7 +386,45 @@ pub fn literal(text: &str) -> J {
                     }
                     let (items, comma) = self.sequence(if first == b'(' { b')' } else { b']' })?;
                     self.depth -= 1;
-                    Some(if first == b'(' && items.len() == 1 && !comma { items.into_iter().next()? } else { J::List(items) })
+                    Some(match first {
+                        b'(' if items.len() == 1 && !comma => items.into_iter().next()?,
+                        b'(' => J::Tuple(items),
+                        _ => J::List(items),
+                    })
+                }
+                b'{' => {
+                    self.at += 1;
+                    self.depth += 1;
+                    if self.depth > MAX_DEPTH {
+                        return None;
+                    }
+                    let (mut keys, mut values, mut dict) = (Vec::new(), Vec::new(), None);
+                    while !self.eat(b'}') {
+                        keys.push(self.value()?);
+                        let colon = self.eat(b':');
+                        if *dict.get_or_insert(colon) != colon {
+                            return None;
+                        }
+                        if colon {
+                            values.push(self.value()?);
+                        }
+                        if !self.eat(b',') {
+                            if !self.eat(b'}') {
+                                return None;
+                            }
+                            break;
+                        }
+                    }
+                    self.depth -= 1;
+                    let mut unique: Vec<(J, J)> = Vec::new();
+                    for (index, key) in keys.into_iter().enumerate() {
+                        let value = values.get(index).cloned().unwrap_or_default();
+                        match unique.iter_mut().find(|(seen, _)| *seen == key) {
+                            Some(entry) => entry.1 = value,
+                            None => unique.push((key, value)),
+                        }
+                    }
+                    Some(if dict == Some(false) { J::Set(unique.into_iter().map(|(key, _)| key).collect()) } else { J::Dict(unique) })
                 }
                 b'\'' | b'"' => {
                     self.at += 1;
@@ -392,12 +505,12 @@ pub fn literal(text: &str) -> J {
         loop {
             parser.skip();
             if parser.at == parser.bytes.len() {
-                return Some(J::List(items));
+                return Some(J::Tuple(items));
             }
             items.push(parser.value()?);
             if !parser.eat(b',') {
                 parser.skip();
-                return (parser.at == parser.bytes.len()).then_some(J::List(items));
+                return (parser.at == parser.bytes.len()).then_some(J::Tuple(items));
             }
         }
     })();
@@ -500,7 +613,7 @@ fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Erro
         }
     }
     for (key, value) in &mut args.values {
-        if SESSION_LIKE.contains(&key.as_str()) && matches!(value, J::Int(_) | J::Float(_)) {
+        if SESSION_LIKE.contains(&key.as_str()) && matches!(value, J::Bool(_) | J::Int(_) | J::Float(_)) {
             *value = J::Str(value.text());
         }
     }

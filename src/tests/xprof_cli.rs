@@ -92,8 +92,9 @@ fn test_wrap_with_logdir_preserves_valid_signature_in_oss() {
 
 #[test]
 fn test_main_fire_usage_error_exit_2() {
-    let payload = error(&["get_hlo_op_profile", SESSION, "--top_n=abc"], 2, "USAGE_ERROR");
+    let payload = error(&["get_graph_viewer", SESSION, "--op_profile_limit=abc"], 2, "USAGE_ERROR");
     assert!(!payload.has("traceback"));
+    error(&["get_hlo_op_profile", SESSION, "--top_n=abc"], 3, "PATH_ERROR");
     let dir = scratch("cli-usage");
     std::fs::write(dir.join("host0.xplane.pb"), XSpace::default().encode_to_vec()).unwrap();
     let (status, out, err) = run(&["get_hosts", &dir.to_string_lossy(), "--unknown=1"]);
@@ -188,6 +189,29 @@ fn test_preprocess_argv_preserves_numeric_and_standard_flags() {
     let raw = strings(&["list_xplane_events", "sess1", "--limit=10", "-k=5"]);
     assert_eq!(preprocess(&raw), raw);
     assert_eq!(literal("10"), J::Int(10));
+}
+
+#[test]
+fn test_literal_keeps_tuples_sets_and_dicts_apart() {
+    let cases = [("(1,)", "(1,)"), ("1,2", "(1, 2)"), ("(1,[2])", "(1, [2])"), ("{1,2,1}", "{1, 2}"), ("{a:1,b:x,a:2}", "{'a': 2, 'b': 'x'}"), ("{}", "{}"), ("[a,b]", "['a', 'b']")];
+    for (text, shown) in cases {
+        assert_eq!(literal(text).text(), shown, "{text}");
+    }
+    assert_eq!(literal("{a:1}").compact(), "{\"a\": 1}");
+    assert_eq!(literal("{1,2}").compact(), "[1, 2]");
+    assert!(!literal("{}").truthy() && literal("(1,)").truthy());
+    assert!(J::Bool(true).equals(&J::Int(1)) && J::Int(1).equals(&J::Float(1.0)) && !J::from("1").equals(&J::Int(1)));
+}
+
+#[test]
+fn test_packed_options_follow_the_native_converter() {
+    use crate::cli::packed;
+    assert_eq!(packed("type", &J::Bool(true)).unwrap().as_deref(), Some("true"));
+    assert_eq!(packed("type", &J::Int(3)).unwrap().as_deref(), Some("3"));
+    assert_eq!(packed("type", &literal("[1]")).unwrap(), None);
+    assert_eq!(packed("type", &J::Null).unwrap(), None);
+    assert_eq!(packed("type", &J::Float(1.5)).unwrap_err().message, "Unsupported option type for key 'type': <class 'float'>");
+    assert_eq!(packed("tag", &literal("{1,2}")).unwrap_err().message, "Unsupported option type for key 'tag': <class 'set'>");
 }
 
 #[test]

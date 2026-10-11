@@ -132,7 +132,7 @@ fn test_d23_get_hlo_neighborhood_default_mode_bfs_expansion() {
     let dir = scratch("d23n");
     std::fs::write(dir.join("module_0001.jit_compute.hlo_proto.pb"), b"").unwrap();
     let fake = Fake::fixed(SHORT_TXT_GRAPH).in_dir(&dir);
-    let found = hlo::neighborhood(&fake, dir.to_str().unwrap(), Some("mul".into()), 2, None, None, false).unwrap();
+    let found = hlo::neighborhood(&fake, dir.to_str().unwrap(), Some(&J::from("mul")), &J::Int(2), None, None, false).unwrap();
     let in_order = ["[dist=1]", "neg", "w", "x"]
         .iter()
         .scan(0, |start, needle| {

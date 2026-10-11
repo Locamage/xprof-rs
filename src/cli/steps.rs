@@ -1,10 +1,10 @@
 use super::client::Client;
 use super::json::J;
 use super::overview::utilization_viewer;
-use super::{Args, Error, Kind, Out, bypass, fsum, rethrow, round, stdev};
+use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round, stdev};
 use crate::obj;
 
-const DEFAULT_STEP_LIMIT: i64 = 20;
+const DEFAULT_STEP_LIMIT: f64 = 20.0;
 const COMPUTE_COLUMNS: [&str; 5] = ["tccomputetimems", "scv0computetimems", "bccomputetimems", "devicecomputetimems", "noninfeedtimems"];
 const COMMUNICATION_COLUMNS: [&str; 2] = ["devicetodevicetimems", "devicecollectivestimems"];
 const INFEED_COLUMNS: [&str; 4] = ["tcinfeedtimems", "scv0infeedtimems", "bcinfeedtimems", "infeedtimems"];
@@ -71,7 +71,7 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
             J::Float(value) => J::Int(value.trunc() as i128),
             other => other.clone(),
         };
-        if step_num.is_some_and(|wanted| number != *wanted) {
+        if step_num.is_some_and(|wanted| !number.equals(wanted)) {
             continue;
         }
         let cores = entry.at("podStatsPerCore");
@@ -154,7 +154,7 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
             J::Float(number) if number.is_finite() => J::Int(number.trunc() as i128),
             other => other,
         };
-        if step_num.is_some_and(|wanted| number != *wanted) {
+        if step_num.is_some_and(|wanted| !number.equals(wanted)) {
             continue;
         }
         let (compute, communication, infeed, outfeed, other) = (sum(&COMPUTE_COLUMNS), sum(&COMMUNICATION_COLUMNS), sum(&INFEED_COLUMNS), sum(&OUTFEED_COLUMNS), sum(&OTHER_COLUMNS));
@@ -268,7 +268,7 @@ fn first_available(client: &dyn Client, session: &str, tools: &[&str], params: &
 
 pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
-    let (step_num, core, limit) = (args.get("step_num"), args.get("device_core"), args.int("limit", DEFAULT_STEP_LIMIT)?);
+    let (step_num, core) = (args.get("step_num"), args.get("device_core"));
     let mut params = vec![("format", "json".to_string())];
     params.push(bypass(args.flag("bypass_cache", false)));
     let mut found: Option<(Vec<J>, Option<J>)> = None;
@@ -296,11 +296,15 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let Some((steps, summary)) = found else {
         return Ok(obj! {"status" => "NO_DATA", "message" => format!("No step trace data found for session '{session}' (the trace may lack step markers). Consider using 'list_xplane_events' to get more performance insights.")}.into());
     };
+    let limit = args.compared("limit", DEFAULT_STEP_LIMIT, ">")?;
+    if limit > 0.0 && matches!(args.raw("limit"), Some(J::Float(_))) {
+        return fail(Kind::Type, super::SLICE);
+    }
     let mut out = J::Map(Vec::new());
     if let Some(summary) = summary.filter(|_| args.flag("include_summary", true)) {
         out.set("summary", summary);
     }
-    let shown = if limit > 0 { limit as usize } else { steps.len() };
+    let shown = if limit > 0.0 { limit as usize } else { steps.len() };
     out.set("step_breakdown", steps.into_iter().take(shown).collect::<Vec<_>>());
     Ok(out.into())
 }
@@ -335,7 +339,7 @@ fn barrier(client: &dyn Client, session: &str) -> (f64, usize) {
 fn utilization_metrics(client: &dyn Client, session: &str, hosts: i64, bypass: bool) -> [f64; 4] {
     let mut metrics = [0.0; 4];
     for host in 0..hosts.clamp(1, MAX_UTILIZATION_HOSTS) {
-        let Ok(data) = utilization_viewer(client, session, host, 0, 0, bypass) else { break };
+        let Ok(data) = utilization_viewer(client, session, Ok([host, 0, 0]), bypass) else { break };
         if !data.truthy() || data.has("error") {
             break;
         }

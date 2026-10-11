@@ -183,6 +183,19 @@ fn regex(pattern: &str) -> Result<Pattern, Error> {
     pyre::compile(pattern, 986).map_err(|message| Error::new(Kind::Runtime, message))
 }
 
+/// The error of Python `re` for a pattern that is not text.
+fn not_pattern(value: &J) -> String {
+    super::unhashable(value).map_or_else(|| "first argument must be string or compiled pattern".into(), |kind| format!("unhashable type: '{kind}'"))
+}
+
+fn regex_option(args: &Args, name: &str) -> Result<Pattern, Error> {
+    match args.raw(name) {
+        None => regex(".*"),
+        Some(J::Str(pattern)) => regex(pattern),
+        Some(value) => Err(Error::new(Kind::Type, not_pattern(value))),
+    }
+}
+
 fn plane_filter(pattern: &Pattern) -> impl Fn(&Plane) -> bool {
     move |plane| pattern.search(&plane.name)
 }
@@ -190,21 +203,23 @@ fn plane_filter(pattern: &Pattern) -> impl Fn(&Plane) -> bool {
 pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let compute = || -> Result<J, Error> {
-        let number = |name: &str, operator: &str, number_first: bool| {
-            args.get(name)
-                .map(|value| {
-                    value.float().ok_or_else(|| {
-                        let (left, right) = if number_first { ("int", super::kind(value)) } else { (super::kind(value), "int") };
-                        Error::new(Kind::Type, format!("'{operator}' not supported between instances of '{left}' and '{right}'"))
-                    })
-                })
-                .transpose()
+        let (planes_re, events_re) = (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
+        // Python compares these values only when an event comes to the comparison.
+        let number = |name: &str, operator: &str, number_first: bool| match args.raw(name) {
+            Some(value @ (J::Bool(_) | J::Int(_) | J::Float(_))) => Ok(value.float()),
+            None => Ok(None),
+            Some(value) => {
+                let (left, right) = if number_first { ("int", super::kind(value)) } else { (super::kind(value), "int") };
+                Err(Error::new(Kind::Type, format!("'{operator}' not supported between instances of '{left}' and '{right}'")))
+            }
         };
-        let (start, end) = (number("start_time_ps", "<", true)?, number("end_time_ps", ">", true)?);
-        let (max_events, offset) = (number("max_events", "<=", false)?.unwrap_or(100.0), number("offset", "<", true)?.unwrap_or(0.0));
-        let (planes_re, events_re) = (regex(&args.string("plane_regex", ".*"))?, regex(&args.string("event_regex", ".*"))?);
+        let optional = |name: &str, operator: &str| if args.get(name).is_some() { number(name, operator, true) } else { Ok(None) };
+        let (start, end) = (optional("start_time_ps", "<"), optional("end_time_ps", ">"));
+        let (max_events, offset) = (number("max_events", "<=", false).map(|max| max.unwrap_or(100.0)), number("offset", "<", true).map(|offset| offset.unwrap_or(0.0)));
+        let (limit, skip) = (*max_events.as_ref().unwrap_or(&0.0), *offset.as_ref().unwrap_or(&0.0));
         let keep = plane_filter(&planes_re);
-        let wanted = if max_events <= 0.0 { f64::INFINITY } else { offset.max(0.0).ceil() + max_events.ceil() };
+        let wanted = if limit <= 0.0 { f64::INFINITY } else { skip.max(0.0).ceil() + limit.ceil() };
+        let failed = AtomicBool::new(false);
         // Each plane keeps the first matches that can be in the answer. The planes join in order.
         let parts = scan_lines(&sources(client, &session)?, |plane, index| {
             let (mut listed, mut matched, mut names) = (Vec::new(), 0usize, Names::new(&events_re));
@@ -212,7 +227,20 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
                 visit_line(plane, index, |visit| {
                     let offset_ps = (visit.start_ns() * 1000.0).trunc();
                     let duration_ps = (visit.duration_ns() * 1000.0).trunc();
-                    if start.is_some_and(|start| offset_ps < start) || end.is_some_and(|end| offset_ps + duration_ps > end) {
+                    let before = match &start {
+                        Ok(start) => start.is_some_and(|start| offset_ps < start),
+                        Err(_) => true,
+                    };
+                    let after = !before
+                        && match &end {
+                            Ok(end) => end.is_some_and(|end| offset_ps + duration_ps > end),
+                            Err(_) => true,
+                        };
+                    if start.is_err() || (!before && end.is_err()) {
+                        failed.store(true, Relaxed);
+                        return false;
+                    }
+                    if before || after {
                         return true;
                     }
                     let (name, found) = names.resolve(visit);
@@ -227,19 +255,25 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
             }
             (plane.name.clone(), listed, matched)
         })?;
+        if failed.into_inner() {
+            return Err(start.and(end).unwrap_err());
+        }
         let (mut listed, mut matched, mut skipped) = (Vec::new(), 0usize, 0usize);
         for (plane, found, count) in parts {
             matched += count;
             for (line, name, offset_ps, duration_ps) in found {
-                if (skipped as f64) < offset {
+                if (skipped as f64) < offset.clone()? {
                     skipped += 1;
-                } else if max_events <= 0.0 || (listed.len() as f64) < max_events {
+                } else if max_events.clone()? <= 0.0 || (listed.len() as f64) < limit {
                     listed.push(obj! {"plane" => plane.clone(), "line_id" => line, "event" => name, "offset_ps" => offset_ps, "duration_ps" => duration_ps});
                 }
             }
         }
+        if let (Err(_), Some(value)) = (&offset, args.raw("offset")) {
+            return Err(Error::new(Kind::Type, format!("unsupported operand type(s) for +: 'int' and '{}'", super::kind(value))));
+        }
         let returned = listed.len();
-        Ok(obj! {"events" => listed, "returned" => returned, "total_matched" => matched, "truncated" => matched as f64 > returned as f64 + offset})
+        Ok(obj! {"events" => listed, "returned" => returned, "total_matched" => matched, "truncated" => matched as f64 > returned as f64 + skip})
     };
     Ok(compute().map_err(|error| rethrow(error, |error| format!("Error listing XPlane events for session {session}: {}", error.message)))?.into())
 }
@@ -247,7 +281,7 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
 pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let compute = || -> Result<J, Error> {
-        let (planes_re, events_re) = (regex(&args.string("plane_regex", ".*"))?, regex(&args.string("event_regex", ".*"))?);
+        let (planes_re, events_re) = (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
         let keep = plane_filter(&planes_re);
         let (mut durations, mut scanned): (IndexMap<String, Vec<i128>, FxBuildHasher>, usize) = (IndexMap::default(), 0);
         let paths = sources(client, &session)?;
@@ -389,15 +423,30 @@ fn kernel_markdown(records: &[J], kernel: Option<&str>) -> String {
 pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let source =
         args.get("source").filter(|value| value.truthy()).or_else(|| args.get("session_id")).map(J::text).ok_or_else(|| Error::new(Kind::Value, "Must provide either 'source' or 'session_id'."))?;
-    let (kernel, format, summary) = (args.text("kernel_name").filter(|name| !name.is_empty()), args.string("output_format", "json"), args.flag("include_summary", false));
-    let matchers: Vec<String> = match args.get("trace_matchers") {
-        Some(J::List(items)) => items.iter().map(J::text).collect(),
-        Some(value) if value.truthy() => value.text().chars().map(String::from).collect(),
-        _ => Vec::new(),
+    let (kernel, format, summary) = (args.get("kernel_name").filter(|name| name.truthy()).map(J::text), args.string("output_format", "json"), args.flag("include_summary", false));
+    let matchers: Result<Vec<J>, String> = match args.get("trace_matchers").filter(|value| value.truthy()) {
+        None => Ok(Vec::new()),
+        Some(J::Str(text)) => Ok(text.chars().map(|character| J::Str(character.into())).collect()),
+        Some(J::List(items) | J::Tuple(items) | J::Set(items)) => Ok(items.clone()),
+        Some(J::Dict(entries)) => Ok(entries.iter().map(|(key, _)| key.clone()).collect()),
+        Some(value) => Err(format!("'{}' object is not iterable", super::kind(value))),
     };
     let compute = || -> Result<Out, Error> {
-        let patterns: Vec<_> = matchers.iter().map(|pattern| (pyre::compile(pattern, 982), pattern)).collect();
-        let deep = AtomicBool::new(false);
+        // A pattern that Python cannot use is an error at the first event that comes to it. A bad regex finds the pattern as text.
+        let patterns: Vec<Result<(Option<Pattern>, &str), String>> = match &matchers {
+            Ok(matchers) => matchers
+                .iter()
+                .map(|matcher| match matcher {
+                    J::Str(pattern) => match pyre::compile(pattern, 982) {
+                        Err(message) if message == pyre::RECURSION => Err(message),
+                        compiled => Ok((compiled.ok(), pattern.as_str())),
+                    },
+                    other => Err(not_pattern(other)),
+                })
+                .collect(),
+            Err(message) => vec![Err(message.clone())],
+        };
+        let failure = std::sync::OnceLock::new();
         let parts = scan_lines(&sources(client, &source)?, |plane, index| {
             let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
             if !plane.name.starts_with("/device:") {
@@ -407,13 +456,12 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             let wanted = |name: &str| {
                 kernel.as_ref().is_none_or(|kernel| kernel == name)
                     && (patterns.is_empty()
-                        || patterns.iter().any(|(compiled, pattern)| match compiled {
-                            Ok(compiled) => compiled.search(name) || name.contains(pattern.as_str()),
-                            Err(message) if message == pyre::RECURSION => {
-                                deep.store(true, Relaxed);
+                        || patterns.iter().any(|pattern| match pattern {
+                            Ok((compiled, pattern)) => compiled.as_ref().is_some_and(|compiled| compiled.search(name)) || name.contains(pattern),
+                            Err(message) => {
+                                failure.get_or_init(|| message.clone());
                                 true
                             }
-                            Err(_) => name.contains(pattern.as_str()),
                         }))
             };
             // The slot in `durations` of each metadata with a name that is not a number, for the events without `tf_op_name`. `None` is a name that the filters skip.
@@ -451,8 +499,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             });
             (durations, intervals, steps)
         })?;
-        if deep.into_inner() {
-            return Err(Error::new(Kind::Runtime, pyre::RECURSION));
+        if let Some(message) = failure.into_inner() {
+            return Err(Error::new(Kind::Runtime, message));
         }
         let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
         for (found, spans, times) in parts {
@@ -496,8 +544,11 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         }
         records.sort_by(|left, right| right.at("total_duration_us").float().partial_cmp(&left.at("total_duration_us").float()).unwrap_or(std::cmp::Ordering::Equal));
         if kernel.is_none() {
-            let limit = args.int("limit", 10)?;
-            if limit > 0 {
+            let limit = args.compared("limit", 10.0, ">")?;
+            if limit > 0.0 && matches!(args.raw("limit"), Some(J::Float(_))) {
+                return fail(Kind::Type, super::SLICE);
+            }
+            if limit > 0.0 {
                 records.truncate(limit as usize);
             }
         }
@@ -526,20 +577,32 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
 
 pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let source = args.string("source", "");
-    let function = args.text("func_name").filter(|name| !name.is_empty());
+    let function = args.get("func_name").filter(|name| name.truthy());
     let compute = || -> Result<Out, Error> {
+        let failed = AtomicBool::new(false);
         let parts = scan_lines(&sources(client, &source)?, |plane, index| {
             let (mut durations, mut line) = (Vec::new(), None);
             if plane.name.starts_with("/device:") {
                 visit_line(plane, index, |visit| {
-                    if *line.get_or_insert_with(|| visit.line.to_uppercase().contains("XLA MODULES")) && function.as_ref().is_none_or(|function| visit.raw_name().contains(function.as_str())) {
-                        durations.push(visit.duration_ns() / 1_000_000.0);
+                    if !*line.get_or_insert_with(|| visit.line.to_uppercase().contains("XLA MODULES")) {
+                        return true;
+                    }
+                    match function {
+                        Some(J::Str(function)) if !visit.raw_name().contains(function.as_str()) => {}
+                        Some(J::Str(_)) | None => durations.push(visit.duration_ns() / 1_000_000.0),
+                        Some(_) => {
+                            failed.store(true, Relaxed);
+                            return false;
+                        }
                     }
                     true
                 });
             }
             durations
         })?;
+        if let Some(function) = function.filter(|_| failed.into_inner()) {
+            return fail(Kind::Type, format!("'in <string>' requires string as left operand, not {}", super::kind(function)));
+        }
         let durations: Vec<f64> = parts.into_iter().flatten().collect();
         if durations.is_empty() {
             return fail(Kind::Value, format!("No steps matching func_name '{}' found in {source}.", args.get("func_name").map_or("None".into(), J::text)));
@@ -552,11 +615,19 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
 
 pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
+    if let Some(value) = args.get("raw_bytes") {
+        let kind = super::kind(value);
+        return fail(
+            Kind::Type,
+            if matches!(value, J::Int(_) | J::Bool(_)) { format!("object of type '{kind}' has no len()") } else { format!("bytes or integer address expected instead of {kind} instance") },
+        );
+    }
     if session.is_empty() {
         return fail(Kind::Value, "session_id or raw_bytes must be provided.");
     }
     let mut params: Vec<(&str, String)> = Vec::new();
-    params.extend(args.text("kernel_name").filter(|name| !name.is_empty()).map(|name| ("kernel", name)));
+    let kernel = args.get("kernel_name").filter(|name| name.truthy()).map_or(Ok(None), |name| super::packed("kernel", name));
+    params.extend(kernel.clone().ok().flatten().map(|name| ("kernel", name)));
     params.extend(args.get("duration_us").map(|value| ("duration_us", value.text())));
     params.extend(args.flag("force_duration", false).then(|| ("force_duration", "True".to_string())));
     params.extend(args.get("device").map(|value| ("device_id", value.text())));
@@ -570,12 +641,14 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
         if files.is_empty() {
             return fail(Kind::FileNotFound, format!("No .xplane.pb or .xspace.pb files found in directory: {}", py_repr(&session)));
         }
+        kernel?;
         let option = |key: &str| params.iter().find(|(name, _)| *name == key).map(|(_, value)| value.as_str());
         let rendered = <[PathBuf; 1]>::try_from(files).ok().and_then(|[file]| super::client::kernel_utilization(&file, option));
         rendered.ok_or_else(|| Error::new(Kind::Runtime, format!("Failed to compute utilization from file {}: no data returned.", py_repr(&session))))?
     } else {
-        let fetched = client
-            .fetch_text("kernel_utilization.json", &session, &params)
+        let fetched = kernel
+            .map_err(|error| super::unpackable(client, &session, error))
+            .and_then(|_| client.fetch_text("kernel_utilization.json", &session, &params))
             .map_err(|error| Error::new(Kind::Runtime, format!("Error fetching kernel_utilization.json for session {}: {}", py_repr(&session), error.repr())))?;
         fetched.ok_or_else(|| Error::new(Kind::FileNotFound, format!("No utilization data returned for session {}.", py_repr(&session))))?
     };

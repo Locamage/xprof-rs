@@ -48,15 +48,15 @@ pub fn list_hlo_modules(client: &dyn Client, args: &Args) -> Result<Out, Error> 
     }))
 }
 
-fn target_module(client: &dyn Client, session: &str, module: Option<String>) -> Result<Result<String, String>, Error> {
+fn target_module(client: &dyn Client, session: &str, module: Option<&J>) -> Result<Result<String, String>, Error> {
     let files = proto_files(client, session)?;
     if files.is_empty() {
         return Ok(Err("No HLO proto found.".into()));
     }
     let available = module_names(&files);
-    Ok(match module.filter(|module| !module.is_empty()) {
-        Some(module) if !available.contains(&module) => Err(format!("Module '{module}' not found. Available: {}", available.join(", "))),
-        Some(module) => Ok(module),
+    Ok(match module.filter(|module| module.truthy()) {
+        Some(J::Str(module)) if available.contains(module) => Ok(module.clone()),
+        Some(module) => Err(format!("Module '{}' not found. Available: {}", module.text(), available.join(", "))),
         None => Ok(available[0].clone()),
     })
 }
@@ -66,19 +66,29 @@ fn hlo_text(client: &dyn Client, session: &str, module: &str, metadata: bool) ->
     client.fetch_text("graph_viewer.json", session, &params)?.ok_or_else(|| Error::new(Kind::Runtime, "'NoneType' object has no attribute 'splitlines'"))
 }
 
-pub fn module_content(client: &dyn Client, session: &str, format: &str, module: Option<String>, max_lines: i64, metadata: bool) -> String {
+/// `format` and `max_lines` are `None` for their defaults.
+pub fn module_content(client: &dyn Client, session: &str, format: Option<&J>, module: Option<&J>, max_lines: Option<&J>, metadata: bool) -> String {
     let compute = || -> Result<String, Error> {
         let module = match target_module(client, session, module)? {
             Ok(module) => module,
             Err(message) => return Ok(message),
         };
-        if format != "text" {
-            return Ok(format!("Unsupported format: {format}"));
+        if let Some(format) = format.filter(|format| format.str() != Some("text")) {
+            return Ok(format!("Unsupported format: {}", format.text()));
         }
         let text = hlo_text(client, session, &module, metadata)?;
         let lines: Vec<&str> = text.lines().collect();
-        Ok(if max_lines > 0 && lines.len() > max_lines as usize {
-            format!("{}\n... (truncated after {max_lines} lines, total {}). Use 'max_lines=-1' to see all)", lines[..max_lines as usize].join("\n"), lines.len())
+        let limit = match max_lines {
+            None => 2000.0,
+            Some(value @ (J::Bool(_) | J::Int(_) | J::Float(_))) => value.float().unwrap_or_default(),
+            Some(value) => return fail(Kind::Type, format!("'>' not supported between instances of '{}' and 'int'", super::kind(value))),
+        };
+        Ok(if limit > 0.0 && lines.len() as f64 > limit {
+            if matches!(max_lines, Some(J::Float(_))) {
+                return fail(Kind::Type, super::SLICE);
+            }
+            let shown = max_lines.map_or_else(|| "2000".into(), J::text);
+            format!("{}\n... (truncated after {shown} lines, total {}). Use 'max_lines=-1' to see all)", lines[..limit as usize].join("\n"), lines.len())
         } else {
             text
         })
@@ -87,7 +97,8 @@ pub fn module_content(client: &dyn Client, session: &str, format: &str, module: 
 }
 
 pub fn get_hlo_module_content(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    Ok(Out::Text(module_content(client, &args.session(), &args.string("fmt", "text"), args.text("module_name"), args.int("max_lines", 2000)?, args.flag("print_metadata", false))))
+    let max_lines = args.raw("max_lines").or(Some(&J::Int(2000)));
+    Ok(Out::Text(module_content(client, &args.session(), args.raw("fmt"), args.raw("module_name"), max_lines, args.flag("print_metadata", false))))
 }
 
 fn operands(text: &str) -> Vec<String> {
@@ -115,17 +126,18 @@ fn operands(text: &str) -> Vec<String> {
     found
 }
 
-pub fn neighborhood(client: &dyn Client, session: &str, instruction: Option<String>, radius: impl Into<J>, module: Option<String>, op_name: Option<String>, metadata: bool) -> Result<String, Error> {
-    if let (Some(instruction), Some(op_name)) = (&instruction, &op_name)
+pub fn neighborhood(client: &dyn Client, session: &str, instruction: Option<&J>, radius: &J, module: Option<&J>, op_name: Option<&J>, metadata: bool) -> Result<String, Error> {
+    let (instruction, op_name) = (instruction.filter(|name| **name != J::Null), op_name.filter(|name| **name != J::Null));
+    if let (Some(instruction), Some(op_name)) = (instruction, op_name)
         && instruction != op_name
     {
-        return fail(Kind::Value, format!("Conflicting arguments: instruction_name='{instruction}' and op_name='{op_name}' cannot both be specified with different values."));
+        return fail(Kind::Value, format!("Conflicting arguments: instruction_name='{}' and op_name='{}' cannot both be specified with different values.", instruction.text(), op_name.text()));
     }
-    let Some(target) = instruction.filter(|name| !name.is_empty()).or(op_name).filter(|name| !name.is_empty()) else {
+    let Some(target) = instruction.filter(|name| name.truthy()).or(op_name).filter(|name| name.truthy()) else {
         return fail(Kind::Value, "Either instruction_name or op_name must be provided to get_hlo_neighborhood.");
     };
-    let target = target.strip_prefix('%').unwrap_or(&target).to_string();
-    let radius = radius.into();
+    let J::Str(target) = target else { return Err(super::no_attribute(target, "startswith")) };
+    let target = target.strip_prefix('%').unwrap_or(target).to_string();
     let compute = || -> Result<String, Error> {
         let module = match target_module(client, session, module)? {
             Ok(module) => module,
@@ -159,7 +171,8 @@ pub fn neighborhood(client: &dyn Client, session: &str, instruction: Option<Stri
         }
         let (mut visited, mut queue, mut found) = (HashSet::from([target.clone()]), VecDeque::from([(target.clone(), 0)]), Vec::new());
         while let Some((name, distance)) = queue.pop_front() {
-            let within = match &radius {
+            let within = match radius {
+                J::Bool(limit) => distance < i32::from(*limit),
                 J::Int(limit) => i128::from(distance) < *limit,
                 J::Float(limit) => f64::from(distance) < *limit,
                 other => return fail(Kind::Type, format!("'<' not supported between instances of 'int' and '{}'", super::kind(other))),
@@ -186,10 +199,10 @@ pub fn get_hlo_neighborhood(client: &dyn Client, args: &Args) -> Result<Out, Err
     let text = neighborhood(
         client,
         &args.session(),
-        args.text("instruction_name"),
-        args.get("radius").unwrap_or(&J::Int(NEIGHBORHOOD_RADIUS.into())),
-        args.text("module_name"),
-        args.text("op_name"),
+        args.raw("instruction_name"),
+        args.raw("radius").unwrap_or(&J::Int(NEIGHBORHOOD_RADIUS.into())),
+        args.raw("module_name"),
+        args.raw("op_name"),
         args.flag("print_metadata", false),
     )?;
     Ok(Out::Text(text))
@@ -198,11 +211,12 @@ pub fn get_hlo_neighborhood(client: &dyn Client, args: &Args) -> Result<Out, Err
 pub fn get_hlo_text(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let compute = || -> Result<String, Error> {
-        let text = match args.text("op_name").filter(|name| !name.is_empty()) {
-            Some(op_name) => neighborhood(client, &session, Some(op_name), NEIGHBORHOOD_RADIUS, args.text("module_name"), None, false)?,
-            None => module_content(client, &session, "text", args.text("module_name"), 2000, false),
+        let text = match args.get("op_name").filter(|name| name.truthy()) {
+            Some(op_name) => neighborhood(client, &session, Some(op_name), &J::Int(NEIGHBORHOOD_RADIUS.into()), args.raw("module_name"), None, false)?,
+            None => module_content(client, &session, None, args.raw("module_name"), None, false),
         };
-        if let Some(path) = args.text("path").filter(|path| !path.is_empty()) {
+        if let Some(path) = args.get("path").filter(|path| path.truthy()) {
+            let J::Str(path) = path else { return fail(Kind::Type, "expected str, bytes or os.PathLike object") };
             let path = PathBuf::from(path);
             path.parent().filter(|parent| !parent.as_os_str().is_empty()).map(std::fs::create_dir_all).transpose().map_err(|error| Error::new(Kind::Os, error.to_string()))?;
             std::fs::write(&path, &text).map_err(|error| Error::new(Kind::Os, error.to_string()))?;
@@ -213,38 +227,42 @@ pub fn get_hlo_text(client: &dyn Client, args: &Args) -> Result<Out, Error> {
 }
 
 pub fn get_graph_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    let (session, symbol) = (args.session(), args.string("symbol_id", ""));
-    if !session.is_empty() && !symbol.is_empty() {
+    let session = args.session();
+    let truthy = |name: &str| args.raw(name).filter(|value| value.truthy());
+    let symbol = truthy("symbol_id");
+    if !session.is_empty() && symbol.is_some() {
         return fail(Kind::Value, "Cannot set both session_id and symbol_id");
     }
-    if session.is_empty() && symbol.is_empty() {
+    if session.is_empty() && symbol.is_none() {
         return fail(Kind::Value, "Either session_id or symbol_id must be provided");
     }
-    let session = if symbol.is_empty() { session } else { "xsymbol".into() };
-    let mut module = args.string("module_name", "");
-    if symbol.is_empty() && module.is_empty() {
-        module = proto_files(client, &session).ok().and_then(|files| module_names(&files).into_iter().next()).unwrap_or_default();
+    let session = if symbol.is_some() { "xsymbol".into() } else { session };
+    let mut module = truthy("module_name").cloned();
+    if symbol.is_none() && module.is_none() {
+        module = proto_files(client, &session).ok().and_then(|files| module_names(&files).into_iter().next()).map(J::Str);
     }
+    let text = |name: &str, default: &str| args.raw(name).map_or_else(|| J::from(default), |value| J::Str(value.text()));
     let mut options = vec![
-        ("graph_type", args.string("graph_type", "xla")),
-        ("type", args.string("output_type", "short_txt")),
-        ("show_metadata", args.get("show_metadata").map_or("true".into(), |value| value.text().to_lowercase())),
+        ("graph_type", args.raw("graph_type").cloned().unwrap_or_else(|| J::from("xla"))),
+        ("type", args.raw("output_type").cloned().unwrap_or_else(|| J::from("short_txt"))),
+        ("show_metadata", J::Str(text("show_metadata", "True").text().to_lowercase())),
     ];
-    let int = |name: &str, default: i64| args.int(name, default);
-    let (width, limit, xplane) = (int("graph_width", 1)?, int("op_profile_limit", 0)?, int("use_xplane", 0)?);
-    let present = |name: &'static str, value: String| (!value.is_empty()).then_some((name, value));
-    options.extend(args.flag("bypass_cache", false).then(|| bypass(true)));
-    options.extend(present("symbol_id", symbol));
-    options.extend(present("symbol_type", args.string("symbol_type", "")));
-    options.extend(present("module_name", module));
-    options.extend(present("node_name", args.string("node_name", "")));
-    options.extend((width != 1).then(|| ("graph_width", width.to_string())));
-    options.extend(args.get("merge_fusion").filter(|value| value.truthy()).map(|value| ("merge_fusion", value.text().to_lowercase())));
-    options.extend(present("tag", args.string("tag", "")));
-    options.extend(present("tool", args.string("tool", "")));
-    options.extend((limit > 0).then(|| ("op_profile_limit", limit.to_string())));
-    options.extend((xplane > 0).then(|| ("use_xplane", xplane.to_string())));
-    let data = client.fetch_text("graph_viewer", &session, &options).map_err(|error| {
+    let positive = |name: &str| Ok::<_, Error>((args.compared(name, 0.0, ">")? > 0.0).then(|| text(name, "")));
+    let (limit, xplane) = (positive("op_profile_limit")?, positive("use_xplane")?);
+    options.extend(args.flag("bypass_cache", false).then_some(("bypass_cache", J::Bool(true))));
+    options.extend(symbol.map(|value| ("symbol_id", value.clone())));
+    options.extend(truthy("symbol_type").map(|value| ("symbol_type", value.clone())));
+    options.extend(module.map(|value| ("module_name", value)));
+    options.extend(truthy("node_name").map(|value| ("node_name", value.clone())));
+    options.extend(args.raw("graph_width").filter(|value| !value.equals(&J::Int(1))).map(|value| ("graph_width", J::Str(value.text()))));
+    options.extend(truthy("merge_fusion").map(|value| ("merge_fusion", J::Str(value.text().to_lowercase()))));
+    options.extend(truthy("tag").map(|value| ("tag", value.clone())));
+    options.extend(truthy("tool").map(|value| ("tool", value.clone())));
+    options.extend(limit.map(|value| ("op_profile_limit", value)));
+    options.extend(xplane.map(|value| ("use_xplane", value)));
+    let options = options.iter().filter_map(|(key, value)| super::packed(key, value).transpose().map(|text| text.map(|text| (*key, text)))).collect::<Result<Vec<_>, Error>>();
+    let fetched = options.map_err(|error| super::unpackable(client, &session, error)).and_then(|options| client.fetch_text("graph_viewer", &session, &options));
+    let data = fetched.map_err(|error| {
         if error.message.contains("Can not load hlo proto") || error.message.contains("No HLO") {
             Error::new(Kind::FileNotFound, NO_HLO)
         } else if error.kind == Kind::Value {
@@ -256,7 +274,7 @@ pub fn get_graph_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> 
     Ok(Out::Text(data.ok_or_else(|| Error::new(Kind::FileNotFound, NO_GRAPH))?))
 }
 
-fn buffers(module: &J, min_size: f64, aggregate: bool, threshold: &J) -> Vec<(String, f64)> {
+fn buffers(module: &J, min_size: &Result<f64, Error>, aggregate: bool, threshold: &J) -> Result<Vec<(String, f64)>, Error> {
     let mut kept = Vec::new();
     let mut others = 0.0;
     let logical = module.at("bufferAssignment").at("logicalBuffers").items();
@@ -274,7 +292,7 @@ fn buffers(module: &J, min_size: f64, aggregate: bool, threshold: &J) -> Vec<(St
             .collect()
     };
     for (instruction, size) in entries {
-        if aggregate && size < min_size {
+        if aggregate && size < min_size.clone()? {
             others += size;
         } else {
             kept.push((instruction, size));
@@ -283,7 +301,7 @@ fn buffers(module: &J, min_size: f64, aggregate: bool, threshold: &J) -> Vec<(St
     let descending = |items: &mut Vec<(String, f64)>| items.sort_by(|left, right| right.1.partial_cmp(&left.1).unwrap_or(std::cmp::Ordering::Equal));
     if !aggregate {
         descending(&mut kept);
-        return kept;
+        return Ok(kept);
     }
     let mut groups: IndexMap<(String, u64), Vec<String>> = IndexMap::new();
     for (instruction, size) in kept {
@@ -301,13 +319,16 @@ fn buffers(module: &J, min_size: f64, aggregate: bool, threshold: &J) -> Vec<(St
         aggregated.push((format!("Others (< {} MiB)", threshold.text()), others));
     }
     descending(&mut aggregated);
-    aggregated
+    Ok(aggregated)
 }
 
 pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
-    let (limit, threshold) = (args.int("limit", 10)?, args.get("min_size_mib").cloned().unwrap_or(J::Float(1.0)));
-    let min_size = threshold.float().ok_or_else(|| Error::new(Kind::Type, "'<' not supported between instances of 'float' and 'str'"))?;
+    let threshold = args.raw("min_size_mib").cloned().unwrap_or(J::Float(1.0));
+    let min_size = match threshold {
+        J::Bool(_) | J::Int(_) | J::Float(_) => Ok(threshold.float().unwrap_or_default()),
+        _ => fail(Kind::Type, format!("'<' not supported between instances of 'float' and '{}'", super::kind(&threshold))),
+    };
     let (aggregate, summary) = (args.flag("aggregate_instructions", true), args.flag("include_summary", true));
     let params = [("format", "json".to_string())];
     let names: Vec<String> = match client.fetch_text("memory_viewer.json", &session, &params)? {
@@ -323,18 +344,22 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
             _ => return fail(Kind::Value, "No memory viewer data returned for the session"),
         },
     };
+    let failed = |error| rethrow(error, |error| format!("Failed to get peak allocations for session {session}: {}", error.message));
     let mut modules = Vec::new();
     for name in &names {
         let mut params = vec![("format", "json".to_string()), ("module_name", name.clone())];
         params.extend(args.flag("bypass_cache", false).then(|| bypass(true)));
-        let data =
-            client.fetch_text("memory_viewer.json", &session, &params).map_err(|error| rethrow(error, |error| format!("Failed to get peak allocations for session {session}: {}", error.message)))?;
+        let data = client.fetch_text("memory_viewer.json", &session, &params).map_err(failed)?;
         let Some(parsed) = data.and_then(|data| J::parse(&data)) else { continue };
-        modules.push((name.clone(), parsed.get("totalBufferAllocationMib").cloned().unwrap_or(J::Int(0)), buffers(&parsed, min_size, aggregate, &threshold)));
+        modules.push((name.clone(), parsed.get("totalBufferAllocationMib").cloned().unwrap_or(J::Int(0)), buffers(&parsed, &min_size, aggregate, &threshold).map_err(failed)?));
     }
     let total = modules.len();
     modules.sort_by(|left, right| right.1.float().partial_cmp(&left.1.float()).unwrap_or(std::cmp::Ordering::Equal));
-    if limit > 0 {
+    let limit = args.compared("limit", 10.0, ">")?;
+    if let Some(message) = super::nlargest_float(args.raw("limit"), limit, total) {
+        return fail(Kind::Type, message);
+    }
+    if limit > 0.0 {
         modules.truncate(limit as usize);
     }
     if args.string("output_format", "json") == "markdown" {

@@ -176,12 +176,13 @@ fn leaves(node: &J, prefix: &str, out: &mut Vec<J>) {
     out.push(item);
 }
 
-fn tree(node: &J, depth: i64, limit: i64, prefix: &str) -> J {
+fn tree(node: &J, depth: i64, limit: f64, prefix: &str) -> J {
     let name = label(node, "root");
     let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
     let mut sorted: Vec<&J> = children(node).iter().collect();
     descending(&mut sorted, |child| number(child, "raw_time"));
-    let built: Vec<J> = if depth < limit { sorted.into_iter().filter(|child| number(child, "raw_time") > 0.0).map(|child| tree(child, depth + 1, limit, &path)).collect() } else { Vec::new() };
+    let built: Vec<J> =
+        if (depth as f64) < limit { sorted.into_iter().filter(|child| number(child, "raw_time") > 0.0).map(|child| tree(child, depth + 1, limit, &path)).collect() } else { Vec::new() };
     let mut result = obj! {"name" => name, "path" => path, "total_self_time_ms" => round(number(node, "raw_time") / 1e9, 4)};
     if present(node, "xla") {
         if field(field(node, "xla"), "category").truthy() {
@@ -203,18 +204,34 @@ fn tree(node: &J, depth: i64, limit: i64, prefix: &str) -> J {
 }
 
 pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    let (session, top_n, depth) = (args.session(), args.int("top_n", 15)?, args.int("depth", 2)?);
-    let (view, sort) = (args.string("view", "grouped"), args.string("sort_by", "time"));
-    let (view_key, sort_key) = (view.trim().to_lowercase(), sort.trim().to_lowercase());
+    let session = args.session();
+    let lower = |name: &str, default: &str| match args.raw(name) {
+        None => Ok(default.to_string()),
+        Some(J::Str(text)) => Ok(text.clone()),
+        Some(value) => Err(super::no_attribute(value, "lower")),
+    };
+    let view = lower("view", "grouped")?;
+    let view_key = view.trim().to_lowercase();
     if !VIEWS.contains(&view_key.as_str()) {
         return fail(Kind::Value, format!("Invalid view mode '{view}'. Must be one of: 'grouped', 'category', 'summary', 'flat', 'tree'."));
     }
+    let sort = lower("sort_by", "time")?;
+    let sort_key = sort.trim().to_lowercase();
     if !SORTS.contains(&sort_key.as_str()) {
         return fail(Kind::Value, format!("Invalid sort_by '{sort}'. Must be one of: 'time', 'flops', 'bytes'."));
     }
     let params: Vec<(&str, String)> = vec![("format", "json".to_string()), bypass(args.flag("bypass_cache", false))];
     let wrap = format!("Error fetching HLO op profile for session {session}: ");
     let profile = profile(client, &session, &params, format!("No HLO op_profile found in trace for session {session}."), &wrap)?;
+    let wrapped = |error: Error| Error::new(Kind::Runtime, format!("{wrap}{}", error.repr()));
+    // Python reads `top_n` only when the view uses it. A float is good for a comparison but not for a slice.
+    let top_n = |sliced: fn(f64) -> bool| {
+        let top_n = args.compared("top_n", 15.0, ">").map_err(wrapped)?;
+        if matches!(args.raw("top_n"), Some(J::Float(_))) && sliced(top_n) {
+            return Err(wrapped(Error::new(Kind::Type, super::SLICE)));
+        }
+        Ok(top_n)
+    };
     let no_ops = || fail(Kind::FileNotFound, format!("No HLO op_profile operations found in profile for session {session}."));
     let root = ["by_category", "by_program"].iter().map(|key| field(&profile, key)).find(|node| **node != J::Null && number(node, "raw_time") > 0.0);
     let Some(root) = root else { return no_ops() };
@@ -272,7 +289,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
             })
             .collect()
     };
-    if let Some(category) = args.get("category").map(J::text) {
+    if let Some(category) = args.get("category") {
+        let J::Str(category) = category else { return Err(wrapped(super::no_attribute(category, "strip"))) };
         let target = category.trim().to_lowercase();
         let matched = available.iter().find(|name| name.to_lowercase() == target).or_else(|| available.iter().find(|name| name.to_lowercase().contains(&target)));
         let Some(matched) = matched else {
@@ -283,7 +301,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         };
         let ops = ops_of(matched);
         let matched_time = time_of(ops);
-        let limit = if top_n > 0 { top_n as usize } else { ops.len() };
+        let top_n = top_n(|top_n| top_n > 0.0)?;
+        let limit = if top_n > 0.0 { top_n as usize } else { ops.len() };
         let operations = with_fraction(sorted(ops).into_iter().take(limit).collect(), matched_time);
         let top = top_name(&operations);
         return Ok(obj! {
@@ -301,7 +320,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
     }
     match view_key.as_str() {
         "flat" => {
-            let limit = if top_n > 0 { top_n as usize } else { flat.len() };
+            let top_n = top_n(|top_n| top_n > 0.0)?;
+            let limit = if top_n > 0.0 { top_n as usize } else { flat.len() };
             Ok(J::List(sorted(&flat).into_iter().take(limit).collect()).into())
         }
         "category" | "summary" => {
@@ -316,9 +336,10 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
             }
             Ok(obj! {"total_profile_time_ms" => round(total_ms, 4), "category_summary" => summary, "navigation_hints" => hints}.into())
         }
-        "tree" => tree_view(root, args.text("path"), depth),
+        "tree" => tree_view(root, args, wrapped),
         _ => {
-            let per_category = if top_n <= 0 { usize::MAX } else { top_n.min(5) as usize };
+            let top_n = top_n(|top_n| top_n > 0.0 && top_n <= 5.0)?;
+            let per_category = if top_n <= 0.0 { usize::MAX } else { top_n.min(5.0) as usize };
             let grouped = summary.iter().map(|entry| {
                 let category = entry.at("category").text();
                 let ops = sorted(ops_of(&category)).into_iter().take(per_category).collect();
@@ -341,10 +362,11 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
     }
 }
 
-fn tree_view(root: &J, path: Option<String>, depth: i64) -> Result<Out, Error> {
+fn tree_view(root: &J, args: &Args, wrapped: impl Fn(Error) -> Error) -> Result<Out, Error> {
     let root_name = label(root, "root");
     let (mut target, mut target_path) = (root, root_name.clone());
-    if let Some(path) = path.filter(|path| !path.is_empty()) {
+    if let Some(path) = args.get("path").filter(|path| path.truthy()) {
+        let J::Str(path) = path else { return Err(wrapped(super::no_attribute(path, "strip"))) };
         let mut parts: Vec<&str> = path.trim_matches('/').split('/').filter(|part| !part.is_empty()).collect();
         if parts.first().is_some_and(|first| ["root", "by_category", "by_program", root_name.to_lowercase().as_str()].contains(&first.to_lowercase().as_str())) {
             parts.remove(0);
@@ -362,15 +384,16 @@ fn tree_view(root: &J, path: Option<String>, depth: i64) -> Result<Out, Error> {
         }
         target_path = matched.join("/");
     }
-    let limit = if depth > 0 { depth } else { 2 };
+    let depth = args.compared("depth", 2.0, ">").map_err(&wrapped)?;
+    let limit = if depth > 0.0 { args.raw("depth").cloned().unwrap_or(J::Int(2)) } else { J::Int(2) };
     let child_paths: Vec<String> =
         children(target).iter().filter(|child| number(child, "raw_time") > 0.0).map(|child| format!("{target_path}/{}", field(child, "name").str().unwrap_or_default())).collect();
-    let hint = child_paths.first().map_or_else(|| "No further child paths.".to_string(), |first| format!("xprof get_hlo_op_profile <trace> --view=tree --path='{first}' --depth={limit}"));
+    let hint = child_paths.first().map_or_else(|| "No further child paths.".to_string(), |first| format!("xprof get_hlo_op_profile <trace> --view=tree --path='{first}' --depth={}", limit.text()));
     Ok(obj! {
         "current_path" => target_path,
-        "depth_limit" => limit,
+        "depth_limit" => &limit,
         "total_self_time_ms" => round(number(target, "raw_time") / 1e9, 4),
-        "tree" => tree(target, 1, limit, ""),
+        "tree" => tree(target, 1, limit.float().unwrap_or_default(), ""),
         "navigation_hints" => obj! {
             "navigate_deeper_into_child" => hint,
             "switch_to_program_tree" => "xprof get_hlo_op_profile <trace> --view=tree --path='by_program' --depth=2",
@@ -437,21 +460,22 @@ pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     } else if present(&profile, "by_program") {
         instructions(field(&profile, "by_program"), "", &mut flat);
     }
-    if let Some(filter) = args.text("category_filter").filter(|filter| !filter.is_empty()) {
+    if let Some(filter) = args.get("category_filter").filter(|filter| filter.truthy()) {
+        let J::Str(filter) = filter else { return Err(super::no_attribute(filter, "strip")) };
         let target = filter.trim().to_lowercase();
         flat.retain(|op| op.at("category").text().trim().to_lowercase() == target);
     }
     if flat.is_empty() {
         return Ok(obj! {"top_by_time" => J::List(Vec::new()), "top_by_flops" => J::List(Vec::new()), "top_by_bytes_accessed" => J::List(Vec::new()), "total_matched" => 0, "has_by_program" => present(&profile, "by_program")}.into());
     }
-    let limit = args.int("limit", 10)?;
-    if matches!(args.get("limit"), Some(J::Float(value)) if *value > 0.0) {
-        return fail(Kind::Type, "'float' object cannot be interpreted as an integer");
+    let limit = args.compared("limit", 10.0, ">")?;
+    if let Some(message) = super::nlargest_float(args.raw("limit"), limit, flat.len()) {
+        return fail(Kind::Type, message);
     }
     let top = |key: &str| {
         let mut ops: Vec<&J> = flat.iter().collect();
         descending(&mut ops, |op| op.at(key).float().unwrap_or(0.0));
-        if limit > 0 {
+        if limit > 0.0 {
             ops.truncate(limit as usize);
         }
         ops.into_iter().cloned().collect::<Vec<J>>()
@@ -545,19 +569,23 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
 }
 
 pub fn get_hlo_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    let (session, limit) = (args.session(), args.int("limit", 20)?);
+    let session = args.session();
     let mut params = vec![("format", "json".to_string()), ("tqx", "out:pb".to_string())];
     params.extend(args.flag("bypass_cache", false).then(|| bypass(true)));
     let data = client.fetch("hlo_stats.json", &session, &params).map_err(|error| Error::new(Kind::Runtime, format!("Error fetching HLO stats for session {session}: {}", error.repr())))?;
     let data = data.ok_or_else(|| Error::new(Kind::Runtime, "Unexpected data type returned: <class 'NoneType'>"))?;
     let text = String::from_utf8_lossy(&data);
     let table = J::parse(text.trim()).filter(|table| table.has("cols")).ok_or_else(|| Error::new(Kind::Value, "Failed to parse HloStatsDatabase proto: ParseError('Failed to load JSON')"))?;
-    let mut records = stats_records(&table, args.text("category_filter").as_deref().filter(|filter| !filter.is_empty()));
+    let filter = args.get("category_filter").filter(|filter| filter.truthy());
+    if let Some(filter) = filter.filter(|filter| filter.str().is_none() && !table.at("rows").items().is_empty()) {
+        return Err(super::no_attribute(filter, "strip"));
+    }
+    let mut records = stats_records(&table, filter.and_then(J::str));
     crate::release(table);
     if records.is_empty() {
         return fail(Kind::FileNotFound, "No HLO stats records found");
     }
-    let key = match args.string("sort_by", "self_time").trim().to_lowercase().as_str() {
+    let key = match args.stripped("sort_by", "self_time")?.trim().to_lowercase().as_str() {
         "total_time" => "total_time_us",
         "occurrences" => "occurrences",
         "flops" => "flops",
@@ -565,7 +593,11 @@ pub fn get_hlo_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         _ => "total_self_time_us",
     };
     descending(&mut records, |record| record.at(key).float().unwrap_or(0.0));
-    if limit > 0 && records.len() > limit as usize {
+    let limit = args.compared("limit", 20.0, ">")?;
+    if limit > 0.0 && matches!(args.raw("limit"), Some(J::Float(_))) {
+        return fail(Kind::Type, super::SLICE);
+    }
+    if limit > 0.0 && records.len() as f64 > limit {
         crate::release(records.split_off(limit as usize));
     }
     Ok(J::List(records).into())
