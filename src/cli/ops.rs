@@ -91,9 +91,7 @@ fn too_deep() -> Error {
 
 fn profile(client: &dyn Client, session: &str, params: &[(&str, String)], missing: String, wrap: &str) -> Result<Parsed, Error> {
     let fetched = (|| {
-        let data = client.fetch_either("op_profile", "hlo_op_profile.json", session, params)?;
-        let data = data.ok_or_else(|| Error::new(Kind::FileNotFound, missing))?;
-        let parsed = J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse op_profile proto: ParseError('Failed to load JSON')"))?;
+        let parsed = client.op_profile(session, params)?.ok_or_else(|| Error::new(Kind::FileNotFound, missing))?;
         if parsed.object_depth() > MAX_MESSAGE_DEPTH { Err(too_deep()) } else { Ok(parsed) }
     })();
     fetched.map(Parsed).map_err(|error| rethrow(error, |error| format!("{wrap}{}", error.repr())))

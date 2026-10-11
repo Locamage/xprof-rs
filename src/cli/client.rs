@@ -1,4 +1,5 @@
-use super::{Error, Kind, fail, json::py_repr};
+use super::json::{J, py_repr};
+use super::{Error, Kind, fail};
 use crate::tools::opstats::{Kept, OpStats, Part, load_kept};
 use crate::tools::roofline::Rows;
 use crate::xplane::Plane;
@@ -71,7 +72,13 @@ pub trait Client {
     }
 
     fn fetch_text(&self, tool: &str, session: &str, params: &Params) -> Result<Option<String>, Error> {
-        Ok(self.fetch(tool, session, params)?.filter(|data| !data.is_empty()).map(|data| String::from_utf8_lossy(&data).into_owned()))
+        Ok(self.fetch(tool, session, params)?.filter(|data| !data.is_empty()).map(|data| String::from_utf8(data).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())))
+    }
+
+    /// The op profile of a session, as the JSON reader gives it.
+    fn op_profile(&self, session: &str, params: &Params) -> Result<Option<J>, Error> {
+        let data = self.fetch_either("op_profile", "hlo_op_profile.json", session, params)?;
+        data.map(|data| J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse op_profile proto: ParseError('Failed to load JSON')"))).transpose()
     }
 
     fn fetch_either(&self, first: &str, second: &str, session: &str, params: &Params) -> Result<Option<String>, Error> {
@@ -175,6 +182,12 @@ impl Local {
 impl Client for Local {
     fn logdir(&self) -> Option<&Path> {
         self.logdir.as_deref()
+    }
+
+    fn op_profile(&self, session: &str, params: &Params) -> Result<Option<J>, Error> {
+        let paths = self.xspace_paths(&self.run_dir(session)?)?;
+        let group_by = params.iter().find(|(key, _)| *key == "group_by").map_or("program", |(_, value)| value.as_str());
+        Ok(self.stats(&paths, true, Part::Device).map(|stats| crate::tools::op_profile::value_trees(&stats, Some(group_by))))
     }
 
     fn shared(&self) -> Option<&(dyn Client + Sync)> {

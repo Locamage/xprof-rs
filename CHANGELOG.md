@@ -36,6 +36,9 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The README shows the times of all the CLI commands that need only a session.
 - On a FUSE mount, for example `rclone mount` of a bucket, xprof-rs reads each file in order. Before, it read 4 parts of the file at the same time, and `rclone mount` then gave approximately 1 MB/s. On an 80 MB profile on an `rclone mount` of Cloudflare R2, the first overview page takes 2 s to 5 s. Before, it took 66 s. On other file systems, the read does not change.
 - The README compares XProf and xprof-rs on tmpfs, on a disk, and on Cloudflare R2.
+- The HLO text writes each shape directly into the output, and it does not decode the shape of an instruction two times. Threads write the parts of a large computation at the same time. On a 280 MB TPU v4 profile with 4 cores, `get_hlo_text`, `get_hlo_module_content` and `get_graph_viewer` take 0.24 s. Before, they took 0.57 s. The text does not change.
+- For the CLI commands that read the op profile, xprof-rs makes the values of the op profile directly. Before, it made the JSON text of the op profile and then read the text again. On a 280 MB TPU v4 profile with 4 cores, `get_hlo_op_profile` and `get_top_hlo_ops` take 0.61 s, and `get_profile_summary` takes 0.56 s. Before, they took 0.76 s, 0.75 s and 0.73 s. On an 80 MB profile, the times do not change.
+- The op statistics sort the operations of each step by small keys, and they find the stats of an operation by a table. Before, they compared the name of each stat. On a 280 MB TPU v4 profile with 4 cores, `check_host_boundness` takes 1.02 s. Before, it took 1.15 s.
 
 ## 0.1.2
 

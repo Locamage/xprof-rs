@@ -1,4 +1,6 @@
+use crate::cli::json::J;
 use crate::hlo::proto_text::json_string;
+use crate::obj;
 use crate::tools::input_pipeline_analyzer::{HARDWARE, hardware};
 use crate::tools::opstats::{GIBI_IN_GIGA, HBM, IDLE, Metrics, OpStats, READ, SPARSE_CORE, Source, WRITE, add, combine_memory, giga_to_gibi, pico_to_nano, safe_divide};
 use rayon::prelude::*;
@@ -320,8 +322,9 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn open(&self, out: &mut String, index: usize) {
-        let (node, metrics) = (&self.nodes[index], &self.nodes[index].metrics);
+    /// The metrics of a node in the order of the JSON text. Each entry has the values and their count.
+    fn fields(&self, index: usize) -> [(&'static str, [f64; 3], usize); 10] {
+        let metrics = &self.nodes[index].metrics;
         let time_ns = pico_to_nano(metrics.time_ps);
         let mut rate = safe_divide(metrics.flops_v2, time_ns);
         if metrics.normalized_time_ps != 0 {
@@ -338,23 +341,28 @@ impl<'a> Builder<'a> {
         let peak = |index: usize| self.peak_bandwidths.get(index).copied().unwrap_or(0.0);
         let average = safe_divide(metrics.time_ps as f64, metrics.occurrences as f64);
         let bandwidths: [f64; 3] = std::array::from_fn(|index| safe_divide(gibibytes[index], peak(index)).min(1.0));
-        let fields: [(&str, &[f64]); 10] = [
-            ("flops", &[uncapped.min(1.0) * fraction]),
-            ("bandwidthUtils", &bandwidths),
-            ("rawTime", &[metrics.time_ps as f64]),
-            ("rawFlops", &[metrics.model_flops_v2]),
-            ("rawBytesAccessedArray", &gibibytes.map(|gibibytes| gibibytes * GIBI_IN_GIGA * time_ns)),
-            ("occurrences", &[metrics.occurrences as u32 as f64]),
-            ("avgTimePs", &[average]),
-            ("bf16Flops", &[metrics.flops_v2]),
-            ("uncappedFlops", &[uncapped * fraction]),
-            ("normalizedTimePs", &[metrics.normalized_time_ps as f64]),
-        ];
+        let one = |value: f64| [value, 0.0, 0.0];
+        [
+            ("flops", one(uncapped.min(1.0) * fraction), 1),
+            ("bandwidthUtils", bandwidths, 3),
+            ("rawTime", one(metrics.time_ps as f64), 1),
+            ("rawFlops", one(metrics.model_flops_v2), 1),
+            ("rawBytesAccessedArray", gibibytes.map(|gibibytes| gibibytes * GIBI_IN_GIGA * time_ns), 3),
+            ("occurrences", one(metrics.occurrences as u32 as f64), 1),
+            ("avgTimePs", one(average), 1),
+            ("bf16Flops", one(metrics.flops_v2), 1),
+            ("uncappedFlops", one(uncapped * fraction), 1),
+            ("normalizedTimePs", one(metrics.normalized_time_ps as f64), 1),
+        ]
+    }
+
+    fn open(&self, out: &mut String, index: usize) {
         out.push_str("{\"name\":");
-        json_string(out, &node.name);
+        json_string(out, &self.nodes[index].name);
         out.push_str(",\"metrics\":{");
-        for (position, (key, values)) in fields.iter().enumerate() {
+        for (position, (key, values, count)) in self.fields(index).iter().enumerate() {
             write!(out, "{}\"{key}\":", if position > 0 { "," } else { "" }).unwrap();
+            let values = &values[..*count];
             if let [value] = values {
                 proto_double(out, *value);
             } else {
@@ -393,6 +401,55 @@ impl<'a> Builder<'a> {
         }
         write!(out, ",\"numChildren\":{}}}", node.num_children).unwrap();
     }
+
+    /// The value of the JSON text that `write` gives.
+    fn value(&self, index: usize, parallel: usize) -> J {
+        let node = &self.nodes[index];
+        let metrics = self.fields(index).into_iter().map(|(key, values, count)| {
+            let value = if count == 1 { proto_value(values[0]) } else { J::List(values[..count].iter().map(|&value| proto_value(value)).collect()) };
+            (key.to_string(), value)
+        });
+        let next = if node.children.len() == 1 { parallel } else { parallel.saturating_sub(1) };
+        let children = if parallel > 0 && node.children.len() > 1 {
+            node.children.par_iter().map(|&child| self.value(child, next)).collect()
+        } else {
+            node.children.iter().map(|&child| self.value(child, next)).collect()
+        };
+        let mut entries = vec![("name".to_string(), J::from(&*node.name)), ("metrics".into(), J::Map(metrics.collect())), ("children".into(), J::List(children))];
+        if let Some(xla) = &node.xla {
+            let mut fields = vec![("op", J::from("")), ("expression", xla.expression.into()), ("provenance", xla.provenance.into()), ("category", xla.category.into())];
+            fields.extend(xla.layout.then(|| ("layout", obj! {"dimensions" => J::List(Vec::new())})));
+            let (file, line, stack) = xla.source.map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
+            fields.extend([
+                ("computationPrimitiveSize", J::Int(0)),
+                ("fingerprint", "0".into()),
+                ("programId", xla.program_id.to_string().into()),
+                ("sourceInfo", obj! {"fileName" => file, "lineNumber" => line, "stackFrame" => stack}),
+                ("xprofKernelMetadata", kernel_metadata(xla.expression).into()),
+            ]);
+            entries.push(("xla".into(), J::Map(fields.into_iter().map(|(key, value)| (key.to_string(), value)).collect())));
+        }
+        entries.push(("numChildren".into(), node.num_children.into()));
+        J::Map(entries)
+    }
+}
+
+/// The value that the JSON reader gives for the text of `proto_double`.
+fn proto_value(value: f64) -> J {
+    if value.is_nan() || value.is_infinite() {
+        let mut text = String::new();
+        proto_double(&mut text, value);
+        return J::Str(text.trim_matches('"').to_string());
+    }
+    if value == 0.0 && value.is_sign_negative() {
+        return J::Float(value);
+    }
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        return J::Int(value as i64 as i128);
+    }
+    let mut text = String::new();
+    crate::hlo::round_trip(&mut text, value);
+    text.parse().map_or_else(|_| J::Float(text.parse().unwrap_or(value)), J::Int)
 }
 
 pub fn proto_double(out: &mut String, value: f64) {
@@ -462,17 +519,21 @@ fn build(stats: &OpStats, grouping: usize, exclude_idle: bool) -> Option<Builder
     Some(builder)
 }
 
+fn grouping(group_by: Option<&str>) -> usize {
+    match group_by {
+        Some("category") => CATEGORY,
+        Some("provenance") => PROVENANCE,
+        _ => PROGRAM,
+    }
+}
+
 pub fn json(stats: &OpStats, group_by: Option<&str>) -> String {
     json_trees(stats, group_by, true)
 }
 
 /// Without `with_busy`, the output has no tree for the busy time. The command line tools use no such tree.
 pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> String {
-    let grouping = match group_by {
-        Some("category") => CATEGORY,
-        Some("provenance") => PROVENANCE,
-        _ => PROGRAM,
-    };
+    let grouping = grouping(group_by);
     let device = HARDWARE[hardware(&stats.extra.device_type) as usize];
     let key = GROUPINGS[grouping].1;
     let (all, busy) = rayon::join(|| tree(stats, grouping, false), || if with_busy { tree(stats, grouping, true) } else { String::new() });
@@ -493,6 +554,17 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
     proto_double(&mut out, safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64));
     out.push('}');
     out
+}
+
+/// The value that the JSON reader gives for `json_trees` without the tree for the busy time.
+pub fn value_trees(stats: &OpStats, group_by: Option<&str>) -> J {
+    let grouping = grouping(group_by);
+    let tree = build(stats, grouping, false).map_or_else(|| obj! {"name" => "", "children" => J::List(Vec::new()), "numChildren" => 0}, |builder| builder.value(ROOT, PARALLEL_LEVELS));
+    let device = ("deviceType".to_string(), J::from(HARDWARE[hardware(&stats.extra.device_type) as usize]));
+    let mut entries = vec![(GROUPINGS[grouping].1.to_string(), tree)];
+    entries.insert(usize::from(grouping != PROVENANCE), device);
+    entries.push(("aggDvfsTimeScaleMultiplier".into(), proto_value(safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64))));
+    J::Map(entries)
 }
 
 #[cfg(test)]

@@ -8,7 +8,6 @@ use crate::hlo::text::{Printer, Style, separate};
 use crate::tools::opstats::{Db, Metrics};
 use crate::xplane::{Field, Plane, Value, fields, nested, slice, stats};
 use indexmap::IndexMap;
-use itertools::Itertools;
 use prost::Message;
 use prost::encoding::encode_varint;
 use rayon::prelude::*;
@@ -207,42 +206,94 @@ impl Shape {
             return;
         }
         let dimensions: &[i64] = if self.is_array() { &self.dimensions } else { &[] };
-        let texts = dimensions.iter().enumerate().map(|(index, &dimension)| match (self.is_dynamic_dimension.get(index) == Some(&true), dimension) {
-            (true, i64::MIN) => "?".to_string(),
-            (true, dimension) => format!("<={dimension}"),
-            (false, dimension) => dimension.to_string(),
-        });
-        write!(out, "{}[{}]", type_name(self.element_type), texts.format(",")).unwrap();
+        out.push_str(type_name(self.element_type));
+        out.push('[');
+        for (index, &dimension) in dimensions.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            match (self.is_dynamic_dimension.get(index) == Some(&true), dimension) {
+                (true, i64::MIN) => out.push('?'),
+                (true, dimension) => {
+                    out.push_str("<=");
+                    out.push_str(itoa::Buffer::new().format(dimension));
+                }
+                (false, dimension) => out.push_str(itoa::Buffer::new().format(dimension)),
+            }
+        }
+        out.push(']');
         let Some(shape_layout) = self.layout.as_ref().filter(|_| layout && self.is_array()) else { return };
-        let primitive = |kind: i32, symbol: char| match kind {
-            0 => String::new(),
-            2..=9 | 21 | 22 | 26 | 27 | 30 | 31 => format!("{symbol}({})", type_name(kind)),
-            _ => format!("{symbol}(invalid)"),
+        let number = |out: &mut String, value: i64| out.push_str(itoa::Buffer::new().format(value));
+        let primitive = |out: &mut String, kind: i32, symbol: char| match kind {
+            0 => {}
+            2..=9 | 21 | 22 | 26 | 27 | 30 | 31 => write!(out, "{symbol}({})", type_name(kind)).unwrap(),
+            _ => write!(out, "{symbol}(invalid)").unwrap(),
         };
-        let tile = |tile: &xla::TileProto| {
-            let texts = tile.dimensions.iter().map(|&dimension| match dimension {
-                0.. => dimension.to_string(),
-                i64::MIN => "*".to_string(),
-                _ => format!("Invalid value {dimension}"),
-            });
-            format!("({})", texts.format(","))
-        };
-        let splits: String = shape_layout.split_configs.iter().map(|split| format!("({}:{})", split.dimension, split.split_indices.iter().join(","))).collect();
-        let sections = [
-            if shape_layout.tiles.is_empty() { String::new() } else { format!("T{}", shape_layout.tiles.iter().map(tile).collect::<String>()) },
-            if matches!(shape_layout.tail_padding_alignment_in_elements, 0 | 1) { String::new() } else { format!("L({})", shape_layout.tail_padding_alignment_in_elements) },
-            primitive(shape_layout.index_primitive_type, '#'),
-            primitive(shape_layout.pointer_primitive_type, '*'),
-            if shape_layout.element_size_in_bits == 0 { String::new() } else { format!("E({})", shape_layout.element_size_in_bits) },
-            if shape_layout.memory_space == 0 { String::new() } else { format!("S({})", shape_layout.memory_space) },
-            if splits.is_empty() { String::new() } else { format!("SC{splits}") },
-            shape_layout.physical_shape.as_ref().map_or_else(String::new, |physical| format!("P({})", physical.text(true))),
-            if shape_layout.dynamic_shape_metadata_prefix_bytes > 0 { format!("M({})", shape_layout.dynamic_shape_metadata_prefix_bytes) } else { String::new() },
-        ]
-        .concat();
-        let text = format!("{{{}{}{sections}}}", shape_layout.minor_to_major.iter().join(","), if sections.is_empty() { "" } else { ":" });
-        if !self.dimensions.is_empty() || text != "{}" {
-            out.push_str(&text);
+        let start = out.len();
+        out.push('{');
+        for (index, &dimension) in shape_layout.minor_to_major.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            number(out, dimension);
+        }
+        let colon = out.len();
+        out.push(':');
+        if !shape_layout.tiles.is_empty() {
+            out.push('T');
+            for tile in &shape_layout.tiles {
+                out.push('(');
+                for (index, &dimension) in tile.dimensions.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    match dimension {
+                        0.. => number(out, dimension),
+                        i64::MIN => out.push('*'),
+                        _ => write!(out, "Invalid value {dimension}").unwrap(),
+                    }
+                }
+                out.push(')');
+            }
+        }
+        if !matches!(shape_layout.tail_padding_alignment_in_elements, 0 | 1) {
+            write!(out, "L({})", shape_layout.tail_padding_alignment_in_elements).unwrap();
+        }
+        primitive(out, shape_layout.index_primitive_type, '#');
+        primitive(out, shape_layout.pointer_primitive_type, '*');
+        if shape_layout.element_size_in_bits != 0 {
+            write!(out, "E({})", shape_layout.element_size_in_bits).unwrap();
+        }
+        if shape_layout.memory_space != 0 {
+            write!(out, "S({})", shape_layout.memory_space).unwrap();
+        }
+        if !shape_layout.split_configs.is_empty() {
+            out.push_str("SC");
+            for split in &shape_layout.split_configs {
+                write!(out, "({}:", split.dimension).unwrap();
+                for (index, &at) in split.split_indices.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    number(out, at);
+                }
+                out.push(')');
+            }
+        }
+        if let Some(physical) = &shape_layout.physical_shape {
+            out.push_str("P(");
+            physical.print(out, true);
+            out.push(')');
+        }
+        if shape_layout.dynamic_shape_metadata_prefix_bytes > 0 {
+            write!(out, "M({})", shape_layout.dynamic_shape_metadata_prefix_bytes).unwrap();
+        }
+        if out.len() == colon + 1 {
+            out.truncate(colon);
+        }
+        out.push('}');
+        if self.dimensions.is_empty() && out.len() == start + 2 {
+            out.truncate(start);
         }
     }
 
@@ -517,6 +568,22 @@ impl<'a> Module<'a> {
     pub fn inst(&self, node: usize) -> Inst {
         let (start, end) = self.nodes[node].raw;
         Inst::decode(&self.data[start..end]).unwrap_or_default()
+    }
+
+    /// The instruction without its shape. The node already has the shape.
+    pub fn printed(&self, node: usize) -> Inst {
+        let (start, end) = self.nodes[node].raw;
+        let (mut buf, mut inst) = (&self.data[start..end], Inst::default());
+        while !buf.is_empty() {
+            let field = prost::encoding::decode_key(&mut buf).and_then(|(tag, wire)| match tag {
+                3 => prost::encoding::skip_field(wire, tag, &mut buf, prost::encoding::DecodeContext::default()),
+                _ => inst.merge_field(tag, wire, &mut buf, prost::encoding::DecodeContext::default()),
+            });
+            if field.is_err() {
+                return Inst::default();
+            }
+        }
+        inst
     }
 
     pub fn backend_config<'b>(&'b self, inst: &'b Inst) -> Option<Cow<'b, [u8]>> {

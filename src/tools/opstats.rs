@@ -165,7 +165,12 @@ fn breakdown(data: &[u8]) -> Vec<(u8, u64, u64)> {
         .collect()
 }
 
-fn from_metadata(plane: &Plane, map: &[u8], meta: usize, path: &mut Vec<usize>) -> (Option<(u64, u64)>, Metrics) {
+/// The stats of an operation metadata that `from_metadata` reads, in the order of their kinds.
+const METADATA_STATS: [&str; 12] =
+    ["program_id", "symbol_id", "hlo_category", "tf_op", "flops", "model_flops", "bytes_accessed", "memory_access_breakdown", "deduplicated_name", "source", "source_stack", ""];
+
+/// `kinds` has the index in `METADATA_STATS` of each stat id.
+fn from_metadata(plane: &Plane, map: &[u8], kinds: &[u8], meta: usize, path: &mut Vec<usize>) -> (Option<(u64, u64)>, Metrics) {
     path.push(meta);
     let (meta, mut out, mut key) = (&plane.meta[meta], Metrics::default(), (None, None));
     if meta.display.is_empty() {
@@ -176,36 +181,36 @@ fn from_metadata(plane: &Plane, map: &[u8], meta: usize, path: &mut Vec<usize>) 
     }
     let raw = slice(map, meta.raw);
     for stat in stats(raw, 5, |_| true) {
-        let Some(name) = plane.stat_names.get(stat.id) else { continue };
+        let Some(&kind) = kinds.get(stat.id) else { continue };
         let text = || ArcStr::from(&*plane.text_cow(&stat.value));
         let number = stat.value.int().unwrap_or(0) as u64;
-        match &**name {
-            "program_id" => (out.module, key.0) = (number, Some(number)),
-            "symbol_id" => key.1 = Some(number),
-            "hlo_category" => out.category = text(),
-            "tf_op" => out.provenance = text(),
-            "flops" => out.flops_v2 = number as f64,
-            "model_flops" => out.model_flops_v2 = number as f64,
-            "bytes_accessed" => out.bytes_accessed = number,
-            "memory_access_breakdown" => {
+        match kind {
+            0 => (out.module, key.0) = (number, Some(number)),
+            1 => key.1 = Some(number),
+            2 => out.category = text(),
+            3 => out.provenance = text(),
+            4 => out.flops_v2 = number as f64,
+            5 => out.model_flops_v2 = number as f64,
+            6 => out.bytes_accessed = number,
+            7 => {
                 if let Value::Bytes(data) = stat.value {
                     out.memory = breakdown(data);
                 }
             }
-            "deduplicated_name" => out.deduplicated_name = text(),
-            "source" => {
+            8 => out.deduplicated_name = text(),
+            9 => {
                 if let Some((file, line)) = plane.text_cow(&stat.value).split_once(':').and_then(|(file, line)| Some((file.into(), line.parse::<i32>().ok()?))) {
                     let source = out.source.get_or_insert_with(Source::default);
                     (source.file, source.line) = (file, line);
                 }
             }
-            "source_stack" => out.source.get_or_insert_with(Source::default).stack = text(),
+            10 => out.source.get_or_insert_with(Source::default).stack = text(),
             _ => {}
         }
     }
     for child in children(raw) {
         if child < plane.meta.len() && path.len() < MAX_DEPTH && !path.contains(&child) {
-            out.children.metrics.push(Metrics { occurrences: 1, ..from_metadata(plane, map, child, path).1 });
+            out.children.metrics.push(Metrics { occurrences: 1, ..from_metadata(plane, map, kinds, child, path).1 });
         }
     }
     path.pop();
@@ -227,7 +232,8 @@ pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
             *slot = true;
         }
     }
-    let metas: Vec<Template> = used.par_iter().enumerate().map(|(meta, &used)| used.then(|| from_metadata(plane, map, meta, &mut Vec::new()))).collect();
+    let kinds: Vec<u8> = plane.stat_names.iter().map(|name| METADATA_STATS.iter().position(|known| *known == &**name).unwrap_or(METADATA_STATS.len() - 1) as u8).collect();
+    let metas: Vec<Template> = used.par_iter().enumerate().map(|(meta, &used)| used.then(|| from_metadata(plane, map, &kinds, meta, &mut Vec::new()))).collect();
     let key = |template: &Template| template.as_ref().and_then(|(key, _)| key.filter(|key| key.1 != 0));
     let mut keys: Vec<(u64, u64)> = metas.iter().filter_map(key).collect();
     keys.sort_unstable();
@@ -299,6 +305,7 @@ struct Totals {
     core_type: u8,
 }
 
+#[derive(Clone, Copy)]
 struct Accumulator<'a> {
     template: &'a Metrics,
     custom: bool,
@@ -367,9 +374,10 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn sorted(mut self) -> impl Iterator<Item = Accumulator<'a>> {
-        self.entries.sort_unstable_by_key(|&(slot, _)| slot);
-        self.entries.into_iter().map(|(_, entry)| entry)
+    fn sorted(self) -> impl Iterator<Item = Accumulator<'a>> {
+        let mut order: Vec<u64> = self.entries.iter().enumerate().map(|(index, &(slot, _))| u64::from(slot) << 32 | index as u64).collect();
+        order.sort_unstable();
+        order.into_iter().map(move |key| self.entries[key as u32 as usize].1)
     }
 
     pub fn finish(self) -> Db {

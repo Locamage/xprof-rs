@@ -93,10 +93,10 @@ pub fn valid_besides_events(buf: &[u8]) -> bool {
     valid(buf, Message::Space, true, false)
 }
 
-/// With `split`, a line checks only its own fields, and then parts of about `SPLIT` bytes check all of their fields in parallel.
+/// With `split` and `events`, a line checks only its own fields, and then parts of about `SPLIT` bytes check all of their fields in parallel.
 fn valid(buf: &[u8], message: Message, split: bool, events: bool) -> bool {
     const SPLIT: usize = 1 << 16;
-    let split = split && matches!(message, Message::Line);
+    let split = split && events && matches!(message, Message::Line);
     let (mut pos, mut start, mut children) = (0, 0, Vec::new());
     while pos < buf.len() {
         let Some(key) = varint(buf, &mut pos) else { return false };

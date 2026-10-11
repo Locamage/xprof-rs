@@ -33,6 +33,9 @@ const WINDOW_FIELDS: [WindowField; 6] = [
 ];
 const SUBGROUPS: [&str; 7] = ["replicated", "maximal", "error_type.", "error_type.", "manual", "error_type.", "unreduced"];
 
+/// The instructions that one task prints, when a computation has more of them.
+const LINES_PER_TASK: usize = 2048;
+
 type WindowField = (&'static str, fn(&WindowDimension) -> bool, fn(&WindowDimension) -> String);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -999,7 +1002,7 @@ impl<'a> Printer<'a> {
         let module = self.module;
         let entry = &module.nodes[node];
         write!(out, "{} = {} {}(", self.name(&entry.name), entry.shape.text(true), self.opcode(node)).unwrap();
-        let inst = module.inst(node);
+        let inst = module.printed(node);
         self.operands(node, &inst, out);
         out.push(')');
         let mut attributes = Vec::new();
@@ -1049,10 +1052,24 @@ impl<'a> Printer<'a> {
             write!(out, "({}) -> {} ", parameters.format(", "), module.nodes[entry.root].shape.text(false)).unwrap();
         }
         out.push_str("{\n");
-        for node in schedule.get(&graph).cloned().unwrap_or_else(|| self.module.post_order(graph)) {
+        let line = |node: usize, out: &mut String| {
             out.push_str(if node == entry.root { "  ROOT " } else { "  " });
             self.instruction(node, out);
             out.push('\n');
+        };
+        let order = schedule.get(&graph).map_or_else(|| Cow::Owned(module.post_order(graph)), Cow::Borrowed);
+        if order.len() <= LINES_PER_TASK {
+            order.iter().for_each(|&node| line(node, out));
+        } else {
+            let parts: Vec<String> = order
+                .par_chunks(LINES_PER_TASK)
+                .map(|chunk| {
+                    let mut part = String::new();
+                    chunk.iter().for_each(|&node| line(node, &mut part));
+                    part
+                })
+                .collect();
+            out.extend(parts);
         }
         out.push('}');
         if !entry.thread.is_empty() && entry.thread != "main" {
@@ -1098,8 +1115,9 @@ impl<'a> Printer<'a> {
         let module = self.module;
         let proto = &module.proto;
         let mut schedule = HashMap::new();
+        let graphs: HashMap<i64, usize> = module.graphs.iter().enumerate().rev().map(|(index, graph)| (graph.id, index)).collect();
         for (key, sequence) in &msg(&proto.schedule).sequences {
-            let Some(graph) = module.graphs.iter().position(|graph| graph.id == *key) else { continue };
+            let Some(&graph) = graphs.get(key) else { continue };
             let ids: HashMap<i64, usize> = module.graphs[graph].nodes.iter().map(|&node| (module.nodes[node].id, node)).collect();
             let mut order = Vec::new();
             for id in &sequence.instruction_ids {
