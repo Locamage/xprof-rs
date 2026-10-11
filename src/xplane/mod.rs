@@ -353,15 +353,15 @@ pub fn event_group(raw: &[u8], group: i64, id: Option<usize>) -> Option<i64> {
     if group == NONE_GROUP { event_stat(raw, id).map(|value| value.signed()) } else { Some(group) }
 }
 
-fn table<T: Default>(entries: Vec<(u64, T)>) -> Option<Vec<T>> {
-    let bound = (entries.len() as u64 * ID_FACTOR + ID_SLACK).min(u64::from(u32::MAX));
-    if entries.iter().any(|(id, _)| *id >= bound) {
+fn table<T: Default>(entries: Vec<Vec<(u64, T)>>) -> Option<Vec<T>> {
+    let bound = (entries.iter().map(Vec::len).sum::<usize>() as u64 * ID_FACTOR + ID_SLACK).min(u64::from(u32::MAX));
+    if entries.iter().flatten().any(|(id, _)| *id >= bound) {
         return None;
     }
-    let size = entries.iter().map(|(id, _)| id + 1).max().unwrap_or(0);
+    let size = entries.iter().flatten().map(|(id, _)| id + 1).max().unwrap_or(0);
     let mut table = Vec::new();
     table.resize_with(size as usize, T::default);
-    for (id, value) in entries {
+    for (id, value) in entries.into_iter().flatten() {
         table[id as usize] = value;
     }
     Some(table)
@@ -476,48 +476,31 @@ pub fn parse_checking(buf: &[u8], checked: Option<&AtomicBool>, bare: bool) -> a
 
 impl Plane {
     fn parse((offset, bytes): (usize, &[u8]), buf: &[u8], checked: Option<&AtomicBool>, bare: bool) -> anyhow::Result<Self> {
-        let (mut spans, mut metas, mut names) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut spans, mut entries, mut own) = (Vec::new(), [Vec::new(), Vec::new()], Vec::new());
         let mut plane = Self::default();
-        let mut entries = fields(bytes);
-        for (tag, field) in &mut entries {
+        let mut parts = fields(bytes);
+        for (tag, field) in &mut parts {
             match (tag, field) {
                 (1, Field::Num(id)) => plane.id = id as i64,
                 (2, Field::Bytes(_, name)) => plane.name = lossy(name).into(),
                 (3, Field::Bytes(start, body)) => spans.push((offset + start, body)),
-                (4 | 5, Field::Bytes(entry_start, entry)) => {
-                    let (mut parts, mut key) = (fields(entry), None);
-                    for (entry_tag, value) in &mut parts {
-                        let (value_start, value) = match (entry_tag, value) {
-                            (1, Field::Num(number)) => {
-                                key = Some(number);
-                                continue;
-                            }
-                            (2, Field::Bytes(value_start, value)) => (value_start, value),
-                            _ => continue,
-                        };
-                        let (id, long, display) = named(value).context("The metadata is not valid")?;
-                        let id = key.unwrap_or(id);
-                        let name: Box<str> = if display.is_empty() { lossy(long).into() } else { Box::default() };
-                        if tag == 4 {
-                            let raw = ((offset + entry_start + value_start) as u32, value.len() as u32);
-                            let (internal, role) = known(long);
-                            let root = ROOTS.iter().find(|root| root.0.as_bytes() == long).map(|root| (root.1, root.2));
-                            let long = if long.is_empty() { (0, 0) } else { ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32) };
-                            metas.push((id, Meta { internal, root, role, name, display: lossy(display).into(), raw, long, ..Default::default() }));
-                        } else {
-                            names.push((id, name));
-                        }
-                    }
-                    anyhow::ensure!(parts.complete(), "The metadata is not valid");
-                }
+                (4 | 5, Field::Bytes(start, entry)) => entries[tag as usize - 4].push((offset + start, entry)),
+                (6, Field::Bytes(_, body)) => own.push(body),
                 _ => {}
             }
         }
-        anyhow::ensure!(entries.complete(), "The XPlane is not valid");
-        plane.meta = table(metas).context("An event metadata ID is out of range")?;
-        plane.stat_names = table(names).context("A stat metadata ID is out of range")?;
-        let limit = plane.meta.len() as u64;
+        let names = entries[1].par_iter().try_fold(Vec::new, |out, &(start, entry)| plane.entry(start, entry, buf, false, out)).collect::<anyhow::Result<Vec<_>>>()?;
+        let names: Option<Vec<Box<str>>> = table(names).map(|names| names.into_iter().map(|meta| meta.name).collect());
+        plane.stat_names = names.clone().unwrap_or_default();
         plane.kind = plane.stat_names.iter().map(|name| STATS.iter().position(|stat| stat == &&**name).map_or(NO_KIND, |kind| kind as u8)).collect();
+        for &kind in plane.kind.iter().filter(|&&kind| kind != NO_KIND) {
+            plane.present[kind as usize] = true;
+        }
+        let metas = entries[0].par_iter().try_fold(Vec::new, |out, &(start, entry)| plane.entry(start, entry, buf, true, out)).collect::<anyhow::Result<Vec<_>>>()?;
+        anyhow::ensure!(parts.complete(), "The XPlane is not valid");
+        plane.meta = table(metas).context("An event metadata ID is out of range")?;
+        plane.stat_names = names.context("A stat metadata ID is out of range")?;
+        let limit = plane.meta.len() as u64;
         let keep = !bare || plane.name != "/host:CPU";
         plane.lines = spans.par_iter().map(|&span| line(span, limit, &plane.kind, checked, keep)).collect::<Option<Vec<Line>>>().context("An XLine is not valid")?;
         for line in plane.lines.iter_mut().filter(|line| !line.events.is_sorted_by_key(|event| (event.ts, Reverse(event.dur)))) {
@@ -527,10 +510,9 @@ impl Plane {
             plane.meta.push(Meta::default());
         }
         plane.correlation = plane.kind.iter().position(|&kind| kind == CORRELATION as u8);
-        for &kind in plane.kind.iter().filter(|&&kind| kind != NO_KIND) {
-            plane.present[kind as usize] = true;
-        }
-        plane.own = stats(bytes, 6, |_| true)
+        plane.own = own
+            .into_iter()
+            .filter_map(|body| stat(body, |_| true))
             .map(|stat| {
                 let value = match stat.value {
                     Value::Int(value) => Own::Int(value),
@@ -546,19 +528,54 @@ impl Plane {
             _ => None,
         };
         let ready: Vec<bool> = CONNECTIONS.iter().map(|connection| connection.stats.iter().all(|&kind| plane.present[kind] || kind == CORE_TYPE)).collect();
-        let bases: Vec<(Option<Box<Stats>>, Option<String>)> = plane
-            .meta
-            .par_iter()
-            .map(|meta| {
-                let mut base = Stats::default();
-                plane.apply(&mut base, slice(buf, meta.raw), 5, |_| true);
-                (base.iter().any(Option::is_some).then(|| Box::new(base)), plane.step(slice(buf, meta.raw), 5))
-            })
-            .collect();
-        for (meta, (base, step)) in plane.meta.iter_mut().zip(bases) {
-            (meta.base, meta.step, meta.role) = (base, step, std::array::from_fn(|index| if ready[index] { meta.role[index] } else { 0 }));
+        for meta in &mut plane.meta {
+            meta.role = std::array::from_fn(|role| if ready[role] { meta.role[role] } else { 0 });
         }
         Ok(plane)
+    }
+
+    /// Adds to `out` the metadata of an entry of the map of event metadata (with `event`) or of stat metadata. An entry can have more than one value.
+    fn entry(&self, start: usize, entry: &[u8], buf: &[u8], event: bool, mut out: Vec<(u64, Meta)>) -> anyhow::Result<Vec<(u64, Meta)>> {
+        let (mut parts, mut key) = (fields(entry), None);
+        for (entry_tag, value) in &mut parts {
+            let (value_start, value) = match (entry_tag, value) {
+                (1, Field::Num(number)) => {
+                    key = Some(number);
+                    continue;
+                }
+                (2, Field::Bytes(value_start, value)) => (value_start, value),
+                _ => continue,
+            };
+            let (id, long, display) = named(value).context("The metadata is not valid")?;
+            let name = if display.is_empty() { lossy(long).into() } else { Box::default() };
+            let meta = if event {
+                let (internal, role) = known(long);
+                let root = ROOTS.iter().find(|root| root.0.as_bytes() == long).map(|root| (root.1, root.2));
+                let (base, step) = if self.present.contains(&true) { self.base(value) } else { (None, None) };
+                let long = if long.is_empty() { (0, 0) } else { ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32) };
+                Meta { internal, root, role, name, display: lossy(display).into(), raw: ((start + value_start) as u32, value.len() as u32), long, base, step, ..Default::default() }
+            } else {
+                Meta { name, ..Default::default() }
+            };
+            out.push((key.unwrap_or(id), meta));
+        }
+        anyhow::ensure!(parts.complete(), "The metadata is not valid");
+        Ok(out)
+    }
+
+    /// The link stats and the step name of an event metadata, from one pass over its stats.
+    fn base(&self, raw: &[u8]) -> (Option<Box<Stats>>, Option<String>) {
+        let (mut base, mut step) = (Stats::default(), None);
+        for stat in stats(raw, 5, |id| self.kind.get(id).is_some_and(|&kind| kind != NO_KIND)) {
+            let kind = self.kind[stat.id] as usize;
+            if let Some(value) = number(kind, &stat.value) {
+                base[kind] = Some(value as u64);
+            }
+            if kind == STEP && matches!(stat.value, Value::Str(_) | Value::Ref(_)) {
+                step = Some(stat.value);
+            }
+        }
+        (base.iter().any(Option::is_some).then(|| Box::new(base)), step.map(|value| self.text(&value)))
     }
 
     fn apply(&self, out: &mut Stats, raw: &[u8], field: u32, keep: impl Fn(usize) -> bool) {
@@ -568,11 +585,6 @@ impl Plane {
                 out[kind] = Some(value as u64);
             }
         }
-    }
-
-    fn step(&self, raw: &[u8], field: u32) -> Option<String> {
-        let found = stats(raw, field, |id| self.present[STEP] && self.kind.get(id) == Some(&(STEP as u8)));
-        found.filter(|stat| matches!(stat.value, Value::Str(_) | Value::Ref(_))).last().map(|stat| self.text(&stat.value))
     }
 
     pub fn links(&self, meta: u32, raw: &[u8], ordinal: Option<u64>) -> Links {

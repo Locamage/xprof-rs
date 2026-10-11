@@ -62,6 +62,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - A search with `search_metadata=true` shows the stack frames of the full trace, as XProf does. Before, the `stackFrames` object had only the frames of the events that the search found, with different numbers.
 - The check of an HLO proto examines the nested messages of a large message at the same time. It finds the rule of a field in a table. On a 280 MB TPU v4 profile with 8 cores, the check takes 17 ms (before: 103 ms), and the first `overview_page` request takes 0.55 s (before: 0.62 s).
 - Each metadata entry keeps the result of the check of its HLO proto. Before, one cold request for op statistics checked the same proto four times. On a 280 MB TPU v4 profile, this removes 0.35 s of CPU time from the first `overview_page` request.
+- The parse of a profile reads the metadata of each plane on all cores. It reads the stats of an event metadata in the same pass as its name. On a 280 MB TPU v4 profile with 8 cores, the parse takes 39 ms (before: 52 ms).
 
 ## 0.1.2
 
