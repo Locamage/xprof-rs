@@ -289,9 +289,9 @@ struct Walker<'a> {
     roots: FxHashMap<u32, i64>,
     seen: Vec<u32>,
     epoch: u32,
-    names: HashMap<i64, String>,
+    /// The group and the root of each call of `process`, in order.
+    processed: Vec<(i64, u32)>,
     relatives: Metadata,
-    renames: Vec<(u32, String)>,
 }
 
 fn neighbors(csr: &Members, node: u32) -> &[u32] {
@@ -380,6 +380,11 @@ impl Walker<'_> {
                 self.relatives.entry(current).or_default().parents.insert(group);
             }
         }
+        self.processed.push((group, root));
+    }
+
+    /// Gives the name of the group of `root`, and true when the root keeps its own name.
+    fn name(&self, group: i64, root: u32) -> (String, bool) {
         let (plane, line, event) = self.event(root);
         let implicit = IMPLICIT_ROOTS.contains(&line.name.as_str()) || IMPLICIT_ROOT_EVENTS.contains(&&*plane.meta[event.meta as usize].full_name(self.map));
         let step = self.context(root, "iter_num").and_then(|value| value.int()).or_else(|| self.context(root, "step_num").and_then(|value| value.int())).unwrap_or(group);
@@ -388,11 +393,7 @@ impl Walker<'_> {
             None if !implicit => format!("{} ", plane.meta[event.meta as usize].full_name(self.map)),
             None => String::new(),
         };
-        let name = format!("{prefix}{step}");
-        if !implicit {
-            self.renames.push((root, name.clone()));
-        }
-        self.names.insert(group, name);
+        (format!("{prefix}{step}"), implicit)
     }
 }
 
@@ -572,9 +573,8 @@ pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
         roots: outs.iter().flat_map(|out| out.roots.iter().copied()).collect(),
         seen: vec![0; nodes as usize],
         epoch: 0,
-        names: HashMap::new(),
+        processed: Vec::new(),
         relatives: Metadata::new(),
-        renames: Vec::new(),
     };
     let mut roots: Vec<u32> = walker.roots.keys().copied().collect();
     roots.sort_by_key(|&node| (std::cmp::Reverse(walker.roots[&node]), walker.event(node).2.ts, node));
@@ -604,7 +604,15 @@ pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
         }
     }
     let eager = classify_eager(&walker, &outs);
-    let (group, names, relatives, renames) = (walker.group, walker.names, walker.relatives, walker.renames);
+    let (mut names, mut renames) = (HashMap::new(), Vec::new());
+    let titles: Vec<(String, bool)> = walker.processed.par_iter().map(|&(group, root)| walker.name(group, root)).collect();
+    for (&(group, root), (name, implicit)) in walker.processed.iter().zip(titles) {
+        if !implicit {
+            renames.push((root, name.clone()));
+        }
+        names.insert(group, name);
+    }
+    let (group, relatives) = (walker.group, walker.relatives);
     for (node, value) in eager {
         let (plane, line, event) = locate(&graph.starts, node);
         planes[plane as usize].lines[line as usize].events[event as usize].eager = Some(value);

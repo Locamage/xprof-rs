@@ -76,6 +76,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - After the sort, the trace viewer numbers the equal events, the async tracks and the flows in parallel parts. It also puts the events of all tracks in one array, not in one vector for each track. The ids do not change. On a 1.7 GB profile with 8 cores, the first trace viewer request takes 7.7 s, not 8.3 s.
 - When xprof-rs puts the events in groups, it finds the parent of each nested event in parallel chunks. Before, one loop on one thread read all events of a line. The groups do not change. On a 1.7 GB profile with a line of 20 million events, the first `memory_profile` request takes 2.01 s, not 2.18 s.
 - The parser checks the order of the events of each line, sorts them, and moves their times in parallel. Before, a line with many events used one thread. The events do not change. On a 1.7 GB profile, the first `memory_profile` request takes 1.94 s, not 1.98 s.
+- xprof-rs makes the names of the event groups in parallel, after it gives the groups to the events. Before, it made each name on one thread while it gave the groups. The names do not change. On a 1.7 GB profile, the first `memory_profile` request takes 1.79 s, not 1.93 s.
 
 ## 0.1.2
 
