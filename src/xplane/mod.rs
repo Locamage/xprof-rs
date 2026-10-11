@@ -466,10 +466,10 @@ pub fn parse_checking(buf: &[u8], checked: Option<&AtomicBool>, bare: bool) -> a
     planes.iter_mut().for_each(|plane| (plane.origin_ns, plane.host) = (origin, host));
     planes.par_iter_mut().flat_map(|plane| plane.lines.par_iter_mut()).for_each(|line| {
         let base = line.base_ps(origin);
-        for event in &mut line.events {
+        line.events.par_iter_mut().with_min_len(1 << 14).for_each(|event| {
             event.ts = event.ts.saturating_add(base);
             event.dur = event.dur.min(u64::MAX - event.ts);
-        }
+        });
     });
     Ok(planes)
 }
@@ -503,10 +503,9 @@ impl Plane {
         let limit = plane.meta.len() as u64;
         let keep = !bare || plane.name != "/host:CPU";
         plane.lines = spans.par_iter().map(|&span| line(span, limit, &plane.kind, checked, keep)).collect::<Option<Vec<Line>>>().context("An XLine is not valid")?;
-        for line in plane.lines.iter_mut().filter(|line| !line.events.is_sorted_by_key(|event| (event.ts, Reverse(event.dur)))) {
-            line.events.sort_by_key(|event| (event.ts, Reverse(event.dur)));
-        }
-        if plane.lines.iter().flat_map(|line| &line.events).any(|event| u64::from(event.meta) == limit) {
+        let order = |event: &Ev| (event.ts, Reverse(event.dur));
+        plane.lines.par_iter_mut().filter(|line| !line.events.par_windows(2).all(|pair| order(&pair[0]) <= order(&pair[1]))).for_each(|line| line.events.par_sort_by_key(order));
+        if plane.lines.par_iter().flat_map(|line| line.events.par_iter()).any(|event| u64::from(event.meta) == limit) {
             plane.meta.push(Meta::default());
         }
         plane.correlation = plane.kind.iter().position(|&kind| kind == CORRELATION as u8);
