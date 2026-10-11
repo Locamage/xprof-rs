@@ -490,15 +490,14 @@ fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Gra
     edges.extend(iterations.iter().flat_map(|nodes| nodes[1..].iter().map(|&node| (nodes[0], node))));
     let launches: FxHashMap<u64, u32> = outs.iter().flat_map(|out| out.launches.iter().copied()).collect();
     edges.extend(outs.iter().flat_map(|out| out.executes.iter()).filter_map(|(correlation, node)| launches.get(correlation).map(|&launch| (launch, *node))));
-    let mut contexts: FxHashMap<Key, Members> = FxHashMap::default();
-    for (key, producer, node) in outs.iter().flat_map(|out| out.contexts.iter().copied()) {
-        let entry = contexts.entry(key).or_default();
-        if producer { &mut entry.0 } else { &mut entry.1 }.push(node);
-    }
-    let mut ordered: Vec<(&Key, &Members)> = contexts.iter().collect();
-    ordered.sort_by_key(|(key, _)| **key);
-    for (_, (producers, consumers)) in ordered.into_iter().filter(|(_, (producers, consumers))| producers.len() < FANOUT_LIMIT || consumers.len() < FANOUT_LIMIT) {
-        edges.extend(producers.iter().flat_map(|&producer| consumers.iter().map(move |&consumer| (producer, consumer))));
+    // The sort is stable, so the producers and the consumers of a key stay in their order.
+    let mut contexts: Vec<(Key, bool, u32)> = outs.iter().flat_map(|out| out.contexts.iter().copied()).collect();
+    contexts.par_sort_by_key(|context| context.0);
+    for run in contexts.chunk_by(|a, b| a.0 == b.0) {
+        let side = |producer: bool| run.iter().filter(move |context| context.1 == producer).map(|context| context.2);
+        if side(true).count() < FANOUT_LIMIT || side(false).count() < FANOUT_LIMIT {
+            edges.extend(side(true).flat_map(|producer| side(false).map(move |consumer| (producer, consumer))));
+        }
     }
     let parts: Vec<&[(u32, u32)]> = outs.iter().flat_map(|out| out.edges.iter().map(Vec::as_slice)).chain([&edges[..]]).collect();
     let (kids, parents) = rayon::join(|| csr(nodes as usize, &parts, false), || csr(nodes as usize, &parts, true));

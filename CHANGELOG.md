@@ -77,6 +77,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - When xprof-rs puts the events in groups, it finds the parent of each nested event in parallel chunks. Before, one loop on one thread read all events of a line. The groups do not change. On a 1.7 GB profile with a line of 20 million events, the first `memory_profile` request takes 2.01 s, not 2.18 s.
 - The parser checks the order of the events of each line, sorts them, and moves their times in parallel. Before, a line with many events used one thread. The events do not change. On a 1.7 GB profile, the first `memory_profile` request takes 1.94 s, not 1.98 s.
 - xprof-rs makes the names of the event groups in parallel, after it gives the groups to the events. Before, it made each name on one thread while it gave the groups. The names do not change. On a 1.7 GB profile, the first `memory_profile` request takes 1.79 s, not 1.93 s.
+- To connect the producers and the consumers of the events, xprof-rs sorts one list of all links in parallel. Before, it put the links in a hash map on one thread, and then sorted the map. The edges do not change. On a 1.7 GB profile, the first `memory_profile` request takes 1.69 s, not 1.78 s.
 
 ## 0.1.2
 
