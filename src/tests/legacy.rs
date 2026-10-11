@@ -248,6 +248,19 @@ fn fused_instructions_print_like_xla() {
 }
 
 #[test]
+fn bitcast_convert_is_elementwise_only_for_equal_bit_widths() {
+    let instruction = |id: u64, name: &str, opcode: &str, kind: u64, operands: &[u64]| {
+        let shape = bytes(3, &[number(2, kind), bytes(3, &varint(4)), bytes(5, &bytes(1, &varint(0)))].concat());
+        bytes(2, &[number(35, id), bytes(1, name.as_bytes()), bytes(2, opcode.as_bytes()), shape, operands.iter().flat_map(|&operand| number(36, operand)).collect()].concat())
+    };
+    let main = [bytes(1, b"main"), instruction(1, "p", "parameter", 2, &[]), instruction(2, "q", "parameter", 21, &[]), instruction(3, "same", "bitcast-convert", 6, &[1])];
+    let main = bytes(3, &[main.concat(), instruction(4, "narrow", "bitcast-convert", 6, &[2]), number(5, 4)].concat());
+    let module = hlo::Module::parse(std::borrow::Cow::Owned(bytes(1, &[bytes(1, b"jit_f"), main].concat())));
+    assert_eq!(module.category(module.find("same").unwrap()), "non-fusion elementwise");
+    assert_eq!(module.category(module.find("narrow").unwrap()), "bitcast-convert");
+}
+
+#[test]
 fn roofline_category_falls_back_to_opcode_names() {
     let metrics = |name: &str, category: &str| tools::opstats::Metrics { name: name.into(), category: category.into(), ..Default::default() };
     assert_eq!(tools::roofline::category(&metrics("copy", "")), "copy");

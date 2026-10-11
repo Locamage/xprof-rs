@@ -69,6 +69,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The CLI command `aggregate_xplane_events` joins the durations of each event name on all cores. Before, one thread joined the durations of all names.
 - The CLI writes a JSON list of more than 4096 items in parts on all cores. On a 280 MB TPU v4 profile with 8 cores, the cold `aggregate_xplane_events` command takes 325 ms (before: 365 ms).
 - The `op_profile` tool keeps the JSON text of each subtree as a part, and then joins all parts one time on all cores. Before, each level of the tree copied the text of its subtrees again. On a 280 MB TPU v4 profile with 8 cores, the first `op_profile` request with `group_by=provenance` takes 0.78 s (before: 0.86 s) and uses 1.29 GB of memory (before: 1.48 GB).
+- A `bitcast-convert` instruction is in the category "non-fusion elementwise" only when its input and output types have the same number of bits, as in XLA. Before, xprof-rs used 8 bits for the types `s1`, `s2`, `s4`, `u1`, `u2` and `u4`. Thus a `bitcast-convert` from `s4` to `u8` had the incorrect category.
 
 ## 0.1.2
 

@@ -103,7 +103,7 @@ pub(crate) fn bit_width(kind: i32) -> i64 {
     }
 }
 
-fn storage_bit_width(kind: i32) -> i64 {
+pub(crate) fn storage_bit_width(kind: i32) -> i64 {
     if kind == 1 { 8 } else { bit_width(kind) }
 }
 

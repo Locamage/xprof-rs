@@ -640,13 +640,7 @@ impl<'a> Module<'a> {
     fn is_elementwise(&self, node: usize) -> bool {
         let entry = &self.nodes[node];
         match entry.opcode.as_str() {
-            "bitcast-convert" => {
-                let width = |kind: i32| match type_name(kind) {
-                    "pred" | "s8" | "u8" | "s1" | "s2" | "s4" | "u1" | "u2" | "u4" => 8,
-                    name => name.trim_start_matches(|c: char| c.is_ascii_alphabetic()).split(|c: char| !c.is_ascii_digit()).next().and_then(|bits| bits.parse().ok()).unwrap_or(8),
-                };
-                entry.operands.first().is_some_and(|&operand| width(entry.shape.element_type) == width(self.nodes[operand].shape.element_type))
-            }
+            "bitcast-convert" => entry.operands.first().is_some_and(|&operand| cost::storage_bit_width(entry.shape.element_type) == cost::storage_bit_width(self.nodes[operand].shape.element_type)),
             "map" => {
                 let dimensions = &self.inst(node).dimensions;
                 dimensions.is_empty() || (dimensions.len() == entry.shape.dimensions.len() && dimensions.iter().enumerate().all(|(position, &dimension)| dimension == position as i64))
