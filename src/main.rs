@@ -474,7 +474,7 @@ fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool, ends: Option<
     } else {
         let mut raw = Vec::new();
         if let Some(ends) = ends {
-            raw.resize(u32::from_le_bytes(body[body.len() - 4..].try_into().unwrap()) as usize, 0);
+            raw.resize(decoded_len(&body, ends), 0);
             raw.par_chunks_mut(GZIP_CHUNK).zip(ends).enumerate().for_each(|(index, (out, &end))| {
                 let start = if index == 0 { GZIP_HEADER.len() } else { ends[index - 1] };
                 flate2::Decompress::new(false).decompress(&body[start..end], out, flate2::FlushDecompress::Sync).unwrap();
@@ -485,6 +485,12 @@ fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool, ends: Option<
         *reply.body_mut() = Body::from(raw);
     }
     reply
+}
+
+/// The length of the decoded gzip `body` of `gzip`. The trailer has the length modulo 2^32, and only the last part is shorter than `GZIP_CHUNK`.
+fn decoded_len(body: &[u8], ends: &[usize]) -> usize {
+    let full = (ends.len() - 1) * GZIP_CHUNK;
+    full + u32::from_le_bytes(body[body.len() - 4..].try_into().unwrap()).wrapping_sub(full as u32) as usize
 }
 
 /// Resolves the deepest part of the path that exists. The parts after it must be plain names, and the first of them must not be a symlink to a path that does not exist.

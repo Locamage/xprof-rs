@@ -83,6 +83,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The CLI finds a trace when you give only its file name in the current directory, for example `get_hosts host0.xplane.pb`. Before, the command failed with "No .xplane.pb or .xspace.pb files found".
 - When the overview data gives a negative number of steps, `check_host_boundness` keeps the negative number, as XProf does. Before, the number changed to 18446744073709551615, and the times were very large.
 - The server does not remove the files of a session that a download still writes, when the remote mirror is too large. Before, a long download sometimes lost its file, and the request failed with "Cannot write the mirror".
+- A response of 4 GiB or more is complete when the client does not accept gzip, for example `curl` without `--compressed`. Before, the server used the gzip size field, which keeps only the low 32 bits. Thus the response was too short.
 
 ## 0.1.2
 

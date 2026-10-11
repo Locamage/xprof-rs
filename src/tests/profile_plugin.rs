@@ -394,3 +394,11 @@ async fn cached_gzip_parts_decode_alone_and_as_one_stream() {
         assert_eq!(axum::body::to_bytes(plain.into_body(), usize::MAX).await.unwrap(), body);
     }
 }
+
+#[test]
+fn decoded_length_of_a_body_of_4_gib_or_more() {
+    let len = (5usize << 30) + 12345;
+    let trailer = [&[0u8; 4][..], &(len as u32).to_le_bytes()].concat();
+    assert_eq!(crate::decoded_len(&trailer, &vec![0; len.div_ceil(crate::GZIP_CHUNK)]), len);
+    assert_eq!(crate::decoded_len(&trailer, &[0]), len as u32 as usize);
+}
