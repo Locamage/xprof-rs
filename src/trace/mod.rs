@@ -4,7 +4,7 @@ pub mod legacy;
 
 use crate::xplane::{Ev, Line, Links, NONE_GROUP, Plane, Step, slice};
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem::MaybeUninit;
@@ -318,18 +318,31 @@ fn layout<'a>(planes: &'a [Plane], host: &str) -> Layout<'a> {
     Layout { devices, jobs, tracks: track_ids.len(), names, bases, long_names, steps }
 }
 
-/// The slots of the events that `convert` writes. Each input index has a different slot.
-struct Slots(*mut MaybeUninit<Event>);
+/// The slots of a vector that threads fill in parallel. Each input index has a different slot.
+struct Slots<T>(*mut MaybeUninit<T>);
 
 // SAFETY: the threads write to different slots.
-unsafe impl Sync for Slots {}
+unsafe impl<T: Send> Sync for Slots<T> {}
 
-impl Slots {
+impl<T> Slots<T> {
     /// # Safety
     /// Only one thread writes to `index`, and `index` is in the allocation.
-    unsafe fn write(&self, index: usize, event: Event) {
-        unsafe { self.0.add(index).write(MaybeUninit::new(event)) };
+    unsafe fn write(&self, index: usize, value: T) {
+        unsafe { self.0.add(index).write(MaybeUninit::new(value)) };
     }
+}
+
+/// Changes the counts of each group in each unit into the first slot of the group in the unit. The groups come one after the other, and in a group, the units keep their order. Gives the start of each group, and the total at the end.
+fn into_cursors(units: &mut [Vec<u32>], groups: usize) -> Vec<usize> {
+    let (mut bounds, mut next) = (Vec::with_capacity(groups + 1), 0);
+    for group in 0..groups {
+        bounds.push(next as usize);
+        for unit in units.iter_mut() {
+            next += std::mem::replace(&mut unit[group], next);
+        }
+    }
+    bounds.push(next as usize);
+    bounds
 }
 
 /// Calls `visit` with the index of the job, the index in the line and the event, for the input indices in `range`.
@@ -389,14 +402,7 @@ fn convert(planes: &[Plane], map: &[u8], layout: &Layout) -> Converted {
             counts
         })
         .collect();
-    let (mut bounds, mut next) = (Vec::with_capacity(buckets + 1), 0);
-    for bucket in 0..buckets {
-        bounds.push(next as usize);
-        for unit in &mut cursors {
-            next += std::mem::replace(&mut unit[bucket], next);
-        }
-    }
-    bounds.push(total);
+    let bounds = into_cursors(&mut cursors, buckets);
     let converted = |job: usize, index: usize, event: &Ev| {
         let Job { plane: plane_index, line, device, track, label_base } = jobs[job];
         let (plane, derived) = (&planes[plane_index], !line.labels.is_empty());
@@ -471,26 +477,85 @@ impl Trace {
             bucket.copy_from_slice(&sorted);
         });
         events.truncate(events.partition_point(|event| event.ts != u64::MAX));
-        let (mut async_tracks, mut by_track) = (FxHashMap::<(u32, &str), u32>::default(), vec![Vec::new(); tracks]);
-        let (mut flow_index, mut flow_ids, mut flowing, mut previous) = (FxHashMap::<u64, u64>::default(), Vec::new(), Vec::new(), (u64::MAX, 0));
-        for (index, event) in events.iter_mut().enumerate() {
-            previous = (event.ts, if event.ts == previous.0 { previous.1 + 1 } else { 0 });
-            event.serial = previous.1;
-            if event.resource == NONE_RESOURCE {
-                event.track = *async_tracks.entry((event.device, &*names[event.name as usize])).or_insert_with(|| {
-                    by_track.push(Vec::new());
-                    by_track.len() as u32 - 1
-                });
+        let part = events.len().div_ceil(rayon::current_num_threads() * 4).max(1);
+        let run_starts: Vec<usize> = (0..events.len()).step_by(part).map(|start| events.partition_point(|event| event.ts < events[start].ts)).collect();
+        // Each part gives its new async tracks and flows in the order of their first event, and these get ids in the order of the parts. A part counts the events of each track, and of each of its new async tracks.
+        let units: Vec<_> = events
+            .par_chunks_mut(part)
+            .zip(run_starts)
+            .enumerate()
+            .map(|(unit, (events, mut run))| {
+                let (mut counts, mut async_counts, mut flows, mut flowing) = (vec![0; tracks], Vec::new(), Vec::new(), Vec::new());
+                let (mut local, mut seen_flows) = (indexmap::IndexMap::<(u32, &str), (), rustc_hash::FxBuildHasher>::default(), FxHashSet::default());
+                let mut previous = events[0].ts;
+                for (offset, event) in events.iter_mut().enumerate() {
+                    let index = unit * part + offset;
+                    if event.ts != previous {
+                        (run, previous) = (index, event.ts);
+                    }
+                    event.serial = (index - run) as u32;
+                    if event.resource == NONE_RESOURCE {
+                        let id = local.insert_full((event.device, &*names[event.name as usize]), ()).0;
+                        if id == async_counts.len() {
+                            async_counts.push(0);
+                        }
+                        async_counts[id] += 1;
+                    } else {
+                        counts[event.track as usize] += 1;
+                    }
+                    if event.flow != NONE_FLOW {
+                        flowing.push(index as u32);
+                        if seen_flows.insert(event.flow) {
+                            flows.push(event.flow);
+                        }
+                    }
+                }
+                (counts, local.into_keys().zip(async_counts).collect::<Vec<_>>(), flows, flowing)
+            })
+            .collect();
+        let (mut async_tracks, mut flow_index, mut flow_ids) = (FxHashMap::<(u32, &str), u32>::default(), FxHashMap::<u64, u64>::default(), Vec::new());
+        for (_, unit_tracks, unit_flows, _) in &units {
+            for &(key, _) in unit_tracks {
+                let next = (tracks + async_tracks.len()) as u32;
+                async_tracks.entry(key).or_insert(next);
             }
-            if event.flow != NONE_FLOW {
-                event.flow = *flow_index.entry(event.flow).or_insert_with(|| {
-                    flow_ids.push(event.flow);
+            for &flow in unit_flows {
+                flow_index.entry(flow).or_insert_with(|| {
+                    flow_ids.push(flow);
                     flow_ids.len() as u64 - 1
                 });
-                flowing.push(index as u32);
             }
-            by_track[event.track as usize].push(index as u32);
         }
+        let tracks = tracks + async_tracks.len();
+        let (mut cursors, mut flowing) = (Vec::with_capacity(units.len()), Vec::new());
+        for (mut counts, unit_tracks, _, unit_flowing) in units {
+            counts.resize(tracks, 0);
+            for (key, count) in unit_tracks {
+                counts[async_tracks[&key] as usize] += count;
+            }
+            cursors.push(counts);
+            flowing.extend(unit_flowing);
+        }
+        let bounds = into_cursors(&mut cursors, tracks);
+        let mut order: Vec<u32> = Vec::with_capacity(events.len());
+        let slots = Slots(order.spare_capacity_mut().as_mut_ptr());
+        events.par_chunks_mut(part).zip(cursors).enumerate().for_each(|(unit, (events, mut cursors))| {
+            for (offset, event) in events.iter_mut().enumerate() {
+                if event.resource == NONE_RESOURCE {
+                    event.track = async_tracks[&(event.device, &*names[event.name as usize])];
+                }
+                if event.flow != NONE_FLOW {
+                    event.flow = flow_index[&event.flow];
+                }
+                let slot = &mut cursors[event.track as usize];
+                // SAFETY: the cursors of the units give each event a different slot below `events.len()`.
+                unsafe { slots.write(*slot as usize, (unit * part + offset) as u32) };
+                *slot += 1;
+            }
+        });
+        // SAFETY: the units write all slots.
+        unsafe { order.set_len(events.len()) };
+        let by_track: Vec<&[u32]> = bounds.windows(2).map(|pair| &order[pair[0]..pair[1]]).collect();
         let span = (
             events.iter().map(|event| event.ts).find(|&ts| ts <= BAD_TIMESTAMP).unwrap_or(0),
             events.par_iter().map(|event| event.ts.saturating_add(event.dur)).filter(|&end| end <= BAD_TIMESTAMP).max().unwrap_or(0),
@@ -637,7 +702,7 @@ impl Trace {
 }
 
 /// `flowing` has the indices of the events with a flow, in order.
-fn assign_levels(events: &[Event], by_track: &[Vec<u32>], flowing: &[u32], flow_count: usize) -> Vec<u8> {
+fn assign_levels(events: &[Event], by_track: &[&[u32]], flowing: &[u32], flow_count: usize) -> Vec<u8> {
     let mut global: Vec<Visibility> = LAYER_PS[..SPLIT].iter().map(|&resolution| Visibility { resolution, rows: vec![Row::default(); by_track.len()], flows: vec![None; flow_count] }).collect();
     let mut flow_visible = vec![vec![None; flow_count]; SPLIT];
     for event in flowing.iter().map(|&index| &events[index as usize]) {
@@ -661,7 +726,7 @@ fn assign_levels(events: &[Event], by_track: &[Vec<u32>], flowing: &[u32], flow_
     }
     let levels: Vec<AtomicU8> = (0..events.len()).map(|_| AtomicU8::new(0)).collect();
     // The large tracks start first, so that a large track does not run alone at the end.
-    let mut order: Vec<&Vec<u32>> = by_track.iter().collect();
+    let mut order = by_track.to_vec();
     order.sort_unstable_by_key(|indices| std::cmp::Reverse(indices.len()));
     order.into_par_iter().with_max_len(1).for_each(|indices| {
         let track = || indices.iter().map(|&index| &events[index as usize]);

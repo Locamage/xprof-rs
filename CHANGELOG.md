@@ -73,6 +73,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - To find the thread pool regions, xprof-rs reads the names of the event types one time, and it compares the bytes. Before, it checked the text of each long name three times. On a 280 MB TPU v4 profile with 8 cores, the first `memory_profile` request takes 147 ms (before: 158 ms).
 - The trace viewer sorts its events in time buckets, in parallel. Before, one sort of all events moved each event many times. The order of the events does not change. On a 1.7 GB profile with 8 cores, the first trace viewer request takes 9.0 s, not 12.1 s. Its CPU time is 47 s, not 63 s. On a 280 MB TPU v4 profile, the time does not change, and the peak memory decreases from 1.11 GB to 0.92 GB.
 - The trace viewer gives the levels of a very large track faster. Each level is a pass over the events of the track. These passes now run at the same time, and each pass stays a part behind the pass before it. The levels do not change. On a 1.7 GB profile with a track of 20 million events, the first trace viewer request takes 8.2 s, not 8.9 s.
+- After the sort, the trace viewer numbers the equal events, the async tracks and the flows in parallel parts. It also puts the events of all tracks in one array, not in one vector for each track. The ids do not change. On a 1.7 GB profile with 8 cores, the first trace viewer request takes 7.7 s, not 8.3 s.
 
 ## 0.1.2
 
