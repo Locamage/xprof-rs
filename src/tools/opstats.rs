@@ -281,7 +281,7 @@ impl EventReader {
             (FLOPS, _) => out.custom[2] += number,
             (DEVICE_OFFSET, _) => _ = out.offset.get_or_insert(number),
             (DEVICE_DURATION, _) => _ = out.duration.get_or_insert(number),
-            (TIME_SCALE, value) => _ = out.scale.get_or_insert(if let Value::Double(factor) = value { *factor } else { 1.0 }),
+            (TIME_SCALE, value) => _ = out.scale.get_or_insert(if let Value::Double(factor) = value { *factor } else { 0.0 }),
             _ => {}
         }
     }

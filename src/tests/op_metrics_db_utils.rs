@@ -107,3 +107,17 @@ fn add_op_metric() {
            normalized_total_op_time_ps: 350"#,
     );
 }
+
+#[test]
+fn time_scale_multiplier_that_is_not_a_double_is_zero() {
+    let mut space = XSpace::default();
+    let plane = space.add_plane();
+    for (name, symbol) in [("m1", 1), ("m2", 2)] {
+        plane.metadata_stats(name, &[("program_id", 1.into()), ("symbol_id", symbol.into())]);
+    }
+    plane.event(0, "m1", 0, 100, &[("Time Scale Multiplier", 2i64.into())]);
+    plane.event(0, "m2", 100, 100, &[]);
+    let db = build(&space, true);
+    let normalized: Vec<(&str, u64)> = db.metrics.iter().map(|metrics| (&*metrics.name, metrics.normalized_time_ps)).collect();
+    assert_eq!(normalized, [("m1", 0), ("m2", 100)]);
+}
