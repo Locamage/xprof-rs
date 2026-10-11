@@ -45,6 +45,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - For a local path, `compute_utilization` and `get_kernel_utilization` give data only when the file name contains the first host name of the profile. XProf has the same rule. For example, a profile of the host `worker-0` in the file `host.xplane.pb` gives the "no data returned" error.
 - When an event or a stat has no metadata, the CLI writes its ID as a signed number, as XProf does. For example, it writes `-1`, not `18446744073709551615`.
 - To find an event name that is a number, the CLI uses the rules of `str.isdigit` in Python. Thus `²` and `٣` are numbers, and `½` is not a number.
+- The normalized times of the op statistics change a double to an integer as XProf does on x86-64. A value that is too large gives 2^63, and a negative value wraps. Before, a very large time scale multiplier gave a different time scale for the roofline model.
 
 ## 0.1.2
 

@@ -144,3 +144,12 @@ fn host_x_plane_with_input_pipeline_traceme_ops() {
            precision_stats {}"#,
     );
 }
+
+#[test]
+fn double_to_uint64_follows_cpp_on_x86_64() {
+    use crate::tools::opstats::cpp_u64;
+    let cases = [(1.9, 1), (-0.5, 0), (-5.0, (-5i64) as u64), (1.5e19, 15_000_000_000_000_000_000), ((1u64 << 63) as f64, 1 << 63), (1e300, 1 << 63), (f64::INFINITY, 1 << 63), (f64::NAN, 1 << 63)];
+    for (value, expected) in cases {
+        assert_eq!(cpp_u64(value), expected, "{value}");
+    }
+}

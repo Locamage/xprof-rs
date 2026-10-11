@@ -119,6 +119,14 @@ pub fn safe_divide(dividend: f64, divisor: f64) -> f64 {
     if (-1e-10..1e-10).contains(&divisor) { 0.0 } else { dividend / divisor }
 }
 
+/// The C++ conversion of a double to `uint64_t` on x86-64. NaN or a value that is too large gives 2^63, and a negative value wraps.
+pub fn cpp_u64(value: f64) -> u64 {
+    const HALF: f64 = (1u64 << 63) as f64;
+    let truncate = |value: f64| if (-HALF..HALF).contains(&value) { value as i64 } else { i64::MIN };
+    let direct = truncate(value);
+    (direct | (truncate(value - HALF) & (direct >> 63))) as u64
+}
+
 pub fn pico_to_micro(ps: u64) -> f64 {
     ps as f64 / 1e6
 }
@@ -360,7 +368,7 @@ impl<'a> Builder<'a> {
         totals.time_ps += time_ps;
         totals.self_time_ps += self_time_ps;
         totals.dma_stall_ps += stats.dma_stall_ps;
-        totals.normalized_time_ps += if tensor_core { (time_ps as f64 * stats.scale.unwrap_or(1.0)) as u64 } else { 0 };
+        totals.normalized_time_ps += if tensor_core { cpp_u64(time_ps as f64 * stats.scale.unwrap_or(1.0)) } else { 0 };
         totals.core_type = if tensor_core { TENSOR_CORE } else { 0 };
         totals.min_time_ps = totals.min_time_ps.min(min_time_ps);
         if stats.vdd_energy.is_some() || totals.vdd_energy.is_some() {
@@ -399,7 +407,7 @@ impl<'a> Builder<'a> {
                 ..entry.adjusted()
             };
             db.total_op_time_ps += metrics.self_time_ps;
-            db.normalized_total_op_time_ps += (metrics.self_time_ps as f64 * safe_divide(metrics.normalized_time_ps as f64, metrics.time_ps as f64)) as u64;
+            db.normalized_total_op_time_ps += cpp_u64(metrics.self_time_ps as f64 * safe_divide(metrics.normalized_time_ps as f64, metrics.time_ps as f64));
             db.metrics.push(metrics);
         }
         db
