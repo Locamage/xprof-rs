@@ -4,6 +4,9 @@ use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use std::cell::Cell;
 use std::fmt::{self, Write};
 
+/// A list with more items writes parts of this many items in parallel.
+const PARALLEL_ITEMS: usize = 4096;
+
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum J {
     #[default]
@@ -242,10 +245,26 @@ impl J {
             Self::Dict(entries) if entries.is_empty() => out.push_str("{}"),
             Self::List(items) | Self::Tuple(items) | Self::Set(items) => {
                 out.push('[');
-                for (index, item) in items.iter().enumerate() {
-                    out.push_str(separator(index));
-                    open(out, inner);
-                    item.write(out, inner, ascii);
+                let part = |out: &mut String, (start, items): (usize, &[Self])| {
+                    for (index, item) in (start..).zip(items) {
+                        out.push_str(separator(index));
+                        open(out, inner);
+                        item.write(out, inner, ascii);
+                    }
+                };
+                if items.len() > PARALLEL_ITEMS {
+                    let parts: Vec<String> = items
+                        .par_chunks(PARALLEL_ITEMS)
+                        .enumerate()
+                        .map(|(chunk, items)| {
+                            let mut text = String::new();
+                            part(&mut text, (chunk * PARALLEL_ITEMS, items));
+                            text
+                        })
+                        .collect();
+                    parts.iter().for_each(|text| out.push_str(text));
+                } else {
+                    part(out, (0, items));
                 }
                 open(out, depth);
                 out.push(']');

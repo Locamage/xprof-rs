@@ -204,6 +204,16 @@ fn test_literal_keeps_tuples_sets_and_dicts_apart() {
 }
 
 #[test]
+fn test_long_lists_write_as_one_list() {
+    let items: Vec<J> = (0..10_000).map(|index| if index % 3 == 0 { J::from(format!("é{index}")) } else { J::Float(f64::from(index) / 7.0) }).collect();
+    let indented: Vec<String> = items.iter().map(|item| format!("\n  {}", item.dumps())).collect();
+    let compact: Vec<String> = items.iter().map(J::compact).collect();
+    let list = J::List(items);
+    assert_eq!(list.dumps(), format!("[{}\n]", indented.join(",")));
+    assert_eq!(list.compact(), format!("[{}]", compact.join(", ")));
+}
+
+#[test]
 fn test_packed_options_follow_the_native_converter() {
     use crate::cli::packed;
     assert_eq!(packed("type", &J::Bool(true)).unwrap().as_deref(), Some("true"));

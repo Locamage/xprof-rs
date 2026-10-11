@@ -67,6 +67,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The stack frames of the trace viewer copy a text only when they keep it. Before, they copied each long name and HLO text twice before they removed the copies with the same text.
 - A cached response for a client without gzip decodes its parts of 1 MiB on all cores. On a 280 MB TPU v4 profile with 8 cores, the warm `trace_viewer` response takes 16 ms (before: 53 ms).
 - The CLI command `aggregate_xplane_events` joins the durations of each event name on all cores. Before, one thread joined the durations of all names.
+- The CLI writes a JSON list of more than 4096 items in parts on all cores. On a 280 MB TPU v4 profile with 8 cores, the cold `aggregate_xplane_events` command takes 325 ms (before: 365 ms).
 
 ## 0.1.2
 
