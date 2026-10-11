@@ -336,6 +336,24 @@ fn group(planes: &mut [Plane], map: &[u8], trace: bool) -> bool {
     ungrouped
 }
 
+/// Joins the pieces, and copies them on all cores.
+fn concat(pieces: &[&[u8]]) -> Vec<u8> {
+    let total = pieces.iter().map(|piece| piece.len()).sum();
+    let mut out = Vec::<u8>::with_capacity(total);
+    let mut rest = out.spare_capacity_mut();
+    let mut targets = Vec::with_capacity(pieces.len());
+    for piece in pieces {
+        let (head, tail) = rest.split_at_mut(piece.len());
+        targets.push(head);
+        rest = tail;
+    }
+    targets.into_par_iter().zip(pieces).for_each(|(target, piece)| {
+        target.write_copy_of_slice(piece);
+    });
+    unsafe { out.set_len(total) };
+    out
+}
+
 fn release(garbage: impl Send + 'static) {
     std::thread::spawn(move || {
         drop(garbage);

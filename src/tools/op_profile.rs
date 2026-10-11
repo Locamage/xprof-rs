@@ -290,36 +290,39 @@ impl<'a> Builder<'a> {
         self.nodes[node].xla = Some(xla);
     }
 
-    fn write(&self, out: &mut String, root: usize, parallel: usize) {
-        self.open(out, root);
+    /// Adds the JSON text of the tree at `root` to `pieces`. The subtrees of the first `parallel` levels with more than one child are written in parallel.
+    fn write(&self, pieces: &mut Vec<String>, root: usize, parallel: usize) {
+        let mut out = String::new();
+        self.open(&mut out, root);
         let mut stack = vec![(root, 0, parallel)];
         while let Some(&mut (index, ref mut next, parallel)) = stack.last_mut() {
             let children = &self.nodes[index].children;
             if *next == 0 && parallel > 0 && children.len() > 1 {
-                let parts: Vec<String> = children
+                let parts: Vec<Vec<String>> = children
                     .par_iter()
                     .map(|&child| {
-                        let mut part = String::new();
+                        let mut part = Vec::new();
                         self.write(&mut part, child, parallel - 1);
                         part
                     })
                     .collect();
-                out.reserve(parts.iter().map(|part| part.len() + 1).sum());
-                for (position, part) in parts.iter().enumerate() {
+                for (position, part) in parts.into_iter().enumerate() {
                     out.push_str(if position > 0 { "," } else { "" });
-                    out.push_str(part);
+                    pieces.push(std::mem::take(&mut out));
+                    pieces.extend(part);
                 }
                 *next = children.len();
             } else if let Some(&child) = children.get(*next) {
                 out.push_str(if *next > 0 { "," } else { "" });
                 *next += 1;
-                self.open(out, child);
+                self.open(&mut out, child);
                 stack.push((child, 0, if children.len() == 1 { parallel } else { 0 }));
             } else {
-                self.close(out, index);
+                self.close(&mut out, index);
                 stack.pop();
             }
         }
+        pieces.push(out);
     }
 
     /// The metrics of a node in the order of the JSON text. Each entry has the values and their count.
@@ -467,13 +470,13 @@ pub fn proto_double(out: &mut String, value: f64) {
     }
 }
 
-fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> String {
-    let mut out = String::new();
+fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> Vec<String> {
+    let mut pieces = Vec::new();
     match build(stats, grouping, exclude_idle) {
-        Some(builder) => builder.write(&mut out, ROOT, PARALLEL_LEVELS),
-        None => out.push_str("{\"name\":\"\",\"children\":[],\"numChildren\":0}"),
+        Some(builder) => builder.write(&mut pieces, ROOT, PARALLEL_LEVELS),
+        None => pieces.push("{\"name\":\"\",\"children\":[],\"numChildren\":0}".into()),
     }
-    out
+    pieces
 }
 
 /// The sums of the `rawTime` of the leaves of the tree by category, in the order of the JSON tree. `class` gives the sum for the name and the category of a leaf.
@@ -536,24 +539,20 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
     let grouping = grouping(group_by);
     let device = HARDWARE[hardware(&stats.extra.device_type) as usize];
     let key = GROUPINGS[grouping].1;
-    let (all, busy) = rayon::join(|| tree(stats, grouping, false), || if with_busy { tree(stats, grouping, true) } else { String::new() });
-    let mut out = String::with_capacity(all.len() + busy.len() + 256);
-    if grouping == PROVENANCE {
-        write!(out, "{{\"deviceType\":\"{device}\",\"{key}\":").unwrap();
-        out.push_str(&all);
-    } else {
-        write!(out, "{{\"{key}\":").unwrap();
-        out.push_str(&all);
-        write!(out, ",\"deviceType\":\"{device}\"").unwrap();
-    }
+    let (all, busy) = rayon::join(|| tree(stats, grouping, false), || if with_busy { tree(stats, grouping, true) } else { Vec::new() });
+    let mut pieces = vec![if grouping == PROVENANCE { format!("{{\"deviceType\":\"{device}\",\"{key}\":") } else { format!("{{\"{key}\":") }];
+    pieces.extend(all);
+    let mut out = if grouping == PROVENANCE { String::new() } else { format!(",\"deviceType\":\"{device}\"") };
     if with_busy {
         write!(out, ",\"{key}ExcludeIdle\":").unwrap();
-        out.push_str(&busy);
+        pieces.push(std::mem::take(&mut out));
+        pieces.extend(busy);
     }
     out.push_str(",\"aggDvfsTimeScaleMultiplier\":");
     proto_double(&mut out, safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64));
     out.push('}');
-    out
+    pieces.push(out);
+    String::from_utf8(crate::concat(&pieces.iter().map(String::as_bytes).collect::<Vec<_>>())).expect("The pieces are text")
 }
 
 /// The value that the JSON reader gives for `json_trees` without the tree for the busy time.

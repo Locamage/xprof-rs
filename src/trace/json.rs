@@ -519,7 +519,7 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
         pieces.push(chunk.as_bytes());
     }
     pieces.push(tail.as_bytes());
-    concat(&pieces)
+    crate::concat(&pieces)
 }
 
 fn renumber(text: &str, offset: usize) -> String {
@@ -533,22 +533,5 @@ fn renumber(text: &str, offset: usize) -> String {
         rest = &marked[close + 1..];
     }
     out.push_str(rest);
-    out
-}
-
-fn concat(pieces: &[&[u8]]) -> Vec<u8> {
-    let total = pieces.iter().map(|piece| piece.len()).sum();
-    let mut out = Vec::<u8>::with_capacity(total);
-    let mut rest = out.spare_capacity_mut();
-    let mut targets = Vec::with_capacity(pieces.len());
-    for piece in pieces {
-        let (head, tail) = rest.split_at_mut(piece.len());
-        targets.push(head);
-        rest = tail;
-    }
-    targets.into_par_iter().zip(pieces).for_each(|(target, piece)| {
-        target.write_copy_of_slice(piece);
-    });
-    unsafe { out.set_len(total) };
     out
 }
