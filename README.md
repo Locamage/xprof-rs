@@ -191,7 +191,7 @@ The credentials come from the environment:
 The server copies the store to a local directory, and all tools read this copy. The directory is `xprof-rs-<hash of the URL>` in `XPROF_CACHE_DIR`. The default is the temporary directory. Only the user of the server can read the directory. The server does not start if a different user owns it.
 
 - A request that names a session downloads the `.xplane.pb` and `.hlo_proto.pb` files of the session.
-- The server downloads 4 files at a time. It reads each file in eight ranges of 8 MiB.
+- The server downloads 4 files at a time. It reads each file in ranges of 8 MiB, and it reads 8 ranges at a time.
 - The server does not download a file again when the size and the modification time are the same as in the store.
 - The server asks the store at most one time in 5 s for each session.
 - Each 30 s, a background poll checks the list of sessions. It also checks the 8 sessions with the newest requests.
