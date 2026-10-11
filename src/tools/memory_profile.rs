@@ -202,14 +202,19 @@ fn snapshot(snapshot: Snapshot) -> MemoryProfileSnapshot {
 
 /// The memory profile of a file. A file that is not a valid `XSpace` gives `None`.
 pub fn load(path: &std::path::Path) -> anyhow::Result<Option<String>> {
-    from_map(&crate::read_file(path)?)
+    let map = crate::read_file(path)?;
+    let profile = from_map(&map);
+    crate::release(map);
+    profile
 }
 
 /// The memory profile uses the groups, but not the op statistics or the derived lines of the TPUs.
 pub fn from_map(map: &[u8]) -> anyhow::Result<Option<String>> {
     let Some(mut planes) = crate::parse_checked(map, false)? else { return Ok(None) };
     crate::group(&mut planes, map, false);
-    Ok(Some(json(&planes, map)))
+    let profile = json(&planes, map);
+    crate::release(planes);
+    Ok(Some(profile))
 }
 
 pub fn json(planes: &[Plane], map: &[u8]) -> String {
