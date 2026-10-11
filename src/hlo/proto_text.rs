@@ -1,7 +1,6 @@
 use crate::hlo::general;
 use crate::tools::op_profile::proto_double;
 use crate::xplane::{Field, fields, varint};
-use itertools::Itertools;
 use prost::Message;
 use prost_reflect::{DescriptorPool, Kind, MessageDescriptor};
 use rayon::prelude::*;
@@ -11,6 +10,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::sync::LazyLock;
 
+const PARALLEL_BYTES: usize = 1 << 16;
 const DESCRIPTORS: &[u8] = include_bytes!("../data/hlo_descriptors.pb");
 
 static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
@@ -225,8 +225,8 @@ enum Check {
     Any,
 }
 
-/// The checks of a message by field number.
-type Checks = Vec<(u32, Check)>;
+/// The checks of a message, indexed by field number.
+type Checks = Vec<Check>;
 
 /// The checks of each message, and the index of `xla.HloProto`.
 static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
@@ -240,7 +240,12 @@ static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
         (Kind::Bytes, _) | (_, false) => Check::Any,
         (_, true) => Check::Packed(0),
     };
-    let checks = messages.iter().map(|message| message.fields().map(|field| (field.number(), check(field))).sorted_unstable_by_key(|check| check.0).collect()).collect();
+    let table = |message: &MessageDescriptor| {
+        let mut checks = vec![Check::Any; message.fields().map(|field| field.number() as usize + 1).max().unwrap_or(0)];
+        message.fields().for_each(|field| checks[field.number() as usize] = check(field.clone()));
+        checks
+    };
+    let checks = messages.iter().map(table).collect();
     (index["xla.HloProto"], checks)
 });
 
@@ -250,12 +255,14 @@ pub fn parses_hlo(buf: &[u8]) -> bool {
 }
 
 /// A field with an unexpected wire type is an unknown field. An unknown group continues to the end-group tag that has its number.
+/// The nested messages of a large message parse at the same time.
 fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, group: u32) -> bool {
     let checks = message.map_or(&[][..], |message| &CHECKS.1[message]);
+    let (split, mut nested) = (group == 0 && buf.len() >= PARALLEL_BYTES, Vec::new());
     while *pos < buf.len() {
         let Some(key) = varint(buf, pos).and_then(|key| u32::try_from(key).ok()).filter(|&key| key >> 3 != 0) else { return false };
         let number = key >> 3;
-        let check = checks.binary_search_by_key(&number, |check| check.0).map_or(Check::Any, |index| checks[index].1);
+        let check = checks.get(number as usize).copied().unwrap_or(Check::Any);
         let parsed = match key & 7 {
             0 => varint(buf, pos).is_some(),
             1 | 5 => {
@@ -266,6 +273,10 @@ fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, gr
                 let Some(body) = varint(buf, pos).and_then(|length| buf.get(*pos..*pos + usize::try_from(length).ok().filter(|&length| length <= buf.len())?)) else { return false };
                 *pos += body.len();
                 match check {
+                    Check::Message(inner) if split && levels > 0 => {
+                        nested.push((inner, body));
+                        true
+                    }
                     Check::Message(inner) => levels > 0 && parses(Some(inner), body, &mut 0, levels - 1, 0),
                     Check::Text => std::str::from_utf8(body).is_ok(),
                     Check::Packed(0) => {
@@ -284,7 +295,7 @@ fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, gr
             return false;
         }
     }
-    group == 0
+    group == 0 && nested.into_par_iter().all(|(inner, body)| parses(Some(inner), body, &mut 0, levels - 1, 0))
 }
 
 pub fn json(message: &str, value: &impl Message, always_print_defaults: bool) -> String {
