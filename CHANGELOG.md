@@ -79,6 +79,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - xprof-rs makes the names of the event groups in parallel, after it gives the groups to the events. Before, it made each name on one thread while it gave the groups. The names do not change. On a 1.7 GB profile, the first `memory_profile` request takes 1.79 s, not 1.93 s.
 - To connect the producers and the consumers of the events, xprof-rs sorts one list of all links in parallel. Before, it put the links in a hash map on one thread, and then sorted the map. The edges do not change. On a 1.7 GB profile, the first `memory_profile` request takes 1.69 s, not 1.78 s.
 - The memory profile releases its parsed profile on a separate thread after the response, as the other tools do. On a 1.7 GB profile, the first `memory_profile` request takes 1.53 s, not 1.67 s.
+- The memory profile decodes its memory events in parallel. On a 1.7 GB profile, the first `memory_profile` request takes 1.40 s, not 1.51 s.
 
 ## 0.1.2
 

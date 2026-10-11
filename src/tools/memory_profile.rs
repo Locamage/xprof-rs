@@ -1,7 +1,8 @@
 use crate::hlo::profiler::{
     ActiveAllocation, HloModule, MemoryActivityMetadata as Activity, MemoryAggregationStats as Stats, MemoryProfile, MemoryProfileSnapshot, MemoryProfileSummary, PerAllocatorMemoryProfile,
 };
-use crate::xplane::{Field, NONE_GROUP, Plane, Value, fields, slice, stats};
+use crate::xplane::{Ev, Field, NONE_GROUP, Plane, Value, fields, slice, stats};
+use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 
 const HOST_PLANE: &str = "/host:CPU";
@@ -46,51 +47,61 @@ fn offset(raw: &[u8]) -> i64 {
 }
 
 fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
-    let mut allocators: BTreeMap<String, Allocator> = BTreeMap::new();
-    for event in plane.lines.iter().flat_map(|line| &line.events) {
-        let activity = match &*plane.meta[event.meta as usize].full_name(map) {
+    let activities: Vec<i32> = plane
+        .meta
+        .par_iter()
+        .map(|meta| match &*meta.full_name(map) {
             "MemoryAllocation" => ALLOCATION,
             "MemoryDeallocation" => DEALLOCATION,
-            _ => continue,
-        };
-        let raw = slice(map, event.raw);
-        let (mut stats_, mut meta, mut memory_id) = (Stats::default(), Activity { memory_activity: activity, step_id: -1, ..Default::default() }, String::new());
-        for stat in stats(raw, 4, |_| true) {
-            let Some(name) = plane.stat_names.get(stat.id) else { continue };
-            let int = if let Value::Int(value) = stat.value { value } else { 0 };
-            match &**name {
-                "index_on_host" | "device_ordinal" => memory_id = int.to_string(),
-                "allocator_name" => memory_id = plane.text(&stat.value),
-                "bytes_reserved" => stats_.stack_reserved_bytes = int,
-                "bytes_allocated" => stats_.heap_allocated_bytes = int,
-                "bytes_available" => stats_.free_memory_bytes = int,
-                "fragmentation" => stats_.fragmentation = if let Value::Double(value) = stat.value { value } else { 0.0 },
-                "peak_bytes_in_use" => stats_.peak_bytes_in_use = int,
-                "requested_bytes" => meta.requested_bytes = int,
-                "allocation_bytes" => meta.allocation_bytes = int,
-                "addr" => meta.address = int as u64,
-                "tf_op" => meta.tf_op_name = plane.text(&stat.value),
-                "group_id" => meta.step_id = int,
-                "region_type" => meta.region_type = plane.text(&stat.value),
-                "data_type" => meta.data_type = data_type(int),
-                "shape" => meta.tensor_shape = plane.text(&stat.value),
-                _ => {}
+            _ => 0,
+        })
+        .collect();
+    let events: Vec<&Ev> = plane.lines.iter().flat_map(|line| &line.events).filter(|event| activities[event.meta as usize] != 0).collect();
+    let snapshots: Vec<(String, Snapshot)> = events
+        .par_iter()
+        .map(|event| {
+            let raw = slice(map, event.raw);
+            let (mut stats_, mut meta, mut memory_id) = (Stats::default(), Activity { memory_activity: activities[event.meta as usize], step_id: -1, ..Default::default() }, String::new());
+            for stat in stats(raw, 4, |_| true) {
+                let Some(name) = plane.stat_names.get(stat.id) else { continue };
+                let int = if let Value::Int(value) = stat.value { value } else { 0 };
+                match &**name {
+                    "index_on_host" | "device_ordinal" => memory_id = int.to_string(),
+                    "allocator_name" => memory_id = plane.text(&stat.value),
+                    "bytes_reserved" => stats_.stack_reserved_bytes = int,
+                    "bytes_allocated" => stats_.heap_allocated_bytes = int,
+                    "bytes_available" => stats_.free_memory_bytes = int,
+                    "fragmentation" => stats_.fragmentation = if let Value::Double(value) = stat.value { value } else { 0.0 },
+                    "peak_bytes_in_use" => stats_.peak_bytes_in_use = int,
+                    "requested_bytes" => meta.requested_bytes = int,
+                    "allocation_bytes" => meta.allocation_bytes = int,
+                    "addr" => meta.address = int as u64,
+                    "tf_op" => meta.tf_op_name = plane.text(&stat.value),
+                    "group_id" => meta.step_id = int,
+                    "region_type" => meta.region_type = plane.text(&stat.value),
+                    "data_type" => meta.data_type = data_type(int),
+                    "shape" => meta.tensor_shape = plane.text(&stat.value),
+                    _ => {}
+                }
             }
-        }
-        if event.group != NONE_GROUP {
-            meta.step_id = event.group;
-        }
-        let time = offset(raw);
+            if event.group != NONE_GROUP {
+                meta.step_id = event.group;
+            }
+            (memory_id, Snapshot { time: offset(raw), stats: stats_, meta })
+        })
+        .collect();
+    let mut allocators: BTreeMap<String, Allocator> = BTreeMap::new();
+    for (memory_id, snapshot) in snapshots {
         let allocator = allocators.entry(memory_id).or_default();
-        let summary = &mut allocator.summary;
+        let (summary, stats_) = (&mut allocator.summary, snapshot.stats);
         summary.lifetime = stats_.peak_bytes_in_use;
         let in_use = stats_.stack_reserved_bytes.wrapping_add(stats_.heap_allocated_bytes);
         if in_use >= summary.peak.peak_bytes_in_use {
             summary.peak = Stats { peak_bytes_in_use: in_use, ..stats_ };
-            summary.peak_time = time;
+            summary.peak_time = snapshot.time;
             summary.capacity = in_use.wrapping_add(stats_.free_memory_bytes);
         }
-        allocator.snapshots.push(Snapshot { time, stats: stats_, meta });
+        allocator.snapshots.push(snapshot);
     }
     allocators
 }
