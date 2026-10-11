@@ -139,7 +139,7 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
             let mut last = 0;
             for &(_, index) in run {
                 let event = &view.trace.events[index as usize];
-                series.deltas.push(event.ts - last);
+                series.deltas.push(event.ts.wrapping_sub(last));
                 last = event.ts;
                 let mut metadata = EventMetadata::default();
                 if tag == 2 {
