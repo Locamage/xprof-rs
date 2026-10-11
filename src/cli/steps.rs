@@ -381,12 +381,12 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         };
         let pick = |key: &str| Some(sections.at(key)).filter(|value| matches!(value, J::Map(_))).unwrap_or(&sections).clone();
         let (overview, step_table, environment, steps) = match &sections {
-            J::List(_) => (section(0, "p"), section(1, "p"), section(2, "p"), section(1, "rows").items().len()),
+            J::List(_) => (section(0, "p"), section(1, "p"), section(2, "p"), section(1, "rows").items().len() as i128),
             J::Map(_) => (
                 pick("performance_summary"),
                 pick("step_time"),
                 pick("run_environment"),
-                sections.get("number_of_steps").map_or(sections.at("rows").items().len() as i128, |count| count.int().unwrap_or(0)) as usize,
+                sections.get("number_of_steps").map_or(sections.at("rows").items().len() as i128, |count| count.int().unwrap_or(0)),
             ),
             _ => return Err(Error::new(Kind::Value, format!("Unexpected overview data format for session {session}"))),
         };

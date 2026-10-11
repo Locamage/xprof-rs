@@ -152,6 +152,15 @@ fn test_dict_overview_format_success() {
 }
 
 #[test]
+fn test_negative_number_of_steps_stays_negative() {
+    let data =
+        r#"{"performance_summary": {"device_duty_cycle_percent": "15.0%"}, "step_time": {"steptime_ms_average": "100.0"}, "run_environment": {"device_core_count": "8"}, "number_of_steps": -1}"#;
+    let result = check(&session(data.into(), MATMUL, "{}", String::new(), &[]), &[]);
+    assert_eq!(result.at("metrics").at("number_of_steps"), &J::Int(-1));
+    assert_eq!(metric(&result, "total_duration_ms"), -100.0);
+}
+
+#[test]
 fn test_utilization_with_none_and_missing_values() {
     let result = check(&session(overview("15.0%", "0", "0"), MATMUL, "{}", String::new(), &[]), &[]);
     assert_eq!(result.at("status").str(), Some("NOT_HOST_BOUND"));
