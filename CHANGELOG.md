@@ -47,6 +47,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - To find an event name that is a number, the CLI uses the rules of `str.isdigit` in Python. Thus `²` and `٣` are numbers, and `½` is not a number.
 - The normalized times of the op statistics change a double to an integer as XProf does on x86-64. A value that is too large gives 2^63, and a negative value wraps. Before, a very large time scale multiplier gave a different time scale for the roofline model.
 - When the `Time Scale Multiplier` stat of an op is not a double, its value is 0, as in XProf. Before, xprof-rs used 1.
+- When the `_p`, `_c`, `_pt` or `_ct` stat of an event is not an integer, its value is 0, as in XProf. Thus the event connects to its producer or consumer for the groups and the flows of the trace viewer. Before, xprof-rs ignored the stat.
 
 ## 0.1.2
 

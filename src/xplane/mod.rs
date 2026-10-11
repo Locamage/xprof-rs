@@ -62,6 +62,11 @@ const CONNECTIONS: [Connection; ROLES] = [
     Connection { producers: "ExecutorState::Process", consumers: "TpuExecuteOp", context: LEGACY, stats: &[STEP_ID, ITER_NUM] },
 ];
 
+/// The number of a stat for the event links. A producer or consumer stat that is not an integer gives 0.
+fn number(kind: usize, value: &Value) -> Option<i64> {
+    if matches!(kind, P | C | PT | CT) { Some(value.int().unwrap_or(0)) } else { value.int() }
+}
+
 pub enum Field<'a> {
     Num(u64),
     Bytes(usize, &'a [u8]),
@@ -550,7 +555,7 @@ impl Plane {
     fn apply(&self, out: &mut Stats, raw: &[u8], field: u32, keep: impl Fn(usize) -> bool) {
         for stat in stats(raw, field, |id| self.kind.get(id).is_some_and(|&kind| kind != NO_KIND && keep(kind as usize))) {
             let kind = self.kind[stat.id] as usize;
-            if let Some(value) = stat.value.int() {
+            if let Some(value) = number(kind, &stat.value) {
                 out[kind] = Some(value as u64);
             }
         }
@@ -576,7 +581,7 @@ impl Plane {
                 first_correlation = stat.value.int().map(|value| value as u64);
             }
             let kind = self.kind[stat.id] as usize;
-            if let Some(value) = stat.value.int() {
+            if let Some(value) = number(kind, &stat.value) {
                 out[kind] = Some(value as u64);
             }
             match (kind, &stat.value) {

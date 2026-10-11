@@ -399,17 +399,21 @@ fn group_offloaded_sparse_core_modules_device_loop_test() {
 }
 
 fn subprocess_space(consumer_pid: Option<i64>) -> XSpace {
+    subprocess_space_with(consumer_pid, 456u64.into(), 456u64.into())
+}
+
+fn subprocess_space_with(consumer_pid: Option<i64>, producer_id: V, consumer_id: V) -> XSpace {
     let mut space = XSpace::default();
     let producer = space.add_plane();
     producer.name = "Host CPUs".into();
     producer.add_stat("process_id", 1000);
     producer.event(0, "root1", 0, 10, &[("_r", 1.into())]);
     producer.event(0, "root2", 10, 100, &[("_r", 1.into())]);
-    producer.event(0, "producer", 10, 90, &[("_pt", 123.into()), ("_p", 456u64.into())]);
+    producer.event(0, "producer", 10, 90, &[("_pt", 123.into()), ("_p", producer_id)]);
     let consumer = space.add_plane();
     consumer.name = "Host CPUs [2000]".into();
     consumer.add_stat("process_id", 2000);
-    let mut stats = vec![("_ct", V::from(123)), ("_c", 456u64.into())];
+    let mut stats = vec![("_ct", V::from(123)), ("_c", consumer_id)];
     stats.extend(consumer_pid.map(|pid| ("_pid", pid.into())));
     consumer.event(0, "consumer", 20, 80, &stats);
     space
@@ -422,6 +426,13 @@ fn named_groups(planes: &[Plane]) -> BTreeMap<String, i64> {
 #[test]
 fn subprocess_grouping_test() {
     let (_, planes, _) = grouped(&subprocess_space(Some(1000)));
+    let expected = [("root1", 0), ("root2", 1), ("producer", 1), ("consumer", 1)].map(|(name, group)| (name.to_string(), group));
+    assert_eq!(named_groups(&planes), expected.into_iter().collect());
+}
+
+#[test]
+fn producer_and_consumer_ids_that_are_not_ints_are_zero() {
+    let (_, planes, _) = grouped(&subprocess_space_with(Some(1000), "a".into(), "b".into()));
     let expected = [("root1", 0), ("root2", 1), ("producer", 1), ("consumer", 1)].map(|(name, group)| (name.to_string(), group));
     assert_eq!(named_groups(&planes), expected.into_iter().collect());
 }
