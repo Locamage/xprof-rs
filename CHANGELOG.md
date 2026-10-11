@@ -50,6 +50,8 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - When the `_p`, `_c`, `_pt` or `_ct` stat of an event is not an integer, its value is 0, as in XProf. Thus the event connects to its producer or consumer for the groups and the flows of the trace viewer. Before, xprof-rs ignored the stat.
 - When the `device_offset_ps`, `device_duration_ps`, `step_idle_time_ps` or connection stat of an event is not an integer, its value is 0, as in XProf. The connection stats are `run_id`, `queue_id`, `device_ordinal`, `core_type`, `request_id`, `queue_addr`, `id` and `iter_num`. Before, xprof-rs ignored these stats. Then a step had a different time, or the trace viewer did not show a flow.
 - A `group_id` stat of the host steps that is not a signed integer gives the group 0, as in XProf.
+- When the metadata plane has no `program_id` stat, the program ID of an HLO module comes from the digits at the end of its name. XProf has the same rule. Before, this failed when the metadata also had a display name. Then the op profile showed `main` and no fused operations.
+- To find events by name, xprof-rs uses the name of the metadata, as XProf does, also when the metadata has a display name. This applies to memory events, threadpool regions, the roots and links of the groups, the step markers, and the framework ops of the host. Before, xprof-rs did not find these events.
 - A `ThreadpoolListener::StartRegion` event starts a region when it has a `_c` stat of any type, as in XProf. Before, xprof-rs ignored the event when the stat was not an integer. Then the trace viewer did not show the region, or it showed a region from an earlier start.
 
 ## 0.1.2

@@ -48,7 +48,7 @@ fn offset(raw: &[u8]) -> i64 {
 fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
     let mut allocators: BTreeMap<String, Allocator> = BTreeMap::new();
     for event in plane.lines.iter().flat_map(|line| &line.events) {
-        let activity = match &*plane.meta[event.meta as usize].name {
+        let activity = match &*plane.meta[event.meta as usize].full_name(map) {
             "MemoryAllocation" => ALLOCATION,
             "MemoryDeallocation" => DEALLOCATION,
             _ => continue,
@@ -225,7 +225,7 @@ pub fn json(planes: &[Plane], map: &[u8]) -> String {
         .map(|(id, (plane, event))| {
             let start = offset(slice(map, event.raw));
             HloModule {
-                name: plane.meta[event.meta as usize].name.to_string(),
+                name: plane.meta[event.meta as usize].full_name(map).into_owned(),
                 start_time_ps: start,
                 end_time_ps: start.saturating_add(event.dur as i64),
                 id: id as i64,

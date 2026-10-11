@@ -139,29 +139,21 @@ pub fn host_db(planes: &[Plane], map: &[u8]) -> (Db, (u64, u64)) {
     let (mut ops, mut parsed) = (FxHashMap::default(), vec![false; plane.meta.len()]);
     // Without stages, the ops come from the metadata only, and the lines look up only the metadata of their events.
     let stages = if ids[2].is_none() && ids[4].is_none() {
-        ops = plane
-            .meta
-            .par_iter()
-            .enumerate()
-            .filter(|(_, meta)| !meta.name.is_empty())
-            .map(|(index, meta)| (index as i64, parse_tf_op(&meta.name)))
-            .filter(|(_, op)| op.known)
-            .map(|(index, op)| (index, shared(op)))
-            .collect();
+        ops = plane.meta.par_iter().enumerate().map(|(index, meta)| (index as i64, parse_tf_op(&meta.full_name(map)))).filter(|(_, op)| op.known).map(|(index, op)| (index, shared(op))).collect();
         &[][..]
     } else {
         &plane.lines[..]
     };
     for event in stages.iter().flat_map(|line| &line.events) {
-        let meta = &plane.meta[event.meta as usize];
-        if meta.name.is_empty() {
+        let name = plane.meta[event.meta as usize].full_name(map);
+        if name.is_empty() {
             continue;
         }
         let [stage, other_stage, category, other_category] = event_stats(event.stats_raw(map), [ids[2], ids[4], ids[3], ids[5]]);
         if let Some(stage) = stage.or(other_stage) {
             if let Some(category) = category.or(other_category) {
                 let (id, kind) = (stage.int().unwrap_or(0), plane.text(&category));
-                let op = if kind.is_empty() { TfOp { id, ..parse_tf_op(&meta.name) } } else { TfOp { known: true, name: meta.name.to_string(), kind, id } };
+                let op = if kind.is_empty() { TfOp { id, ..parse_tf_op(&name) } } else { TfOp { known: true, name: name.to_string(), kind, id } };
                 ops.entry(id).or_insert_with(|| shared(op));
             }
             continue;
@@ -169,7 +161,7 @@ pub fn host_db(planes: &[Plane], map: &[u8]) -> (Db, (u64, u64)) {
         if std::mem::replace(&mut parsed[event.meta as usize], true) {
             continue;
         }
-        let op = parse_tf_op(&meta.name);
+        let op = parse_tf_op(&name);
         if op.known {
             ops.entry(event.meta as i64).or_insert_with(|| shared(op));
         }

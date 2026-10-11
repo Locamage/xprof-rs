@@ -488,11 +488,12 @@ impl Plane {
                         };
                         let (id, long, display) = named(value).context("The metadata is not valid")?;
                         let id = key.unwrap_or(id);
-                        let name: Box<str> = if display.is_empty() { lossy(long).into() } else { Box::default() };
+                        let raw_name = lossy(long);
+                        let name: Box<str> = if display.is_empty() { raw_name.as_ref().into() } else { Box::default() };
                         if tag == 4 {
                             let raw = ((offset + entry_start + value_start) as u32, value.len() as u32);
                             let long = if long.is_empty() { (0, 0) } else { ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32) };
-                            let (internal, root) = (NAMES.get(&*name).is_some_and(|known| known.0), ROOTS.iter().find(|root| root.0 == &*name).map(|root| (root.1, root.2)));
+                            let (internal, root) = (NAMES.get(&*raw_name).is_some_and(|known| known.0), ROOTS.iter().find(|root| root.0 == &*raw_name).map(|root| (root.1, root.2)));
                             metas.push((id, Meta { internal, root, name, display: lossy(display).into(), raw, long, ..Default::default() }));
                         } else {
                             names.push((id, name));
@@ -546,7 +547,7 @@ impl Plane {
             })
             .collect();
         for (meta, (base, step)) in plane.meta.iter_mut().zip(bases) {
-            let roles = NAMES.get(&*meta.name).map_or([0; ROLES], |known| known.1);
+            let roles = NAMES.get(&*meta.full_name(buf)).map_or([0; ROLES], |known| known.1);
             (meta.base, meta.step, meta.role) = (base, step, std::array::from_fn(|index| if ready[index] { roles[index] } else { 0 }));
         }
         Ok(plane)
@@ -684,7 +685,7 @@ impl Plane {
     }
 
     pub fn add_threadpool_regions(&mut self, map: &[u8]) {
-        let find = |name: &str| self.meta.iter().position(|meta| &*meta.name == name);
+        let find = |name: &str| self.meta.iter().position(|meta| meta.full_name(map) == name);
         let (Some(start), Some(stop)) = (find(REGION[0]), find(REGION[1])) else { return };
         let consumer = self.kind.iter().position(|&kind| kind as usize == C);
         let region = find(REGION[2]).unwrap_or_else(|| {

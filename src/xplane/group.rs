@@ -375,7 +375,7 @@ impl Walker<'_> {
         let step = self.context(root, "iter_num").and_then(|value| value.int()).or_else(|| self.context(root, "step_num").and_then(|value| value.int())).unwrap_or(group);
         let prefix = match self.context(root, "graph_type").map(|value| plane.text_cow(&value)) {
             Some(text) => format!("{text} "),
-            None if !implicit => format!("{} ", plane.meta[event.meta as usize].name),
+            None if !implicit => format!("{} ", plane.meta[event.meta as usize].full_name(self.map)),
             None => String::new(),
         };
         let name = format!("{prefix}{step}");

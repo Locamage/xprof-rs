@@ -521,7 +521,7 @@ pub fn host_steps(plane: &Plane, map: &[u8], origin: u64, input_only: bool) -> S
         .meta
         .iter()
         .map(|meta| {
-            let name = &*meta.name;
+            let name = &*meta.full_name(map);
             let explicit = (name.starts_with("train") || name.starts_with("test") || name.starts_with("TraceContext")) && !name.contains('/');
             if EAGER_WRAPPERS.iter().any(|wrapper| name.starts_with(wrapper)) {
                 return (explicit, None);

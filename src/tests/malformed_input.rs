@@ -63,6 +63,19 @@ fn threadpool_region_at_the_origin() {
 }
 
 #[test]
+fn threadpool_region_with_display_names() {
+    let mut space = XSpace::default();
+    let plane = space.add_plane();
+    plane.event(0, "ThreadpoolListener::StartRegion", 10, 0, &[("_c", 1.into())]);
+    plane.event(0, "ThreadpoolListener::StopRegion", 300, 0, &[]);
+    plane.event_metadata("ThreadpoolListener::StartRegion").display_name = "start".into();
+    plane.event_metadata("ThreadpoolListener::StopRegion").display_name = "stop".into();
+    let (map, mut planes) = space.parsed();
+    planes[0].add_threadpool_regions(&map);
+    assert_eq!(planes[0].lines[0].events.len(), 3);
+}
+
+#[test]
 fn threadpool_region_with_a_consumer_that_is_not_an_int() {
     assert_eq!(threadpool_regions("abc".into()), 1);
     assert_eq!(threadpool_regions((-1.0).into()), 1);

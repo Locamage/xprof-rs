@@ -42,3 +42,14 @@ fn one_allocator_multi_activities_test() {
     assert_eq!(allocator["activeAllocations"][2]["snapshotIndex"], "0");
     assert_eq!((&allocator["specialAllocations"][1]["tfOpName"], &allocator["specialAllocations"][1]["allocationBytes"]), (&Value::from("stack"), &Value::from("2000")));
 }
+
+#[test]
+fn memory_events_with_a_display_name() {
+    let mut space = XSpace::default();
+    let host = space.host();
+    host.event(0, "MemoryAllocation", 100, 10, &[("allocator_name", "GPU_0_bfc".into()), ("bytes_allocated", 256.into()), ("allocation_bytes", 256.into()), ("addr", 1.into())]);
+    host.event_metadata("MemoryAllocation").display_name = "shown".into();
+    let (map, planes, _) = grouped(&space);
+    let profile: Value = serde_json::from_str(&crate::tools::memory_profile::json(&planes, &map)).unwrap();
+    assert_eq!(profile["memoryIds"], serde_json::json!(["GPU_0_bfc"]));
+}

@@ -37,6 +37,15 @@ fn fixes_even_if_hlo_stat_already_has_expected_name() {
 }
 
 #[test]
+fn fixes_metadata_with_a_display_name() {
+    let mut space = XSpace::default();
+    let metadata_plane = space.plane(METADATA);
+    metadata_plane.metadata_stats(EVENT_NAME, &[("Hlo Proto", V::Bytes(b"hlo_content".to_vec()))]);
+    metadata_plane.event_metadata(EVENT_NAME).display_name = EVENT_NAME.into();
+    assert_eq!(hlo_protos(&space), [(12345, b"hlo_content".to_vec())]);
+}
+
+#[test]
 fn skips_if_no_hlo_stat_in_event() {
     let mut space = XSpace::default();
     space.plane(METADATA).metadata_stats(EVENT_NAME, &[("Other Stat", V::Str("value".into()))]);

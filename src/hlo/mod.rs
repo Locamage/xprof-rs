@@ -758,8 +758,8 @@ pub fn protos<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, &'a [u8])> {
         for (index, meta) in plane.meta.iter().enumerate() {
             let raw = slice(map, meta.raw);
             let Some(Value::Bytes(body)) = stats(raw, 5, |stat| stat == proto).next().map(|stat| stat.value) else { continue };
-            let named =
-                meta.name.strip_suffix(')').and_then(|name| name.rsplit_once('(')).map(|(_, digits)| digits).filter(|digits| !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()));
+            let name = meta.long_name(map);
+            let named = name.strip_suffix(')').and_then(|name| name.rsplit_once('(')).map(|(_, digits)| digits).filter(|digits| !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()));
             let fixed = named.and_then(|digits| digits.parse::<u64>().ok()).unwrap_or(index as u64);
             let id = program.and_then(|program| stats(raw, 5, |stat| stat == program).next()).map_or(fixed, |stat| stat.value.int().unwrap_or(0) as u64);
             found.entry(id).or_insert(body);
