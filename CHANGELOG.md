@@ -53,6 +53,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - When the metadata plane has no `program_id` stat, the program ID of an HLO module comes from the digits at the end of its name. XProf has the same rule. Before, this failed when the metadata also had a display name. Then the op profile showed `main` and no fused operations.
 - To find events by name, xprof-rs uses the name of the metadata, as XProf does, also when the metadata has a display name. This applies to memory events, threadpool regions, the roots and links of the groups, the step markers, and the framework ops of the host. Before, xprof-rs did not find these events.
 - A `ThreadpoolListener::StartRegion` event starts a region when it has a `_c` stat of any type, as in XProf. Before, xprof-rs ignored the event when the stat was not an integer. Then the trace viewer did not show the region, or it showed a region from an earlier start.
+- xprof-rs uses an HLO module only when C++ protobuf can parse all of its proto, as XProf does. Before, xprof-rs showed a module with a bad nested field or with text that is not UTF-8. XProf removes such a module from the module list, the op profile and the HLO tools. Text in `pbtxt` format now also accepts unknown groups, as C++ protobuf does.
 
 ## 0.1.2
 

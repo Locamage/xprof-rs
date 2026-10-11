@@ -1,6 +1,7 @@
 use crate::hlo::general;
 use crate::tools::op_profile::proto_double;
 use crate::xplane::{Field, fields, varint};
+use itertools::Itertools;
 use prost::Message;
 use prost_reflect::{DescriptorPool, Kind, MessageDescriptor};
 use rayon::prelude::*;
@@ -205,9 +206,9 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
     }
 }
 
-/// Gives `None` for a proto that C++ protobuf does not parse: a message is malformed or nests more than 100 levels.
+/// Gives `None` for a proto that C++ protobuf does not parse.
 pub fn print_hlo(buf: &[u8]) -> Option<String> {
-    if !parses("xla.HloProto", buf, 100) {
+    if !parses_hlo(buf) {
         return None;
     }
     let mut out = String::new();
@@ -215,14 +216,75 @@ pub fn print_hlo(buf: &[u8]) -> Option<String> {
     Some(out)
 }
 
-fn parses(message: &str, buf: &[u8], levels: usize) -> bool {
-    let specs = &MESSAGES[message].1;
-    let mut walk = fields(buf);
-    let nested = walk.by_ref().all(|(number, value)| match (specs.binary_search_by_key(&number, |spec| spec.number), value) {
-        (Ok(index), Field::Bytes(_, bytes)) if specs[index].kind.as_message().is_some() => levels > 0 && parses(message_name(&specs[index].kind), bytes, levels - 1),
-        _ => true,
-    });
-    nested && walk.complete()
+/// How a parse checks a length-delimited field.
+#[derive(Clone, Copy)]
+enum Check {
+    Message(usize),
+    Text,
+    Packed(usize),
+    Any,
+}
+
+/// The checks of a message by field number.
+type Checks = Vec<(u32, Check)>;
+
+/// The checks of each message, and the index of `xla.HloProto`.
+static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
+    let messages: Vec<MessageDescriptor> = POOL.all_messages().collect();
+    let index: FxHashMap<&str, usize> = messages.iter().enumerate().map(|(position, message)| (message.full_name(), position)).collect();
+    let check = |field: prost_reflect::FieldDescriptor| match (field.kind(), field.is_list()) {
+        (Kind::Message(inner), _) => Check::Message(index[inner.full_name()]),
+        (Kind::String, _) => Check::Text,
+        (Kind::Double | Kind::Fixed64 | Kind::Sfixed64, true) => Check::Packed(8),
+        (Kind::Float | Kind::Fixed32 | Kind::Sfixed32, true) => Check::Packed(4),
+        (Kind::Bytes, _) | (_, false) => Check::Any,
+        (_, true) => Check::Packed(0),
+    };
+    let checks = messages.iter().map(|message| message.fields().map(|field| (field.number(), check(field))).sorted_unstable_by_key(|check| check.0).collect()).collect();
+    (index["xla.HloProto"], checks)
+});
+
+/// If C++ protobuf parses the bytes as an `xla.HloProto`. It rejects a bad field, text that is not UTF-8, and more than 100 levels of messages.
+pub fn parses_hlo(buf: &[u8]) -> bool {
+    parses(Some(CHECKS.0), buf, &mut 0, 100, 0)
+}
+
+/// A field with an unexpected wire type is an unknown field. An unknown group continues to the end-group tag that has its number.
+fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, group: u32) -> bool {
+    let checks = message.map_or(&[][..], |message| &CHECKS.1[message]);
+    while *pos < buf.len() {
+        let Some(key) = varint(buf, pos).and_then(|key| u32::try_from(key).ok()).filter(|&key| key >> 3 != 0) else { return false };
+        let number = key >> 3;
+        let check = checks.binary_search_by_key(&number, |check| check.0).map_or(Check::Any, |index| checks[index].1);
+        let parsed = match key & 7 {
+            0 => varint(buf, pos).is_some(),
+            1 | 5 => {
+                *pos += if key & 7 == 1 { 8 } else { 4 };
+                *pos <= buf.len()
+            }
+            2 => {
+                let Some(body) = varint(buf, pos).and_then(|length| buf.get(*pos..*pos + usize::try_from(length).ok().filter(|&length| length <= buf.len())?)) else { return false };
+                *pos += body.len();
+                match check {
+                    Check::Message(inner) => levels > 0 && parses(Some(inner), body, &mut 0, levels - 1, 0),
+                    Check::Text => std::str::from_utf8(body).is_ok(),
+                    Check::Packed(0) => {
+                        let mut at = 0;
+                        std::iter::from_fn(|| (at < body.len()).then(|| varint(body, &mut at))).all(|value| value.is_some())
+                    }
+                    Check::Packed(width) => body.len() % width == 0,
+                    Check::Any => true,
+                }
+            }
+            3 => levels > 0 && parses(None, buf, pos, levels - 1, number),
+            4 => return group == number,
+            _ => false,
+        };
+        if !parsed {
+            return false;
+        }
+    }
+    group == 0
 }
 
 pub fn json(message: &str, value: &impl Message, always_print_defaults: bool) -> String {
