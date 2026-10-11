@@ -168,7 +168,8 @@ pub struct StepPrograms {
 type Scanned<'a> = ([Option<i64>; 9], Option<Cow<'a, str>>);
 type Intervals = Vec<(u64, u64)>;
 type Tracker = (Intervals, Option<(u64, u64)>);
-type CategoryTimes = (FxHashMap<(i64, i64), u32>, BTreeMap<String, u64>, u64);
+/// The first operation of each key, the time of each category id, and the total time.
+type CategoryTimes = (FxHashMap<(i64, i64), u32>, Vec<Option<u64>>, u64);
 
 pub struct Device {
     pub events: StepEvents,
@@ -303,7 +304,25 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
     }
     let (tensor, sparse) = (is_tensor_core(&plane.name), is_sparse_core(&plane.name));
     let step_core = if sparse { SPARSE_CORE_START } else { 0 } + plane.id as u32;
-    let metas: Vec<Scanned> = plane.meta.iter().map(|meta| scan(plane, slice(map, meta.raw), 5, &slots)).collect();
+    let mut used = vec![false; plane.meta.len()];
+    for event in plane.lines.iter().filter(|line| matches!(line.name.as_str(), "XLA Ops" | "Framework Ops" | "Sparse Core Ops")).flat_map(|line| &line.events) {
+        if let Some(slot) = used.get_mut(event.meta as usize) {
+            *slot = true;
+        }
+    }
+    let metas: Vec<Scanned> = plane.meta.par_iter().zip(&used).map(|(meta, &used)| if used { scan(plane, slice(map, meta.raw), 5, &slots) } else { Default::default() }).collect();
+    let mut ids: FxHashMap<&str, u32> = FxHashMap::default();
+    let categories: Vec<u32> = metas
+        .iter()
+        .map(|(_, category)| {
+            let next = ids.len() as u32;
+            *ids.entry(category.as_deref().unwrap_or("")).or_insert(next)
+        })
+        .collect();
+    let mut names = vec![""; ids.len()];
+    for (name, id) in ids {
+        names[id as usize] = name;
+    }
     let kind = |category: &str| (OFF_DUTY.contains(&category), category == "custom-call");
     let duty: Vec<Option<(bool, bool)>> = metas.iter().map(|(_, category)| category.as_deref().map(kind)).collect();
     let span_of = |offset: Option<i64>, duration: Option<i64>, event: &Ev| match (offset, duration) {
@@ -371,14 +390,15 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
                 let db = dbs.entry(group).or_default();
                 let (Some(program), Some(symbol)) = (meta[PROGRAM], meta[SYMBOL].filter(|&symbol| symbol != 0)) else { return };
                 let first = *db.0.entry((program, symbol)).or_insert(meta_index);
-                let category = metas[first as usize].1.as_deref().unwrap_or("");
-                match db.1.get_mut(category) {
-                    Some(time) => *time += self_time,
-                    None => _ = db.1.insert(category.to_string(), self_time),
+                let category = categories[first as usize] as usize;
+                if db.1.len() <= category {
+                    db.1.resize(category + 1, None);
                 }
+                *db.1[category].get_or_insert(0) += self_time;
                 db.2 += self_time;
             });
-            for (group, (_, categories, total)) in dbs {
+            for (group, (_, times, total)) in dbs {
+                let categories = times.into_iter().zip(&names).filter_map(|(time, name)| Some((name.to_string(), time?))).collect();
                 result.entry(group).or_default().cores.insert(step_core, (categories, total));
             }
             device.events = result;
