@@ -705,10 +705,16 @@ impl Plane {
     }
 
     pub fn add_threadpool_regions(&mut self, map: &[u8]) {
-        let find = |name: &str| self.meta.iter().position(|meta| meta.full_name(map) == name);
-        let (Some(start), Some(stop)) = (find(REGION[0]), find(REGION[1])) else { return };
+        let mut found = [None; REGION.len()];
+        for (index, meta) in self.meta.iter().enumerate() {
+            let name = if meta.display.is_empty() { meta.name.as_bytes() } else { slice(map, meta.long) };
+            if let Some(position) = REGION.iter().position(|region| region.as_bytes() == name) {
+                found[position].get_or_insert(index);
+            }
+        }
+        let (Some(start), Some(stop)) = (found[0], found[1]) else { return };
         let consumer = self.kind.iter().position(|&kind| kind as usize == C);
-        let region = find(REGION[2]).unwrap_or_else(|| {
+        let region = found[2].unwrap_or_else(|| {
             self.meta.push(Meta { name: REGION[2].into(), ..Default::default() });
             self.meta.len() - 1
         });
