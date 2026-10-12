@@ -160,7 +160,7 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
                     if event.group != NONE_GROUP {
                         metadata.group_id = event.group as u32;
                     }
-                    metadata.serial = if full_dma.is_some() { event.serial } else { 0 };
+                    metadata.serial = if full_dma.is_some() { view.trace.serial(index as usize) } else { 0 };
                 }
                 series.event_metadata.push(metadata);
             }

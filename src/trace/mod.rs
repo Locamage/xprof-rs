@@ -15,7 +15,7 @@ use std::sync::{Condvar, Mutex};
 
 pub const NONE_RESOURCE: u32 = u32::MAX;
 const COUNTERS: &str = "_counters_";
-pub const NONE_FLOW: u64 = u64::MAX;
+pub const NONE_FLOW: u32 = u32::MAX;
 pub const DERIVED_META: u32 = u32::MAX;
 pub const FLOW_START: u8 = 1;
 pub const FLOW_MID: u8 = 2;
@@ -58,12 +58,12 @@ impl Interner {
 pub struct Event {
     pub ts: u64,
     pub dur: u64,
-    pub flow: u64,
     pub group: i64,
     pub raw: (u32, u32),
+    /// The index of the flow in `flow_ids`. In the build, the place of the flow ID in the flow IDs of the conversion unit of the event.
+    pub flow: u32,
     pub name: u32,
     pub track: u32,
-    pub serial: u32,
     pub meta: u32,
     pub plane: u32,
     pub eager: Option<bool>,
@@ -82,6 +82,25 @@ impl Event {
     pub fn flow_cat(&self) -> u8 {
         self.flow_kind >> 2
     }
+}
+
+/// The place of event `index` among the events with its time. The events are in time order.
+fn serial(events: &[Event], index: usize) -> u32 {
+    let ts = events[index].ts;
+    if index == 0 || events[index - 1].ts != ts { 0 } else { (index - events[..index].partition_point(|event| event.ts < ts)) as u32 }
+}
+
+/// The serials of the events from `start` on.
+fn serials(events: &[Event], start: usize) -> impl Iterator<Item = u32> + '_ {
+    let mut current = 0;
+    events[start..].iter().enumerate().map(move |(offset, event)| {
+        current = match offset {
+            0 => serial(events, start),
+            _ if events[start + offset - 1].ts == event.ts => current + 1,
+            _ => 0,
+        };
+        current
+    })
 }
 
 #[derive(Default)]
@@ -380,8 +399,8 @@ fn each_event<'a>(inputs: &'a [Vec<Ev>], starts: &[usize], range: Range<usize>, 
     }
 }
 
-/// The events, the extra names, the extra arguments, and the start of each bucket.
-type Converted = (Vec<Event>, Vec<Box<str>>, Vec<Vec<String>>, Vec<usize>);
+/// The events, the extra names, the extra arguments, the start of each bucket, and the flow IDs of each conversion unit.
+type Converted = (Vec<Event>, Vec<Box<str>>, Vec<Vec<String>>, Vec<usize>, Vec<Vec<u64>>);
 
 /// Gives the events in buckets of time, and the start of each bucket. All events of a bucket come before the events of the next bucket, and in a bucket, the events keep their input order.
 /// `inputs` has the events of each job. The conversion frees the events of a job when it has all of them, so the input and the output are not both full at the same time.
@@ -427,7 +446,7 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
         .collect();
     let bounds = into_cursors(&mut cursors, buckets);
     // An event without link stats has the links of its metadata, thus `plain` keeps these links for each job and metadata.
-    let converted = |job: usize, index: usize, event: &Ev, plain: &mut FxHashMap<(usize, u32), Links>| {
+    let converted = |job: usize, index: usize, event: &Ev, plain: &mut FxHashMap<(usize, u32), Links>, flows: &mut Vec<u64>, unit: usize| {
         let Job { plane: plane_index, track, label_base, .. } = jobs[job];
         let line = line_of(job);
         let (plane, derived) = (&planes[plane_index], !line.labels.is_empty());
@@ -447,8 +466,10 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
             extra.push(step.into());
             name = extra_base + extra.len() as u32 - 1;
         }
-        let (flow, flow_entry, flow_cat) =
-            links.flow.map_or((NONE_FLOW, 0, 0), |encoded| ((encoded >> 2) & ((1 << 56) - 1), [0, FLOW_END, FLOW_START, FLOW_MID][(encoded & 3) as usize], (encoded >> 58) as u8));
+        let (flow, flow_entry, flow_cat) = links.flow.map_or((NONE_FLOW, 0, 0), |encoded| {
+            flows.push((encoded >> 2) & ((1 << 56) - 1));
+            ((unit * UNIT + flows.len() - 1) as u32, [0, FLOW_END, FLOW_START, FLOW_MID][(encoded & 3) as usize], (encoded >> 58) as u8)
+        });
         let raw = match line.args.get(&index) {
             Some(extra) => {
                 let mut args = args.lock().unwrap();
@@ -475,18 +496,24 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
     };
     let mut events: Vec<Event> = crate::huge_vec(total);
     let slots = Slots(events.spare_capacity_mut().as_mut_ptr());
-    let mut freed = 0;
+    let (mut freed, mut flows) = (0, Vec::new());
     for (wave, cursors) in cursors.chunks_mut(WAVE).enumerate() {
-        cursors.par_iter_mut().enumerate().for_each(|(offset, cursors)| {
-            let (mut last, mut plain) = (0, FxHashMap::default());
-            each_event(&inputs, &starts, range(wave * WAVE + offset), |job, index, event| {
-                let slot = &mut cursors[bucket(&mut last, job, event)];
-                let out = if internal(job, event) { Event { ts: u64::MAX, ..Default::default() } } else { converted(job, index, event, &mut plain) };
-                // SAFETY: the cursors of the units give each input index a different slot below `total`.
-                unsafe { slots.write(*slot as usize, out) };
-                *slot += 1;
-            });
-        });
+        let wave_flows: Vec<Vec<u64>> = cursors
+            .par_iter_mut()
+            .enumerate()
+            .map(|(offset, cursors)| {
+                let (mut last, mut plain, mut flows, unit) = (0, FxHashMap::default(), Vec::new(), wave * WAVE + offset);
+                each_event(&inputs, &starts, range(unit), |job, index, event| {
+                    let slot = &mut cursors[bucket(&mut last, job, event)];
+                    let out = if internal(job, event) { Event { ts: u64::MAX, ..Default::default() } } else { converted(job, index, event, &mut plain, &mut flows, unit) };
+                    // SAFETY: the cursors of the units give each input index a different slot below `total`.
+                    unsafe { slots.write(*slot as usize, out) };
+                    *slot += 1;
+                });
+                flows
+            })
+            .collect();
+        flows.extend(wave_flows);
         let done = ((wave + 1) * WAVE * UNIT).min(total);
         while freed < inputs.len() && starts[freed] + inputs[freed].len() <= done {
             crate::discard(std::mem::take(&mut inputs[freed]));
@@ -495,7 +522,7 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
     }
     // SAFETY: the units write all `total` slots.
     unsafe { events.set_len(total) };
-    (events, extra.into_inner().unwrap(), args.into_inner().unwrap(), bounds)
+    (events, extra.into_inner().unwrap(), args.into_inner().unwrap(), bounds, flows)
 }
 
 impl Trace {
@@ -503,7 +530,8 @@ impl Trace {
     pub fn build(planes: &mut [Plane], host: &str, map: &[u8]) -> Self {
         let layout = layout(planes, host);
         let inputs = layout.jobs.iter().map(|job| std::mem::take(&mut planes[job.plane].lines[job.line].events)).collect();
-        let (mut events, extra, args, bounds) = convert(planes, inputs, map, &layout);
+        let (mut events, extra, args, bounds, unit_flows) = convert(planes, inputs, map, &layout);
+        let flow_id = |flow: u32| unit_flows[flow as usize / UNIT][flow as usize % UNIT];
         let Layout { devices, mut owners, mut names, long_names, steps, .. } = layout;
         let tracks = owners.len();
         crate::release(planes.iter_mut().map(|plane| std::mem::take(&mut plane.lines)).collect::<Vec<_>>());
@@ -523,22 +551,15 @@ impl Trace {
         });
         events.truncate(events.partition_point(|event| event.ts != u64::MAX));
         let part = events.len().div_ceil(rayon::current_num_threads() * 4).max(1);
-        let run_starts: Vec<usize> = (0..events.len()).step_by(part).map(|start| events.partition_point(|event| event.ts < events[start].ts)).collect();
         // Each part gives its new async tracks and flows in the order of their first event, and these get ids in the order of the parts. A part counts the events of each track, and of each of its new async tracks.
         let units: Vec<_> = events
-            .par_chunks_mut(part)
-            .zip(run_starts)
+            .par_chunks(part)
             .enumerate()
-            .map(|(unit, (events, mut run))| {
+            .map(|(unit, events)| {
                 let (mut counts, mut async_counts, mut flows, mut flowing) = (vec![0; tracks], Vec::new(), Vec::new(), Vec::new());
                 let (mut local, mut seen_flows) = (indexmap::IndexMap::<(u32, &str), (), rustc_hash::FxBuildHasher>::default(), FxHashSet::default());
-                let mut previous = events[0].ts;
-                for (offset, event) in events.iter_mut().enumerate() {
+                for (offset, event) in events.iter().enumerate() {
                     let index = unit * part + offset;
-                    if event.ts != previous {
-                        (run, previous) = (index, event.ts);
-                    }
-                    event.serial = (index - run) as u32;
                     if event.unbound {
                         let id = local.insert_full((owners[event.track as usize].0, &*names[event.name as usize]), ()).0;
                         if id == async_counts.len() {
@@ -550,15 +571,15 @@ impl Trace {
                     }
                     if event.flow != NONE_FLOW {
                         flowing.push(index as u32);
-                        if seen_flows.insert(event.flow) {
-                            flows.push(event.flow);
+                        if seen_flows.insert(flow_id(event.flow)) {
+                            flows.push(flow_id(event.flow));
                         }
                     }
                 }
                 (counts, local.into_keys().zip(async_counts).collect::<Vec<_>>(), flows, flowing)
             })
             .collect();
-        let (mut async_tracks, mut flow_index, mut flow_ids) = (FxHashMap::<(u32, &str), u32>::default(), FxHashMap::<u64, u64>::default(), Vec::new());
+        let (mut async_tracks, mut flow_index, mut flow_ids) = (FxHashMap::<(u32, &str), u32>::default(), FxHashMap::<u64, u32>::default(), Vec::new());
         for (_, unit_tracks, unit_flows, _) in &units {
             for &(key, _) in unit_tracks {
                 async_tracks.entry(key).or_insert_with(|| {
@@ -569,7 +590,7 @@ impl Trace {
             for &flow in unit_flows {
                 flow_index.entry(flow).or_insert_with(|| {
                     flow_ids.push(flow);
-                    flow_ids.len() as u64 - 1
+                    flow_ids.len() as u32 - 1
                 });
             }
         }
@@ -592,7 +613,7 @@ impl Trace {
                     event.track = async_tracks[&(owners[event.track as usize].0, &*names[event.name as usize])];
                 }
                 if event.flow != NONE_FLOW {
-                    event.flow = flow_index[&event.flow];
+                    event.flow = flow_index[&flow_id(event.flow)];
                 }
                 let slot = &mut cursors[event.track as usize];
                 // SAFETY: the cursors of the units give each event a different slot below `events.len()`.
@@ -602,6 +623,7 @@ impl Trace {
         });
         // SAFETY: the units write all slots.
         unsafe { order.set_len(events.len()) };
+        drop(unit_flows);
         let by_track: Vec<&[u32]> = bounds.windows(2).map(|pair| &order[pair[0]..pair[1]]).collect();
         let span = (
             events.iter().map(|event| event.ts).find(|&ts| ts <= BAD_TIMESTAMP).unwrap_or(0),
@@ -617,24 +639,22 @@ impl Trace {
         );
         drop(by_track);
         drop(order);
-        let mut cursors: Vec<Vec<u32>> = events
-            .par_chunks_mut(LEVEL_CHUNK)
-            .zip(assigned.par_chunks(LEVEL_CHUNK))
-            .map(|(events, assigned)| {
+        events.par_iter_mut().zip(assigned).for_each(|(event, level)| event.level = level);
+        let mut cursors: Vec<Vec<u32>> = (0..events.len().div_ceil(LEVEL_CHUNK))
+            .into_par_iter()
+            .map(|chunk| {
                 let mut counts = vec![0; LAYER_PS.len()];
-                for (event, &level) in events.iter_mut().zip(assigned) {
-                    event.level = level;
-                    counts[level as usize] += u32::from(event.serial < MAX_SERIAL);
+                for (event, serial) in events[chunk * LEVEL_CHUNK..].iter().zip(serials(&events, chunk * LEVEL_CHUNK)).take(LEVEL_CHUNK) {
+                    counts[event.level as usize] += u32::from(serial < MAX_SERIAL);
                 }
                 counts
             })
             .collect();
-        drop(assigned);
         let level_bounds = into_cursors(&mut cursors, LAYER_PS.len());
         let mut levels: Vec<u32> = Vec::with_capacity(level_bounds[LAYER_PS.len()]);
         let slots = Slots(levels.spare_capacity_mut().as_mut_ptr());
-        events.par_chunks(LEVEL_CHUNK).zip(cursors).enumerate().for_each(|(chunk, (events, mut cursors))| {
-            for (offset, event) in events.iter().enumerate().filter(|(_, event)| event.serial < MAX_SERIAL) {
+        events.par_chunks(LEVEL_CHUNK).zip(cursors).enumerate().for_each(|(chunk, (chunk_events, mut cursors))| {
+            for ((offset, event), _) in chunk_events.iter().enumerate().zip(serials(&events, chunk * LEVEL_CHUNK)).filter(|(_, serial)| *serial < MAX_SERIAL) {
                 let slot = &mut cursors[event.level as usize];
                 // SAFETY: the cursors of the chunks give each counted event a different slot below the last bound.
                 unsafe { slots.write(*slot as usize, (chunk * LEVEL_CHUNK + offset) as u32) };
@@ -671,6 +691,10 @@ impl Trace {
     fn is_dma_flow(&self, index: u32) -> bool {
         let event = &self.events[index as usize];
         event.flow != NONE_FLOW && event.flow_entry() == FLOW_MID && self.dma_devices.contains(&self.device(event))
+    }
+
+    pub fn serial(&self, index: usize) -> u32 {
+        serial(&self.events, index)
     }
 
     pub fn device(&self, event: &Event) -> u32 {
@@ -780,7 +804,7 @@ impl Trace {
             .events
             .par_iter()
             .enumerate()
-            .filter(|(index, event)| event.serial < MAX_SERIAL && matching[event.name as usize] && (full_dma || !self.is_dma_flow(*index as u32)))
+            .filter(|(index, event)| matching[event.name as usize] && self.serial(*index) < MAX_SERIAL && (full_dma || !self.is_dma_flow(*index as u32)))
             .map(|(index, _)| index as u32)
             .collect();
         found.par_sort_unstable_by_key(|&index| (self.events[index as usize].level, index));

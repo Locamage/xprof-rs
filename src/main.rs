@@ -1020,7 +1020,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
                         trace
                             .events
                             .get(index)
-                            .filter(|event| event.serial < MAX_SERIAL && event.ts == *ts && event.dur == *dur && *trace.names[event.name as usize] == **name)
+                            .filter(|event| trace.serial(index) < MAX_SERIAL && event.ts == *ts && event.dur == *dur && *trace.names[event.name as usize] == **name)
                             .map(|_| index as u32)
                             .into_iter()
                             .collect()

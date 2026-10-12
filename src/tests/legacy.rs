@@ -510,7 +510,7 @@ fn request_queue_producers_flow_to_their_consumers() {
     let line = [number(1, 1), bytes(2, b"python"), link(1, 0), link(2, 100)].concat();
     let plane = [bytes(2, b"/host:CPU"), bytes(3, &line), entries(4, &["EnqueueRequestLocked", "PjrtAsyncWait"]), entries(5, &["request_id", "queue_addr"])].concat();
     let host = host_of(&bytes(1, &plane));
-    let flows: Vec<(u64, u8)> = host.trace.events.iter().map(|event| (event.flow, event.flow_entry())).collect();
+    let flows: Vec<(u32, u8)> = host.trace.events.iter().map(|event| (event.flow, event.flow_entry())).collect();
     assert_eq!(flows, [(0, trace::FLOW_START), (0, trace::FLOW_END)]);
 }
 

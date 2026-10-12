@@ -35,7 +35,8 @@ pub struct View<'a> {
     pub events: Vec<u32>,
 }
 
-type Extra<'a> = (&'a Plane, &'a [u8], &'a mut Vec<String>, Option<&'a [u64]>);
+/// The plane, the map, the stack frames, the keys of the frames, and whether the frame of the event has marks.
+type Extra<'a> = (&'a Plane, &'a [u8], &'a mut Vec<String>, Option<&'a [u64]>, bool);
 
 /// The arguments in a trace response. A search takes its stack frames from the table of the full trace; one event has its own table.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -330,7 +331,7 @@ pub fn counter_values(plane: &Plane, event: &Event, map: &[u8]) -> (Option<Box<s
     (first, values)
 }
 
-pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, extra: Option<Extra>, forced_entry: Option<u8>, marked: bool) {
+pub fn write_event(out: &mut String, trace: &Trace, event: &Event, serial: u32, pid: u32, extra: Option<Extra>, forced_entry: Option<u8>) {
     let (entry, category) = (forced_entry.unwrap_or(event.flow_entry()), CONTEXT_TYPES.split('|').nth(event.flow_cat() as usize).unwrap_or(""));
     out.push_str("{\"pid\":");
     number(out, pid as u64);
@@ -372,11 +373,11 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
             write!(out, "\"group_id\":{}", event.group).unwrap();
         }
         match extra.filter(|_| forced_entry.is_none()) {
-            None if forced_entry.is_none() => write!(out, "{}\"uid\":{}", if out.len() > start { "," } else { "" }, event.serial).unwrap(),
+            None if forced_entry.is_none() => write!(out, "{}\"uid\":{serial}", if out.len() > start { "," } else { "" }).unwrap(),
             None => {}
-            Some((plane, map, frames, keys)) => {
+            Some((plane, map, frames, keys, marked)) => {
                 let (args, stack) = full_args(trace, plane, event, map, frames, keys);
-                frame = stack;
+                frame = stack.map(|stack| (stack, marked));
                 for arg in args {
                     out.push_str(if out.len() > start { "," } else { "" });
                     out.push_str(&arg);
@@ -385,18 +386,18 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
         }
         out.push('}');
     }
-    if let Some(frame) = frame {
+    if let Some((frame, marked)) = frame {
         let (open, close) = if marked { (FRAME_OPEN, FRAME_CLOSE) } else { ("", "") };
         write!(out, ",\"sf\":{open}{frame}{close}").unwrap();
     }
-    if event.serial > 0 {
+    if serial > 0 {
         out.push_str(",\"z\":");
-        number(out, event.serial as u64);
+        number(out, u64::from(serial));
     }
     out.push('}');
     if event.unbound && entry == FLOW_MID && forced_entry.is_none() {
         out.push(',');
-        write_event(out, trace, event, pid, None, Some(FLOW_END), marked);
+        write_event(out, trace, event, serial, pid, None, Some(FLOW_END));
     }
 }
 
@@ -471,7 +472,8 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
                 text.push_str("]}");
             }
             text.push_str(if position > 0 { "," } else { "" });
-            write_event(&mut text, view.trace, event, pid, frames.as_deref_mut().map(|frames| (&view.planes[event.plane as usize], view.map, frames, keys)), None, fresh);
+            let extra = frames.as_deref_mut().map(|frames| (&view.planes[event.plane as usize], view.map, frames, keys, fresh));
+            write_event(&mut text, view.trace, event, view.trace.serial(index as usize), pid, extra, None);
         }
         if open.is_some() {
             text.push_str("]}");
