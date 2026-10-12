@@ -1079,7 +1079,7 @@ pub fn tables(stats: &InferenceStats) -> String {
 }
 
 pub fn load(paths: &[PathBuf]) -> Option<InferenceStats> {
-    let maps: Vec<Vec<u8>> = paths.iter().map(|path| crate::read_file(path).ok().filter(|map| valid_space(map))).collect::<Option<_>>()?;
+    let maps: Vec<crate::input::Input> = paths.iter().map(|path| crate::read_file(path).ok().filter(|map| valid_space(map))).collect::<Option<_>>()?;
     let serving = maps.iter().any(|map| serves_requests(map));
     let hosts: Vec<InferenceStats> = maps
         .par_iter()

@@ -629,7 +629,7 @@ pub fn serve(tag: &str, paths: &[std::path::PathBuf]) -> Option<String> {
     };
     match tag {
         "perf_counters" if !paths.is_empty() => {
-            let maps: Vec<(String, Vec<u8>)> = paths.iter().filter_map(|path| Some((crate::host_name(path), crate::read_file(path).ok().filter(|map| valid_space(map))?))).collect();
+            let maps: Vec<(String, crate::input::Input)> = paths.iter().filter_map(|path| Some((crate::host_name(path), crate::read_file(path).ok().filter(|map| valid_space(map))?))).collect();
             Some(perf_counters(&maps.iter().map(|(host, map)| (host.clone(), &map[..])).collect::<Vec<_>>()))
         }
         "utilization_viewer" => single(utilization_viewer),

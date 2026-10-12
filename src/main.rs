@@ -1,5 +1,6 @@
 mod cli;
 mod hlo;
+mod input;
 mod server;
 #[cfg(test)]
 mod tests;
@@ -84,7 +85,7 @@ include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 
 struct Host {
     bytes: u64,
-    map: Vec<u8>,
+    map: input::Input,
     planes: Vec<Plane>,
     trace: Trace,
 }
@@ -253,15 +254,20 @@ fn on_fuse(file: &std::fs::File) -> bool {
     false
 }
 
-fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    let mut file = std::fs::File::open(path)?;
-    let mut bytes = vec![0; file.metadata()?.len() as usize];
+fn read_file(path: &Path) -> std::io::Result<input::Input> {
+    let file = std::fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    let mut file = match input::map(file, len) {
+        Ok(input) => return Ok(input),
+        Err(file) => file,
+    };
+    let mut bytes = vec![0; len as usize];
     if on_fuse(&file) {
         std::io::Read::read_exact(&mut file, &mut bytes)?;
     } else {
         bytes.par_chunks_mut(READ_CHUNK).enumerate().try_for_each(|(index, chunk)| file.read_exact_at(chunk, (index * READ_CHUNK) as u64))?;
     }
-    Ok(bytes)
+    Ok(bytes.into())
 }
 
 /// Writes a new file, then moves it to the path. A reader sees the full old file or the full new file. Two writers of the same path do not truncate the file of the other.
@@ -290,7 +296,7 @@ fn swap(partial: &Path, path: &Path) -> std::io::Result<()> {
     std::fs::rename(partial, path)
 }
 
-fn prepare(path: &Path, trace: bool) -> anyhow::Result<(Vec<u8>, Vec<Plane>)> {
+fn prepare(path: &Path, trace: bool) -> anyhow::Result<(input::Input, Vec<Plane>)> {
     let map = read_file(path)?;
     let mut planes = xplane::parse(&map)?;
     finish(&mut planes, &map, trace);

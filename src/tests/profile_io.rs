@@ -75,3 +75,17 @@ fn a_replaced_file_has_the_new_bytes_and_no_partial_file_stays() {
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_read_file_keeps_its_bytes_when_another_writer_truncates_the_file() {
+    let dir = temp_dir("truncate");
+    let path = dir.join("big.xplane.pb");
+    let bytes: Vec<u8> = (0..(20 << 20) as u32).map(|index| (index % 251) as u8).collect();
+    std::fs::write(&path, &bytes).unwrap();
+    let input = crate::read_file(&path).unwrap();
+    std::fs::write(&path, b"short").unwrap();
+    assert!(input.iter().eq(&bytes), "the read bytes changed");
+    drop(input);
+    std::fs::write(&path, b"again").unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -92,6 +92,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The trace viewer reads the links of an event without link stats from its metadata one time for each line. Before, it read the stats of each event again. On a 1.7 GB profile with 8 cores, the first request of the trace viewer takes 6.6 s and 46.6 CPU seconds. Before, it took 7.0 s and 50.1 CPU seconds.
 - The op statistics of the host decode the stats of a large host line on all cores. Before, one thread decoded all the events of the line. On a 1.7 GB profile with 8 cores, the first request of the op profile takes 3.0 s. Before, it took 3.2 s.
 - For the busy time of the TPU chips, an op interval that starts in the interval before it joins that interval. Before, the op statistics kept each op interval until the end. On a 1.7 GB profile with 8 cores, the first request of the op profile uses 4.4 GB of memory. Before, it used 5.5 GB. The overview page uses 4.4 GB. Before, it used 5.7 GB.
+- On Linux, xprof-rs maps a profile file of 16 MiB or more on a local file system. Before, it copied the file into its memory. A read lease keeps the mapped bytes valid. Before another process writes or truncates the file, xprof-rs makes a private copy of the bytes. On a 1.7 GB profile with 8 cores, the op profile uses 2.8 GB of memory, and the trace viewer uses 7.7 GB. Before, they used 4.4 GB and 9.3 GB.
 
 ## 0.1.2
 

@@ -590,7 +590,7 @@ pub struct Kept {
     pub part: Part,
     /// `None` before the groups. Then, if the planes do not have the derived lines of the TPUs yet.
     underived: Option<bool>,
-    map: Vec<u8>,
+    map: crate::input::Input,
     pub planes: Vec<Plane>,
 }
 
@@ -616,7 +616,7 @@ impl Kept {
         if !self.fused && stats.tpu {
             let modules = crate::hlo::parse_modules(crate::hlo::protos(&self.planes, &self.map));
             crate::hlo::attach_fused(&modules, &mut stats.db);
-            // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
+            // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The bytes of `map` do not move.
             self.modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
         }
         self.fused = true;
@@ -658,7 +658,7 @@ fn steps(planes: &[Plane], map: &[u8], templates: &[Templates], part: Part, read
 }
 
 /// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
-pub fn load_kept(map: Vec<u8>, fused: bool, part: Part) -> anyhow::Result<Option<(Arc<OpStats>, Kept)>> {
+pub fn load_kept(map: crate::input::Input, fused: bool, part: Part) -> anyhow::Result<Option<(Arc<OpStats>, Kept)>> {
     let Some(mut planes) = crate::parse_checked(&map, part == Part::Device)? else { return Ok(None) };
     // The modules come from the metadata plane only, so they parse at the same time as the groups and the op statistics.
     let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
@@ -686,7 +686,7 @@ pub fn load_kept(map: Vec<u8>, fused: bool, part: Part) -> anyhow::Result<Option
         }
         (stats, modules, underived)
     });
-    // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The heap buffer of `map` does not move.
+    // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The bytes of `map` do not move.
     let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
     Ok(Some((Arc::new(stats), Kept { modules, fused, part, underived, map, planes })))
 }

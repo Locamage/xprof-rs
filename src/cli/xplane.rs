@@ -345,7 +345,7 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
     Ok(compute().map_err(|error| rethrow(error, |error| format!("Error aggregating XPlane events for session {session}: {}", error.message)))?.into())
 }
 
-fn serialized(client: &dyn Client, session: &str, host: &str) -> Result<Vec<u8>, Error> {
+fn serialized(client: &dyn Client, session: &str, host: &str) -> Result<crate::input::Input, Error> {
     let mut paths = client.xspace_paths(&client.run_dir(session)?)?;
     if !host.is_empty() {
         paths.retain(|path| super::client::host(path) == host);
@@ -369,7 +369,7 @@ pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         let path = PathBuf::from(&output);
         let io = |error: std::io::Error| Error::new(Kind::Os, error.to_string());
         path.parent().filter(|parent| !parent.as_os_str().is_empty()).map(std::fs::create_dir_all).transpose().map_err(io)?;
-        std::fs::write(&path, &data).map_err(io)?;
+        std::fs::write(&path, &*data).map_err(io)?;
         return Ok(Out::Text(output));
     }
     if data.len() > XSPACE_SPILL_BYTES {
@@ -385,7 +385,7 @@ pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         }
         .into());
     }
-    Ok(Out::Bytes(data))
+    Ok(Out::Bytes(data.to_vec()))
 }
 
 pub fn union_ns(mut intervals: Vec<(i128, i128)>) -> i128 {

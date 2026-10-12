@@ -793,9 +793,9 @@ pub fn run(argv: &[String]) -> Option<i32> {
     Some(code)
 }
 
-pub fn read(path: &Path) -> Result<Vec<u8>, Error> {
+pub fn read(path: &Path) -> Result<crate::input::Input, Error> {
     let big = std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() > (16 << 20));
-    (if big { crate::read_file(path) } else { std::fs::read(path) }).map_err(|error| os_error(path, &error))
+    (if big { crate::read_file(path) } else { std::fs::read(path).map(Into::into) }).map_err(|error| os_error(path, &error))
 }
 
 pub fn openable(path: &Path) -> Result<(), Error> {
