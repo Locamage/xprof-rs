@@ -127,6 +127,7 @@ type Tags = (String, String, u64);
 /// The start, the duration, the line and the index of an event.
 type Position = (u64, Reverse<u64>, u32, u32);
 
+#[derive(Clone)]
 struct Parsed {
     scopes: Vec<u32>,
     op: Option<u32>,
@@ -333,19 +334,22 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
     let mut derived = Derived::new(&TPU_LINES, 0, "", false);
     // The same texts always give the same metadata. Thus the code parses each pair of texts one time.
     let mut cache: FxHashMap<(&str, &str), Parsed> = FxHashMap::default();
+    // Most events have the texts of their metadata, thus `by_meta` keeps the parse of the texts of each metadata.
+    let mut by_meta: Vec<Option<Parsed>> = vec![None; tags.len()];
     for &((start, Reverse(dur), line_index, index), group, own) in &order {
-        let (tf_op, source, is_async) = &tags[event(line_index, index).meta as usize];
-        let texts = match own.then(|| &owns[&(line_index, index)]) {
+        let meta = event(line_index, index).meta as usize;
+        let (tf_op, source, is_async) = &tags[meta];
+        let parsed = match own.then(|| &owns[&(line_index, index)]) {
             Some((event_tf_op, event_source, event_async)) => {
                 if (if *event_async != 0 { *event_async } else { *is_async }) != 0 {
                     continue;
                 }
-                (if event_tf_op.is_empty() { tf_op } else { event_tf_op }, if event_source.is_empty() { source } else { event_source })
+                let texts = (if event_tf_op.is_empty() { tf_op } else { event_tf_op }, if event_source.is_empty() { source } else { event_source });
+                &*cache.entry((texts.0.as_str(), texts.1.as_str())).or_insert_with(|| derived.parse(texts.0, texts.1))
             }
-            None if *is_async == 0 => (tf_op, source),
+            None if *is_async == 0 => &*by_meta[meta].get_or_insert_with(|| cache.entry((tf_op.as_str(), source.as_str())).or_insert_with(|| derived.parse(tf_op, source)).clone()),
             None => continue,
         };
-        let parsed = cache.entry((texts.0.as_str(), texts.1.as_str())).or_insert_with(|| derived.parse(texts.0, texts.1));
         derived.apply(parsed, (start, start + dur), group);
     }
     derived.reset(SCOPES, 0);
