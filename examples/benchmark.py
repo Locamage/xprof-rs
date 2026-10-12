@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Measure the cold and warm times of XProf and xprof-rs on one profile, and print Markdown tables.
 
-Usage: benchmark.py SESSION_DIR --xprof PATH [--rs PATH] [--cores 0-3] [--trials N] [--warmups N] [--json FILE]
+Usage: benchmark.py SESSION_DIR --xprof PATH [--rs PATH] [--cores 0-3] [--trials N] [--warmups N] [--tools A,B] [--commands A,B] [--json FILE]
 
 SESSION_DIR holds one `.xplane.pb` file and optional `.hlo_proto.pb` files.
 Server, cold: the first request to a new server on a new copy of the files. Warm: the mean of 5 more requests.
 CLI, cold: one process on a new copy with an empty TMPDIR (the XProf result cache). Warm: the same command again.
+Peak memory: the peak resident memory of the server process over the cold and the warm requests, or of the cold CLI process.
+The system gives this value when the process stops (`ru_maxrss` of `wait4`). It includes the pages of the profile that the process maps.
 As in pyperf, the warmup trials are not counted, and each cell is the mean and the standard deviation of the trials.
 A cell with a standard deviation of more than 10% of the mean has the mark (!).
 The trials of XProf and xprof-rs alternate, so a change of the machine load affects the two the same.
@@ -36,6 +38,15 @@ COMMANDS = ["get_overview", "get_top_hlo_ops", "get_hlo_op_profile", "get_hlo_st
             "get_xspace_proto", "list_xplane_events"]
 WARM_REQUESTS = 5
 UNSTABLE = 0.10
+# ru_maxrss is in bytes on macOS and in KiB on Linux.
+RSS_UNIT = 1 if sys.platform == "darwin" else 1024
+
+
+def reap(process):
+    """Waits for the process to stop, and gives its peak resident memory in bytes."""
+    _, status, usage = os.wait4(process.pid, 0)
+    process.returncode = os.waitstatus_to_exitcode(status)
+    return usage.ru_maxrss * RSS_UNIT
 
 
 def fresh(session, scratch):
@@ -73,34 +84,36 @@ def server(command, session, scratch, port, path):
                 break
             except OSError:
                 time.sleep(0.1)
-        return fetch(port, path), statistics.fmean(fetch(port, path) for _ in range(WARM_REQUESTS))
+        cold, warm = fetch(port, path), statistics.fmean(fetch(port, path) for _ in range(WARM_REQUESTS))
     finally:
         process.terminate()
-        process.wait()
+        peak = reap(process)
+    return cold, warm, peak
 
 
 def cli(command, session, scratch, name):
     logs, env = fresh(session, scratch)
-    times = []
+    times, peaks = [], []
     for _ in range(2):
         start = time.perf_counter()
-        done = subprocess.run(command + [name, str(logs / "run")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        process = subprocess.Popen(command + [name, str(logs / "run")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        peaks.append(reap(process))
         times.append(time.perf_counter() - start)
-        if done.returncode != 0:
-            raise RuntimeError(f"{name}: exit code {done.returncode}")
-    return times
+        if process.returncode != 0:
+            raise RuntimeError(f"{name}: exit code {process.returncode}")
+    return times[0], times[1], peaks[0]
 
 
 def trials(measures, count, warmups):
-    """Runs the measures in turns. Gives, for each measure, the cold and the warm values of the counted trials."""
-    values = [([], []) for _ in measures]
+    """Runs the measures in turns. Gives, for each measure, the cold times, the warm times and the peak memory of the counted trials."""
+    values = [([], [], []) for _ in measures]
     for trial in range(warmups + count):
         order = list(enumerate(measures))
         for index, measure in order if trial % 2 == 0 else reversed(order):
-            cold, warm = measure()
+            measured = measure()
             if trial >= warmups:
-                values[index][0].append(cold)
-                values[index][1].append(warm)
+                for column, value in zip(values[index], measured):
+                    column.append(value)
     return values
 
 
@@ -113,18 +126,36 @@ def cell(values):
     return f"{mean * scale:.{digits}f} ± {deviation * scale:.{digits}f} {unit}{warning}"
 
 
+def memory(values):
+    mean, deviation = statistics.fmean(values), statistics.stdev(values) if len(values) > 1 else 0.0
+    unit, scale = ("MB", 1e6) if mean < 1e9 else ("GB", 1e9)
+    warning = "" if deviation <= UNSTABLE * mean else " (!)"
+    return f"{mean / scale:.{0 if unit == 'MB' else 2}f} ± {deviation / scale:.{0 if unit == 'MB' else 2}f} {unit}{warning}"
+
+
 def ratio(slow, fast):
     value = statistics.fmean(slow) / statistics.fmean(fast)
     return f"{value:.0f}×" if value >= 10 else f"{value:.1f}×"
 
 
 def table(title, rows):
-    print(f"| {title} | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |")
-    print("|---|---|---|---|---|---|---|")
-    for name, ((old_cold, old_warm), (new_cold, new_warm)) in rows.items():
+    print(f"| {title} | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up | XProf, peak memory | xprof-rs, peak memory |")
+    print("|---|---|---|---|---|---|---|---|---|")
+    for name, ((old_cold, old_warm, old_peak), (new_cold, new_warm, new_peak)) in rows.items():
         print(f"| `{name}` | {cell(old_cold)} | {cell(new_cold)} | {ratio(old_cold, new_cold)} "
-              f"| {cell(old_warm)} | {cell(new_warm)} | {ratio(old_warm, new_warm)} |")
+              f"| {cell(old_warm)} | {cell(new_warm)} | {ratio(old_warm, new_warm)} | {memory(old_peak)} | {memory(new_peak)} |")
     print()
+
+
+def chosen(names, text):
+    """The names in `text`, in the order of `names`. No text gives all names."""
+    if text is None:
+        return names
+    wanted = [name for name in text.split(",") if name]
+    unknown = set(wanted) - set(names)
+    if unknown:
+        raise SystemExit(f"unknown names: {', '.join(sorted(unknown))}")
+    return [name for name in names if name in wanted]
 
 
 def main():
@@ -135,13 +166,15 @@ def main():
     parser.add_argument("--cores", help="CPU list for taskset, for example 0-3")
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--warmups", type=int, default=1)
+    parser.add_argument("--tools", help="comma-separated server tools, or an empty text for none (default: all)")
+    parser.add_argument("--commands", help="comma-separated CLI commands, or an empty text for none (default: all)")
     parser.add_argument("--json", type=Path, help="file for the values of all trials")
     arguments = parser.parse_args()
     pin = ["taskset", "-c", arguments.cores] if arguments.cores else []
     commands = [pin + [arguments.xprof], pin + [str(Path(arguments.rs).resolve())]]
     host = next(arguments.session.glob("*.xplane.pb")).name.removesuffix(".xplane.pb")
     modules = [path.name.removesuffix(".hlo_proto.pb") for path in arguments.session.glob("*.hlo_proto.pb")]
-    tools = [tool for tool in TOOLS if tool != "memory_viewer" or modules]
+    tools = [tool for tool in chosen(TOOLS, arguments.tools) if tool != "memory_viewer" or modules]
     servers, clis = {}, {}
     with tempfile.TemporaryDirectory(prefix="xprof-benchmark-") as scratch:
         scratch = Path(scratch) / "work"
@@ -151,14 +184,16 @@ def main():
             measures = [lambda command=command, port=8981 + index: server(command, arguments.session, scratch, port, path) for index, command in enumerate(commands)]
             servers[tool] = trials(measures, arguments.trials, arguments.warmups)
             print(f"{tool}: done", file=sys.stderr, flush=True)
-        for name in COMMANDS:
+        for name in chosen(COMMANDS, arguments.commands):
             measures = [lambda command=command: cli(command, arguments.session, scratch, name) for command in commands]
             clis[name] = trials(measures, arguments.trials, arguments.warmups)
             print(f"{name}: done", file=sys.stderr, flush=True)
     if arguments.json:
         arguments.json.write_text(json.dumps({"servers": servers, "clis": clis}, indent=1))
-    table("Tool", servers)
-    table("Command", clis)
+    if servers:
+        table("Tool", servers)
+    if clis:
+        table("Command", clis)
 
 
 if __name__ == "__main__":
