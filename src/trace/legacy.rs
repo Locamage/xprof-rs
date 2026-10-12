@@ -335,11 +335,9 @@ pub fn render_within(planes: &[Plane], map: &[u8], limit: usize) -> String {
             part
         })
         .collect();
-    out.reserve(lines.iter().map(String::len).sum::<usize>() + 8);
-    lines.iter().for_each(|part| out.push_str(part));
-    out.push_str("{}]}\n");
     crate::release(events);
-    out
+    let pieces: Vec<&[u8]> = [out.as_bytes()].into_iter().chain(lines.iter().map(String::as_bytes)).chain([&b"{}]}\n"[..]]).collect();
+    String::from_utf8(crate::concat(&pieces)).expect("The pieces are text")
 }
 
 #[cfg(test)]
