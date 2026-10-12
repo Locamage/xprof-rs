@@ -10,7 +10,9 @@ xprof-rs is an independent project. Google and the OpenXLA project do not mainta
 
 We wrote xprof-rs with [Claude](https://www.anthropic.com/claude), an AI model from Anthropic. The tests compare the output of each tool with the output of XProf 2.23.2.
 
-On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.37 s (XProf: 5.3 s). After the first request, it opens in approximately 2 ms (XProf: 0.62 s). xprof-rs also reads profiles from S3-compatible stores such as Cloudflare R2. XProf 2.23.2 cannot read them. The [performance](#performance) section has the times of all tools, also on a disk and on R2.
+On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.30 s (XProf: 5.6 s). After the first request, it opens in approximately 2 ms (XProf: 0.62 s). The peak memory of the server is 0.42 GB (XProf: 1.42 GB).
+
+xprof-rs also reads profiles from S3-compatible stores such as Cloudflare R2. XProf 2.23.2 cannot read them. The [performance](#performance) section has the times of all tools, also on a disk and on R2.
 
 We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores.
 
@@ -29,51 +31,52 @@ The tables show the times on an 80 MB TPU v4 profile of a job that trains a CLIP
 - Server, warm: the mean of 5 more requests to the same server.
 - CLI, cold: one process on a new copy of the profile, with no result cache.
 - CLI, warm: the same command again.
+- Peak memory: the peak resident memory of the server over the cold and the warm requests, or of the cold CLI process. It includes the pages of the profile that the process maps.
 
 Each cell is the mean and the standard deviation of 8 trials, after 1 warmup trial that is not counted, as in pyperf. The trials of XProf and xprof-rs alternate, so a change of the machine load affects the two the same. The mark (!) shows a standard deviation of more than 10% of the mean.
 
-| Tool | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
-|---|---|---|---|---|---|---|
-| `trace_viewer@` | 5.62 ± 0.06 s | 376 ± 14 ms | 15× | 621 ± 1 ms | 2.01 ± 0.07 ms | 310× |
-| `overview_page` | 3.94 ± 0.02 s | 238 ± 4 ms | 17× | 57.5 ± 1.4 ms | 0.455 ± 0.025 ms | 126× |
-| `op_profile` | 4.43 ± 0.02 s | 259 ± 6 ms | 17× | 571 ± 2 ms | 0.675 ± 0.040 ms | 846× |
-| `hlo_stats` | 4.05 ± 0.01 s | 246 ± 6 ms | 16× | 179 ± 2 ms | 0.513 ± 0.032 ms | 348× |
-| `framework_op_stats` | 3.98 ± 0.02 s | 244 ± 8 ms | 16× | 99.6 ± 1.5 ms | 0.442 ± 0.033 ms | 225× |
-| `input_pipeline_analyzer` | 3.93 ± 0.02 s | 238 ± 5 ms | 17× | 56.1 ± 1.5 ms | 0.447 ± 0.037 ms | 126× |
-| `roofline_model` | 4.12 ± 0.01 s | 253 ± 4 ms | 16× | 270 ± 1 ms | 0.567 ± 0.035 ms | 476× |
-| `memory_profile` | 1.70 ± 0.01 s | 125 ± 1 ms | 14× | 1.55 ± 0.01 s | 0.446 ± 0.032 ms | 3487× |
-| `pod_viewer` | 3.92 ± 0.01 s | 234 ± 3 ms | 17× | 55.7 ± 0.2 ms | 0.441 ± 0.031 ms | 126× |
-| `memory_viewer` | 85.9 ± 0.2 ms | 21.7 ± 0.7 ms | 4.0× | 79.9 ± 0.1 ms | 0.389 ± 0.027 ms | 205× |
+| Tool | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up | XProf, peak memory | xprof-rs, peak memory |
+|---|---|---|---|---|---|---|---|---|
+| `trace_viewer@` | 5.58 ± 0.05 s | 300 ± 5 ms | 19× | 618 ± 2 ms | 1.99 ± 0.06 ms | 310× | 1.42 ± 0.01 GB | 419 ± 10 MB |
+| `overview_page` | 3.92 ± 0.02 s | 193 ± 6 ms | 20× | 56.2 ± 0.4 ms | 1.02 ± 0.64 ms (!) | 55× | 1.24 ± 0.00 GB | 330 ± 7 MB |
+| `op_profile` | 4.39 ± 0.02 s | 211 ± 6 ms | 21× | 572 ± 6 ms | 3.08 ± 4.43 ms (!) | 186× | 1.30 ± 0.02 GB | 327 ± 6 MB |
+| `hlo_stats` | 3.99 ± 0.01 s | 202 ± 3 ms | 20× | 177 ± 3 ms | 0.519 ± 0.016 ms | 341× | 1.26 ± 0.03 GB | 327 ± 10 MB |
+| `framework_op_stats` | 3.93 ± 0.09 s | 194 ± 9 ms | 20× | 97.9 ± 1.5 ms | 0.750 ± 0.549 ms (!) | 131× | 1.24 ± 0.00 GB | 326 ± 8 MB |
+| `input_pipeline_analyzer` | 3.86 ± 0.05 s | 191 ± 6 ms | 20× | 54.2 ± 0.7 ms | 0.427 ± 0.044 ms (!) | 127× | 1.24 ± 0.00 GB | 328 ± 10 MB |
+| `roofline_model` | 4.11 ± 0.04 s | 206 ± 7 ms | 20× | 269 ± 2 ms | 0.582 ± 0.017 ms | 462× | 1.32 ± 0.01 GB | 325 ± 3 MB |
+| `memory_profile` | 1.68 ± 0.01 s | 102 ± 2 ms | 16× | 1.52 ± 0.00 s | 0.558 ± 0.321 ms (!) | 2724× | 3.92 ± 0.00 GB | 267 ± 2 MB |
+| `pod_viewer` | 3.90 ± 0.01 s | 189 ± 5 ms | 21× | 56.5 ± 1.9 ms | 0.402 ± 0.013 ms | 141× | 1.24 ± 0.00 GB | 329 ± 9 MB |
+| `memory_viewer` | 85.7 ± 0.6 ms | 19.3 ± 0.8 ms | 4.4× | 79.5 ± 1.1 ms | 0.359 ± 0.020 ms | 221× | 240 ± 10 MB | 76 ± 1 MB |
 
-| Command | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up |
-|---|---|---|---|---|---|---|
-| `get_overview` | 4.22 ± 0.01 s | 239 ± 13 ms | 18× | 226 ± 1 ms | 234 ± 10 ms | 1.0× |
-| `get_top_hlo_ops` | 5.47 ± 0.01 s | 138 ± 2 ms | 40× | 227 ± 1 ms | 137 ± 2 ms | 1.7× |
-| `get_hlo_op_profile` | 5.48 ± 0.02 s | 141 ± 8 ms | 39× | 230 ± 2 ms | 136 ± 4 ms | 1.7× |
-| `get_hlo_stats` | 4.14 ± 0.02 s | 110 ± 2 ms | 38× | 227 ± 1 ms | 107 ± 3 ms | 2.1× |
-| `get_roofline_model` | 4.24 ± 0.01 s | 214 ± 6 ms | 20× | 227 ± 1 ms | 210 ± 2 ms | 1.1× |
-| `get_step_trace` | 4.08 ± 0.02 s | 230 ± 3 ms | 18× | 226 ± 1 ms | 228 ± 2 ms | 1.0× |
-| `check_host_boundness` | 67.6 ± 0.3 s | 284 ± 4 ms | 238× | 227 ± 1 ms | 285 ± 4 ms | 0.8× |
-| `get_memory_profile` | 1.84 ± 0.00 s | 137 ± 2 ms | 13× | 226 ± 2 ms | 134 ± 2 ms | 1.7× |
-| `list_hlo_modules` | 226 ± 3 ms | 5.81 ± 0.25 ms | 39× | 225 ± 1 ms | 5.27 ± 0.17 ms | 43× |
-| `aggregate_xplane_events` | 22.0 ± 0.1 s | 117 ± 2 ms | 188× | 244 ± 5 ms | 113 ± 1 ms | 2.2× |
-| `compute_utilization` | 3.11 ± 0.01 s | 46.8 ± 0.6 ms | 67× | 226 ± 1 ms | 45.6 ± 0.3 ms | 5.0× |
-| `get_avg_step_time` | 1.35 ± 0.00 s | 53.1 ± 2.5 ms | 25× | 226 ± 1 ms | 50.3 ± 0.9 ms | 4.5× |
-| `get_device_information` | 4.18 ± 0.01 s | 93.2 ± 2.2 ms | 45× | 226 ± 1 ms | 90.9 ± 3.6 ms | 2.5× |
-| `get_graph_viewer` | 342 ± 1 ms | 32.3 ± 0.9 ms | 11× | 342 ± 1 ms | 32.3 ± 0.7 ms | 11× |
-| `get_hlo_module_content` | 349 ± 2 ms | 33.2 ± 1.4 ms | 10× | 227 ± 1 ms | 32.5 ± 0.7 ms | 7.0× |
-| `get_hlo_text` | 349 ± 1 ms | 32.7 ± 0.6 ms | 11× | 228 ± 1 ms | 32.9 ± 1.0 ms | 6.9× |
-| `get_hosts` | 225 ± 1 ms | 5.77 ± 0.31 ms | 39× | 225 ± 1 ms | 5.35 ± 0.14 ms | 42× |
-| `get_kernel_stats` | 11.9 ± 0.0 s | 72.4 ± 2.6 ms | 165× | 226 ± 1 ms | 71.0 ± 2.8 ms | 3.2× |
-| `get_kernel_utilization` | 3.11 ± 0.01 s | 46.5 ± 0.5 ms | 67× | 226 ± 1 ms | 45.4 ± 0.4 ms | 5.0× |
-| `get_kpi_metrics` | 5.44 ± 0.01 s | 252 ± 3 ms | 22× | 228 ± 1 ms | 253 ± 4 ms | 0.9× |
-| `get_llo_analysis` | 1.31 ± 0.00 s | 6.13 ± 0.20 ms | 213× | 1.30 ± 0.00 s | 5.27 ± 0.27 ms | 247× |
-| `get_llo_debug_string` | 1.30 ± 0.01 s | 5.99 ± 0.17 ms | 217× | 1.30 ± 0.00 s | 5.32 ± 0.26 ms | 245× |
-| `get_peak_allocations` | 301 ± 1 ms | 28.3 ± 0.5 ms | 11× | 226 ± 1 ms | 28.5 ± 0.4 ms | 7.9× |
-| `get_profile_summary` | 5.45 ± 0.01 s | 131 ± 3 ms | 42× | 226 ± 1 ms | 129 ± 3 ms | 1.8× |
-| `get_utilization_viewer` | 2.19 ± 0.01 s | 46.9 ± 0.6 ms | 47× | 226 ± 1 ms | 45.4 ± 0.5 ms | 5.0× |
-| `get_xspace_proto` | 354 ± 3 ms | 83.8 ± 1.4 ms | 4.2× | 799 ± 46 ms | 100 ± 3 ms | 8.0× |
-| `list_xplane_events` | 22.0 ± 0.0 s | 81.9 ± 1.1 ms | 269× | 226 ± 1 ms | 78.4 ± 1.5 ms | 2.9× |
+| Command | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up | XProf, peak memory | xprof-rs, peak memory |
+|---|---|---|---|---|---|---|---|---|
+| `get_overview` | 4.20 ± 0.01 s | 190 ± 5 ms | 22× | 224 ± 1 ms | 188 ± 5 ms | 1.2× | 1.20 ± 0.00 GB | 300 ± 9 MB |
+| `get_top_hlo_ops` | 5.40 ± 0.02 s | 111 ± 3 ms | 49× | 225 ± 1 ms | 108 ± 2 ms | 2.1× | 1.21 ± 0.00 GB | 214 ± 2 MB |
+| `get_hlo_op_profile` | 5.41 ± 0.01 s | 112 ± 5 ms | 48× | 228 ± 1 ms | 108 ± 3 ms | 2.1× | 1.20 ± 0.00 GB | 214 ± 1 MB |
+| `get_hlo_stats` | 4.11 ± 0.02 s | 107 ± 9 ms | 38× | 224 ± 1 ms | 105 ± 8 ms | 2.1× | 1.20 ± 0.00 GB | 202 ± 2 MB |
+| `get_roofline_model` | 4.21 ± 0.02 s | 178 ± 1 ms | 24× | 224 ± 1 ms | 178 ± 3 ms | 1.3× | 1.21 ± 0.00 GB | 299 ± 4 MB |
+| `get_step_trace` | 4.05 ± 0.02 s | 193 ± 4 ms | 21× | 224 ± 1 ms | 183 ± 6 ms | 1.2× | 1.20 ± 0.00 GB | 301 ± 8 MB |
+| `check_host_boundness` | 66.5 ± 0.4 s | 231 ± 7 ms | 288× | 223 ± 1 ms | 229 ± 5 ms | 1.0× | 7.89 ± 0.01 GB | 331 ± 4 MB |
+| `get_memory_profile` | 1.82 ± 0.01 s | 113 ± 1 ms | 16× | 224 ± 1 ms | 112 ± 2 ms | 2.0× | 860 ± 0 MB | 256 ± 6 MB |
+| `list_hlo_modules` | 224 ± 1 ms | 5.92 ± 0.16 ms | 38× | 223 ± 2 ms | 5.30 ± 0.18 ms | 42× | 60 ± 0 MB | 23 ± 0 MB |
+| `aggregate_xplane_events` | 21.0 ± 0.1 s | 106 ± 3 ms | 198× | 239 ± 1 ms | 104 ± 2 ms | 2.3× | 2.52 ± 0.00 GB | 154 ± 2 MB |
+| `compute_utilization` | 3.08 ± 0.02 s | 50.1 ± 1.6 ms | 62× | 223 ± 1 ms | 46.5 ± 0.5 ms | 4.8× | 1.26 ± 0.00 GB | 91 ± 2 MB |
+| `get_avg_step_time` | 1.33 ± 0.00 s | 53.4 ± 1.6 ms | 25× | 223 ± 0 ms | 52.6 ± 1.2 ms | 4.2× | 668 ± 0 MB | 93 ± 1 MB |
+| `get_device_information` | 4.14 ± 0.01 s | 87.5 ± 2.2 ms | 47× | 223 ± 1 ms | 85.9 ± 1.9 ms | 2.6× | 1.20 ± 0.00 GB | 187 ± 2 MB |
+| `get_graph_viewer` | 338 ± 1 ms | 25.7 ± 0.8 ms | 13× | 338 ± 1 ms | 25.9 ± 1.0 ms | 13× | 102 ± 0 MB | 59 ± 2 MB |
+| `get_hlo_module_content` | 345 ± 1 ms | 25.9 ± 0.7 ms | 13× | 224 ± 1 ms | 26.3 ± 1.1 ms | 8.5× | 102 ± 0 MB | 59 ± 1 MB |
+| `get_hlo_text` | 346 ± 2 ms | 26.2 ± 0.8 ms | 13× | 225 ± 1 ms | 26.4 ± 1.1 ms | 8.5× | 102 ± 0 MB | 59 ± 1 MB |
+| `get_hosts` | 223 ± 1 ms | 5.74 ± 0.36 ms | 39× | 222 ± 1 ms | 5.33 ± 0.30 ms | 42× | 60 ± 0 MB | 23 ± 0 MB |
+| `get_kernel_stats` | 11.5 ± 0.0 s | 72.1 ± 1.9 ms | 159× | 223 ± 1 ms | 69.3 ± 1.9 ms | 3.2× | 1.62 ± 0.00 GB | 106 ± 2 MB |
+| `get_kernel_utilization` | 3.08 ± 0.01 s | 49.6 ± 1.0 ms | 62× | 223 ± 2 ms | 46.6 ± 0.6 ms | 4.8× | 1.26 ± 0.00 GB | 89 ± 1 MB |
+| `get_kpi_metrics` | 5.40 ± 0.02 s | 211 ± 5 ms | 26× | 226 ± 1 ms | 206 ± 4 ms | 1.1× | 1.21 ± 0.00 GB | 301 ± 8 MB |
+| `get_llo_analysis` | 1.29 ± 0.01 s | 6.01 ± 0.24 ms | 215× | 1.29 ± 0.00 s | 5.27 ± 0.17 ms | 245× | 587 ± 0 MB | 23 ± 0 MB |
+| `get_llo_debug_string` | 1.29 ± 0.00 s | 5.93 ± 0.34 ms | 218× | 1.29 ± 0.01 s | 5.39 ± 0.37 ms | 239× | 588 ± 0 MB | 23 ± 0 MB |
+| `get_peak_allocations` | 297 ± 1 ms | 26.7 ± 1.0 ms | 11× | 223 ± 1 ms | 27.6 ± 1.1 ms | 8.1× | 90 ± 0 MB | 61 ± 0 MB |
+| `get_profile_summary` | 5.39 ± 0.01 s | 106 ± 2 ms | 51× | 224 ± 1 ms | 103 ± 4 ms | 2.2× | 1.21 ± 0.00 GB | 210 ± 2 MB |
+| `get_utilization_viewer` | 2.16 ± 0.00 s | 49.8 ± 0.9 ms | 44× | 223 ± 1 ms | 47.4 ± 1.2 ms | 4.7× | 972 ± 0 MB | 91 ± 1 MB |
+| `get_xspace_proto` | 347 ± 3 ms | 85.5 ± 2.0 ms | 4.1× | 788 ± 49 ms | 95.7 ± 0.9 ms | 8.2× | 140 ± 0 MB | 96 ± 0 MB |
+| `list_xplane_events` | 20.8 ± 0.1 s | 73.9 ± 1.7 ms | 281× | 224 ± 1 ms | 74.4 ± 1.6 ms | 3.0× | 2.50 ± 0.00 GB | 99 ± 1 MB |
 
 Some warm XProf commands are as fast as xprof-rs or faster. XProf keeps each result in a cache in `$TMPDIR`, and a second call reads this cache. xprof-rs has no result cache. It reads the profile again for each call.
 
@@ -113,7 +116,7 @@ More cores make xprof-rs faster. The next table shows the cold times of xprof-rs
 
 To measure the times of the first two tables on your profile, run [`examples/benchmark.py`](examples/benchmark.py) `SESSION_DIR --xprof PATH --cores 0-3 --trials 8`.
 
-The next table shows the cold times of the overview page on a disk and on Cloudflare R2, from the start of a new server to the end of the first response. XProf 2.23.2 cannot read `s3://` URLs, so it reads R2 through `rclone mount`. The section [Times on a disk and on R2](#times-on-a-disk-and-on-r2) has all the tools and the method.
+The next table shows the cold times of the overview page on a disk and on Cloudflare R2. Each time starts with a new server and stops at the end of the first response. XProf 2.23.2 cannot read `s3://` URLs, so it reads R2 through `rclone mount`. The section [Times on a disk and on R2](#times-on-a-disk-and-on-r2) has all the tools and the method.
 
 | Profile | Source | XProf | xprof-rs |
 |---|---|---|---|
@@ -197,7 +200,7 @@ Set the URL to the directory that holds the profiles. The server visits each dir
 
 XProf 2.23.2 does not read `s3://` URLs. Its server and its file code know only `gs://` and local paths. To read R2, XProf needs a FUSE mount of the bucket, for example `rclone mount`. xprof-rs can read R2 through the `s3://` URL or through the mount.
 
-The next tables show the cold times of a new server with 4 cores, from the start of the process to the end of the first response.
+The next tables show the cold times of a new server with 4 cores. Each time starts with the process and stops at the end of the first response.
 
 - tmpfs: the files are in memory.
 - Disk: the persistent disk of a cloud VM. Before each trial, the page cache did not have the files.
