@@ -327,7 +327,8 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
             Some(((event.ts, Reverse(event.dur), line_index as u32, index as u32), group, own.is_some()))
         }));
     }
-    order.par_sort_unstable_by_key(|&(position, _, _)| position);
+    // The events of each line are usually in order, and a merge sort uses these runs.
+    order.par_sort_by_key(|&(position, _, _)| position);
     let event = |line: u32, index: u32| &plane.lines[line as usize].events[index as usize];
     let owns: FxHashMap<(u32, u32), Tags> =
         order.par_iter().filter(|(_, _, own)| *own).filter_map(|&((_, _, line, index), _, _)| Some(((line, index), scan(slice(map, event(line, index).raw), 4)?))).collect();

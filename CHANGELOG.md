@@ -104,6 +104,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The old `trace_viewer` tool frees the planes of the profile before it writes the JSON text. The text uses only the events that the tool takes from the planes. On a 1.7 GB profile with 8 cores, the response uses 6.3 GB of memory. Before, it used 7.7 GB. The time and the output do not change.
 - The old `trace_viewer` tool keeps the arguments of each event in a sorted list. Before, it kept them in a tree map, and each small map used a full tree node. On a 1.7 GB profile with 8 cores, the response uses 6.2 GB of memory. Before, it used 6.5 GB. The output does not change.
 - The derived lines of a TPU keep the parse of the texts of each metadata. Before, each event looked up its texts in a map of strings. On a 1.7 GB profile with 8 cores, the derived lines of a TPU take approximately 370 ms, not 490 ms. The first request of the trace viewer uses 38.9 CPU seconds. Before, it used 40.0 CPU seconds. The output does not change.
+- The derive of a TPU sorts its events with a merge sort. The events of each line are usually in order, and the merge sort uses these runs. On a 1.7 GB profile with 8 cores, the sort of a plane with two such lines takes approximately 15 ms, not 260 ms. The first request of the trace viewer takes 5.45 s and 38.7 CPU seconds. Before, it took 5.68 s and 39.1 CPU seconds. The keys are different for all events, thus the output does not change.
 
 ## 0.1.2
 
