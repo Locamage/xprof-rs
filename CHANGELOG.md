@@ -99,6 +99,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The old `trace_viewer` tool writes the times of the events as Python `repr` does, without a new text for each number. On a 1.7 GB profile with 8 cores, the response takes 4.4 s and 26.5 CPU seconds. Before, it took 4.7 s and 28.8 CPU seconds. The output does not change.
 - At the end of its build, the trace viewer keeps the events of each level in one list. It also frees the order of the tracks and the levels of the events earlier. Before, it kept a second copy of the lists for a short time. On a 1.7 GB profile, the memory at the end of the build goes down from 7.1 GB to 6.0 GB. The peak memory of the build does not change, and the output does not change.
 - When the trace viewer gives the levels of the events, it keeps the kind of each event in the byte of its level. Before, a copy of the times of each track also had the kind, and each copied event used 24 bytes, not 16 bytes. On a 1.7 GB profile with 8 cores, the first request of the trace viewer uses 6.7 GB of memory. Before, it used 6.9 GB. The time and the output do not change.
+- The protobuf reader reads a varint of at most 8 bytes with one load. The times of the events are varints of 6 to 8 bytes. On a 1.7 GB profile with 8 cores, `get_hlo_stats` uses 9.4 CPU seconds, and `list_xplane_events` uses 5.7 CPU seconds. Before, they used 9.7 and 6.1 CPU seconds. The output does not change.
 
 ## 0.1.2
 

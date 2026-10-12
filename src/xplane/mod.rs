@@ -86,6 +86,20 @@ pub fn varint(buf: &[u8], pos: &mut usize) -> Option<u64> {
         *pos += 1;
         return Some(u64::from(first));
     }
+    // A varint of at most 8 bytes ends at the first byte without the high bit. One load gives its bytes, and three steps join their 7-bit groups.
+    if let Some(chunk) = buf.get(*pos..).and_then(<[u8]>::first_chunk::<8>) {
+        let word = u64::from_le_bytes(*chunk);
+        let stops = !word & 0x8080_8080_8080_8080;
+        if stops != 0 {
+            let last = stops.trailing_zeros();
+            let mut value = word & (u64::MAX >> (63 - last)) & 0x7f7f_7f7f_7f7f_7f7f;
+            value = (value & 0x007f_007f_007f_007f) | ((value & 0x7f00_7f00_7f00_7f00) >> 1);
+            value = (value & 0x0000_3fff_0000_3fff) | ((value & 0x3fff_0000_3fff_0000) >> 2);
+            value = (value & 0x0000_0000_0fff_ffff) | ((value & 0x0fff_ffff_0000_0000) >> 4);
+            *pos += (last as usize + 1) / 8;
+            return Some(value);
+        }
+    }
     let (mut value, mut shift) = (0u64, 0);
     while shift < 64 {
         let byte = *buf.get(*pos)?;
@@ -755,3 +769,7 @@ pub fn origin_ns(planes: &[Plane]) -> i64 {
     let earliest = planes.iter().flat_map(|plane| plane.lines.iter().map(|line| line.timestamp_ns)).filter(|&t| t > 0).min().unwrap_or(0);
     if earliest > EPOCH_NS { earliest } else { 0 }
 }
+
+#[cfg(test)]
+#[path = "../tests/inline/xplane.rs"]
+mod tests;
