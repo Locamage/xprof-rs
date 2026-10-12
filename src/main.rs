@@ -58,6 +58,7 @@ const MAX_THREADS: usize = 32;
 /// `mi_option_purge_delay` of mimalloc, which `libmimalloc-sys` does not name.
 const PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
 /// From this size, `discard` gives the pages of a block back to the system itself.
+#[cfg(target_os = "linux")]
 const DISCARD_BYTES: usize = 1 << 20;
 const DEFAULT_PORT: u16 = 8791;
 const DEFAULT_GRPC_PORT: u16 = 50051;
