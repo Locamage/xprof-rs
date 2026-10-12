@@ -407,11 +407,21 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
         })
         .collect();
     let bounds = into_cursors(&mut cursors, buckets);
-    let converted = |job: usize, index: usize, event: &Ev| {
+    // An event without link stats has the links of its metadata, thus `plain` keeps these links for each job and metadata.
+    let converted = |job: usize, index: usize, event: &Ev, plain: &mut FxHashMap<(usize, u32), Links>| {
         let Job { plane: plane_index, device, track, label_base, .. } = jobs[job];
         let line = line_of(job);
         let (plane, derived) = (&planes[plane_index], !line.labels.is_empty());
-        let links = if derived { Links::default() } else { plane.links(event.meta, slice(map, event.raw), ordinals[job]) };
+        let fresh;
+        let links = if derived {
+            fresh = Links::default();
+            &fresh
+        } else if event.linked {
+            fresh = plane.links(event.meta, slice(map, event.raw), ordinals[job]);
+            &fresh
+        } else {
+            &*plain.entry((job, event.meta)).or_insert_with(|| plane.links(event.meta, &[], ordinals[job]))
+        };
         let mut name = if derived { label_base + event.meta } else { layout.bases[plane_index] + event.meta };
         if let Some(step) = line.steps.get(&index).map(|step| step.name.as_str()).or(links.step.as_deref()) {
             let mut extra = extra.lock().unwrap();
@@ -451,10 +461,10 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
     let mut freed = 0;
     for (wave, cursors) in cursors.chunks_mut(WAVE).enumerate() {
         cursors.par_iter_mut().enumerate().for_each(|(offset, cursors)| {
-            let mut last = 0;
+            let (mut last, mut plain) = (0, FxHashMap::default());
             each_event(&inputs, &starts, range(wave * WAVE + offset), |job, index, event| {
                 let slot = &mut cursors[bucket(&mut last, job, event)];
-                let out = if internal(job, event) { Event { ts: u64::MAX, ..Default::default() } } else { converted(job, index, event) };
+                let out = if internal(job, event) { Event { ts: u64::MAX, ..Default::default() } } else { converted(job, index, event, &mut plain) };
                 // SAFETY: the cursors of the units give each input index a different slot below `total`.
                 unsafe { slots.write(*slot as usize, out) };
                 *slot += 1;
