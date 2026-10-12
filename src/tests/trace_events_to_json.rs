@@ -41,8 +41,8 @@ fn json(text: &str) -> serde_json::Value {
 }
 
 fn rendered(space: &XSpace) -> String {
-    let (map, planes) = space.parsed();
-    let trace = Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = space.parsed();
+    let trace = Trace::build(&mut planes, "localhost", &map);
     let view = View { trace: &trace, map: &map, planes: &planes, events: trace.load(&Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false }) };
     String::from_utf8(render(&[view], false, crate::trace::json::Args::Brief)).unwrap()
 }
@@ -132,8 +132,8 @@ fn write_stack_frames_test() {
     let plane = space.host();
     plane.event(1, "first", 0, 10, &[("long_name", "stack1 is a long stack frame".into())]);
     plane.event(1, "second", 20, 10, &[("hlo_text", "stack2 is a long stack frame".into())]);
-    let (map, planes) = space.parsed();
-    let trace = Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = space.parsed();
+    let trace = Trace::build(&mut planes, "localhost", &map);
     let view = View { trace: &trace, map: &map, planes: &planes, events: vec![0, 1] };
     let json = String::from_utf8(render(&[view], false, crate::trace::json::Args::Event)).unwrap();
     assert!(json.contains(r#""1":{"name":"stack1 is a long stack frame"}"#), "{json}");
@@ -210,8 +210,8 @@ fn write_event_args() {
         ("long_name", "@@stack_frame and more text".into()),
     ];
     plane.event(1, "args_event", 1000, 1000, &stats);
-    let (map, planes) = space.parsed();
-    let trace = Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = space.parsed();
+    let trace = Trace::build(&mut planes, "localhost", &map);
     let (mut out, mut frames) = (String::new(), Vec::new());
     let args_event = Event { group: 10, serial: 123_456, ..trace.events[0] };
     write_event(&mut out, &trace, &args_event, 1, Some((&planes[0], &map, &mut frames, None)), None, false);

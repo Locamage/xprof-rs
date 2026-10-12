@@ -22,8 +22,8 @@ fn levels(lines: &[(i64, &[FlowEvent])]) -> impl Fn(&str) -> u8 {
             plane.event(line, name, begin, end - begin, &[("flow", V::Uint(flow << 2 | direction))]);
         }
     }
-    let (map, planes) = space.parsed();
-    let trace = Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = space.parsed();
+    let trace = Trace::build(&mut planes, "localhost", &map);
     move |name: &str| trace.events.iter().find(|event| &*trace.names[event.name as usize] == name).unwrap().level
 }
 

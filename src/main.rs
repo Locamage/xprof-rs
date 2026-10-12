@@ -56,6 +56,8 @@ const READ_CHUNK: usize = 16 << 20;
 const MAX_THREADS: usize = 32;
 /// `mi_option_purge_delay` of mimalloc, which `libmimalloc-sys` does not name.
 const PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
+/// From this size, `discard` gives the pages of a block back to the system itself.
+const DISCARD_BYTES: usize = 1 << 20;
 const DEFAULT_PORT: u16 = 8791;
 const DEFAULT_GRPC_PORT: u16 = 50051;
 const DEFAULT_RESOLUTION: u64 = 8000;
@@ -361,13 +363,24 @@ fn release(garbage: impl Send + 'static) {
     });
 }
 
+/// Frees `items`, and gives its pages back to the system at once. For a large block of another thread, mimalloc only marks the pages as free, and the system takes them back only when it is short of memory.
+fn discard<T>(items: Vec<T>) {
+    #[cfg(target_os = "linux")]
+    if items.capacity() * std::mem::size_of::<T>() >= DISCARD_BYTES {
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        let (start, end) = (items.as_ptr().addr().next_multiple_of(page), (items.as_ptr().addr() + items.capacity() * std::mem::size_of::<T>()) / page * page);
+        // SAFETY: the pages are in the allocation of `items`, and the drop below does not read their contents.
+        unsafe { libc::madvise(std::ptr::with_exposed_provenance_mut(start), end - start, libc::MADV_DONTNEED) };
+    }
+    drop(items);
+}
+
 fn load_host(path: &Path) -> anyhow::Result<Host> {
     let begin = Instant::now();
     let (map, mut planes) = prepare(path, true)?;
     let name = host_name(path);
     let start = Instant::now();
-    let trace = Trace::build(&planes, &name, &map);
-    release(planes.iter_mut().map(|plane| std::mem::take(&mut plane.lines)).collect::<Vec<_>>());
+    let trace = Trace::build(&mut planes, &name, &map);
     eprintln!("Loaded {name}: {} events. The trace took {:?}. The load took {:?}.", trace.events.len(), start.elapsed(), begin.elapsed());
     Ok(Host { bytes: (map.len() + trace.events.len() * std::mem::size_of::<trace::Event>()) as u64, map, planes, trace })
 }

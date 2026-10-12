@@ -7,8 +7,8 @@ const HOST_THREADS_DEVICE_ID: u32 = 701;
 const PICOS_PER_SECOND: u64 = 1_000_000_000_000;
 
 fn trace_of(text: &str) -> (Vec<u8>, Trace) {
-    let (map, planes) = XSpace::text(text).parsed();
-    let trace = Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = XSpace::text(text).parsed();
+    let trace = Trace::build(&mut planes, "localhost", &map);
     (map, trace)
 }
 

@@ -10,8 +10,8 @@ fn bounds(spans: &[(i64, i64)]) -> (u64, u64) {
     for &(begin, end) in spans {
         plane.event(1, "op", begin, end.wrapping_sub(begin).max(0), &[]);
     }
-    let (map, planes) = space.parsed();
-    let trace = Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = space.parsed();
+    let trace = Trace::build(&mut planes, "localhost", &map);
     (trace.min_ps, trace.max_ps)
 }
 

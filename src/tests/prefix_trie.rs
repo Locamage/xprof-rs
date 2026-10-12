@@ -6,8 +6,8 @@ fn found(names: &[&str], prefix: &str) -> Vec<(String, usize)> {
     for (index, name) in names.iter().enumerate() {
         space.host().event(1, name, index as i64 * 10, 5, &[]);
     }
-    let (map, planes) = space.parsed();
-    let trace = Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = space.parsed();
+    let trace = Trace::build(&mut planes, "localhost", &map);
     let mut keys: Vec<(String, usize)> = Vec::new();
     for index in trace.search(prefix, false) {
         let event = &trace.events[index as usize];

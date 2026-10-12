@@ -7,8 +7,8 @@ use crate::{Settings, state};
 const FLOW_MID: u64 = 3;
 
 fn trace_of(space: &XSpace) -> (Vec<u8>, Vec<crate::xplane::Plane>, Trace) {
-    let (map, planes) = space.parsed();
-    let trace = Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = space.parsed();
+    let trace = Trace::build(&mut planes, "localhost", &map);
     (map, planes, trace)
 }
 

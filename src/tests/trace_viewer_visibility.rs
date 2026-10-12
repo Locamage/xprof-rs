@@ -65,8 +65,8 @@ fn visible(planes: &[(&str, &[TimedEvent])], start_ps: u64, end_ps: u64, full_dm
             plane.event(1, name, begin, duration, &stats);
         }
     }
-    let (map, planes) = space.parsed();
-    let trace = crate::trace::Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = space.parsed();
+    let trace = crate::trace::Trace::build(&mut planes, "localhost", &map);
     let options = crate::trace::Options { start_ms: start_ps as f64 / 1e9, end_ms: end_ps as f64 / 1e9, resolution: 0.0, full_dma };
     let mut names: Vec<String> = trace.load(&options).iter().map(|&index| trace.names[trace.events[index as usize].name as usize].to_string()).collect();
     names.sort();

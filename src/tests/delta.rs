@@ -31,8 +31,8 @@ const FLOW_START: u64 = 2;
 const TF_EXECUTOR_CATEGORY: u64 = 2;
 
 fn response(space: &XSpace, full_dma: Option<bool>) -> Response {
-    let (map, planes) = space.parsed();
-    let trace = Trace::build(&planes, "localhost", &map);
+    let (map, mut planes) = space.parsed();
+    let trace = Trace::build(&mut planes, "localhost", &map);
     let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: true };
     let view = View { trace: &trace, map: &map, planes: &planes, events: trace.load(&options) };
     Response::decode(&zstd::decode_all(&render(&[view], full_dma)[..]).unwrap()[..]).unwrap()

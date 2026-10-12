@@ -2,7 +2,7 @@ pub mod delta;
 pub mod json;
 pub mod legacy;
 
-use crate::xplane::{Ev, Line, Links, NONE_GROUP, Plane, Step, slice};
+use crate::xplane::{Ev, Links, NONE_GROUP, Plane, Step, slice};
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::cmp::Ordering;
@@ -34,6 +34,8 @@ const UNASSIGNED: u8 = u8::MAX;
 const BUCKET: usize = if cfg!(test) { 4 } else { 1 << 16 };
 const MAX_BUCKETS: usize = 1024;
 const UNIT: usize = if cfg!(test) { 8 } else { 1 << 16 };
+/// The units that the conversion writes before it frees the input events that it has converted.
+const WAVE: usize = if cfg!(test) { 2 } else { 128 };
 
 /// Strings with dense ids in the order of their first use.
 #[derive(Default)]
@@ -272,17 +274,17 @@ fn compare(names: &[Box<str>], a: &Event, b: &Event) -> Ordering {
         .then_with(|| if a.resource == NONE_RESOURCE { names[a.name as usize].cmp(&names[b.name as usize]) } else { Ordering::Equal })
 }
 
-struct Job<'a> {
+struct Job {
     plane: usize,
-    line: &'a Line,
+    line: usize,
     device: u32,
     track: u32,
     label_base: u32,
 }
 
-struct Layout<'a> {
+struct Layout {
     devices: BTreeMap<u32, Device>,
-    jobs: Vec<Job<'a>>,
+    jobs: Vec<Job>,
     tracks: usize,
     names: Vec<Box<str>>,
     bases: Vec<u32>,
@@ -290,7 +292,7 @@ struct Layout<'a> {
     steps: HashMap<(u32, u32), Step>,
 }
 
-fn layout<'a>(planes: &'a [Plane], host: &str) -> Layout<'a> {
+fn layout(planes: &[Plane], host: &str) -> Layout {
     let per_plane: Vec<Vec<Box<str>>> = planes.par_iter().map(|plane| plane.meta.iter().map(|meta| if meta.display.is_empty() { meta.name.clone() } else { meta.display.clone() }).collect()).collect();
     let bases: Vec<u32> = per_plane.iter().scan(0, |base, names| Some(std::mem::replace(base, *base + names.len() as u32))).collect();
     let mut names: Vec<Box<str>> = per_plane.into_iter().flatten().collect();
@@ -303,7 +305,7 @@ fn layout<'a>(planes: &'a [Plane], host: &str) -> Layout<'a> {
         }
         let entry = devices.entry(device).or_default();
         entry.name = format!("{host} {}", plane.name);
-        for line in plane.lines.iter().filter(|line| !line.events.is_empty()) {
+        for (line_index, line) in plane.lines.iter().enumerate().filter(|(_, line)| !line.events.is_empty()) {
             if line.name != COUNTERS {
                 entry.resources.insert(line.resource_id(), (if line.display_name.is_empty() { &line.name } else { &line.display_name }).clone());
             }
@@ -312,7 +314,7 @@ fn layout<'a>(planes: &'a [Plane], host: &str) -> Layout<'a> {
             names.extend(line.labels.iter().cloned());
             long_names.extend(line.longs.iter().enumerate().filter(|(_, long)| !long.is_empty()).map(|(index, long)| (label_base + index as u32, long.clone())));
             let next = track_ids.len() as u32;
-            jobs.push(Job { plane: plane_index, line, device, track: *track_ids.entry((device, line.resource_id())).or_insert(next), label_base });
+            jobs.push(Job { plane: plane_index, line: line_index, device, track: *track_ids.entry((device, line.resource_id())).or_insert(next), label_base });
         }
     }
     Layout { devices, jobs, tracks: track_ids.len(), names, bases, long_names, steps }
@@ -346,10 +348,10 @@ fn into_cursors(units: &mut [Vec<u32>], groups: usize) -> Vec<usize> {
 }
 
 /// Calls `visit` with the index of the job, the index in the line and the event, for the input indices in `range`.
-fn each_event<'a>(jobs: &'a [Job<'a>], starts: &[usize], range: Range<usize>, mut visit: impl FnMut(usize, usize, &'a Ev)) {
+fn each_event<'a>(inputs: &'a [Vec<Ev>], starts: &[usize], range: Range<usize>, mut visit: impl FnMut(usize, usize, &'a Ev)) {
     let (mut job, mut global) = (starts.partition_point(|&start| start <= range.start) - 1, range.start);
     while global < range.end {
-        let events = &jobs[job].line.events;
+        let events = &inputs[job];
         let first = global - starts[job];
         for (index, event) in events[first..(range.end - starts[job]).min(events.len())].iter().enumerate() {
             visit(job, first + index, event);
@@ -363,13 +365,15 @@ fn each_event<'a>(jobs: &'a [Job<'a>], starts: &[usize], range: Range<usize>, mu
 type Converted = (Vec<Event>, Vec<Box<str>>, Vec<Vec<String>>, Vec<usize>);
 
 /// Gives the events in buckets of time, and the start of each bucket. All events of a bucket come before the events of the next bucket, and in a bucket, the events keep their input order.
-fn convert(planes: &[Plane], map: &[u8], layout: &Layout) -> Converted {
+/// `inputs` has the events of each job. The conversion frees the events of a job when it has all of them, so the input and the output are not both full at the same time.
+fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layout) -> Converted {
     let (extra, extra_base, args) = (Mutex::new(Vec::<Box<str>>::new()), layout.names.len() as u32, Mutex::new(Vec::<Vec<String>>::new()));
     let jobs = &layout.jobs;
-    let starts: Vec<usize> = jobs.iter().scan(0, |next, job| Some(std::mem::replace(next, *next + job.line.events.len()))).collect();
-    let total = jobs.iter().map(|job| job.line.events.len()).sum::<usize>();
-    let ordinals: Vec<Option<u64>> = jobs.iter().map(|job| crate::xplane::group::ordinal(&planes[job.plane], job.line)).collect();
-    let internal = |job: usize, event: &Ev| jobs[job].line.labels.is_empty() && planes[jobs[job].plane].meta[event.meta as usize].internal;
+    let line_of = |job: usize| &planes[jobs[job].plane].lines[jobs[job].line];
+    let starts: Vec<usize> = inputs.iter().scan(0, |next, events| Some(std::mem::replace(next, *next + events.len()))).collect();
+    let total = inputs.iter().map(Vec::len).sum::<usize>();
+    let ordinals: Vec<Option<u64>> = (0..jobs.len()).map(|job| crate::xplane::group::ordinal(&planes[jobs[job].plane], line_of(job))).collect();
+    let internal = |job: usize, event: &Ev| line_of(job).labels.is_empty() && planes[jobs[job].plane].meta[event.meta as usize].internal;
     let key = |job: usize, event: &Ev| if internal(job, event) { u64::MAX } else { event.ts };
     let buckets = (total / BUCKET).clamp(1, MAX_BUCKETS);
     let splitters: Vec<u64> = if buckets == 1 {
@@ -379,7 +383,7 @@ fn convert(planes: &[Plane], map: &[u8], layout: &Layout) -> Converted {
             .step_by((total / (buckets * 16)).max(1))
             .map(|global| {
                 let job = starts.partition_point(|&start| start <= global) - 1;
-                key(job, &jobs[job].line.events[global - starts[job]])
+                key(job, &inputs[job][global - starts[job]])
             })
             .collect();
         samples.par_sort_unstable();
@@ -398,13 +402,14 @@ fn convert(planes: &[Plane], map: &[u8], layout: &Layout) -> Converted {
         .into_par_iter()
         .map(|unit| {
             let (mut counts, mut last) = (vec![0; buckets], 0);
-            each_event(jobs, &starts, range(unit), |job, _, event| counts[bucket(&mut last, job, event)] += 1);
+            each_event(&inputs, &starts, range(unit), |job, _, event| counts[bucket(&mut last, job, event)] += 1);
             counts
         })
         .collect();
     let bounds = into_cursors(&mut cursors, buckets);
     let converted = |job: usize, index: usize, event: &Ev| {
-        let Job { plane: plane_index, line, device, track, label_base } = jobs[job];
+        let Job { plane: plane_index, device, track, label_base, .. } = jobs[job];
+        let line = line_of(job);
         let (plane, derived) = (&planes[plane_index], !line.labels.is_empty());
         let links = if derived { Links::default() } else { plane.links(event.meta, slice(map, event.raw), ordinals[job]) };
         let mut name = if derived { label_base + event.meta } else { layout.bases[plane_index] + event.meta };
@@ -443,26 +448,38 @@ fn convert(planes: &[Plane], map: &[u8], layout: &Layout) -> Converted {
     };
     let mut events: Vec<Event> = Vec::with_capacity(total);
     let slots = Slots(events.spare_capacity_mut().as_mut_ptr());
-    cursors.into_par_iter().enumerate().for_each(|(unit, mut cursors)| {
-        let mut last = 0;
-        each_event(jobs, &starts, range(unit), |job, index, event| {
-            let slot = &mut cursors[bucket(&mut last, job, event)];
-            let out = if internal(job, event) { Event { ts: u64::MAX, ..Default::default() } } else { converted(job, index, event) };
-            // SAFETY: the cursors of the units give each input index a different slot below `total`.
-            unsafe { slots.write(*slot as usize, out) };
-            *slot += 1;
+    let mut freed = 0;
+    for (wave, cursors) in cursors.chunks_mut(WAVE).enumerate() {
+        cursors.par_iter_mut().enumerate().for_each(|(offset, cursors)| {
+            let mut last = 0;
+            each_event(&inputs, &starts, range(wave * WAVE + offset), |job, index, event| {
+                let slot = &mut cursors[bucket(&mut last, job, event)];
+                let out = if internal(job, event) { Event { ts: u64::MAX, ..Default::default() } } else { converted(job, index, event) };
+                // SAFETY: the cursors of the units give each input index a different slot below `total`.
+                unsafe { slots.write(*slot as usize, out) };
+                *slot += 1;
+            });
         });
-    });
+        let done = ((wave + 1) * WAVE * UNIT).min(total);
+        while freed < inputs.len() && starts[freed] + inputs[freed].len() <= done {
+            crate::discard(std::mem::take(&mut inputs[freed]));
+            freed += 1;
+        }
+    }
     // SAFETY: the units write all `total` slots.
     unsafe { events.set_len(total) };
     (events, extra.into_inner().unwrap(), args.into_inner().unwrap(), bounds)
 }
 
 impl Trace {
-    pub fn build(planes: &[Plane], host: &str, map: &[u8]) -> Self {
+    /// Moves the lines out of `planes` when they are converted.
+    pub fn build(planes: &mut [Plane], host: &str, map: &[u8]) -> Self {
         let layout = layout(planes, host);
-        let (mut events, extra, args, bounds) = convert(planes, map, &layout);
+        let inputs = layout.jobs.iter().map(|job| std::mem::take(&mut planes[job.plane].lines[job.line].events)).collect();
+        let (mut events, extra, args, bounds) = convert(planes, inputs, map, &layout);
         let Layout { devices, tracks, mut names, long_names, steps, .. } = layout;
+        crate::release(planes.iter_mut().map(|plane| std::mem::take(&mut plane.lines)).collect::<Vec<_>>());
+        let planes = &*planes;
         names.extend(extra);
         let (mut buckets, mut rest) = (Vec::with_capacity(bounds.len()), events.as_mut_slice());
         for pair in bounds.windows(2) {

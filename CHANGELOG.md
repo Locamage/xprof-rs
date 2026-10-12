@@ -87,6 +87,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The cost analysis of an HLO module with a graph that two `async-start` instructions call is now linear in the number of instructions. Before, each instruction read the full log of calls again. For an entry graph with 30,000 instructions, the analysis takes 0.12 s. Before, it took 0.57 s.
 - The megascale stats keep the result of each instruction search, also when the HLO module does not have the instruction. Before, the search read all the instructions of the module again for each event of an instruction that it did not find. The output does not change.
 - With a remote log directory, a request for a session that the mirror has does not list the full store again. Before, such a request listed all the folders of the store each 5 s, and an error in any folder gave "502 Bad Gateway".
+- The trace viewer frees the events of each line of a profile after it converts them. Before, it kept all of these events until the end of the conversion. On a 1.7 GB profile with 8 cores, the first request of the trace viewer uses 9.4 GB of memory. Before, it used 13.2 GB. The request takes 7.5 s. Before, it took 7.4 s.
 
 ## 0.1.2
 
