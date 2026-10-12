@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Measure the cold and warm times of XProf and xprof-rs on one profile, and print Markdown tables.
 
-Usage: benchmark.py SESSION_DIR --xprof PATH [--rs PATH] [--cores 0-3] [--trials N] [--warmups N] [--tools A,B] [--commands A,B] [--timeout S] [--json FILE]
+Usage: benchmark.py SESSION_DIR --xprof PATH [--rs PATH] [--cores 0-3] [--trials N] [--warmups N] [--tools A,B] [--commands A,B] [--timeout S] [--memory-limit GB] [--json FILE]
 
 SESSION_DIR holds one `.xplane.pb` file and optional `.hlo_proto.pb` files.
+
 Server, cold: the first request to a new server on a new copy of the files. Warm: the mean of 5 more requests.
+
 CLI, cold: one process on a new copy with an empty TMPDIR (the XProf result cache). Warm: the same command again.
+
 Peak memory: the peak resident memory of the server process over the cold and the warm requests, or of the cold CLI process.
 The system gives this value when the process stops (`ru_maxrss` of `wait4`). It includes the pages of the profile that the process maps.
+
 With --timeout, a cold request or a cold command that takes longer stops. Its row shows the limit with a mark (*), and it has no more trials.
+With --memory-limit, a process with more resident memory stops. Its row shows the limit with a mark (**), and it has no more trials.
+
 As in pyperf, the warmup trials are not counted, and each cell is the mean and the standard deviation of the trials.
 A cell with a standard deviation of more than 10% of the mean has the mark (!).
 The trials of XProf and xprof-rs alternate, so a change of the machine load affects the two the same.
@@ -22,6 +28,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -41,6 +48,9 @@ COMMANDS = ["get_overview", "get_top_hlo_ops", "get_hlo_op_profile", "get_hlo_st
 WARM_REQUESTS = 5
 UNSTABLE = 0.10
 TIMEOUT = None
+MEMORY_LIMIT = None
+# A measure that stops at a limit gives one of these texts. The mark of the text shows in the table.
+MARKS = {"time": "*", "memory": "**"}
 # ru_maxrss is in bytes on macOS and in KiB on Linux.
 RSS_UNIT = 1 if sys.platform == "darwin" else 1024
 
@@ -50,6 +60,43 @@ def reap(process):
     _, status, usage = os.wait4(process.pid, 0)
     process.returncode = os.waitstatus_to_exitcode(status)
     return usage.ru_maxrss * RSS_UNIT
+
+
+def send(process, number):
+    """Sends a signal. Popen.kill and Popen.terminate can collect a stopped process, and then reap does not find it."""
+    try:
+        os.kill(process.pid, number)
+    except ProcessLookupError:
+        pass
+
+
+def resident(pid):
+    """The resident memory of the process in bytes, or 0 if the process stopped."""
+    try:
+        if sys.platform == "darwin":
+            return int(subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True).stdout or 0) * 1024
+        return int(Path(f"/proc/{pid}/statm").read_text().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    except (OSError, ValueError):
+        return 0
+
+
+class Guard:
+    """Stops the process when its resident memory is more than MEMORY_LIMIT."""
+
+    def __init__(self, process):
+        self.process, self.exceeded, self.done = process, False, threading.Event()
+        if MEMORY_LIMIT:
+            threading.Thread(target=self.watch, daemon=True).start()
+
+    def watch(self):
+        while not self.done.wait(0.05):
+            if resident(self.process.pid) > MEMORY_LIMIT:
+                self.exceeded = True
+                send(self.process, signal.SIGKILL)
+                return
+
+    def stop(self):
+        self.done.set()
 
 
 def fresh(session, scratch):
@@ -80,6 +127,7 @@ def fetch(port, path, timeout=3600):
 def server(command, session, scratch, port, path):
     logs, env = fresh(session, scratch)
     process = subprocess.Popen(command + ["--logdir", str(logs), "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+    guard = Guard(process)
     try:
         for _ in range(600):
             try:
@@ -87,14 +135,18 @@ def server(command, session, scratch, port, path):
                 break
             except OSError:
                 time.sleep(0.1)
-        try:
-            cold = fetch(port, path, TIMEOUT or 3600)
-        except TimeoutError:
-            return None
+        cold = fetch(port, path, TIMEOUT or 3600)
         warm = statistics.fmean(fetch(port, path) for _ in range(WARM_REQUESTS))
+    except (OSError, http.client.HTTPException) as error:
+        if guard.exceeded:
+            return "memory"
+        if isinstance(error, TimeoutError):
+            return "time"
+        raise
     finally:
-        process.terminate()
+        send(process, signal.SIGTERM)
         peak = reap(process)
+        guard.stop()
     return cold, warm, peak
 
 
@@ -104,15 +156,19 @@ def cli(command, session, scratch, name):
     for run in range(2):
         start = time.perf_counter()
         process = subprocess.Popen(command + [name, str(logs / "run")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
-        timer = threading.Timer(TIMEOUT, process.kill) if TIMEOUT and run == 0 else None
+        guard = Guard(process)
+        timer = threading.Timer(TIMEOUT, send, (process, signal.SIGKILL)) if TIMEOUT and run == 0 else None
         if timer:
             timer.start()
         peaks.append(reap(process))
         times.append(time.perf_counter() - start)
+        guard.stop()
+        if guard.exceeded:
+            return "memory"
         if timer:
             timer.cancel()
             if times[0] >= TIMEOUT:
-                return None
+                return "time"
         if process.returncode != 0:
             raise RuntimeError(f"{name}: exit code {process.returncode}")
     return times[0], times[1], peaks[0]
@@ -120,16 +176,16 @@ def cli(command, session, scratch, name):
 
 def trials(measures, count, warmups):
     """Runs the measures in turns. Gives, for each measure, the cold times, the warm times and the peak memory of the counted trials.
-    A measure that reaches the timeout gives `None`, and it does not run again."""
+    A measure that reaches a limit gives the text of the limit, and it does not run again."""
     values = [([], [], []) for _ in measures]
     for trial in range(warmups + count):
         order = list(enumerate(measures))
         for index, measure in order if trial % 2 == 0 else reversed(order):
-            if values[index] is None:
+            if isinstance(values[index], str):
                 continue
             measured = measure()
-            if measured is None:
-                values[index] = None
+            if isinstance(measured, str):
+                values[index] = measured
             elif trial >= warmups:
                 for column, value in zip(values[index], measured):
                     column.append(value)
@@ -137,8 +193,10 @@ def trials(measures, count, warmups):
 
 
 def cell(values):
-    if values is None:
+    if values == "time":
         return f">{TIMEOUT:g} s*"
+    if values == "memory":
+        return "not measured**"
     mean = statistics.fmean(values)
     deviation = statistics.stdev(values) if len(values) > 1 else 0.0
     unit, scale = ("ms", 1000) if mean < 1 else ("s", 1)
@@ -148,7 +206,9 @@ def cell(values):
 
 
 def memory(values):
-    if values is None:
+    if values == "memory":
+        return f">{MEMORY_LIMIT / 1e9:g} GB**"
+    if values == "time":
         return "not measured*"
     mean, deviation = statistics.fmean(values), statistics.stdev(values) if len(values) > 1 else 0.0
     unit, scale = ("MB", 1e6) if mean < 1e9 else ("GB", 1e9)
@@ -157,23 +217,26 @@ def memory(values):
 
 
 def ratio(slow, fast):
-    if fast is None:
+    if isinstance(fast, str) or slow == "memory":
         return "—"
-    value = (TIMEOUT if slow is None else statistics.fmean(slow)) / statistics.fmean(fast)
+    value = (TIMEOUT if slow == "time" else statistics.fmean(slow)) / statistics.fmean(fast)
     text = f"{value:.0f}×" if value >= 10 else f"{value:.1f}×"
-    return f">{text}" if slow is None else text
+    return f">{text}" if slow == "time" else text
 
 
 def table(title, rows):
     print(f"| {title} | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up | XProf, peak memory | xprof-rs, peak memory |")
     print("|---|---|---|---|---|---|---|---|---|")
     for name, (old, new) in rows.items():
-        (old_cold, old_warm, old_peak), (new_cold, new_warm, new_peak) = old or (None, None, None), new or (None, None, None)
-        warm = lambda values: memory(None) if values is None else cell(values)
+        (old_cold, old_warm, old_peak), (new_cold, new_warm, new_peak) = [(values,) * 3 if isinstance(values, str) else values for values in (old, new)]
+        warm = lambda values: "not measured" + MARKS[values] if isinstance(values, str) else cell(values)
+        measured = not isinstance(old, str) and not isinstance(new, str)
         print(f"| `{name}` | {cell(old_cold)} | {cell(new_cold)} | {ratio(old_cold, new_cold)} "
-              f"| {warm(old_warm)} | {warm(new_warm)} | {ratio(old_warm, new_warm) if old and new else '—'} | {memory(old_peak)} | {memory(new_peak)} |")
-    if any(None in pair for pair in rows.values()):
+              f"| {warm(old_warm)} | {warm(new_warm)} | {ratio(old_warm, new_warm) if measured else '—'} | {memory(old_peak)} | {memory(new_peak)} |")
+    if any("time" in pair for pair in rows.values()):
         print(f"\n\\* The cold call took longer than {TIMEOUT:g} s. Because it took so long, the script stopped it and did not measure the row further.")
+    if any("memory" in pair for pair in rows.values()):
+        print(f"\n\\*\\* The process used more than {MEMORY_LIMIT / 1e9:g} GB of memory. Because it used so much, the script stopped it and did not measure the row further.")
     print()
 
 
@@ -199,10 +262,12 @@ def main():
     parser.add_argument("--tools", help="comma-separated server tools, or an empty text for none (default: all)")
     parser.add_argument("--commands", help="comma-separated CLI commands, or an empty text for none (default: all)")
     parser.add_argument("--timeout", type=float, help="seconds after which a cold request or command stops (default: no limit)")
+    parser.add_argument("--memory-limit", type=float, help="GB of resident memory after which a server or a command stops (default: no limit)")
     parser.add_argument("--json", type=Path, help="file for the values of all trials")
     arguments = parser.parse_args()
-    global TIMEOUT
+    global TIMEOUT, MEMORY_LIMIT
     TIMEOUT = arguments.timeout
+    MEMORY_LIMIT = arguments.memory_limit and arguments.memory_limit * 1e9
     pin = ["taskset", "-c", arguments.cores] if arguments.cores else []
     commands = [pin + [arguments.xprof], pin + [str(Path(arguments.rs).resolve())]]
     host = next(arguments.session.glob("*.xplane.pb")).name.removesuffix(".xplane.pb")

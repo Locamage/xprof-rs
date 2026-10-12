@@ -108,6 +108,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The trace viewer keeps 56 bytes for each event, not 64 bytes. An event keeps the index of its flow in 32 bits. It does not keep its serial, because the trace viewer finds the serial from the index of the event. On a 1.7 GB profile with 8 cores, the first request of the trace viewer uses 6.0 GB of memory and 37.7 CPU seconds. Before, it used 6.6 GB and 38.7 CPU seconds. The output does not change.
 - `examples/benchmark.py` shows the peak memory of XProf and of xprof-rs for each tool and each command. The value is the peak resident memory of the process that the system gives when the process stops. The options `--tools` and `--commands` select a part of the tools and of the commands, for example for a large profile.
 - `examples/benchmark.py` has the option `--timeout`. A cold request or a cold command that takes longer stops, and its row shows the limit with a mark. The script does not measure that row again.
+- `examples/benchmark.py` has the option `--memory-limit`. A server or a command that uses more resident memory stops, and its row shows the limit with a different mark. The script does not measure that row again.
 
 ## 0.1.2
 
