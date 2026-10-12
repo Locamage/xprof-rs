@@ -26,7 +26,8 @@ struct Event {
     name: String,
     ts: u64,
     dur: u64,
-    args: BTreeMap<String, String>,
+    /// The args in the order of their keys, with one value for each key.
+    args: Vec<(String, String)>,
 }
 
 fn stat_text(plane: &Plane, value: &Value) -> String {
@@ -52,36 +53,37 @@ fn convert(device: i64, plane: &Plane, map: &[u8], last: u64) -> Vec<Event> {
                     return None;
                 }
                 let mut name = label(plane, line, event).to_string();
-                let mut args = BTreeMap::new();
+                let mut args = Vec::new();
                 if let Some(meta) = meta {
                     if !meta.display.is_empty() {
-                        args.insert("long_name".into(), meta.long_name(map).into_owned());
+                        set(&mut args, "long_name".into(), meta.long_name(map).into_owned());
                     }
                     for (_, stat_name, stat) in plane.named_stats(map, event.meta, event.raw) {
                         let text = stat_text(plane, &stat.value);
                         if &**stat_name == "step_name" {
                             name.clone_from(&text);
                         }
-                        args.insert(stat_name.to_string(), text);
+                        set(&mut args, stat_name.to_string(), text);
                     }
                     let links = plane.links(event.meta, slice(map, event.raw), ordinal);
                     if let Some(group) = Some(event.group).filter(|&group| group != NONE_GROUP).or(links.group) {
-                        args.insert("group_id".into(), group.to_string());
+                        set(&mut args, "group_id".into(), group.to_string());
                     }
                     if let Some(flow) = links.flow {
-                        args.insert("flow".into(), flow.to_string());
+                        set(&mut args, "flow".into(), flow.to_string());
                     }
                     if let Some(eager) = event.eager {
-                        args.insert("is_eager".into(), u8::from(eager).to_string());
+                        set(&mut args, "is_eager".into(), u8::from(eager).to_string());
                     }
                 } else {
                     if let Some(long) = line.longs.get(event.meta as usize).filter(|long| !long.is_empty()) {
-                        args.insert("long_name".into(), long.to_string());
+                        set(&mut args, "long_name".into(), long.to_string());
                     }
                     for fragment in line.args.get(&index).into_iter().flatten() {
                         if let Ok(serde_json::Value::Object(object)) = serde_json::from_str::<serde_json::Value>(&format!("{{{fragment}}}")) {
                             for (key, value) in object {
-                                args.insert(
+                                set(
+                                    &mut args,
                                     key,
                                     if let Some(text) = value.as_str() {
                                         text.to_string()
@@ -96,17 +98,26 @@ fn convert(device: i64, plane: &Plane, map: &[u8], last: u64) -> Vec<Event> {
                     }
                 }
                 if derived && event.group != NONE_GROUP {
-                    args.insert("group_id".into(), event.group.to_string());
+                    set(&mut args, "group_id".into(), event.group.to_string());
                 }
                 if let Some(step) = line.steps.get(&index) {
                     name.clone_from(&step.name);
-                    args.insert("step_name".into(), step.name.clone());
-                    step.stats.iter().for_each(|(key, value)| _ = args.insert((*key).into(), value.to_string()));
+                    set(&mut args, "step_name".into(), step.name.clone());
+                    step.stats.iter().for_each(|(key, value)| set(&mut args, (*key).into(), value.to_string()));
                 }
+                args.sort_unstable_by(|a, b| a.0.cmp(&b.0));
                 Some(Event { device, resource: line.resource_id(), name, ts: time(plane, event), dur: event.dur, args })
             })
         })
         .collect()
+}
+
+/// Sets the value of `key`, as an insert into a map does.
+fn set(args: &mut Vec<(String, String)>, key: String, value: String) {
+    match args.iter_mut().find(|(known, _)| *known == key) {
+        Some(slot) => slot.1 = value,
+        None => args.push((key, value)),
+    }
 }
 
 fn label<'a>(plane: &'a Plane, line: &'a Line, event: &Ev) -> &'a str {

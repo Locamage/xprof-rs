@@ -102,6 +102,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The protobuf reader reads a varint of at most 8 bytes with one load. The times of the events are varints of 6 to 8 bytes. On a 1.7 GB profile with 8 cores, `get_hlo_stats` uses 9.4 CPU seconds, and `list_xplane_events` uses 5.7 CPU seconds. Before, they used 9.7 and 6.1 CPU seconds. The output does not change.
 - The trace viewer asks the system for huge pages for the events of a large trace. Thus the first writes take fewer page faults, and the later reads take fewer misses of the address cache. The sort of the events uses at most 256 time ranges, not 1024, so that the huge pages do not increase the memory. On a 1.7 GB profile with 8 cores, the first request of the trace viewer takes 5.8 s and 39.7 CPU seconds. Before, it took 6.3 s and 43.5 CPU seconds. The memory and the output do not change.
 - The old `trace_viewer` tool frees the planes of the profile before it writes the JSON text. The text uses only the events that the tool takes from the planes. On a 1.7 GB profile with 8 cores, the response uses 6.3 GB of memory. Before, it used 7.7 GB. The time and the output do not change.
+- The old `trace_viewer` tool keeps the arguments of each event in a sorted list. Before, it kept them in a tree map, and each small map used a full tree node. On a 1.7 GB profile with 8 cores, the response uses 6.2 GB of memory. Before, it used 6.5 GB. The output does not change.
 
 ## 0.1.2
 
