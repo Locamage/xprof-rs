@@ -93,7 +93,9 @@ pub struct Trace {
     pub events: Vec<Event>,
     pub min_ps: u64,
     pub max_ps: u64,
-    pub levels: Vec<Vec<u32>>,
+    /// The events of each level in order, with `level_bounds` around the events of each level.
+    pub levels: Vec<u32>,
+    pub level_bounds: Vec<usize>,
     /// Bit `index` is 1 when event `index` compares equal to the event before it.
     pub ties: Vec<u64>,
     pub tpu_devices: HashSet<u32>,
@@ -610,22 +612,34 @@ impl Trace {
                 (assigned, (0..events.len().div_ceil(64)).into_par_iter().map(|word| (0..64).filter(|bit| tie(word * 64 + bit)).fold(0, |bits, bit| bits | 1 << bit)).collect())
             },
         );
-        let chunks: Vec<Vec<Vec<u32>>> = events
+        drop(by_track);
+        drop(order);
+        let mut cursors: Vec<Vec<u32>> = events
             .par_chunks_mut(LEVEL_CHUNK)
             .zip(assigned.par_chunks(LEVEL_CHUNK))
-            .enumerate()
-            .map(|(chunk, (events, assigned))| {
-                let mut levels = vec![Vec::new(); LAYER_PS.len()];
-                for (offset, (event, &level)) in events.iter_mut().zip(assigned).enumerate() {
+            .map(|(events, assigned)| {
+                let mut counts = vec![0; LAYER_PS.len()];
+                for (event, &level) in events.iter_mut().zip(assigned) {
                     event.level = level;
-                    if event.serial < MAX_SERIAL {
-                        levels[level as usize].push((chunk * LEVEL_CHUNK + offset) as u32);
-                    }
+                    counts[level as usize] += u32::from(event.serial < MAX_SERIAL);
                 }
-                levels
+                counts
             })
             .collect();
-        let levels = (0..LAYER_PS.len()).into_par_iter().map(|level| chunks.iter().flat_map(|chunk| chunk[level].iter().copied()).collect()).collect();
+        drop(assigned);
+        let level_bounds = into_cursors(&mut cursors, LAYER_PS.len());
+        let mut levels: Vec<u32> = Vec::with_capacity(level_bounds[LAYER_PS.len()]);
+        let slots = Slots(levels.spare_capacity_mut().as_mut_ptr());
+        events.par_chunks(LEVEL_CHUNK).zip(cursors).enumerate().for_each(|(chunk, (events, mut cursors))| {
+            for (offset, event) in events.iter().enumerate().filter(|(_, event)| event.serial < MAX_SERIAL) {
+                let slot = &mut cursors[event.level as usize];
+                // SAFETY: the cursors of the chunks give each counted event a different slot below the last bound.
+                unsafe { slots.write(*slot as usize, (chunk * LEVEL_CHUNK + offset) as u32) };
+                *slot += 1;
+            }
+        });
+        // SAFETY: the chunks write all slots.
+        unsafe { levels.set_len(level_bounds[LAYER_PS.len()]) };
         let tpu_devices: HashSet<u32> = devices.iter().filter(|(_, device)| is_tpu_core_device_name(&device.name)).map(|(id, _)| *id).collect();
         let dma_devices =
             devices.iter().filter(|(_, device)| !tpu_devices.is_empty() && (is_tpu_core_device_name(&device.name) || maybe_tpu_non_core_device_name(&device.name))).map(|(id, _)| *id).collect();
@@ -636,12 +650,13 @@ impl Trace {
             min_ps: span.0,
             max_ps: span.1,
             levels,
+            level_bounds,
             ties,
             tpu_devices,
             dma_devices,
             long_names,
             steps,
-            tracks: by_track.len(),
+            tracks,
             owners,
             flow_ids,
             args,
@@ -677,7 +692,8 @@ impl Trace {
         let resolution_ps = if resolution == 0.0 { 0 } else { ((end - begin) as f64 / resolution).round() as u64 };
         let layer = |level: usize| LAYER_PS.get(level).copied().unwrap_or(0);
         let mut sources: Vec<&[u32]> = Vec::new();
-        for (level, indices) in self.levels.iter().enumerate() {
+        for (level, bounds) in self.level_bounds.windows(2).enumerate() {
+            let indices = &self.levels[bounds[0]..bounds[1]];
             let first_ps = if level > 0 && begin > layer(level - 1) { begin - layer(level - 1) } else { 0 };
             let (start, stop) = (indices.partition_point(|&index| self.events[index as usize].ts < first_ps), indices.partition_point(|&index| self.events[index as usize].ts <= end));
             sources.push(&indices[start..stop.max(start)]);
