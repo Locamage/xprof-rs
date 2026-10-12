@@ -10,7 +10,9 @@ xprof-rs is an independent project. Google and the OpenXLA project do not mainta
 
 We wrote xprof-rs with [Claude](https://www.anthropic.com/claude), an AI model from Anthropic. The tests compare the output of each tool with the output of XProf 2.23.2.
 
-On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.30 s (XProf: 5.6 s). After the first request, it opens in approximately 2 ms (XProf: 0.62 s). The peak memory of the server is 0.42 GB (XProf: 1.42 GB).
+On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.30 s (XProf: 5.6 s). After the first request, it opens in approximately 2 ms (XProf: 0.62 s).
+
+The peak memory of the server is 0.42 GB (XProf: 1.42 GB). On a 1.69 GB profile, XProf uses more than 16 GB of memory, and xprof-rs opens the trace viewer in 8.3 s with 7.7 GB.
 
 xprof-rs also reads profiles from S3-compatible stores such as Cloudflare R2. XProf 2.23.2 cannot read them. The [performance](#performance) section has the times of all tools, also on a disk and on R2.
 
@@ -126,6 +128,108 @@ The next table shows the cold times of the overview page on a disk and on Cloudf
 | 279 MB | Disk of a cloud VM | 25.2 s | 3.30 s |
 | 279 MB | R2, `rclone mount` | 24.9 s | 5.81 s |
 | 279 MB | R2, `s3://` URL | not available | 3.47 s |
+
+### Large profiles
+
+We made two larger profiles with the same script that trains the CLIP model. 140 steps gave a 798 MB profile, and 300 steps gave a 1.69 GB profile. These tables have 3 trials, after 1 warmup trial. A cold call stops after 120 s, and a process stops when its resident memory is more than 16 GB. The profiles have no `.hlo_proto.pb` files, so the tables do not show `memory_viewer`.
+
+On the 798 MB profile, a cold call of XProf takes up to 74 s, and XProf uses up to 14.8 GB of memory. xprof-rs takes at most 3.7 s and uses at most 3.9 GB. On the 1.69 GB profile, XProf uses more than 16 GB for each server tool and for most commands. xprof-rs opens the trace viewer in 8.3 s with a peak of 7.7 GB. All other tools and commands take at most 6.1 s and use at most 6.2 GB.
+
+The 798 MB profile:
+
+| Tool | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up | XProf, peak memory | xprof-rs, peak memory |
+|---|---|---|---|---|---|---|---|---|
+| `trace_viewer@` | 65.5 ± 0.3 s | 3.70 ± 0.03 s | 18× | 1.29 ± 0.00 s | 3.16 ± 0.06 ms | 410× | 14.77 ± 0.02 GB | 3.93 ± 0.02 GB |
+| `overview_page` | 51.4 ± 0.1 s | 2.20 ± 0.09 s | 23× | 673 ± 3 ms | 0.446 ± 0.049 ms (!) | 1509× | 14.79 ± 0.00 GB | 2.80 ± 0.00 GB |
+| `op_profile` | 51.9 ± 0.5 s | 2.09 ± 0.04 s | 25× | 1.21 ± 0.02 s | 0.689 ± 0.043 ms | 1761× | 14.77 ± 0.04 GB | 2.80 ± 0.01 GB |
+| `hlo_stats` | 51.9 ± 0.2 s | 2.19 ± 0.02 s | 24× | 756 ± 5 ms | 0.549 ± 0.063 ms (!) | 1377× | 14.79 ± 0.00 GB | 2.81 ± 0.01 GB |
+| `framework_op_stats` | 51.7 ± 0.2 s | 2.16 ± 0.07 s | 24× | 698 ± 2 ms | 0.456 ± 0.034 ms | 1530× | 14.79 ± 0.00 GB | 2.82 ± 0.02 GB |
+| `input_pipeline_analyzer` | 51.7 ± 0.4 s | 2.11 ± 0.10 s | 25× | 670 ± 4 ms | 0.436 ± 0.008 ms | 1537× | 14.79 ± 0.00 GB | 2.83 ± 0.01 GB |
+| `roofline_model` | 51.8 ± 0.2 s | 2.26 ± 0.15 s | 23× | 1.05 ± 0.03 s | 0.594 ± 0.028 ms | 1773× | 14.79 ± 0.00 GB | 2.82 ± 0.01 GB |
+| `memory_profile` | not measured** | 1.16 ± 0.01 s | — | not measured** | 0.481 ± 0.016 ms | — | >16 GB** | 2.83 ± 0.01 GB |
+| `pod_viewer` | 51.7 ± 0.2 s | 2.15 ± 0.04 s | 24× | 702 ± 3 ms | 0.444 ± 0.056 ms (!) | 1581× | 14.79 ± 0.01 GB | 2.80 ± 0.00 GB |
+
+\*\* The process used more than 16 GB of memory. Because it used so much, the script stopped it and did not measure the row further.
+
+| Command | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up | XProf, peak memory | xprof-rs, peak memory |
+|---|---|---|---|---|---|---|---|---|
+| `get_overview` | 52.1 ± 0.4 s | 2.24 ± 0.07 s | 23× | 224 ± 1 ms | 2.22 ± 0.06 s | 0.1× | 14.74 ± 0.04 GB | 2.85 ± 0.03 GB |
+| `get_top_hlo_ops` | 52.9 ± 0.2 s | 787 ± 31 ms | 67× | 224 ± 0 ms | 743 ± 5 ms | 0.3× | 14.74 ± 0.04 GB | 1.28 ± 0.04 GB |
+| `get_hlo_op_profile` | 52.7 ± 0.1 s | 802 ± 40 ms | 66× | 227 ± 0 ms | 749 ± 4 ms | 0.3× | 14.76 ± 0.00 GB | 1.32 ± 0.02 GB |
+| `get_hlo_stats` | 51.3 ± 0.2 s | 762 ± 4 ms | 67× | 224 ± 0 ms | 760 ± 42 ms | 0.3× | 14.74 ± 0.04 GB | 1.30 ± 0.03 GB |
+| `get_roofline_model` | 51.8 ± 0.3 s | 1.46 ± 0.01 s | 35× | 225 ± 1 ms | 1.44 ± 0.03 s | 0.2× | 14.76 ± 0.00 GB | 2.86 ± 0.01 GB |
+| `get_step_trace` | 51.5 ± 0.3 s | 2.19 ± 0.05 s | 24× | 224 ± 0 ms | 2.16 ± 0.03 s | 0.1× | 14.76 ± 0.00 GB | 2.84 ± 0.01 GB |
+| `check_host_boundness` | not measured** | 2.72 ± 0.12 s | — | not measured** | 2.65 ± 0.09 s | — | >16 GB** | 2.95 ± 0.04 GB |
+| `get_memory_profile` | 20.6 ± 0.1 s | 1.23 ± 0.02 s | 17× | 223 ± 1 ms | 1.20 ± 0.01 s | 0.2× | 10.34 ± 0.00 GB | 2.87 ± 0.01 GB |
+| `list_hlo_modules` | 10.6 ± 0.1 s | 640 ± 4 ms | 17× | 224 ± 0 ms | 5.95 ± 0.32 ms | 38× | 4.96 ± 0.00 GB | 832 ± 1 MB |
+| `aggregate_xplane_events` | 74.4 ± 0.3 s | 922 ± 1 ms | 81× | 237 ± 0 ms | 918 ± 30 ms | 0.3× | 13.93 ± 0.00 GB | 1.44 ± 0.01 GB |
+| `compute_utilization` | 36.9 ± 0.1 s | 499 ± 5 ms | 74× | 224 ± 1 ms | 475 ± 3 ms | 0.5× | 14.73 ± 0.00 GB | 811 ± 2 MB |
+| `get_avg_step_time` | 12.3 ± 0.0 s | 550 ± 1 ms | 22× | 222 ± 1 ms | 531 ± 19 ms | 0.4× | 6.80 ± 0.00 GB | 813 ± 1 MB |
+| `get_device_information` | 51.3 ± 0.1 s | 827 ± 51 ms | 62× | 224 ± 0 ms | 752 ± 26 ms | 0.3× | 14.76 ± 0.00 GB | 1.29 ± 0.01 GB |
+| `get_graph_viewer` | 10.7 ± 0.1 s | 663 ± 2 ms | 16× | 335 ± 1 ms | 25.2 ± 1.1 ms | 13× | 4.96 ± 0.00 GB | 866 ± 1 MB |
+| `get_hlo_module_content` | 10.6 ± 0.0 s | 663 ± 3 ms | 16× | 224 ± 1 ms | 26.4 ± 0.2 ms | 8.5× | 4.96 ± 0.00 GB | 866 ± 3 MB |
+| `get_hlo_text` | 10.7 ± 0.0 s | 666 ± 11 ms | 16× | 225 ± 0 ms | 26.3 ± 0.7 ms | 8.6× | 4.96 ± 0.00 GB | 866 ± 3 MB |
+| `get_hosts` | 225 ± 2 ms | 5.99 ± 0.37 ms | 37× | 224 ± 1 ms | 5.28 ± 0.28 ms | 42× | 60 ± 0 MB | 27 ± 0 MB |
+| `get_kernel_stats` | not measured** | 693 ± 20 ms | — | not measured** | 670 ± 31 ms | — | >16 GB** | 881 ± 1 MB |
+| `get_kernel_utilization` | 37.0 ± 0.1 s | 508 ± 10 ms | 73× | 224 ± 0 ms | 478 ± 13 ms | 0.5× | 14.73 ± 0.00 GB | 809 ± 0 MB |
+| `get_kpi_metrics` | 68.0 ± 0.2 s | 2.33 ± 0.03 s | 29× | 225 ± 1 ms | 2.21 ± 0.04 s | 0.1× | 14.76 ± 0.00 GB | 2.88 ± 0.03 GB |
+| `get_llo_analysis` | 12.1 ± 0.0 s | 5.25 ± 0.54 ms (!) | 2304× | 12.0 ± 0.0 s | 4.97 ± 0.24 ms | 2404× | 6.00 ± 0.00 GB | 27 ± 0 MB |
+| `get_llo_debug_string` | 12.0 ± 0.0 s | 5.37 ± 0.40 ms | 2234× | 12.0 ± 0.1 s | 5.00 ± 0.17 ms | 2394× | 6.00 ± 0.00 GB | 27 ± 0 MB |
+| `get_peak_allocations` | 10.6 ± 0.0 s | 662 ± 5 ms | 16× | 223 ± 2 ms | 25.8 ± 0.9 ms | 8.6× | 4.96 ± 0.00 GB | 865 ± 1 MB |
+| `get_profile_summary` | 52.7 ± 0.2 s | 809 ± 17 ms | 65× | 223 ± 0 ms | 768 ± 20 ms | 0.3× | 14.74 ± 0.04 GB | 1.30 ± 0.02 GB |
+| `get_utilization_viewer` | 25.8 ± 0.1 s | 499 ± 3 ms | 52× | 223 ± 0 ms | 475 ± 3 ms | 0.5× | 11.45 ± 0.00 GB | 809 ± 2 MB |
+| `get_xspace_proto` | 1.43 ± 0.01 s | 776 ± 13 ms | 1.8× | 7.75 ± 0.05 s | 899 ± 14 ms | 8.6× | 858 ± 0 MB | 814 ± 0 MB |
+| `list_xplane_events` | not measured** | 829 ± 3 ms | — | not measured** | 806 ± 6 ms | — | >16 GB** | 819 ± 4 MB |
+
+\*\* The process used more than 16 GB of memory. Because it used so much, the script stopped it and did not measure the row further.
+
+The 1.69 GB profile:
+
+| Tool | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up | XProf, peak memory | xprof-rs, peak memory |
+|---|---|---|---|---|---|---|---|---|
+| `trace_viewer@` | not measured** | 8.29 ± 0.11 s | — | not measured** | 1.91 ± 0.06 ms | — | >16 GB** | 7.65 ± 0.04 GB |
+| `overview_page` | not measured** | 4.87 ± 0.12 s | — | not measured** | 0.415 ± 0.018 ms | — | >16 GB** | 5.87 ± 0.04 GB |
+| `op_profile` | not measured** | 4.71 ± 0.13 s | — | not measured** | 0.691 ± 0.052 ms | — | >16 GB** | 5.87 ± 0.01 GB |
+| `hlo_stats` | not measured** | 5.05 ± 0.09 s | — | not measured** | 0.582 ± 0.069 ms (!) | — | >16 GB** | 5.87 ± 0.00 GB |
+| `framework_op_stats` | not measured** | 4.69 ± 0.13 s | — | not measured** | 0.485 ± 0.068 ms (!) | — | >16 GB** | 5.86 ± 0.04 GB |
+| `input_pipeline_analyzer` | not measured** | 4.69 ± 0.04 s | — | not measured** | 0.423 ± 0.018 ms | — | >16 GB** | 5.86 ± 0.03 GB |
+| `roofline_model` | not measured** | 4.67 ± 0.14 s | — | not measured** | 0.633 ± 0.047 ms | — | >16 GB** | 5.87 ± 0.06 GB |
+| `memory_profile` | not measured** | 2.69 ± 0.01 s | — | not measured** | 0.473 ± 0.009 ms | — | >16 GB** | 5.81 ± 0.02 GB |
+| `pod_viewer` | not measured** | 4.67 ± 0.12 s | — | not measured** | 0.405 ± 0.025 ms | — | >16 GB** | 5.85 ± 0.01 GB |
+
+\*\* The process used more than 16 GB of memory. Because it used so much, the script stopped it and did not measure the row further.
+
+| Command | XProf, cold | xprof-rs, cold | Speed-up | XProf, warm | xprof-rs, warm | Speed-up | XProf, peak memory | xprof-rs, peak memory |
+|---|---|---|---|---|---|---|---|---|
+| `get_overview` | not measured** | 4.83 ± 0.11 s | — | not measured** | 4.96 ± 0.18 s | — | >16 GB** | 5.99 ± 0.03 GB |
+| `get_top_hlo_ops` | not measured** | 1.65 ± 0.05 s | — | not measured** | 1.62 ± 0.13 s | — | >16 GB** | 2.70 ± 0.07 GB |
+| `get_hlo_op_profile` | not measured** | 1.60 ± 0.01 s | — | not measured** | 1.60 ± 0.10 s | — | >16 GB** | 2.65 ± 0.07 GB |
+| `get_hlo_stats` | not measured** | 1.60 ± 0.01 s | — | not measured** | 1.53 ± 0.00 s | — | >16 GB** | 2.73 ± 0.01 GB |
+| `get_roofline_model` | not measured** | 3.28 ± 0.01 s | — | not measured** | 3.27 ± 0.08 s | — | >16 GB** | 5.90 ± 0.03 GB |
+| `get_step_trace` | not measured** | 4.83 ± 0.08 s | — | not measured** | 4.86 ± 0.16 s | — | >16 GB** | 5.91 ± 0.01 GB |
+| `check_host_boundness` | not measured** | 6.09 ± 0.23 s | — | not measured** | 5.94 ± 0.10 s | — | >16 GB** | 6.21 ± 0.03 GB |
+| `get_memory_profile` | not measured** | 2.92 ± 0.03 s | — | not measured** | 2.87 ± 0.03 s | — | >16 GB** | 5.97 ± 0.10 GB |
+| `list_hlo_modules` | 22.3 ± 0.0 s | 1.97 ± 0.01 s | 11× | 224 ± 1 ms | 5.97 ± 0.02 ms | 37× | 10.47 ± 0.00 GB | 1.72 ± 0.00 GB |
+| `aggregate_xplane_events` | not measured** | 1.90 ± 0.01 s | — | not measured** | 1.84 ± 0.00 s | — | >16 GB** | 2.98 ± 0.00 GB |
+| `compute_utilization` | not measured** | 1.07 ± 0.01 s | — | not measured** | 1.00 ± 0.01 s | — | >16 GB** | 1.70 ± 0.00 GB |
+| `get_avg_step_time` | 26.1 ± 0.0 s | 1.15 ± 0.00 s | 23× | 223 ± 1 ms | 1.09 ± 0.01 s | 0.2× | 14.43 ± 0.00 GB | 1.70 ± 0.00 GB |
+| `get_device_information` | not measured** | 1.60 ± 0.02 s | — | not measured** | 1.54 ± 0.01 s | — | >16 GB** | 2.67 ± 0.07 GB |
+| `get_graph_viewer` | 22.4 ± 0.1 s | 1.98 ± 0.01 s | 11× | 334 ± 1 ms | 35.9 ± 16.8 ms (!) | 9.3× | 10.47 ± 0.00 GB | 1.72 ± 0.00 GB |
+| `get_hlo_module_content` | 22.4 ± 0.0 s | 1.99 ± 0.01 s | 11× | 225 ± 0 ms | 26.7 ± 1.0 ms | 8.4× | 10.47 ± 0.00 GB | 1.72 ± 0.00 GB |
+| `get_hlo_text` | 22.4 ± 0.0 s | 1.99 ± 0.01 s | 11× | 225 ± 1 ms | 26.4 ± 0.3 ms | 8.5× | 10.47 ± 0.00 GB | 1.72 ± 0.00 GB |
+| `get_hosts` | 224 ± 2 ms | 6.07 ± 0.12 ms | 37× | 225 ± 2 ms | 5.30 ± 0.06 ms | 42× | 60 ± 0 MB | 29 ± 0 MB |
+| `get_kernel_stats` | not measured** | 1.48 ± 0.05 s | — | not measured** | 1.37 ± 0.01 s | — | >16 GB** | 1.83 ± 0.00 GB |
+| `get_kernel_utilization` | not measured** | 1.07 ± 0.01 s | — | not measured** | 1.03 ± 0.02 s | — | >16 GB** | 1.70 ± 0.00 GB |
+| `get_kpi_metrics` | not measured** | 5.11 ± 0.07 s | — | not measured** | 5.17 ± 0.14 s | — | >16 GB** | 5.97 ± 0.08 GB |
+| `get_llo_analysis` | 25.5 ± 0.1 s | 5.39 ± 0.33 ms | 4720× | 25.4 ± 0.1 s | 4.98 ± 0.03 ms | 5098× | 12.75 ± 0.00 GB | 30 ± 0 MB |
+| `get_llo_debug_string` | 25.5 ± 0.0 s | 5.67 ± 0.12 ms | 4490× | 25.3 ± 0.0 s | 4.95 ± 0.14 ms | 5114× | 12.75 ± 0.00 GB | 30 ± 0 MB |
+| `get_peak_allocations` | 22.2 ± 0.0 s | 2.02 ± 0.05 s | 11× | 223 ± 1 ms | 25.4 ± 0.5 ms | 8.8× | 10.47 ± 0.00 GB | 1.72 ± 0.00 GB |
+| `get_profile_summary` | not measured** | 1.60 ± 0.01 s | — | not measured** | 1.67 ± 0.12 s | — | >16 GB** | 2.68 ± 0.07 GB |
+| `get_utilization_viewer` | not measured** | 1.06 ± 0.01 s | — | not measured** | 1.01 ± 0.01 s | — | >16 GB** | 1.70 ± 0.00 GB |
+| `get_xspace_proto` | 2.76 ± 0.01 s | 1.63 ± 0.00 s | 1.7× | 16.4 ± 0.0 s | 1.87 ± 0.01 s | 8.8× | 1.75 ± 0.00 GB | 1.70 ± 0.00 GB |
+| `list_xplane_events` | not measured** | 1.75 ± 0.01 s | — | not measured** | 1.69 ± 0.01 s | — | >16 GB** | 1.71 ± 0.00 GB |
+
+\*\* The process used more than 16 GB of memory. Because it used so much, the script stopped it and did not measure the row further.
 
 ## Install and start
 
