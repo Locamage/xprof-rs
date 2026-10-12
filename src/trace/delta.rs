@@ -1,5 +1,5 @@
+use crate::trace::NONE_FLOW;
 use crate::trace::json::{CONTEXT_TYPES, HOST_PID_STRIDE, View, devices, ordered};
-use crate::trace::{NONE_FLOW, NONE_RESOURCE};
 use crate::xplane::{NONE_GROUP, Value};
 use prost::Message;
 use rayon::prelude::*;
@@ -131,10 +131,10 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
         .map(|run| {
             let (host, view) = (run[0].0, &views[run[0].0 as usize]);
             let first = &view.trace.events[run[0].1 as usize];
-            let unbound = first.resource == NONE_RESOURCE;
+            let unbound = first.unbound;
             let tag = if unbound { 2 + u32::from(first.flow != NONE_FLOW) } else { 1 };
-            let (thread_id, name_ref) = if unbound { (0, first.name) } else { (first.resource, 0) };
-            let process_id = first.device + (host + 1) * HOST_PID_STRIDE - offset;
+            let (thread_id, name_ref) = if unbound { (0, first.name) } else { (view.trace.resource(first), 0) };
+            let process_id = view.trace.device(first) + (host + 1) * HOST_PID_STRIDE - offset;
             let mut series = Series { metadata: Some(SeriesMetadata { process_id, thread_id, name_ref }), ..Default::default() };
             let mut last = 0;
             for &(_, index) in run {
@@ -155,7 +155,7 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
                     }
                     if event.flow != NONE_FLOW {
                         metadata.flow_id = view.trace.flow_ids[event.flow as usize] as u32;
-                        metadata.flow_category = if matches!(event.flow_cat, 0 | 1) { 0 } else { u32::from(event.flow_cat) };
+                        metadata.flow_category = if matches!(event.flow_cat(), 0 | 1) { 0 } else { u32::from(event.flow_cat()) };
                     }
                     if event.group != NONE_GROUP {
                         metadata.group_id = event.group as u32;

@@ -12,11 +12,11 @@ fn visibility(resolution_ps: u64) -> Visibility {
 }
 
 fn complete(begin_ps: u64, duration_ps: u64) -> Event {
-    Event { ts: begin_ps, dur: duration_ps, resource: RESOURCE_ID, track: RESOURCE_ID, flow: NONE_FLOW, ..Default::default() }
+    Event { ts: begin_ps, dur: duration_ps, track: RESOURCE_ID, flow: NONE_FLOW, ..Default::default() }
 }
 
 fn flow(begin_ps: u64, duration_ps: u64, flow_id: u64, resource_id: u32) -> Event {
-    Event { ts: begin_ps, dur: duration_ps, resource: resource_id, track: resource_id, flow: flow_id, ..Default::default() }
+    Event { ts: begin_ps, dur: duration_ps, track: resource_id, flow: flow_id, ..Default::default() }
 }
 
 #[test]

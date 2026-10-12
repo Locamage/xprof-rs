@@ -1,7 +1,7 @@
 use super::legacy::same;
 use super::xspace::{V, XSpace};
 use crate::trace::json::{View, micros, quoted, render, write_event};
-use crate::trace::{Event, FLOW_END, FLOW_MID, FLOW_START, NONE_FLOW, NONE_RESOURCE, Options, Trace};
+use crate::trace::{Event, FLOW_END, FLOW_MID, FLOW_START, NONE_FLOW, Options, Trace};
 use crate::xplane::NONE_GROUP;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -19,6 +19,7 @@ fn trace_of(names: &[&str], flow_ids: &[u64]) -> Trace {
         long_names: HashMap::new(),
         steps: HashMap::new(),
         tracks: 0,
+        owners: vec![(1, 2)],
         flow_ids: flow_ids.to_vec(),
         args: Vec::new(),
         stack_frames: String::new(),
@@ -26,13 +27,14 @@ fn trace_of(names: &[&str], flow_ids: &[u64]) -> Trace {
     }
 }
 
-fn event(resource: u32, ts: u64, dur: u64, flow: u64, flow_entry: u8) -> Event {
-    Event { ts, dur, flow, flow_entry, group: NONE_GROUP, resource, device: 1, ..Default::default() }
+/// The event is on track 0, which has device 1 and resource 2.
+fn event(unbound: bool, ts: u64, dur: u64, flow: u64, flow_entry: u8) -> Event {
+    Event { ts, dur, flow, flow_kind: flow_entry, group: NONE_GROUP, unbound, ..Default::default() }
 }
 
 fn written(trace: &Trace, event: &Event) -> String {
     let mut out = String::new();
-    write_event(&mut out, trace, event, event.device, None, None, false);
+    write_event(&mut out, trace, event, trace.device(event), None, None, false);
     out
 }
 
@@ -143,14 +145,14 @@ fn write_stack_frames_test() {
 #[test]
 fn complete_event_test() {
     let trace = trace_of(&["complete_event"], &[]);
-    let out = written(&trace, &event(2, 1_000_000, 500_000, NONE_FLOW, 0));
+    let out = written(&trace, &event(false, 1_000_000, 500_000, NONE_FLOW, 0));
     assert!(same(&json(&out), &json(r#"{"pid":1,"tid":2,"name":"complete_event","ts":1,"dur":0.5,"ph":"X","args":{"uid":0}}"#)), "{out}");
 }
 
 #[test]
 fn complete_event_with_flow_test() {
     let trace = trace_of(&["complete_event_with_flow"], &[123]);
-    let out = written(&trace, &event(2, 1_000_000, 500_000, 0, FLOW_START));
+    let out = written(&trace, &event(false, 1_000_000, 500_000, 0, FLOW_START));
     assert!(same(&json(&out), &json(r#"{"pid":1,"tid":2,"name":"complete_event_with_flow","ts":1,"dur":0.5,"bind_id":123,"flow_out":true,"ph":"X","args":{"uid":0}}"#)), "{out}");
 }
 
@@ -163,7 +165,7 @@ fn counter_event_test() {
 #[test]
 fn async_event_test() {
     let trace = trace_of(&["async_event"], &[456]);
-    let out = written(&trace, &event(NONE_RESOURCE, 1_000_000, 0, 0, FLOW_START));
+    let out = written(&trace, &event(true, 1_000_000, 0, 0, FLOW_START));
     assert!(same(&json(&out), &json(r#"{"pid":1,"name":"async_event","ts":1,"id":456,"cat":"","ph":"b","args":{"uid":0}}"#)), "{out}");
 }
 
@@ -180,18 +182,18 @@ fn is_matching_last_counter_event_test() {
 #[test]
 fn write_event_flows() {
     let trace = trace_of(&["flow_event"], &[100]);
-    let start = written(&trace, &Event { flow_cat: 1, ..event(2, 1_000_000, 1000, 0, FLOW_START) });
+    let start = written(&trace, &Event { flow_kind: FLOW_START | 1 << 2, ..event(false, 1_000_000, 1000, 0, FLOW_START) });
     assert!(start.contains(r#""flow_out":true"#) && start.contains(r#""bind_id":100"#), "{start}");
-    let mid = written(&trace, &event(2, 2_000_000, 1000, 0, FLOW_MID));
+    let mid = written(&trace, &event(false, 2_000_000, 1000, 0, FLOW_MID));
     assert!(mid.contains(r#""flow_in":true"#) && mid.contains(r#""flow_out":true"#), "{mid}");
-    let end = written(&trace, &event(2, 3_000_000, 1000, 0, FLOW_END));
+    let end = written(&trace, &event(false, 3_000_000, 1000, 0, FLOW_END));
     assert!(end.contains(r#""flow_in":true"#) && !end.contains(r#""flow_out":true"#), "{end}");
 }
 
 #[test]
 fn write_event_async_flow_mid() {
     let trace = trace_of(&["async_event"], &[456]);
-    let out = written(&trace, &event(NONE_RESOURCE, 1_000_000, 500_000, 0, FLOW_MID));
+    let out = written(&trace, &event(true, 1_000_000, 500_000, 0, FLOW_MID));
     assert!(out.contains(r#""ph":"b""#) && out.contains(r#""ph":"e""#), "{out}");
     assert!(out.contains(r#""ts":1"#) && out.contains(r#""ts":1.5"#), "{out}");
 }

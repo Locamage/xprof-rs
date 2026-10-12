@@ -1,4 +1,4 @@
-use crate::trace::{DERIVED_META, Device, Event, FLOW_END, FLOW_MID, FLOW_START, NONE_FLOW, NONE_RESOURCE, Trace};
+use crate::trace::{DERIVED_META, Device, Event, FLOW_END, FLOW_MID, FLOW_START, NONE_FLOW, Trace};
 use crate::xplane::{Meta, NONE_GROUP, Plane, Value, slice, stats};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -293,7 +293,7 @@ pub fn ordered(views: &[View]) -> Vec<(u32, u32)> {
         let mut order: Vec<usize> = (0..tracks).filter(|&track| starts[track] > 0).collect();
         order.sort_by_key(|&track| {
             let event = &events[first[track] as usize];
-            (event.device, event.resource != NONE_RESOURCE, if event.resource == NONE_RESOURCE { &*view.trace.names[event.name as usize] } else { "" }, event.resource)
+            (view.trace.device(event), !event.unbound, if event.unbound { &*view.trace.names[event.name as usize] } else { "" }, view.trace.resource(event))
         });
         for track in order {
             (starts[track], base) = (base, base + starts[track]);
@@ -331,18 +331,18 @@ pub fn counter_values(plane: &Plane, event: &Event, map: &[u8]) -> (Option<Box<s
 }
 
 pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, extra: Option<Extra>, forced_entry: Option<u8>, marked: bool) {
-    let (entry, category) = (forced_entry.unwrap_or(event.flow_entry), CONTEXT_TYPES.split('|').nth(event.flow_cat as usize).unwrap_or(""));
+    let (entry, category) = (forced_entry.unwrap_or(event.flow_entry()), CONTEXT_TYPES.split('|').nth(event.flow_cat() as usize).unwrap_or(""));
     out.push_str("{\"pid\":");
     number(out, pid as u64);
-    if event.resource != NONE_RESOURCE {
+    if !event.unbound {
         out.push_str(",\"tid\":");
-        number(out, event.resource as u64);
+        number(out, trace.resource(event) as u64);
     }
     out.push_str(",\"name\":");
     push_quoted(out, &trace.names[event.name as usize]);
     out.push_str(",\"ts\":");
     micros(out, if forced_entry.is_some() { event.ts + event.dur } else { event.ts });
-    if event.resource == NONE_RESOURCE {
+    if event.unbound {
         out.push_str(",\"id\":");
         number(out, trace.flow_ids[event.flow as usize]);
         write!(out, ",\"cat\":\"{category}\",\"ph\":\"{}\"", if matches!(entry, FLOW_START | FLOW_MID) { "b" } else { "e" }).unwrap();
@@ -394,7 +394,7 @@ pub fn write_event(out: &mut String, trace: &Trace, event: &Event, pid: u32, ext
         number(out, event.serial as u64);
     }
     out.push('}');
-    if event.resource == NONE_RESOURCE && entry == FLOW_MID && forced_entry.is_none() {
+    if event.unbound && entry == FLOW_MID && forced_entry.is_none() {
         out.push(',');
         write_event(out, trace, event, pid, None, Some(FLOW_END), marked);
     }
@@ -426,12 +426,12 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
     let keys = (args == Args::Search).then(|| if reused { &views[0].trace.frame_keys[..] } else { &merged[..] });
     let is_counter = |&(host, index): &(u32, u32)| {
         let event = &views[host as usize].trace.events[index as usize];
-        event.resource == NONE_RESOURCE && event.flow == NONE_FLOW
+        event.unbound && event.flow == NONE_FLOW
     };
     let counters = ordered.iter().filter(|entry| is_counter(entry)).count();
     let counter_key = |&(host, index): &(u32, u32)| {
         let (view, event) = (&views[host as usize], &views[host as usize].trace.events[index as usize]);
-        (host, event.device, &view.trace.names[event.name as usize])
+        (host, view.trace.device(event), &view.trace.names[event.name as usize])
     };
     let write_chunk = |chunk: &[(u32, u32)], mut frames: Option<&mut Vec<String>>| {
         let mut text = String::with_capacity(chunk.len() * 150);
@@ -439,7 +439,7 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
         for (position, entry) in chunk.iter().enumerate() {
             let (host, index) = *entry;
             let (view, event) = (&views[host as usize], &views[host as usize].trace.events[index as usize]);
-            let pid = event.device + (host + 1) * HOST_PID_STRIDE;
+            let pid = view.trace.device(event) + (host + 1) * HOST_PID_STRIDE;
             if is_counter(entry) {
                 let (first, values) = counter_values(&view.planes[event.plane as usize], event, view.map);
                 if open != Some(counter_key(entry)) {

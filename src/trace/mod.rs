@@ -59,16 +59,26 @@ pub struct Event {
     pub group: i64,
     pub raw: (u32, u32),
     pub name: u32,
-    pub device: u32,
-    pub resource: u32,
     pub track: u32,
     pub serial: u32,
     pub meta: u32,
+    pub plane: u32,
     pub eager: Option<bool>,
     pub level: u8,
-    pub plane: u32,
-    pub flow_entry: u8,
-    pub flow_cat: u8,
+    /// The flow entry in the low 2 bits, and the flow category above them.
+    pub flow_kind: u8,
+    /// The event has no resource. After the build, its track is an async track.
+    pub unbound: bool,
+}
+
+impl Event {
+    pub fn flow_entry(&self) -> u8 {
+        self.flow_kind & 3
+    }
+
+    pub fn flow_cat(&self) -> u8 {
+        self.flow_kind >> 2
+    }
 }
 
 #[derive(Default)]
@@ -91,6 +101,8 @@ pub struct Trace {
     pub long_names: HashMap<u32, Box<str>>,
     pub steps: HashMap<(u32, u32), Step>,
     pub tracks: usize,
+    /// The device and the resource of each track. An async track has the resource `NONE_RESOURCE`.
+    pub owners: Vec<(u32, u32)>,
     pub flow_ids: Vec<u64>,
     pub args: Vec<Vec<String>>,
     pub stack_frames: String,
@@ -215,7 +227,7 @@ impl Visibility {
     pub fn visible_at_resolution(&mut self, event: &Event) -> bool {
         let (end, resolution) = (event.ts + event.dur, self.resolution);
         let row = &mut self.rows[event.track as usize];
-        if event.resource == NONE_RESOURCE {
+        if event.unbound {
             return row.counter(event.ts, resolution);
         }
         let (mut visible, depth) = row.probe(event.ts, event.dur, resolution);
@@ -231,7 +243,7 @@ impl Visibility {
                 }
                 visible = *flow == Some(true);
             }
-            if event.flow_entry == FLOW_END {
+            if event.flow_entry() == FLOW_END {
                 *flow = None;
             }
             if visible {
@@ -265,19 +277,17 @@ fn device_planes(planes: &[Plane]) -> Vec<(usize, u32)> {
     selected
 }
 
-fn compare(names: &[Box<str>], a: &Event, b: &Event) -> Ordering {
-    a.ts.cmp(&b.ts)
-        .then(b.dur.cmp(&a.dur))
-        .then(a.device.cmp(&b.device))
-        .then((a.resource == NONE_RESOURCE).cmp(&(b.resource == NONE_RESOURCE)))
-        .then(a.resource.cmp(&b.resource))
-        .then_with(|| if a.resource == NONE_RESOURCE { names[a.name as usize].cmp(&names[b.name as usize]) } else { Ordering::Equal })
+fn compare(names: &[Box<str>], owners: &[(u32, u32)], a: &Event, b: &Event) -> Ordering {
+    let owner = |event: &Event| {
+        let (device, resource) = owners[event.track as usize];
+        (device, event.unbound, if event.unbound { NONE_RESOURCE } else { resource })
+    };
+    a.ts.cmp(&b.ts).then(b.dur.cmp(&a.dur)).then_with(|| owner(a).cmp(&owner(b))).then_with(|| if a.unbound { names[a.name as usize].cmp(&names[b.name as usize]) } else { Ordering::Equal })
 }
 
 struct Job {
     plane: usize,
     line: usize,
-    device: u32,
     track: u32,
     label_base: u32,
 }
@@ -285,7 +295,7 @@ struct Job {
 struct Layout {
     devices: BTreeMap<u32, Device>,
     jobs: Vec<Job>,
-    tracks: usize,
+    owners: Vec<(u32, u32)>,
     names: Vec<Box<str>>,
     bases: Vec<u32>,
     long_names: HashMap<u32, Box<str>>,
@@ -296,7 +306,7 @@ fn layout(planes: &[Plane], host: &str) -> Layout {
     let per_plane: Vec<Vec<Box<str>>> = planes.par_iter().map(|plane| plane.meta.iter().map(|meta| if meta.display.is_empty() { meta.name.clone() } else { meta.display.clone() }).collect()).collect();
     let bases: Vec<u32> = per_plane.iter().scan(0, |base, names| Some(std::mem::replace(base, *base + names.len() as u32))).collect();
     let mut names: Vec<Box<str>> = per_plane.into_iter().flatten().collect();
-    let (mut devices, mut jobs, mut track_ids) = (BTreeMap::<u32, Device>::new(), Vec::new(), FxHashMap::<(u32, u32), u32>::default());
+    let (mut devices, mut jobs, mut owners, mut track_ids) = (BTreeMap::<u32, Device>::new(), Vec::new(), Vec::new(), FxHashMap::<(u32, u32), u32>::default());
     let (mut long_names, mut steps) = (HashMap::new(), HashMap::new());
     for (plane_index, device) in device_planes(planes) {
         let plane = &planes[plane_index];
@@ -313,11 +323,15 @@ fn layout(planes: &[Plane], host: &str) -> Layout {
             let label_base = names.len() as u32;
             names.extend(line.labels.iter().cloned());
             long_names.extend(line.longs.iter().enumerate().filter(|(_, long)| !long.is_empty()).map(|(index, long)| (label_base + index as u32, long.clone())));
-            let next = track_ids.len() as u32;
-            jobs.push(Job { plane: plane_index, line: line_index, device, track: *track_ids.entry((device, line.resource_id())).or_insert(next), label_base });
+            let owner = (device, line.resource_id());
+            let track = *track_ids.entry(owner).or_insert_with(|| {
+                owners.push(owner);
+                owners.len() as u32 - 1
+            });
+            jobs.push(Job { plane: plane_index, line: line_index, track, label_base });
         }
     }
-    Layout { devices, jobs, tracks: track_ids.len(), names, bases, long_names, steps }
+    Layout { devices, jobs, owners, names, bases, long_names, steps }
 }
 
 /// The slots of a vector that threads fill in parallel. Each input index has a different slot.
@@ -409,7 +423,7 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
     let bounds = into_cursors(&mut cursors, buckets);
     // An event without link stats has the links of its metadata, thus `plain` keeps these links for each job and metadata.
     let converted = |job: usize, index: usize, event: &Ev, plain: &mut FxHashMap<(usize, u32), Links>| {
-        let Job { plane: plane_index, device, track, label_base, .. } = jobs[job];
+        let Job { plane: plane_index, track, label_base, .. } = jobs[job];
         let line = line_of(job);
         let (plane, derived) = (&planes[plane_index], !line.labels.is_empty());
         let fresh;
@@ -445,14 +459,12 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
             group: if event.group == NONE_GROUP { links.group.unwrap_or(NONE_GROUP) } else { event.group },
             raw,
             name,
-            device,
-            resource: if line.name == COUNTERS || (links.asynchronous.is_some() && flow != NONE_FLOW) { NONE_RESOURCE } else { line.resource_id() },
             track,
             meta: if derived { DERIVED_META } else { event.meta },
-            eager: event.eager,
             plane: plane_index as u32,
-            flow_entry,
-            flow_cat,
+            eager: event.eager,
+            flow_kind: flow_entry | flow_cat << 2,
+            unbound: line.name == COUNTERS || (links.asynchronous.is_some() && flow != NONE_FLOW),
             ..Default::default()
         }
     };
@@ -487,7 +499,8 @@ impl Trace {
         let layout = layout(planes, host);
         let inputs = layout.jobs.iter().map(|job| std::mem::take(&mut planes[job.plane].lines[job.line].events)).collect();
         let (mut events, extra, args, bounds) = convert(planes, inputs, map, &layout);
-        let Layout { devices, tracks, mut names, long_names, steps, .. } = layout;
+        let Layout { devices, mut owners, mut names, long_names, steps, .. } = layout;
+        let tracks = owners.len();
         crate::release(planes.iter_mut().map(|plane| std::mem::take(&mut plane.lines)).collect::<Vec<_>>());
         let planes = &*planes;
         names.extend(extra);
@@ -499,7 +512,7 @@ impl Trace {
         }
         buckets.into_par_iter().for_each(|bucket| {
             let mut keys: Vec<(u64, u32)> = bucket.iter().enumerate().map(|(index, event)| (event.ts, index as u32)).collect();
-            keys.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| compare(&names, &bucket[a.1 as usize], &bucket[b.1 as usize])));
+            keys.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| compare(&names, &owners, &bucket[a.1 as usize], &bucket[b.1 as usize])));
             let sorted: Vec<Event> = keys.iter().map(|key| bucket[key.1 as usize]).collect();
             bucket.copy_from_slice(&sorted);
         });
@@ -521,8 +534,8 @@ impl Trace {
                         (run, previous) = (index, event.ts);
                     }
                     event.serial = (index - run) as u32;
-                    if event.resource == NONE_RESOURCE {
-                        let id = local.insert_full((event.device, &*names[event.name as usize]), ()).0;
+                    if event.unbound {
+                        let id = local.insert_full((owners[event.track as usize].0, &*names[event.name as usize]), ()).0;
                         if id == async_counts.len() {
                             async_counts.push(0);
                         }
@@ -543,8 +556,10 @@ impl Trace {
         let (mut async_tracks, mut flow_index, mut flow_ids) = (FxHashMap::<(u32, &str), u32>::default(), FxHashMap::<u64, u64>::default(), Vec::new());
         for (_, unit_tracks, unit_flows, _) in &units {
             for &(key, _) in unit_tracks {
-                let next = (tracks + async_tracks.len()) as u32;
-                async_tracks.entry(key).or_insert(next);
+                async_tracks.entry(key).or_insert_with(|| {
+                    owners.push((key.0, NONE_RESOURCE));
+                    owners.len() as u32 - 1
+                });
             }
             for &flow in unit_flows {
                 flow_index.entry(flow).or_insert_with(|| {
@@ -553,7 +568,7 @@ impl Trace {
                 });
             }
         }
-        let tracks = tracks + async_tracks.len();
+        let tracks = owners.len();
         let (mut cursors, mut flowing) = (Vec::with_capacity(units.len()), Vec::new());
         for (mut counts, unit_tracks, _, unit_flowing) in units {
             counts.resize(tracks, 0);
@@ -568,8 +583,8 @@ impl Trace {
         let slots = Slots(order.spare_capacity_mut().as_mut_ptr());
         events.par_chunks_mut(part).zip(cursors).enumerate().for_each(|(unit, (events, mut cursors))| {
             for (offset, event) in events.iter_mut().enumerate() {
-                if event.resource == NONE_RESOURCE {
-                    event.track = async_tracks[&(event.device, &*names[event.name as usize])];
+                if event.unbound {
+                    event.track = async_tracks[&(owners[event.track as usize].0, &*names[event.name as usize])];
                 }
                 if event.flow != NONE_FLOW {
                     event.flow = flow_index[&event.flow];
@@ -591,7 +606,7 @@ impl Trace {
             || crate::trace::json::stack_frames(planes, map, &events, &long_names),
             || {
                 let assigned = assign_levels(&events, &by_track, &flowing, flow_ids.len());
-                let tie = |index: usize| index > 0 && index < events.len() && compare(&names, &events[index - 1], &events[index]).is_eq();
+                let tie = |index: usize| index > 0 && index < events.len() && compare(&names, &owners, &events[index - 1], &events[index]).is_eq();
                 (assigned, (0..events.len().div_ceil(64)).into_par_iter().map(|word| (0..64).filter(|bit| tie(word * 64 + bit)).fold(0, |bits, bit| bits | 1 << bit)).collect())
             },
         );
@@ -614,12 +629,38 @@ impl Trace {
         let tpu_devices: HashSet<u32> = devices.iter().filter(|(_, device)| is_tpu_core_device_name(&device.name)).map(|(id, _)| *id).collect();
         let dma_devices =
             devices.iter().filter(|(_, device)| !tpu_devices.is_empty() && (is_tpu_core_device_name(&device.name) || maybe_tpu_non_core_device_name(&device.name))).map(|(id, _)| *id).collect();
-        Self { devices, names, events, min_ps: span.0, max_ps: span.1, levels, ties, tpu_devices, dma_devices, long_names, steps, tracks: by_track.len(), flow_ids, args, stack_frames, frame_keys }
+        Self {
+            devices,
+            names,
+            events,
+            min_ps: span.0,
+            max_ps: span.1,
+            levels,
+            ties,
+            tpu_devices,
+            dma_devices,
+            long_names,
+            steps,
+            tracks: by_track.len(),
+            owners,
+            flow_ids,
+            args,
+            stack_frames,
+            frame_keys,
+        }
     }
 
     fn is_dma_flow(&self, index: u32) -> bool {
         let event = &self.events[index as usize];
-        event.flow != NONE_FLOW && event.flow_entry == FLOW_MID && self.dma_devices.contains(&event.device)
+        event.flow != NONE_FLOW && event.flow_entry() == FLOW_MID && self.dma_devices.contains(&self.device(event))
+    }
+
+    pub fn device(&self, event: &Event) -> u32 {
+        self.owners[event.track as usize].0
+    }
+
+    pub fn resource(&self, event: &Event) -> u32 {
+        if event.unbound { NONE_RESOURCE } else { self.owners[event.track as usize].1 }
     }
 
     pub fn load(&self, options: &Options) -> Vec<u32> {
@@ -662,7 +703,7 @@ impl Trace {
         let mut heap: Vec<&[u32]> = sources.into_iter().filter(|source| !source.is_empty()).collect();
         // The events are in order, so an event before another compares less, unless the two are equal.
         let tied = |index: u32| self.ties[index as usize / 64] >> (index % 64) & 1 != 0;
-        let after = |a: &[u32], b: &[u32]| b[0] < a[0] && (!tied(a[0]) || compare(&self.names, &self.events[b[0] as usize], &self.events[a[0] as usize]) == Ordering::Less);
+        let after = |a: &[u32], b: &[u32]| b[0] < a[0] && (!tied(a[0]) || compare(&self.names, &self.owners, &self.events[b[0] as usize], &self.events[a[0] as usize]) == Ordering::Less);
         let length = heap.len();
         if length >= 2 {
             for parent in (0..=(length - 2) / 2).rev() {
@@ -744,10 +785,10 @@ fn assign_levels(events: &[Event], by_track: &[&[u32]], flowing: &[u32], flow_co
         }
         for deeper in level + 1..SPLIT {
             let resolution = &mut global[deeper];
-            if let Some(flow) = resolution.flows.get_mut(event.flow as usize).filter(|_| event.resource != NONE_RESOURCE) {
-                *flow = if event.flow_entry == FLOW_END { None } else { flow.or(Some(true)) };
+            if let Some(flow) = resolution.flows.get_mut(event.flow as usize).filter(|_| !event.unbound) {
+                *flow = if event.flow_entry() == FLOW_END { None } else { flow.or(Some(true)) };
             }
-            resolution.rows[event.track as usize].set(event.ts, event.dur, event.resource == NONE_RESOURCE, event.flow != NONE_FLOW);
+            resolution.rows[event.track as usize].set(event.ts, event.dur, event.unbound, event.flow != NONE_FLOW);
             flow_visible[deeper][event.flow as usize].get_or_insert(true);
         }
     }
@@ -757,7 +798,7 @@ fn assign_levels(events: &[Event], by_track: &[&[u32]], flowing: &[u32], flow_co
     order.sort_unstable_by_key(|indices| std::cmp::Reverse(indices.len()));
     order.into_par_iter().with_max_len(1).for_each(|indices| {
         let track = || indices.iter().map(|&index| &events[index as usize]);
-        let compact: Vec<(u64, u64, u8)> = track().map(|event| (event.ts, event.dur, u8::from(event.flow != NONE_FLOW) << 1 | u8::from(event.resource == NONE_RESOURCE))).collect();
+        let compact: Vec<(u64, u64, u8)> = track().map(|event| (event.ts, event.dur, u8::from(event.flow != NONE_FLOW) << 1 | u8::from(event.unbound))).collect();
         let assigned: Vec<AtomicU8> = track()
             .map(|event| {
                 AtomicU8::new(if event.flow == NONE_FLOW {

@@ -83,6 +83,6 @@ fn subprocess_host_trace_converts_to_trace_events() {
              event_metadata { key: 1 value: { id: 1 name: "Event 1" } }
            }"#,
     );
-    let devices: HashMap<&str, u32> = events_by_name(&trace).into_iter().map(|(name, event)| (name, event.device)).collect();
+    let devices: HashMap<&str, u32> = events_by_name(&trace).into_iter().map(|(name, event)| (name, trace.device(event))).collect();
     assert_eq!(devices, HashMap::from([("Event 1", HOST_THREADS_DEVICE_ID), ("Event 2", HOST_THREADS_DEVICE_ID + 1)]));
 }
