@@ -29,7 +29,10 @@ const LEVEL_CHUNK: usize = 1 << 16;
 /// From this event count, and from the share of the events of one thread, the level passes of a track run at the same time, a part of `PART` events apart. The tests use small values, and no share.
 const PIPELINE: usize = if cfg!(test) { 2 } else { 1 << 20 };
 const PART: usize = if cfg!(test) { 4 } else { 1 << 16 };
-const UNASSIGNED: u8 = u8::MAX;
+/// The state of an event in `assign_levels`: its level in the low bits, or `UNASSIGNED`, and the kind bits above them.
+const UNASSIGNED: u8 = 0x0f;
+const UNBOUND_KIND: u8 = 0x10;
+const FLOW_KIND: u8 = 0x20;
 /// The events of a bucket of the sort, and of a part of the conversion. The tests use small values, so that they have many buckets and parts.
 const BUCKET: usize = if cfg!(test) { 4 } else { 1 << 16 };
 const MAX_BUCKETS: usize = 1024;
@@ -814,17 +817,18 @@ fn assign_levels(events: &[Event], by_track: &[&[u32]], flowing: &[u32], flow_co
     order.sort_unstable_by_key(|indices| std::cmp::Reverse(indices.len()));
     order.into_par_iter().with_max_len(1).for_each(|indices| {
         let track = || indices.iter().map(|&index| &events[index as usize]);
-        let compact: Vec<(u64, u64, u8)> = track().map(|event| (event.ts, event.dur, u8::from(event.flow != NONE_FLOW) << 1 | u8::from(event.unbound))).collect();
+        let compact: Vec<(u64, u64)> = track().map(|event| (event.ts, event.dur)).collect();
         let assigned: Vec<AtomicU8> = track()
             .map(|event| {
+                let kind = if event.unbound { UNBOUND_KIND } else { 0 };
                 AtomicU8::new(if event.flow == NONE_FLOW {
-                    UNASSIGNED
+                    kind | UNASSIGNED
                 } else {
-                    (0..SPLIT).find(|&level| flow_visible[level][event.flow as usize] == Some(true) || event.dur >= LAYER_PS[level]).unwrap_or(SPLIT) as u8
+                    kind | FLOW_KIND | (0..SPLIT).find(|&level| flow_visible[level][event.flow as usize] == Some(true) || event.dur >= LAYER_PS[level]).unwrap_or(SPLIT) as u8
                 })
             })
             .collect();
-        let remaining = AtomicUsize::new(assigned.iter().filter(|level| level.load(Relaxed) == UNASSIGNED).count());
+        let remaining = AtomicUsize::new(assigned.iter().filter(|state| state.load(Relaxed) & UNASSIGNED == UNASSIGNED).count());
         let (done, lock, wake): (Vec<AtomicUsize>, _, _) = ((0..SPLIT).map(|_| AtomicUsize::new(0)).collect(), Mutex::new(()), Condvar::new());
         // The pass of a level reads the levels that the pass before it gave, so it stays behind that pass. The passes after all events have a level change nothing.
         let pass = |level: usize| {
@@ -839,16 +843,17 @@ fn assign_levels(events: &[Event], by_track: &[&[u32]], flowing: &[u32], flow_co
                     break;
                 }
                 let mut found = 0;
-                for (position, &(ts, dur, kind)) in compact.iter().enumerate().take(end).skip(start) {
-                    let current = assigned[position].load(Relaxed);
-                    if usize::from(current) < level || (kind & 2 != 0 && usize::from(current) == level) {
-                        row.set(ts, dur, kind & 1 != 0, false);
-                    } else if kind & 2 == 0 && current == UNASSIGNED {
-                        let (visible, depth) = if kind & 1 != 0 { (row.counter(ts, resolution), 0) } else { row.probe(ts, dur, resolution) };
+                for (position, &(ts, dur)) in compact.iter().enumerate().take(end).skip(start) {
+                    let state = assigned[position].load(Relaxed);
+                    let (current, unbound, flow) = (state & UNASSIGNED, state & UNBOUND_KIND != 0, state & FLOW_KIND != 0);
+                    if usize::from(current) < level || (flow && usize::from(current) == level) {
+                        row.set(ts, dur, unbound, false);
+                    } else if !flow && current == UNASSIGNED {
+                        let (visible, depth) = if unbound { (row.counter(ts, resolution), 0) } else { row.probe(ts, dur, resolution) };
                         if visible {
-                            assigned[position].store(level as u8, Relaxed);
+                            assigned[position].store(state & !UNASSIGNED | level as u8, Relaxed);
                             found += 1;
-                            if kind & 1 == 0 {
+                            if !unbound {
                                 row.push(depth, ts + dur);
                             }
                         }
@@ -870,7 +875,7 @@ fn assign_levels(events: &[Event], by_track: &[&[u32]], flowing: &[u32], flow_co
                 pass(0);
             });
         }
-        indices.iter().zip(assigned).for_each(|(&index, level)| levels[index as usize].store(level.into_inner().min(SPLIT as u8), Relaxed));
+        indices.iter().zip(assigned).for_each(|(&index, level)| levels[index as usize].store((level.into_inner() & UNASSIGNED).min(SPLIT as u8), Relaxed));
     });
     levels.into_iter().map(AtomicU8::into_inner).collect()
 }
