@@ -96,6 +96,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The trace viewer keeps 64 bytes for each event. Before, it kept 72 bytes. A table keeps the device and the resource of each track, and one byte keeps the entry and the category of a flow. On a 1.7 GB profile with 8 cores, the first request of the trace viewer takes 6.4 s and 43.9 CPU seconds. Before, it took 6.6 s and 46.1 CPU seconds. The memory falls from 7.7 GB to 7.1 GB.
 - The old `trace_viewer` tool and `check_host_boundness` find the cut of a trace with more than 5,000,000 events in one pass. Before, they read all the events four times. A sorted sample of the times gives a small range, and the pass keeps only the times in that range. On a 1.7 GB profile with 8 cores, the old trace viewer takes 4.7 s and 27.9 CPU seconds, and `check_host_boundness` takes 4.9 s. Before, they took 5.3 s and 29.5 CPU seconds, and 5.1 s. The output does not change.
 - The old `trace_viewer` tool copies the parts of its JSON text into the response on all cores. Before, one core copied approximately 1 GB on a 1.7 GB profile. On that profile with 8 cores, the response takes 4.6 s. Before, it took 4.8 s. The CPU time does not change.
+- The old `trace_viewer` tool writes the times of the events as Python `repr` does, without a new text for each number. On a 1.7 GB profile with 8 cores, the response takes 4.4 s and 26.5 CPU seconds. Before, it took 4.7 s and 28.8 CPU seconds. The output does not change.
 
 ## 0.1.2
 

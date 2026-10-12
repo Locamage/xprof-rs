@@ -1,6 +1,6 @@
 use crate::hlo::general;
 use crate::server::run_tools::{python_string, python_string_into};
-use crate::tools::table::repr;
+use crate::tools::table::repr_into;
 use crate::xplane::{Ev, Line, NONE_GROUP, Plane, Value, slice};
 use rayon::prelude::*;
 use std::borrow::Cow;
@@ -322,7 +322,9 @@ pub fn render_within(planes: &[Plane], map: &[u8], limit: usize) -> String {
                     part.push_str("}, ");
                 }
                 if event.dur != 0 {
-                    write!(part, "\"dur\": {}, ", repr(event.dur as f64 / 1e6)).unwrap();
+                    part.push_str("\"dur\": ");
+                    repr_into(&mut part, event.dur as f64 / 1e6);
+                    part.push_str(", ");
                 }
                 part.push_str("\"name\": ");
                 python_string_into(&mut part, &event.name);
@@ -330,7 +332,9 @@ pub fn render_within(planes: &[Plane], map: &[u8], limit: usize) -> String {
                 if event.dur == 0 {
                     part.push_str("\"s\": \"t\", ");
                 }
-                writeln!(part, "\"tid\": {}, \"ts\": {}}},", event.resource, repr(event.ts as f64 / 1e6)).unwrap();
+                write!(part, "\"tid\": {}, \"ts\": ", event.resource).unwrap();
+                repr_into(&mut part, event.ts as f64 / 1e6);
+                part.push_str("},\n");
             }
             part
         })

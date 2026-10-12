@@ -240,20 +240,49 @@ impl Table {
 }
 
 pub fn repr(value: f64) -> String {
-    if value.is_nan() {
-        return "nan".into();
+    let mut out = String::new();
+    repr_into(&mut out, value);
+    out
+}
+
+/// A text of at most 32 bytes on the stack.
+#[derive(Default)]
+struct Short {
+    bytes: [u8; 32],
+    len: usize,
+}
+
+impl Write for Short {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        let end = self.len + text.len();
+        self.bytes.get_mut(self.len..end).ok_or(std::fmt::Error)?.copy_from_slice(text.as_bytes());
+        self.len = end;
+        Ok(())
     }
-    let mut out = String::from(if value.is_sign_negative() { "-" } else { "" });
+}
+
+/// Adds the text of `repr` to `out`.
+pub fn repr_into(out: &mut String, value: f64) {
+    if value.is_nan() {
+        out.push_str("nan");
+        return;
+    }
+    if value.is_sign_negative() {
+        out.push('-');
+    }
     if value.is_infinite() || value == 0.0 {
         out.push_str(if value == 0.0 { "0.0" } else { "inf" });
-        return out;
+        return;
     }
-    let scientific = format!("{:e}", value.abs());
-    let (mantissa, exponent) = scientific.split_once('e').unwrap();
-    let (mut digits, exponent) = (mantissa.replace('.', "").into_bytes(), exponent.parse::<i32>().unwrap());
+    let mut scientific = Short::default();
+    write!(scientific, "{:e}", value.abs()).unwrap();
+    let (mantissa, exponent) = std::str::from_utf8(&scientific.bytes[..scientific.len]).unwrap().split_once('e').unwrap();
+    let mut digits = Short::default();
+    mantissa.split('.').for_each(|part| digits.write_str(part).unwrap());
+    let (digits, exponent) = (&mut digits.bytes[..digits.len], exponent.parse::<i32>().unwrap());
     let last = digits.len() - 1;
     if digits[last] % 2 == 1 {
-        let number: u128 = std::str::from_utf8(&digits).unwrap().parse().unwrap();
+        let number = digits.iter().fold(0u128, |number, digit| number * 10 + u128::from(digit - b'0'));
         let place = exponent - last as i32;
         let reads_back = |number: u128| format!("{number}e{place}").parse() == Ok(value.abs());
         if halfway(value.abs(), 2 * number - 1, place) && reads_back(number - 1) {
@@ -262,8 +291,7 @@ pub fn repr(value: f64) -> String {
             digits[last] += 1;
         }
     }
-    decimal(&mut out, std::str::from_utf8(&digits).unwrap(), exponent + 1, MAX_EXPONENT + 1);
-    out
+    decimal(out, std::str::from_utf8(digits).unwrap(), exponent + 1, MAX_EXPONENT + 1);
 }
 
 /// Tells if `value` is `odd / 2 * 10^place`. Then two shortest texts are equally near, and Python writes the text with the even last digit.
