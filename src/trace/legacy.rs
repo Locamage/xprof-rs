@@ -14,6 +14,9 @@ const ASYNC_OPS_LINE: &str = "Async XLA Ops";
 const MAX_EVENTS: usize = 5_000_000;
 const EVENTS_PER_CHUNK: usize = 16_384;
 const BARRIER: &str = "barrier-cores";
+const SAMPLES: usize = 1 << 18;
+/// The sampled place of `limit` is at most this far from its true place, except with a very small probability: the standard deviation is at most 256.
+const SAMPLE_MARGIN: usize = 2048;
 
 type Devices = BTreeMap<i64, (String, BTreeMap<u32, String>)>;
 
@@ -128,8 +131,52 @@ fn lines<'a>(jobs: &[(i64, &'a Plane)]) -> Vec<(&'a Plane, &'a Line)> {
 }
 
 /// The time of the last event that a trace of `limit` events keeps, and the number of the kept events at that time. There is none when the trace keeps all events.
+/// The `select` of the event times. A sorted sample of the times gives a range near the place of `limit`, and one pass finds the cut when it is in that range.
 fn cut(lines: &[(&Plane, &Line)], limit: usize) -> Option<(u64, usize)> {
-    select(|| lines.par_iter().flat_map_iter(|&(plane, line)| line.events.iter().filter(move |event| kept(plane, line, event)).map(move |event| time(plane, event))), limit)
+    let values = || lines.par_iter().flat_map_iter(|&(plane, line)| line.events.iter().filter(move |event| kept(plane, line, event)).map(move |event| time(plane, event)));
+    let total: usize = lines.iter().map(|(_, line)| line.events.len()).sum();
+    if total <= limit {
+        return None;
+    }
+    // The sample has the events at each `step` place of all the lines, so each time in the sample stands for `step` events.
+    let (step, mut start, mut sample) = ((total / SAMPLES).max(1), 0, Vec::new());
+    for &(plane, line) in lines {
+        sample.extend(line.events.iter().skip((step - start % step) % step).step_by(step).filter(|event| kept(plane, line, event)).map(|event| time(plane, event)));
+        start += line.events.len();
+    }
+    sample.sort_unstable();
+    let place = limit / step;
+    let low = place.checked_sub(SAMPLE_MARGIN).and_then(|index| sample.get(index)).map_or(0, |&low| low);
+    let high = sample.get(place + SAMPLE_MARGIN).map_or(u64::MAX, |&high| high);
+    let (below, mut inside, above) = values()
+        .fold(
+            || (0, Vec::new(), 0),
+            |(below, mut inside, above), value| {
+                if value < low {
+                    (below + 1, inside, above)
+                } else if value > high {
+                    (below, inside, above + 1)
+                } else {
+                    inside.push(value);
+                    (below, inside, above)
+                }
+            },
+        )
+        .reduce(
+            || (0, Vec::new(), 0),
+            |(below, mut inside, above), (other_below, other_inside, other_above)| {
+                inside.extend(other_inside);
+                (below + other_below, inside, above + other_above)
+            },
+        );
+    if below + inside.len() + above <= limit {
+        return None;
+    }
+    if below < limit && limit <= below + inside.len() {
+        let (smaller, &mut found, _) = inside.select_nth_unstable(limit - 1 - below);
+        return Some((found, limit - below - smaller.iter().filter(|&&value| value < found).count()));
+    }
+    select(values, limit)
 }
 
 fn jobs(planes: &[Plane]) -> Vec<(i64, &Plane)> {
@@ -294,3 +341,7 @@ pub fn render_within(planes: &[Plane], map: &[u8], limit: usize) -> String {
     crate::release(events);
     out
 }
+
+#[cfg(test)]
+#[path = "../tests/inline/trace/legacy.rs"]
+mod tests;
