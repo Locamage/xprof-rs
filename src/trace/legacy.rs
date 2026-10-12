@@ -289,9 +289,19 @@ pub fn render(planes: &[Plane], map: &[u8]) -> String {
     render_within(planes, map, MAX_EVENTS)
 }
 
+/// The trace of `render`. It frees the planes before it writes the text, because the text uses only the events that it takes from them.
+pub fn render_owned(planes: Vec<Plane>, map: &[u8]) -> String {
+    let collected = collect(&planes, map, MAX_EVENTS);
+    crate::release(planes);
+    text(collected)
+}
+
 /// The trace with the first `limit` events in time.
 pub fn render_within(planes: &[Plane], map: &[u8], limit: usize) -> String {
-    let (devices, events) = collect(planes, map, limit);
+    text(collect(planes, map, limit))
+}
+
+fn text((devices, events): (Devices, Vec<Event>)) -> String {
     let mut out = String::from("{\"displayTimeUnit\":\"ns\",\"metadata\":{\"highres-ticks\":true},\n\"traceEvents\":[\n");
     for (device, (name, resources)) in &devices {
         if !name.is_empty() {

@@ -975,9 +975,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             let json = tools::counters::checked(&map, |map| {
                 let mut planes = xplane::parse(map)?;
                 finish(&mut planes, map, true);
-                let json = trace::legacy::render(&planes, map);
-                release(planes);
-                anyhow::Ok(json)
+                anyhow::Ok(trace::legacy::render_owned(planes, map))
             });
             release(map);
             anyhow::Ok(json)
