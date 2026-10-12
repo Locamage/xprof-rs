@@ -35,7 +35,7 @@ const UNBOUND_KIND: u8 = 0x10;
 const FLOW_KIND: u8 = 0x20;
 /// The events of a bucket of the sort, and of a part of the conversion. The tests use small values, so that they have many buckets and parts.
 const BUCKET: usize = if cfg!(test) { 4 } else { 1 << 16 };
-const MAX_BUCKETS: usize = 1024;
+const MAX_BUCKETS: usize = 256;
 const UNIT: usize = if cfg!(test) { 8 } else { 1 << 16 };
 /// The units that the conversion writes before it frees the input events that it has converted.
 const WAVE: usize = if cfg!(test) { 2 } else { 128 };
@@ -473,7 +473,7 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
             ..Default::default()
         }
     };
-    let mut events: Vec<Event> = Vec::with_capacity(total);
+    let mut events: Vec<Event> = crate::huge_vec(total);
     let slots = Slots(events.spare_capacity_mut().as_mut_ptr());
     let mut freed = 0;
     for (wave, cursors) in cursors.chunks_mut(WAVE).enumerate() {

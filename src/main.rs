@@ -60,6 +60,10 @@ const PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
 /// From this size, `discard` gives the pages of a block back to the system itself.
 #[cfg(target_os = "linux")]
 const DISCARD_BYTES: usize = 1 << 20;
+#[cfg(target_os = "linux")]
+const HUGE_PAGE: usize = 2 << 20;
+#[cfg(target_os = "linux")]
+const HUGE_BYTES: usize = 64 << 20;
 const DEFAULT_PORT: u16 = 8791;
 const DEFAULT_GRPC_PORT: u16 = 50051;
 const DEFAULT_RESOLUTION: u64 = 8000;
@@ -368,6 +372,18 @@ fn release(garbage: impl Send + 'static) {
         drop(garbage);
         unsafe { libmimalloc_sys::mi_collect(true) };
     });
+}
+
+/// An empty vector with room for `capacity` items. On Linux, a large vector asks for huge pages, so that its first writes take fewer page faults.
+fn huge_vec<T>(capacity: usize) -> Vec<T> {
+    let items: Vec<T> = Vec::with_capacity(capacity);
+    #[cfg(target_os = "linux")]
+    if capacity * std::mem::size_of::<T>() >= HUGE_BYTES {
+        let (start, end) = (items.as_ptr().addr().next_multiple_of(HUGE_PAGE), (items.as_ptr().addr() + capacity * std::mem::size_of::<T>()) / HUGE_PAGE * HUGE_PAGE);
+        // SAFETY: the range is in the allocation of `items`. The advice does not change its contents.
+        unsafe { libc::madvise(std::ptr::with_exposed_provenance_mut(start), end - start, libc::MADV_HUGEPAGE) };
+    }
+    items
 }
 
 /// Frees `items`, and gives its pages back to the system at once. For a large block of another thread, mimalloc only marks the pages as free, and the system takes them back only when it is short of memory.
