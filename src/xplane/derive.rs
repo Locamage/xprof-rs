@@ -125,7 +125,7 @@ struct Derived {
 /// The op, the source and whether the event is asynchronous.
 type Tags = (String, String, u64);
 /// The start, the duration, the line and the index of an event.
-type Position = (u64, Reverse<u64>, usize, usize);
+type Position = (u64, Reverse<u64>, u32, u32);
 
 struct Parsed {
     scopes: Vec<u32>,
@@ -307,8 +307,8 @@ pub fn op_span(plane: &Plane, map: &[u8]) -> Option<(u64, u64)> {
 
 pub fn derive(plane: &mut Plane, map: &[u8]) {
     let (tags, scan) = (meta_tags(plane, map), tagger(plane));
-    // The events to derive from, in time order, with their groups and the tags of their own stats.
-    let mut order: Vec<(Position, i64, Option<Tags>)> = Vec::new();
+    // The events to derive from, in time order, with their groups and whether their own stats have tags. Few events have such stats, thus a map keeps their tags.
+    let mut order: Vec<(Position, i64, bool)> = Vec::new();
     for (line_index, line) in plane.lines.iter().enumerate() {
         order.par_extend(line.events.par_iter().enumerate().filter_map(|(index, event)| {
             let raw = slice(map, event.raw);
@@ -323,16 +323,19 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
             } else {
                 event.group
             };
-            Some(((event.ts, Reverse(event.dur), line_index, index), group, own))
+            Some(((event.ts, Reverse(event.dur), line_index as u32, index as u32), group, own.is_some()))
         }));
     }
     order.par_sort_unstable_by_key(|&(position, _, _)| position);
+    let event = |line: u32, index: u32| &plane.lines[line as usize].events[index as usize];
+    let owns: FxHashMap<(u32, u32), Tags> =
+        order.par_iter().filter(|(_, _, own)| *own).filter_map(|&((_, _, line, index), _, _)| Some(((line, index), scan(slice(map, event(line, index).raw), 4)?))).collect();
     let mut derived = Derived::new(&TPU_LINES, 0, "", false);
     // The same texts always give the same metadata. Thus the code parses each pair of texts one time.
     let mut cache: FxHashMap<(&str, &str), Parsed> = FxHashMap::default();
-    for ((start, Reverse(dur), line_index, index), group, own) in &order {
-        let (tf_op, source, is_async) = &tags[plane.lines[*line_index].events[*index].meta as usize];
-        let texts = match own {
+    for &((start, Reverse(dur), line_index, index), group, own) in &order {
+        let (tf_op, source, is_async) = &tags[event(line_index, index).meta as usize];
+        let texts = match own.then(|| &owns[&(line_index, index)]) {
             Some((event_tf_op, event_source, event_async)) => {
                 if (if *event_async != 0 { *event_async } else { *is_async }) != 0 {
                     continue;
@@ -343,7 +346,7 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
             None => continue,
         };
         let parsed = cache.entry((texts.0.as_str(), texts.1.as_str())).or_insert_with(|| derived.parse(texts.0, texts.1));
-        derived.apply(parsed, (*start, start + dur), *group);
+        derived.apply(parsed, (start, start + dur), group);
     }
     derived.reset(SCOPES, 0);
     plane.lines.extend(derived.into_lines(true).into_iter().filter(|line| !line.events.is_empty()));
