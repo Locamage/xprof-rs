@@ -12,10 +12,6 @@ We wrote xprof-rs with [Claude](https://www.anthropic.com/claude), an AI model f
 
 On an 80 MB TPU v4 profile of a job that trains a CLIP model, the trace viewer opens in 0.37 s (XProf: 5.3 s). After the first request, it opens in approximately 2 ms (XProf: 0.62 s). xprof-rs also reads profiles from S3-compatible stores such as Cloudflare R2. XProf 2.23.2 cannot read them. The [performance](#performance) section has the times of all tools, also on a disk and on R2.
 
-![XProf 2.23.2 on the left and xprof-rs on the right open the same 279 MB TPU v4 profile for the first time](docs/demo.gif)
-
-In the video, the two servers use 4 cores and the same frontend. The times in the video include the time of the browser.
-
 We measured all times in this file with 4 cores of a larger machine, unless the text gives a different number of cores.
 
 XProf converts the `.xplane.pb` file again for each cold request. xprof-rs does these steps:
@@ -171,10 +167,6 @@ The server has these tools. They are all written in Rust.
 - Memory and graphs: `memory_profile`, `memory_viewer`, `graph_viewer`, `module_list`.
 - Hardware: `pod_viewer`, `megascale_stats`, `smart_suggestion`, `perf_counters`, `utilization_viewer`, `kernel_utilization`.
 - Session: `runs`, `run_tools`, `hosts`, `data_csv`, `version`, `config`, `POST /generate_cache`, `/capture_profile` (gRPC client), and the static files.
-
-The pages are the same as the pages of XProf. In this image, each pair of browser screenshots is byte-identical.
-
-![Op profile, memory profile, and roofline model in XProf 2.23.2 and in xprof-rs](docs/pages.png)
 
 A machine with more cores uses more memory, because more work runs at the same time.
 
