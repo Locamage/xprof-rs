@@ -2,13 +2,15 @@ use crate::tools::hlo_stats::roofline;
 use crate::tools::opstats::{Db, IDLE, OpStats, add, pico_to_micro, safe_divide};
 use crate::tools::table::{Cell, Table};
 use crate::xplane::derive::is_derived;
-use crate::xplane::{Line, Plane, event_stats};
+use crate::xplane::{Ev, Line, Plane, event_stats};
 use arcstr::ArcStr;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 
 const MAX_OPS: usize = 500;
+/// The events of a host line that the threads decode before one thread adds their activities.
+const HOST_BLOCK: usize = 1 << 16;
 const HOST_PLANE: &str = "/host:CPU";
 const UNKNOWN: &str = "Unknown";
 const COLUMNS: [(&str, &str, &str); 19] = [
@@ -77,19 +79,26 @@ fn host_line(plane: &Plane, map: &[u8], line: &Line, ops: &FxHashMap<i64, Op>, i
     let mut activities: Vec<Activity> = Vec::new();
     if !is_derived(line.id) {
         let mut parsed: FxHashMap<Cow<str>, Op> = FxHashMap::default();
-        for event in &line.events {
+        let decode = |event: &Ev| {
             let [stage, other_stage, eager, tf_op] = event_stats(event.stats_raw(map), [ids[2], ids[4], ids[0], ids[1]]);
             let key = stage.or(other_stage).map_or(event.meta as i64, |value| value.int().unwrap_or(0));
-            let (begin, end) = (event.ts, event.ts.wrapping_add(event.dur));
-            let mut push = |op: Op, eager: bool| {
-                let next = activities.len() as u32 / 2 + 1;
-                activities.extend([(begin, next, None), (end, next, Some((op, eager)))]);
-            };
-            if let Some(op) = ops.get(&key) {
-                push(op.clone(), eager.is_some_and(|value| value.int().unwrap_or(0) != 0));
+            (ops.get(&key), eager.is_some_and(|value| value.int().unwrap_or(0) != 0), tf_op.map(|value| plane.text_cow(&value)).filter(|full| !full.is_empty()))
+        };
+        // The threads decode the stats of a block of events, and then one thread adds the activities in order.
+        for block in line.events.chunks(HOST_BLOCK) {
+            let decoded: Vec<_> = block.par_iter().with_min_len(1024).map(decode).collect();
+            for (event, (op, eager, tf_op)) in block.iter().zip(decoded) {
+                let (begin, end) = (event.ts, event.ts.wrapping_add(event.dur));
+                let mut push = |op: Op, eager: bool| {
+                    let next = activities.len() as u32 / 2 + 1;
+                    activities.extend([(begin, next, None), (end, next, Some((op, eager)))]);
+                };
+                if let Some(op) = op {
+                    push(op.clone(), eager);
+                }
+                let Some(full) = tf_op else { continue };
+                push(parsed.entry(full).or_insert_with_key(|full| shared(parse_tf_op(full))).clone(), false);
             }
-            let Some(full) = tf_op.map(|value| plane.text_cow(&value)).filter(|full| !full.is_empty()) else { continue };
-            push(parsed.entry(full).or_insert_with_key(|full| shared(parse_tf_op(full))).clone(), false);
         }
     }
     let (mut db, mut index) = (Db::default(), FxHashMap::default());

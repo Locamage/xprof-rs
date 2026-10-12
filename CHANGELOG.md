@@ -90,6 +90,7 @@ The user interface and the trace viewer are faster, and they look the same. The 
 - The trace viewer frees the events of each line of a profile after it converts them. Before, it kept all of these events until the end of the conversion. On a 1.7 GB profile with 8 cores, the first request of the trace viewer uses 9.4 GB of memory. Before, it used 13.2 GB. The request takes 7.5 s. Before, it took 7.4 s.
 - To make the derived lines of a TPU, xprof-rs keeps 40 bytes for each event. Before, it kept 96 bytes and the tags of the event. Few events have their own tags, thus a map keeps them. On a 1.7 GB profile with 8 cores, the first request of the trace viewer takes 7.1 s. Before, it took 7.3 s. During this step, the memory falls from 8.2 GB to 7.0 GB.
 - The trace viewer reads the links of an event without link stats from its metadata one time for each line. Before, it read the stats of each event again. On a 1.7 GB profile with 8 cores, the first request of the trace viewer takes 6.6 s and 46.6 CPU seconds. Before, it took 7.0 s and 50.1 CPU seconds.
+- The op statistics of the host decode the stats of a large host line on all cores. Before, one thread decoded all the events of the line. On a 1.7 GB profile with 8 cores, the first request of the op profile takes 3.0 s. Before, it took 3.2 s.
 
 ## 0.1.2
 
