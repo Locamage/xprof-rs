@@ -346,7 +346,7 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
                     device.total = Some(device.total.map_or((begin, end), |(low, high)| (low.min(begin), high.max(end))));
                 }
                 if name == "Sparse Core Ops" {
-                    device.active.iter_mut().for_each(|intervals| intervals.push((begin, end)));
+                    device.active.iter_mut().for_each(|intervals| add_interval(intervals, begin, end));
                 }
             }
         }
@@ -363,7 +363,7 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
                     own_category.as_deref().or(meta_category.as_deref()) == Some("custom-call") && (FLOPS..CATEGORY).all(|index| own[index].or(meta[index]).unwrap_or(0) <= 0)
                 };
                 for (intervals, _) in active.iter_mut().zip([!off, !(off || custom_off)]).filter(|(_, keep)| *keep) {
-                    intervals.push((event.ts.wrapping_add(origin), (event.ts + event.dur).wrapping_add(origin)));
+                    add_interval(intervals, event.ts.wrapping_add(origin), (event.ts + event.dur).wrapping_add(origin));
                 }
             }
             let own: [Option<i64>; 4] = own[..4].try_into().unwrap();
@@ -482,6 +482,14 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
         intersect(markers, &mut events, Details::combine);
     }
     events
+}
+
+/// An interval that starts in the last interval, and not before it, joins the last interval. This does not change the result of `merged_active`.
+fn add_interval(intervals: &mut Intervals, begin: u64, end: u64) {
+    match intervals.last_mut() {
+        Some(last) if last.0 <= begin && begin <= last.1 => last.1 = last.1.max(end),
+        _ => intervals.push((begin, end)),
+    }
 }
 
 fn merged_active(mut intervals: Vec<(u64, u64)>) -> u64 {

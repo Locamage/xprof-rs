@@ -23,3 +23,31 @@ fn gpu_step_events_classify_correlated_kernels_inside_derived_step_markers() {
     assert_eq!(events[&1].markers.iter().map(|marker| marker.span).collect::<Vec<_>>(), vec![Span { begin: 1_000_060, duration: 30 }]);
     assert_eq!(events[&0].collectives[&0], vec![(0, 1_000_020, 30)]);
 }
+
+#[test]
+fn joined_intervals_keep_the_merged_active_time() {
+    let mut state = 1u64;
+    let mut next = |limit: u64| {
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (state >> 33) % limit
+    };
+    for _ in 0..200 {
+        let streams: Vec<Vec<(u64, u64)>> = (0..3)
+            .map(|_| {
+                let mut begin = next(20);
+                (0..next(40))
+                    .map(|_| {
+                        begin = if next(8) == 0 { next(200) } else { begin + next(6) };
+                        (begin, if next(10) == 0 { begin.wrapping_sub(next(5) + 1) } else { begin + next(12) })
+                    })
+                    .collect()
+            })
+            .collect();
+        let joined = streams.iter().flat_map(|stream| {
+            let mut intervals = Vec::new();
+            stream.iter().for_each(|&(begin, end)| add_interval(&mut intervals, begin, end));
+            intervals
+        });
+        assert_eq!(merged_active(joined.collect()), merged_active(streams.concat()));
+    }
+}
