@@ -101,8 +101,8 @@ These numbers are for the 80 MB profile:
 | Trace viewer, zoom to a new time window | 95 ms | 1.9 ms |
 | Trace viewer, the same window again | 88 ms | 0.3 ms |
 | Server start, until the first response | 0.41 s | 0.05 s |
-| Size of the installed files | 127 MB (Python packages, without Python) | 27 MB (one binary) |
-| Size of the download | 52 Python packages | 12.6 MB archive |
+| Size of the installed files | 127 MB (Python packages, without Python) | 21.5 MB (one binary) |
+| Size of the download | 52 Python packages | 11.4 MB archive |
 
 More cores make xprof-rs faster. The next table shows the cold times of xprof-rs on the 80 MB profile. XProf on 4 cores takes 5.4 s for the trace viewer and 3.9 s for the overview page.
 
@@ -251,7 +251,9 @@ To build from source, you need Rust 1.95 or newer, a C compiler, and a 64-bit Un
 cargo install --locked xprof-rs
 ```
 
-The release profile uses fat LTO and one codegen unit. A full build takes about 80 s on a machine with 240 cores. It uses about 10 CPU minutes. On 8 cores, it takes about 2 minutes. For a quick build, set `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`.
+The release binaries are for all CPUs of their architecture. To build only for the CPU of your machine, set `RUSTFLAGS="-C target-cpu=native"`. That binary possibly does not start on a different CPU.
+
+The release profile uses fat LTO and one codegen unit. A full build takes about 80 s on a machine with 240 cores. It uses about 10 CPU minutes. On 8 cores, it takes about 4 minutes. For a quick build, set `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`.
 
 ## Server
 
@@ -346,7 +348,7 @@ Before each trial, we removed the files that the servers wrote. Each cell is the
 | Memory viewer | 2.06 s | 0.33 s | 2.53 s | 1.17 s | 3.16 s | 1.84 s | 2.09 s |
 
 - After the first request, xprof-rs answers in 0.4 ms to 6 ms from all sources. XProf answers in 55 ms to 2.2 s on the 80 MB profile and in 0.6 s to 6.9 s on the 279 MB profile.
-- The responses of xprof-rs were the same for all sources. For 5 tools, the bytes of XProf change from one process to the next: the order of map keys and of equal items, and the `bind_id` values of the trace viewer. Without these changes, the responses of XProf and xprof-rs have the same data.
+- The responses of xprof-rs were the same for all sources. For 5 tools, the bytes of XProf change from one process to the next. The changes are the order of map keys and of equal items, and the `bind_id` values of the trace viewer. Without these changes, the responses of XProf and xprof-rs have the same data.
 - The disk gave approximately 150 MB/s. This is the limit of the disk, and it changes with the load of the disk.
 - A read through `rclone mount` is approximately 46 MB/s, because the mount reads a file in order with one stream. On a FUSE mount, xprof-rs reads each file in order. On other file systems, it reads parts of the file in parallel.
 - With the `s3://` URL, the first list of the store takes approximately 0.3 s. The download is approximately 210 MB/s, approximately the same as `rclone` with 8 to 32 streams. The server downloads all the files of the session, also for the memory viewer, which needs only the HLO file.
@@ -395,6 +397,7 @@ More cores make a command faster, up to about 16 cores.
 
 The CLI is different from the Python CLI in these points:
 
+- `std_dev_ps` of `aggregate_xplane_events` is the correctly rounded value, as `statistics.stdev` gives in Python 3.11 or newer. With Python 3.10, XProf can give a different last digit.
 - There is no result cache. Each call computes the result again, as with `--bypass_cache`. There are no `__cached__` fields.
 - The regex options find text as Python `re` does, and a bad pattern gives the error message of Python. But `\N{name}` always gives the error `undefined character name`, and a pattern with more than approximately 60 levels of nested groups gives an error.
 - `--help` prints a short synopsis.

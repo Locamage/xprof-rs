@@ -25,6 +25,6 @@ The `pypi` workflow also starts when you publish the draft. It uploads the wheel
 
 Do this step on crates.io one time: on the crate page, open Settings, then `Trusted Publishing`. Add the GitHub repository `Locamage/xprof-rs` with the workflow `crates.yml`.
 
-Do this step on PyPI one time: in `Your projects`, open `Publishing`, and add a pending publisher for the project `xprof-rs` with the owner `Locamage`, the repository `xprof-rs`, the workflow `pypi.yml` and the environment `pypi`.
+Do this step on PyPI one time: in `Your projects`, open `Publishing`. In `Pending publishers`, add the project `xprof-rs`. Use the owner `Locamage`, the repository `xprof-rs`, the workflow `pypi.yml` and the environment `pypi`. The first upload makes the project, and then the publisher is a usual trusted publisher of the project.
 
 The minimum Rust version is 1.95. The `msrv` job in CI checks it. Change `rust-version` in `Cargo.toml` and the `msrv` job together.
