@@ -30,13 +30,15 @@ mimalloc = "0.1.52"
 moka = { version = "0.12.16", features = ["future"] }
 num-bigint = "0.5.1"
 num-traits = "0.2.19"
-object_store = { version = "0.14.2", features = ["gcp", "aws", "azure", "http"] }
+object_store = { version = "0.14.2", features = ["gcp-base", "aws-base", "azure-base", "http-base", "reqwest", "ring"] }
 prost = "0.14.4"
 prost-reflect = { version = "0.16.5", features = ["serde"] }
 prost-types = "0.14.4"
 rayon = "1.12.0"
 regex = "1.13.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
 rustc-hash = "2.1.3"
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = "1.0.229"
 serde_json = { version = "1.0.151", features = ["float_roundtrip", "unbounded_depth"] }
 sha2 = "0.11.0"
@@ -63,10 +65,29 @@ tower = { version = "0.5.3", default-features = false, features = ["util"] }
 [profile.release]
 lto = "fat"
 codegen-units = 1
+strip = true
+
+[profile.release.package]
+object_store.opt-level = "s"
+reqwest.opt-level = "s"
+quick-xml.opt-level = "s"
+chrono.opt-level = "s"
+tonic.opt-level = "s"
+url.opt-level = "s"
+idna.opt-level = "s"
+rustls-webpki.opt-level = "s"
+rustls-platform-verifier.opt-level = "s"
+h2.opt-level = "s"
+hyper.opt-level = "s"
+hyper-util.opt-level = "s"
+rustls.opt-level = "s"
+tonic-prost.opt-level = "s"
+axum.opt-level = "s"
 
 [profile.profiling]
 inherits = "release"
 debug = "line-tables-only"
+strip = false
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
