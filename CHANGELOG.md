@@ -4,6 +4,7 @@
 
 The user interface and the trace viewer are faster, and they look the same. The JSON text of the trace viewer is now the same as the text of XProf.
 
+- The Linux release binary is 21.5 MB. Before, it was 27.1 MB. Without xz, it fits in the 25 MiB Iris bundle of Marin. The binary has no debug symbols, and its TLS uses ring, not aws-lc. The network and cloud crates are optimized for size, and the other crates are optimized for speed. On an 80 MB JAX CPU profile, the speed and the output are the same. The `profiling` profile keeps its line tables.
 - The trace viewer writes the times as XProf does. XProf writes `%.17g` of the time in microseconds, for example `660215.41857099999`. Before, xprof-rs wrote six decimal places, for example `660215.418571`. The two texts have the same value, but the bytes were different. The response is approximately 4% larger, and its first render takes approximately 5% more time.
 - Charts that did not show now show. Before, a tool sometimes got its data before Google Charts loaded its packages. Then some charts stayed empty. Examples are the charts of the HLO op stats, the heap chart of the memory viewer, and the device charts of the framework op stats. Now the interface starts after Google Charts is ready.
 - The browser keeps the files of the user interface. When the page opens again, the server sends a short "not modified" response, not 1.3 MB of files. The browser also keeps its compiled scripts, so the trace viewer opens approximately 20% faster when you open it again. The page looks the same.

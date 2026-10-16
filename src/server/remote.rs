@@ -72,6 +72,7 @@ impl PartialEq for Remote {
 
 impl Remote {
     pub fn open(url: &str) -> Result<Self, String> {
+        _ = rustls::crypto::ring::default_provider().install_default();
         let parsed = url::Url::parse(url).map_err(|error| format!("The log directory '{url}' is not a valid URL: {error}"))?;
         let (store, root) = object_store::parse_url_opts(&parsed, std::env::vars()).map_err(|error| format!("Cannot open {url}: {error}"))?;
         Self::new(url, Arc::from(store), root)
