@@ -243,6 +243,8 @@ xprof-rs-$version-$target/xprof-rs --logdir ~/logs          # open http://localh
 xprof-rs-$version-$target/xprof-rs get_overview ~/logs/run1 # the same binary runs the XProf agent CLI
 ```
 
+The same binaries are on PyPI. `pip install xprof-rs` puts `xprof-rs` on the `PATH`. The wheel has no Python code.
+
 To build from source, you need Rust 1.95 or newer, a C compiler, and a 64-bit Unix system. You do not need a C++ toolchain or `protoc`.
 
 ```bash

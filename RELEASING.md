@@ -1,6 +1,6 @@
 # Release steps
 
-Each release of xprof-rs is a GitHub release with prebuilt binaries and a crate on crates.io.
+Each release of xprof-rs is a GitHub release with prebuilt binaries, a crate on crates.io, and wheels on PyPI.
 
 1. Make sure that `git status` shows no changes and that CI passes on `main`.
 2. Change `version` in `Cargo.toml`. Run `cargo check --locked` to update `Cargo.lock`.
@@ -16,10 +16,15 @@ Each release of xprof-rs is a GitHub release with prebuilt binaries and a crate 
    - It checks that the tag and the `Cargo.toml` version are the same, and that `CHANGELOG.md` has a section for the version.
    - It checks that the crate builds from its package.
    - It builds `x86_64-linux` and `aarch64-linux` binaries in the `manylinux_2_28` image. These binaries need glibc 2.28 or newer. It builds the `aarch64-macos` binary on a macOS runner.
-   - It makes a draft GitHub release with the archives, the SHA-256 files, and the changelog section.
+   - It makes a wheel of each binary with maturin. The wheel has only the binary, so `pip install xprof-rs` puts `xprof-rs` on the `PATH`.
+   - It makes a draft GitHub release with the archives, the SHA-256 files, the wheels, and the changelog section.
 9. Download an archive from the draft. Check it with `sha256sum -c`, and run it on a profile. Then publish the draft: `gh release edit vX.Y.Z --draft=false`.
 10. The `crates` workflow starts when you publish the draft. It publishes the crate from the tag. It gets a temporary crates.io token from the OpenID Connect token of GitHub. Thus the repository needs no crates.io token. You cannot remove a version from crates.io. You can only yank it.
 
+The `pypi` workflow also starts when you publish the draft. It uploads the wheels of the release to PyPI with Trusted Publishing, so the repository needs no PyPI token.
+
 Do this step on crates.io one time: on the crate page, open Settings, then `Trusted Publishing`. Add the GitHub repository `Locamage/xprof-rs` with the workflow `crates.yml`.
+
+Do this step on PyPI one time: in `Your projects`, open `Publishing`, and add a pending publisher for the project `xprof-rs` with the owner `Locamage`, the repository `xprof-rs`, the workflow `pypi.yml` and the environment `pypi`.
 
 The minimum Rust version is 1.95. The `msrv` job in CI checks it. Change `rust-version` in `Cargo.toml` and the `msrv` job together.
