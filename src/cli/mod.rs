@@ -82,7 +82,7 @@ pub const COMMANDS: [(&str, &str, Handler); 30] = [
     ("get_step_trace", "session_id! | step_num limit device_core include_summary bypass_cache logdir", steps::get_step_trace),
     ("get_top_hlo_ops", "session_id! | limit category_filter bypass_cache logdir", ops::get_top_hlo_ops),
     ("get_utilization_viewer", "session_id! | host device node bypass_cache logdir", overview::get_utilization_viewer),
-    ("get_xspace_proto", "session_id! as_text output_path bypass_cache | logdir **", xplane::get_xspace_proto),
+    ("get_xspace_proto", "session_id! as_text output_path host bypass_cache | logdir **", xplane::get_xspace_proto),
     ("list_hlo_modules", "session_id! | bypass_cache logdir", hlo::list_hlo_modules),
     ("list_xplane_events", "session_id! | plane_regex event_regex start_time_ps end_time_ps max_events offset bypass_cache logdir", xplane::list_xplane_events),
     ("upload_trace", "file_path! ttl tag run_name | logdir bypass_cache **", xplane::upload_trace),

@@ -256,14 +256,18 @@ impl Client for Local {
         let dir = paths[0].parent().map(Path::to_path_buf).unwrap_or_default();
         let stats = |fused: bool, part: Part| self.stats(&paths, fused, part);
         let rendered = match name {
-            "memory_profile" if paths.len() != 1 => return fail(Kind::Assertion, ""),
-            "memory_profile" => match self.kept.write().unwrap().get_mut(&paths[0]) {
-                Some(kept) => {
-                    kept.finish(false);
-                    Some(crate::tools::memory_profile::json(&kept.planes, kept.map()))
+            "memory_profile" if paths.len() != 1 && option("host").is_none() => return fail(Kind::Assertion, ""),
+            "memory_profile" => {
+                let path = paths.iter().find(|path| option("host").is_none_or(|name| host(path) == name));
+                let Some(path) = path else { return fail(Kind::Assertion, "") };
+                match self.kept.write().unwrap().get_mut(path) {
+                    Some(kept) => {
+                        kept.finish(false);
+                        Some(crate::tools::memory_profile::json(&kept.planes, kept.map()))
+                    }
+                    None => crate::tools::memory_profile::load(path).ok().flatten(),
                 }
-                None => crate::tools::memory_profile::load(&paths[0]).ok().flatten(),
-            },
+            }
             "overview_page" => stats(false, Part::All).map(|stats| crate::tools::overview_page::json(&stats, &paths)),
             "input_pipeline_analyzer" => stats(false, Part::All).map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
             "framework_op_stats" => stats(false, Part::All).map(|stats| crate::tools::framework_op_stats::json(&stats)),

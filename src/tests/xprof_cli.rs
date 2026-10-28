@@ -278,10 +278,38 @@ fn test_multi_host_logdir_session_remote_and_help() {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(format!("{host}.xplane.pb")), &demo).unwrap();
     }
+    let single_host = logdir.join("plugins/profile/a-single");
+    std::fs::create_dir_all(&single_host).unwrap();
+    std::fs::copy(logdir.join("plugins/profile/a/h0.xplane.pb"), single_host.join("h0.xplane.pb")).unwrap();
     let logdir = logdir.to_string_lossy();
     let a = format!("{logdir}/plugins/profile/a");
     let b = format!("{logdir}/plugins/profile/b");
     let b_trace = format!("{b}/h0.xplane.pb");
+    let (code, memory_out, _) = run(&["get_memory_profile", "a", &format!("--logdir={logdir}"), "--bypass_cache=True"]);
+    assert_eq!(code, 0, "{memory_out}");
+    let (single_code, single_memory_out, _) = run(&["get_memory_profile", "a-single", &format!("--logdir={logdir}"), "--bypass_cache=True"]);
+    assert_eq!(single_code, 0, "{single_memory_out}");
+    assert_eq!(memory_out, single_memory_out);
+    let memory = J::parse(&memory_out).unwrap();
+    let (code, kpi_out, _) = run(&["get_kpi_metrics", "a", &format!("--logdir={logdir}")]);
+    assert_eq!(code, 0, "{kpi_out}");
+    let (single_code, single_kpi_out, _) = run(&["get_kpi_metrics", "a-single", &format!("--logdir={logdir}")]);
+    assert_eq!(single_code, 0, "{single_kpi_out}");
+    let kpi = J::parse(&kpi_out).unwrap();
+    let single_kpi = J::parse(&single_kpi_out).unwrap();
+    if memory.at("peak_memory_usage_gib").float().is_some_and(|peak| peak > 0.0) {
+        assert!(kpi.at("peak_hbm_gib").float().is_some(), "{kpi_out}");
+    } else {
+        assert_eq!(kpi.at("peak_hbm_gib"), single_kpi.at("peak_hbm_gib"));
+    }
+    let (code, out, _) = run(&["get_xspace_proto", "a", &format!("--logdir={logdir}")]);
+    assert_ne!(code, 0, "{out}");
+    let error = J::parse(&out).unwrap().at("error").text();
+    assert!(error.contains("Session 'a' has 2 hosts: h0, h1. Pass --host=<name>."), "{out}");
+    let output = scratch("multi-host-xspace").join("h0.xplane.pb");
+    let (code, out, _) = run(&["get_xspace_proto", "a", "--host=h0", &format!("--output_path={}", output.display()), &format!("--logdir={logdir}")]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(std::fs::read(output).unwrap(), std::fs::read(format!("{a}/h0.xplane.pb")).unwrap());
     for command in ["compute_utilization", "get_kernel_utilization"] {
         let (code, out, _) = run(&[command, "b", &format!("--logdir={logdir}")]);
         assert_eq!(code, 0, "{command}: {out}");

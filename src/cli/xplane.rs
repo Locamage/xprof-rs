@@ -383,6 +383,12 @@ fn serialized(client: &dyn Client, session: &str, host: &str) -> Result<crate::i
     }
     match paths.as_slice() {
         [path] => super::read(path),
+        _ if host.is_empty() => {
+            let mut hosts: Vec<String> = paths.iter().map(|path| super::client::host(path)).collect();
+            hosts.sort();
+            hosts.dedup();
+            fail(Kind::Value, format!("Session {} has {} hosts: {}. Pass --host=<name>.", py_repr(session), hosts.len(), hosts.join(", ")))
+        }
         _ => fail(Kind::NotImplemented, "Multi-host XSpace serialization is not supported in OSS because xplane_pb2 is not exposed."),
     }
 }
@@ -392,7 +398,8 @@ pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         return fail(Kind::NotImplemented, "as_text=True is not supported in OSS because xplane_pb2 is not exposed.");
     }
     let session = args.session();
-    let data = serialized(client, &session, "")?;
+    let host = args.text("host").unwrap_or_default();
+    let data = serialized(client, &session, &host)?;
     if let Some(output) = args.text("output_path").filter(|path| !path.is_empty()) {
         let path = PathBuf::from(&output);
         let io = |error: std::io::Error| Error::new(Kind::Os, error.to_string());
