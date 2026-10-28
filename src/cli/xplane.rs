@@ -683,7 +683,15 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
         files.iter().try_for_each(|file| super::openable(file))?;
         kernel?;
         let option = |key: &str| params.iter().find(|(name, _)| *name == key).map(|(_, value)| value.as_str());
-        let rendered = <[PathBuf; 1]>::try_from(files).ok().and_then(|[file]| super::client::kernel_utilization(&file, option));
+        let rendered = <[PathBuf; 1]>::try_from(files).ok().and_then(|[file]| {
+            let map = crate::read_file(&file).ok()?;
+            let name = file.file_name().unwrap_or_default().as_encoded_bytes();
+            let name = name.strip_suffix(b".xplane.pb").unwrap_or(name);
+            if crate::xplane::nested(&map, 4).next().is_some_and(|host| memchr::memmem::find(name, host).is_none()) {
+                return None;
+            }
+            super::client::kernel_utilization(&map, option)
+        });
         rendered.ok_or_else(|| Error::new(Kind::Runtime, format!("Failed to compute utilization from file {}: no data returned.", py_repr(&session))))?
     } else {
         let fetched = kernel

@@ -116,15 +116,14 @@ pub fn traces(dir: &Path) -> Vec<PathBuf> {
     find(dir, &TRACE_SUFFIXES, true)
 }
 
-pub fn kernel_utilization<'a>(path: &Path, option: impl Fn(&str) -> Option<&'a str>) -> Option<String> {
-    let map = crate::read_file(path).ok()?;
+pub fn kernel_utilization<'a>(map: &[u8], option: impl Fn(&str) -> Option<&'a str>) -> Option<String> {
     let filter = crate::tools::counters::Filter {
         kernel: option("kernel").or(option("kernel_name")).unwrap_or_default().to_string(),
         duration_us: option("duration_us").and_then(|value| value.trim().parse().ok()).unwrap_or(0.0),
         force: option("force_duration").is_some_and(|value| matches!(value, "True" | "true" | "1" | "yes" | "t" | "y")),
         device: option("device_id").and_then(|value| value.trim().parse().ok()).unwrap_or(-1),
     };
-    crate::tools::counters::checked(&map, |map| crate::tools::counters::kernel_utilization(map, &filter))
+    crate::tools::counters::checked(map, |map| crate::tools::counters::kernel_utilization(map, &filter))
 }
 
 pub fn temp_dir() -> PathBuf {
@@ -281,7 +280,7 @@ impl Client for Local {
                     (name == "utilization_viewer" && paths.len() == 1).then(|| self.kept.read().unwrap().get(&paths[0]).map(|kept| crate::tools::counters::utilization_viewer(kept.map()))).flatten();
                 known.or_else(|| crate::tools::counters::serve(name, &paths))
             }
-            "kernel_utilization" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| kernel_utilization(&path, option)),
+            "kernel_utilization" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| crate::read_file(&path).ok().and_then(|map| kernel_utilization(&map, option))),
             "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| self.prepared(&path, crate::trace::legacy::render)),
             _ => None,
         };
