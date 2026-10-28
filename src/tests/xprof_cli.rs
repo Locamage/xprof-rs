@@ -298,10 +298,17 @@ fn test_multi_host_logdir_session_remote_and_help() {
     for command in ["get_avg_step_time", "get_kernel_stats"] {
         for source in [&b, &b_trace] {
             let (expected_code, expected_out, _) = run(&[command, source]);
+            assert_eq!(expected_code, 0, "{command} {source}: {expected_out}");
             let remote = format!("file://{source}");
             let (code, out, _) = run(&[command, &remote]);
             assert_eq!((code, out), (expected_code, expected_out), "{command} {remote}");
         }
+        let (expected_code, expected_out, _) = run(&[command, &a]);
+        assert_eq!(expected_code, 0, "{command} {a}: {expected_out}");
+        let remote_logdir = format!("--logdir=file://{logdir}");
+        let (code, out, _) = run(&[command, "a", &remote_logdir]);
+        assert_eq!(code, 0, "{command}: {out}");
+        assert_eq!((code, out), (expected_code, expected_out), "{command} {remote_logdir}");
     }
     let help = run(&["aggregate_xplane_events", "--help"]).1;
     assert!(help.contains("POSITIONAL ARGUMENTS\n    SESSION_ID\n") && help.contains("    --plane_regex=PLANE_REGEX\n"), "{help}");

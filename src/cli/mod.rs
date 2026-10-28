@@ -669,7 +669,7 @@ fn mirror(url: &str, logdir: bool, first: &str, args: &mut Args) -> Result<Optio
     };
     let (root, name) = if logdir { (url, "") } else { url.rsplit_once('/').filter(|(root, _)| !root.ends_with('/')).ok_or_else(|| absent(format!("Trace path '{url}' does not exist.")))? };
     let remote = crate::server::remote::Remote::open(root).map_err(absent)?;
-    let session = args.session();
+    let session = Some(args.session()).filter(|session| !session.is_empty()).unwrap_or_else(|| args.string(first, ""));
     let dir = if logdir { remote.mirror.join("plugins/profile").join(&session) } else { remote.mirror.join(name) };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|error| absent(error.to_string()))?;
     runtime
