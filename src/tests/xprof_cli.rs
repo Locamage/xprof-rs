@@ -332,7 +332,7 @@ fn test_multi_host_logdir_session_remote_and_help() {
     let (code, out, _) = run(&["get_xspace_proto", &spill_session, "--host=h1", &format!("--logdir={logdir}")]);
     assert_eq!(code, 0, "{out}");
     let spill_file = J::parse(&out).unwrap().at("file_path").text();
-    assert_eq!(spill_file, format!("/tmp/xspace_{spill_session}_h1.pb"));
+    assert_eq!(spill_file, format!("/tmp/xspace_{spill_session}.h1.pb"));
     std::fs::remove_file(spill_file).unwrap();
     for command in ["compute_utilization", "get_kernel_utilization"] {
         let (code, out, _) = run(&[command, "b", &format!("--logdir={logdir}")]);
