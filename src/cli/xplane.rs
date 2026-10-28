@@ -26,6 +26,7 @@ struct Visit<'a> {
     line: &'a str,
     timestamp: i64,
     event: Event<'a>,
+    cut: bool,
 }
 
 impl Visit<'_> {
@@ -120,7 +121,7 @@ fn scan_until<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize, usize, Ca
 
 type Capture = Option<(i64, i64)>;
 
-/// Visits the events of a line. With a capture window, it skips the events that start before the capture or end after it.
+/// Visits the events of a line and flags those cut by the capture window.
 fn visit_line(plane: &Plane, index: usize, capture: Capture, mut each: impl FnMut(&Visit) -> bool) -> bool {
     let (bytes, mut line, mut timestamp) = (plane.lines[index], String::new(), 0);
     for (tag, field) in fields(bytes) {
@@ -135,9 +136,10 @@ fn visit_line(plane: &Plane, index: usize, capture: Capture, mut each: impl FnMu
         let origin = if timestamp > start / 2 { start } else { 0 };
         ((origin - timestamp) * 1000, (origin + stop - start - timestamp) * 1000)
     });
-    events(bytes)
-        .filter(|event| window.is_none_or(|(low, high)| event.offset_ps as i64 >= low && event.offset_ps as i64 + event.duration_ps as i64 <= high))
-        .all(|event| each(&Visit { plane, line: &line, timestamp, event }))
+    events(bytes).all(|event| {
+        let cut = window.is_some_and(|(low, high)| (event.offset_ps as i64) < low || event.offset_ps as i64 + event.duration_ps as i64 > high);
+        each(&Visit { plane, line: &line, timestamp, event, cut })
+    })
 }
 
 /// The name of an event and if it matches. Only the events with a number as name need work for each event.
@@ -289,13 +291,14 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
     let compute = || -> Result<J, Error> {
         let (planes_re, events_re) = (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
         let keep = plane_filter(&planes_re);
-        let (mut durations, mut scanned): (IndexMap<String, Vec<Vec<i128>>, FxBuildHasher>, usize) = (IndexMap::default(), 0);
+        let mut durations = IndexMap::with_hasher(FxBuildHasher);
+        let mut scanned = 0usize;
         let paths = sources(client, &session)?;
         // The scan stops after the first event above the limit, also in the middle of a line.
         let parts = scan_until(
             &paths,
             |plane, index, cap, capture| {
-                let (mut found, mut count, mut names) = (IndexMap::<String, Vec<i128>, FxBuildHasher>::default(), 0usize, Names::new(&events_re));
+                let (mut found, mut count, mut names) = (IndexMap::<String, (Vec<i128>, usize), FxBuildHasher>::default(), 0usize, Names::new(&events_re));
                 // The slot in `found` of each metadata with a name that is not a number. `None` is a name that does not match.
                 let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
                 if keep(plane) {
@@ -304,14 +307,22 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
                         let duration = || (visit.duration_ns() * 1000.0).trunc() as i128;
                         if let Some(slot) = slots.get(&visit.event.meta) {
                             if let Some(slot) = *slot {
-                                found[slot].push(duration());
+                                let (values, cut) = &mut found[slot];
+                                values.push(duration());
+                                if visit.cut {
+                                    *cut += 1;
+                                }
                             }
                             return count < cap;
                         }
                         let (name, matched) = names.resolve(visit);
-                        let slot = matched.then(|| found.get_index_of(&*name).unwrap_or_else(|| found.insert_full(name.to_string(), Vec::new()).0));
+                        let slot = matched.then(|| found.get_index_of(&*name).unwrap_or_else(|| found.insert_full(name.to_string(), (Vec::new(), 0)).0));
                         if let Some(slot) = slot {
-                            found[slot].push(duration());
+                            let (values, cut) = &mut found[slot];
+                            values.push(duration());
+                            if visit.cut {
+                                *cut += 1;
+                            }
                         }
                         if let Cow::Borrowed(_) = name {
                             slots.insert(visit.event.meta, slot);
@@ -326,19 +337,21 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
         )?;
         for (found, count) in parts {
             scanned += count;
-            for (name, values) in found {
-                durations.entry(name).or_default().push(values);
+            for (name, (values, cut)) in found {
+                let entry: &mut (Vec<Vec<i128>>, usize) = durations.entry(name).or_default();
+                entry.0.push(values);
+                entry.1 += cut;
             }
         }
         let mut results: Vec<J> = durations
             .into_iter()
             .collect::<Vec<_>>()
             .into_par_iter()
-            .map(|(name, parts)| {
+            .map(|(name, (parts, cut))| {
                 let values: Vec<i128> = parts.concat();
                 let total: i128 = values.iter().sum();
                 let floats: Vec<f64> = values.iter().map(|value| *value as f64).collect();
-                obj! {
+                let mut aggregate = obj! {
                     "event" => name,
                     "count" => values.len(),
                     "total_duration_ps" => total,
@@ -346,7 +359,11 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
                     "min_duration_ps" => values.iter().min().copied(),
                     "max_duration_ps" => values.iter().max().copied(),
                     "std_dev_ps" => if values.len() > 1 { stdev(&floats) } else { 0.0 },
+                };
+                if cut > 0 {
+                    aggregate.set("truncated_by_capture", cut);
                 }
+                aggregate
             })
             .collect();
         results.sort_by_key(|result| std::cmp::Reverse(result.at("total_duration_ps").int().unwrap_or(0)));
@@ -454,7 +471,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             Err(message) => vec![Err(message.clone())],
         };
         let failure = std::sync::OnceLock::new();
-        let parts = scan_lines(&sources(client, &source)?, |plane, index, capture| {
+        let parts = scan_lines(&sources(client, &source)?, |plane, index, _| {
             let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
             if !plane.name.starts_with("/device:") {
                 return (durations, intervals, steps);
@@ -473,7 +490,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             };
             // The slot in `durations` of each metadata with a name that is not a number, for the events without `tf_op_name`. `None` is a name that the filters skip.
             let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
-            visit_line(plane, index, capture, |visit| {
+            visit_line(plane, index, None, |visit| {
                 let &mut (skipped, modules) = kind.get_or_insert_with(|| {
                     let line = visit.line.to_uppercase();
                     let skipped = if tpu { !DEVICE_LINES.iter().any(|word| line.contains(word)) } else { EXCLUDED_LINES.iter().any(|word| line.contains(word)) };
@@ -588,7 +605,7 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
     let compute = || -> Result<Out, Error> {
         let failed = AtomicBool::new(false);
         let parts = scan_lines(&sources(client, &source)?, |plane, index, capture| {
-            let (mut durations, mut line) = (Vec::new(), None);
+            let (mut durations, mut cut, mut line) = (Vec::new(), 0usize, None);
             if plane.name.starts_with("/device:") {
                 visit_line(plane, index, capture, |visit| {
                     if !*line.get_or_insert_with(|| visit.line.to_uppercase().contains("XLA MODULES")) {
@@ -596,7 +613,12 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
                     }
                     match function {
                         Some(J::Str(function)) if !visit.raw_name().contains(function.as_str()) => {}
-                        Some(J::Str(_)) | None => durations.push(visit.duration_ns() / 1_000_000.0),
+                        Some(J::Str(_)) | None => {
+                            durations.push(visit.duration_ns() / 1_000_000.0);
+                            if visit.cut {
+                                cut += 1;
+                            }
+                        }
                         Some(_) => {
                             failed.store(true, Relaxed);
                             return false;
@@ -605,16 +627,26 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
                     true
                 });
             }
-            durations
+            (durations, cut)
         })?;
         if let Some(function) = function.filter(|_| failed.into_inner()) {
             return fail(Kind::Type, format!("'in <string>' requires string as left operand, not {}", super::kind(function)));
         }
-        let durations: Vec<f64> = parts.into_iter().flatten().collect();
+        let mut cut = 0;
+        let durations: Vec<f64> = parts
+            .into_iter()
+            .flat_map(|(durations, count)| {
+                cut += count;
+                durations
+            })
+            .collect();
         if durations.is_empty() {
             return fail(Kind::Value, format!("No steps matching func_name '{}' found in {source}.", args.get("func_name").map_or("None".into(), J::text)));
         }
-        let report = obj! {"avg_step_time_ms" => round(fsum(durations.iter().copied()) / durations.len() as f64, 4), "step_count" => durations.len()};
+        let mut report = obj! {"avg_step_time_ms" => round(fsum(durations.iter().copied()) / durations.len() as f64, 4), "step_count" => durations.len()};
+        if cut > 0 {
+            report.set("truncated_by_capture", cut);
+        }
         Ok(if args.string("output_format", "json") == "dict" { Out::Value(report) } else { report.into() })
     };
     compute().map_err(|error| rethrow(error, |error| format!("Failed to get average step time: {}", error.message)))

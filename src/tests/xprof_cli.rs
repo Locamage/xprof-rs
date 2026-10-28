@@ -315,7 +315,7 @@ fn test_multi_host_logdir_session_remote_and_help() {
 }
 
 #[test]
-fn test_events_outside_the_capture_do_not_count() {
+fn test_events_outside_the_capture_are_flagged() {
     let demo = super::e2e_oracles::DEMO;
     // The capture of the demo lasts this long. Its last host events end after it.
     let capture_ps = (1_790_796_284_353_597_317i64 - 1_790_796_283_134_782_597) as f64 * 1000.0;
@@ -324,6 +324,16 @@ fn test_events_outside_the_capture_do_not_count() {
     let (start, duration) = (|event: &J| event.at("offset_ps").float().unwrap(), |event: &J| event.at("duration_ps").float().unwrap());
     let inside = events.iter().filter(|event| start(event) >= 0.0 && start(event) + duration(event) <= capture_ps).count();
     assert!(inside < events.len());
-    let counted: f64 = ok(&["aggregate_xplane_events", demo]).at("aggregates").items().iter().map(|aggregate| aggregate.at("count").float().unwrap()).sum();
-    assert_eq!(counted as usize, inside);
+    let mut listed_counts = std::collections::BTreeMap::new();
+    for event in events {
+        *listed_counts.entry(event.at("event").text()).or_insert(0usize) += 1;
+    }
+    let aggregate = ok(&["aggregate_xplane_events", demo]);
+    let aggregates = aggregate.at("aggregates").items();
+    let aggregate_counts: std::collections::BTreeMap<_, _> = aggregates.iter().map(|aggregate| (aggregate.at("event").text(), aggregate.at("count").int().unwrap() as usize)).collect();
+    assert_eq!(aggregate_counts, listed_counts);
+    let cut: usize = aggregates.iter().map(|aggregate| aggregate.at("truncated_by_capture").int().unwrap_or(0) as usize).sum();
+    assert_eq!(cut, events.len() - inside);
+    assert!(cut > 0);
+    assert_eq!(run(&["get_avg_step_time", demo]).1, "{\n  \"avg_step_time_ms\": 1.7486,\n  \"step_count\": 40\n}\n");
 }
