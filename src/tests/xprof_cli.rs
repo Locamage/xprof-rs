@@ -282,6 +282,11 @@ fn test_multi_host_logdir_session_remote_and_help() {
     let a = format!("{logdir}/plugins/profile/a");
     let b = format!("{logdir}/plugins/profile/b");
     let b_trace = format!("{b}/h0.xplane.pb");
+    for command in ["compute_utilization", "get_kernel_utilization"] {
+        let (code, out, _) = run(&[command, "b", &format!("--logdir={logdir}")]);
+        assert_eq!(code, 0, "{command}: {out}");
+        assert_eq!(out, "{\n  \"devices\": [],\n  \"status\": \"SUCCESS\"\n}\n");
+    }
     for command in ["get_overview", "get_kpi_metrics", "get_top_hlo_ops", "check_host_boundness"] {
         let (code, out, _) = run(&[command, &a]);
         assert_eq!(code, 0, "{out}");

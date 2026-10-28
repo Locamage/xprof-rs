@@ -68,17 +68,14 @@ fn test_get_kernel_utilization_from_empty_directory_raises_file_not_found() {
 }
 
 #[test]
-fn test_get_kernel_utilization_needs_the_host_name_in_the_file_name() {
+fn test_get_kernel_utilization_does_not_require_the_host_name_in_the_file_name() {
     let mut space = XSpace::decode(&sample()[..]).unwrap();
     space.hostnames = vec!["worker-0".into()];
-    for (name, ok) in [("worker-0.xplane.pb", true), ("job.worker-0.1.xplane.pb", true), ("host.xplane.pb", false), ("worker-0.xplane.pb.xplane.pb", true)] {
+    for name in ["worker-0.xplane.pb", "job.worker-0.1.xplane.pb", "host.xplane.pb", "worker-0.xplane.pb.xplane.pb"] {
         let path = scratch(&format!("ku-host-{name}")).join(name);
         std::fs::write(&path, space.encode_to_vec()).unwrap();
         let result = get_kernel_utilization(&Fake::fixed(""), &args(&path.to_string_lossy(), &[]));
-        assert_eq!(result.is_ok(), ok, "{name}");
-        if !ok {
-            assert!(result.unwrap_err().message.ends_with(": no data returned."));
-        }
+        assert_eq!(json(result).at("status").str(), Some("SUCCESS"), "{name}");
     }
 }
 
