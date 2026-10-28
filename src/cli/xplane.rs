@@ -408,8 +408,9 @@ pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         return Ok(Out::Text(output));
     }
     if data.len() > XSPACE_SPILL_BYTES {
-        let safe: String = session.chars().map(|character| if character.is_ascii_alphanumeric() || character == '_' || character == '-' { character } else { '_' }).collect();
-        let path = PathBuf::from(format!("/tmp/xspace_{safe}.pb"));
+        let safe = |text: &str| text.chars().map(|character| if character.is_ascii_alphanumeric() || character == '_' || character == '-' { character } else { '_' }).collect::<String>();
+        let name = if host.is_empty() { safe(&session) } else { format!("{}_{}", safe(&session), safe(&host)) };
+        let path = PathBuf::from(format!("/tmp/xspace_{name}.pb"));
         crate::replace_file(&path, &data).map_err(|error| Error::new(Kind::Os, error.to_string()))?;
         return Ok(obj! {
             "status" => "SAVED_TO_FILE",

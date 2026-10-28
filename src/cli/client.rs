@@ -91,7 +91,7 @@ pub trait Client {
 
 pub fn host(path: &Path) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
-    name.strip_suffix(".xplane.pb").unwrap_or(&name).rsplit('.').next().unwrap_or_default().to_string()
+    TRACE_SUFFIXES.iter().find_map(|suffix| name.strip_suffix(suffix)).unwrap_or(&name).rsplit('.').next().unwrap_or_default().to_string()
 }
 
 pub fn find(dir: &Path, suffixes: &[&str], recursive: bool) -> Vec<PathBuf> {

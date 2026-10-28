@@ -278,6 +278,17 @@ fn test_multi_host_logdir_session_remote_and_help() {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(format!("{host}.xplane.pb")), &demo).unwrap();
     }
+    let xspace_dir = logdir.join("plugins/profile/xspace");
+    std::fs::create_dir_all(&xspace_dir).unwrap();
+    for host in ["h0", "h1"] {
+        std::fs::write(xspace_dir.join(format!("{host}.xspace.pb")), &demo).unwrap();
+    }
+    let spill_session = format!("xspace-spill-{}", std::process::id());
+    let spill_dir = logdir.join("plugins/profile").join(&spill_session);
+    std::fs::create_dir_all(&spill_dir).unwrap();
+    for host in ["h0", "h1"] {
+        std::fs::File::create(spill_dir.join(format!("{host}.xspace.pb"))).unwrap().set_len((10 * 1024 * 1024 + 1) as u64).unwrap();
+    }
     let single_host = logdir.join("plugins/profile/a-single");
     std::fs::create_dir_all(&single_host).unwrap();
     std::fs::copy(logdir.join("plugins/profile/a/h0.xplane.pb"), single_host.join("h0.xplane.pb")).unwrap();
@@ -310,6 +321,19 @@ fn test_multi_host_logdir_session_remote_and_help() {
     let (code, out, _) = run(&["get_xspace_proto", "a", "--host=h0", &format!("--output_path={}", output.display()), &format!("--logdir={logdir}")]);
     assert_eq!(code, 0, "{out}");
     assert_eq!(std::fs::read(output).unwrap(), std::fs::read(format!("{a}/h0.xplane.pb")).unwrap());
+    let (code, out, _) = run(&["get_hosts", "xspace", &format!("--logdir={logdir}")]);
+    assert_eq!(code, 0, "{out}");
+    let hosts: Vec<String> = J::parse(&out).unwrap().at("hosts").items().iter().map(|host| host.at("hostname").text()).collect();
+    assert_eq!(hosts, ["h0", "h1"]);
+    let output = scratch("multi-host-xspace-suffix").join("h1.xspace.pb");
+    let (code, out, _) = run(&["get_xspace_proto", "xspace", "--host=h1", &format!("--output_path={}", output.display()), &format!("--logdir={logdir}")]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(std::fs::read(output).unwrap(), demo);
+    let (code, out, _) = run(&["get_xspace_proto", &spill_session, "--host=h1", &format!("--logdir={logdir}")]);
+    assert_eq!(code, 0, "{out}");
+    let spill_file = J::parse(&out).unwrap().at("file_path").text();
+    assert_eq!(spill_file, format!("/tmp/xspace_{spill_session}_h1.pb"));
+    std::fs::remove_file(spill_file).unwrap();
     for command in ["compute_utilization", "get_kernel_utilization"] {
         let (code, out, _) = run(&[command, "b", &format!("--logdir={logdir}")]);
         assert_eq!(code, 0, "{command}: {out}");
