@@ -219,7 +219,7 @@ impl Client for Local {
     }
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
-        let path = self.xspace_paths(&self.run_dir(session).ok()?).ok()?.swap_remove(0);
+        let path = self.xspace_paths(&self.run_dir(session).ok()?).ok()?.into_iter().min_by_key(|path| host(path))?;
         self.prepared(&path, crate::trace::legacy::barrier_durations)
     }
 
