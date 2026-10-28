@@ -579,8 +579,11 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
         keywords.retain(|(existing, _)| *existing != keyword);
         keywords.push((keyword, value));
     }
-    let logdir = |text: &String| text.contains("://") || expand(text).join("plugins/profile").is_dir();
-    if positional.len() > 1 && spec.keyword.iter().any(|key| key == "logdir") && !keywords.iter().any(|(key, _)| key == "logdir") && logdir(&positional[0]) {
+    if positional.len() > 1
+        && spec.keyword.iter().any(|key| key == "logdir")
+        && !keywords.iter().any(|(key, _)| key == "logdir")
+        && (positional[0].contains("://") || expand(&positional[0]).join("plugins/profile").join(&positional[1]).is_dir())
+    {
         keywords.push(("logdir".into(), positional.remove(0)));
     }
     let mut args = Args::default();
@@ -632,6 +635,7 @@ fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Erro
     let target = match (&logdir, &first) {
         (Some(logdir), _) => Some(logdir.text()),
         (None, Some(J::Str(text))) if has("session_id") && text.contains(['/', '\\', '.']) => Some(text.clone()),
+        (None, Some(J::Str(text))) if has("source") && text.contains("://") => Some(text.clone()),
         _ => None,
     };
     let mut local = logdir.as_ref().map(|logdir| expand(&logdir.text()));

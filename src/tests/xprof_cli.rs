@@ -280,6 +280,8 @@ fn test_multi_host_logdir_session_remote_and_help() {
     }
     let logdir = logdir.to_string_lossy();
     let a = format!("{logdir}/plugins/profile/a");
+    let b = format!("{logdir}/plugins/profile/b");
+    let b_trace = format!("{b}/h0.xplane.pb");
     for command in ["get_overview", "get_kpi_metrics", "get_top_hlo_ops", "check_host_boundness"] {
         let (code, out, _) = run(&[command, &a]);
         assert_eq!(code, 0, "{out}");
@@ -288,8 +290,19 @@ fn test_multi_host_logdir_session_remote_and_help() {
     let overview = run(&["get_overview", &a]).1;
     assert_eq!(run(&["get_overview", &logdir, "a"]).1, overview);
     assert_ne!(run(&["get_overview", &logdir, "b"]).1, overview);
+    let (expected_code, expected_out, _) = run(&["get_overview", &logdir, "--include_command=True"]);
+    let (code, out, _) = run(&["get_overview", &logdir, "True"]);
+    assert_eq!((code, out), (expected_code, expected_out));
     assert_eq!(run(&["get_overview", &format!("file://{a}")]).1, overview);
     assert_eq!(run(&["get_overview", &format!("file://{logdir}"), "a"]).1, overview);
+    for command in ["get_avg_step_time", "get_kernel_stats"] {
+        for source in [&b, &b_trace] {
+            let (expected_code, expected_out, _) = run(&[command, source]);
+            let remote = format!("file://{source}");
+            let (code, out, _) = run(&[command, &remote]);
+            assert_eq!((code, out), (expected_code, expected_out), "{command} {remote}");
+        }
+    }
     let help = run(&["aggregate_xplane_events", "--help"]).1;
     assert!(help.contains("POSITIONAL ARGUMENTS\n    SESSION_ID\n") && help.contains("    --plane_regex=PLANE_REGEX\n"), "{help}");
 }
