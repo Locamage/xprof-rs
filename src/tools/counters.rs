@@ -414,6 +414,13 @@ fn perf_rows(plane: &Plane, host: &str) -> Vec<String> {
         .collect()
 }
 
+/// The start and the stop of the capture in ns, which the Task Environment plane holds.
+pub fn capture(planes: &[Plane]) -> Option<(i64, i64)> {
+    let plane = planes.iter().find(|plane| plane.name == "Task Environment")?;
+    let time = |name: &[u8]| plane.own(name).map(|value| unsigned(&value) as i64);
+    Some((time(b"profile_start_time")?, time(b"profile_stop_time")?))
+}
+
 pub fn perf_counters(hosts: &[(String, &[u8])]) -> String {
     let rows: Vec<String> = hosts
         .iter()

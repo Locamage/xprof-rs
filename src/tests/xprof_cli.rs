@@ -1,4 +1,4 @@
-use super::cli_support::{run, scratch};
+use super::cli_support::{ok, run, scratch};
 use super::xspace::XSpace;
 use crate::cli::json::J;
 use crate::cli::{COMMANDS, literal, preprocess};
@@ -267,4 +267,43 @@ fn test_wrap_with_logdir_coerces_int_to_str() {
     assert_eq!(status, 0, "{out}");
     assert_eq!(J::parse(&out).unwrap().at("hosts").items()[0].at("hostname").str(), Some("host0"));
     assert_eq!(error(&["get_hosts", "20260824063312"], 3, "PATH_ERROR").at("error").str(), Some("Path not found: 20260824063312"));
+}
+
+#[test]
+fn test_multi_host_logdir_session_remote_and_help() {
+    let demo = std::fs::read(super::e2e_oracles::DEMO).unwrap();
+    let logdir = scratch("multi-host");
+    for (session, host) in [("a", "h0"), ("a", "h1"), ("b", "h0")] {
+        let dir = logdir.join("plugins/profile").join(session);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("{host}.xplane.pb")), &demo).unwrap();
+    }
+    let logdir = logdir.to_string_lossy();
+    let a = format!("{logdir}/plugins/profile/a");
+    for command in ["get_overview", "get_kpi_metrics", "get_top_hlo_ops", "check_host_boundness"] {
+        let (code, out, _) = run(&[command, &a]);
+        assert_eq!(code, 0, "{out}");
+        assert!(!out.contains("No overview data") && !out.contains("No HLO op_profile"), "{out}");
+    }
+    let overview = run(&["get_overview", &a]).1;
+    assert_eq!(run(&["get_overview", &logdir, "a"]).1, overview);
+    assert_ne!(run(&["get_overview", &logdir, "b"]).1, overview);
+    assert_eq!(run(&["get_overview", &format!("file://{a}")]).1, overview);
+    assert_eq!(run(&["get_overview", &format!("file://{logdir}"), "a"]).1, overview);
+    let help = run(&["aggregate_xplane_events", "--help"]).1;
+    assert!(help.contains("POSITIONAL ARGUMENTS\n    SESSION_ID\n") && help.contains("    --plane_regex=PLANE_REGEX\n"), "{help}");
+}
+
+#[test]
+fn test_events_outside_the_capture_do_not_count() {
+    let demo = super::e2e_oracles::DEMO;
+    // The capture of the demo lasts this long. Its last host events end after it.
+    let capture_ps = (1_790_796_284_353_597_317i64 - 1_790_796_283_134_782_597) as f64 * 1000.0;
+    let listed = ok(&["list_xplane_events", demo, "--max_events=100000"]);
+    let events = listed.at("events").items();
+    let (start, duration) = (|event: &J| event.at("offset_ps").float().unwrap(), |event: &J| event.at("duration_ps").float().unwrap());
+    let inside = events.iter().filter(|event| start(event) >= 0.0 && start(event) + duration(event) <= capture_ps).count();
+    assert!(inside < events.len());
+    let counted: f64 = ok(&["aggregate_xplane_events", demo]).at("aggregates").items().iter().map(|aggregate| aggregate.at("count").float().unwrap()).sum();
+    assert_eq!(counted as usize, inside);
 }

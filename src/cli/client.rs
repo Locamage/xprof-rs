@@ -153,25 +153,29 @@ pub struct Local {
 }
 
 impl Local {
-    /// The op statistics of a single file, which the process loads one time and extends when a tool needs more.
+    /// The op statistics of all the hosts. The process loads each file one time and extends it when a tool needs more.
     fn stats(&self, paths: &[PathBuf], fused: bool, part: Part) -> Option<Arc<OpStats>> {
-        let mut loaded = self.loaded.lock().unwrap();
-        let [path] = paths else { return None };
-        let mut kept = self.kept.write().unwrap();
-        let stats = loaded.entry(path.clone()).or_insert_with(|| {
-            let (stats, found) = load_kept(crate::read_file(path).ok()?, fused || self.fused, part).ok()??;
-            kept.insert(path.clone(), found);
-            Some(stats)
-        });
-        if let (Some(stats), Some(kept)) = (stats.as_mut(), kept.get_mut(path)) {
-            if fused && !kept.fused {
-                kept.fuse(Arc::make_mut(stats));
-            }
-            if kept.part < part {
-                kept.upgrade(Arc::make_mut(stats), part);
-            }
-        }
-        stats.clone()
+        let (mut loaded, mut kept) = (self.loaded.lock().unwrap(), self.kept.write().unwrap());
+        let all: Vec<_> = paths
+            .iter()
+            .map(|path| {
+                let stats = loaded.entry(path.clone()).or_insert_with(|| {
+                    let (stats, found) = load_kept(crate::read_file(path).ok()?, fused || self.fused, part).ok()??;
+                    kept.insert(path.clone(), found);
+                    Some(stats)
+                });
+                if let (Some(stats), Some(kept)) = (stats.as_mut(), kept.get_mut(path)) {
+                    if fused && !kept.fused {
+                        kept.fuse(Arc::make_mut(stats));
+                    }
+                    if kept.part < part {
+                        kept.upgrade(Arc::make_mut(stats), part);
+                    }
+                }
+                stats.clone()
+            })
+            .collect();
+        OpStats::combine(&all)
     }
 
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
@@ -215,7 +219,7 @@ impl Client for Local {
     }
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
-        let [path] = <[PathBuf; 1]>::try_from(self.xspace_paths(&self.run_dir(session).ok()?).ok()?).ok()?;
+        let path = self.xspace_paths(&self.run_dir(session).ok()?).ok()?.swap_remove(0);
         self.prepared(&path, crate::trace::legacy::barrier_durations)
     }
 

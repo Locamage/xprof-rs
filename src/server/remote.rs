@@ -20,6 +20,7 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(30);
 const PART_BYTES: u64 = 8 << 20;
 const PARALLEL_FILES: usize = 4;
 const PARALLEL_PARTS: usize = 8;
+const PARALLEL_LISTS: usize = 32;
 const DEFAULT_CACHE_BYTES: u64 = 20 << 30;
 const CACHE_DIR: &str = "XPROF_CACHE_DIR";
 const CACHE_BYTES: &str = "XPROF_CACHE_BYTES";
@@ -118,15 +119,19 @@ impl Remote {
             Err(_) => Err(unreadable(format!("No answer in {LIST_TIMEOUT:?}"))),
         };
         if dir == self.mirror {
-            let mut pending = vec![key];
-            while let Some(prefix) = pending.pop() {
-                for child in listing(&prefix).await?.common_prefixes {
-                    if child.filename() != Some("plugins") {
-                        pending.push(child);
-                        continue;
-                    }
-                    for session in listing(&child.clone().join("profile")).await?.common_prefixes {
-                        self.local(&session).map_or(Ok(()), std::fs::create_dir_all).map_err(unwritable)?;
+            // The walk lists `plugins/profile` of each run for its sessions. The folders of each level list in parallel.
+            let (listing, mut pending) = (&listing, vec![(key, false)]);
+            while !pending.is_empty() {
+                let listed: Vec<_> = stream::iter(std::mem::take(&mut pending))
+                    .map(|(prefix, profile)| async move { listing(&prefix).await.map(|listed| (listed.common_prefixes, profile)) })
+                    .buffer_unordered(PARALLEL_LISTS)
+                    .try_collect()
+                    .await?;
+                for (children, profile) in listed {
+                    if profile {
+                        children.iter().filter_map(|session| self.local(session)).try_for_each(std::fs::create_dir_all).map_err(unwritable)?;
+                    } else {
+                        pending.extend(children.into_iter().map(|child| if child.filename() == Some("plugins") { (child.join("profile"), true) } else { (child, false) }));
                     }
                 }
             }

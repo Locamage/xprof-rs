@@ -400,9 +400,11 @@ The CLI is different from the Python CLI in these points:
 - `std_dev_ps` of `aggregate_xplane_events` is the correctly rounded value, as `statistics.stdev` gives in Python 3.11 or newer. With Python 3.10, XProf can give a different last digit.
 - There is no result cache. Each call computes the result again, as with `--bypass_cache`. There are no `__cached__` fields.
 - The regex options find text as Python `re` does, and a bad pattern gives the error message of Python. But `\N{name}` always gives the error `undefined character name`, and a pattern with more than approximately 60 levels of nested groups gives an error.
-- `--help` prints a short synopsis.
+- `--help` prints the synopsis, the positional arguments and the flags.
+- A session or a `--logdir` can be a URL of [Remote log directories](#remote-log-directories). The CLI syncs it to the cache of the server and reads the local copy. `xprof-rs <command> <logdir> <session>` is the same as `--logdir <logdir> <session>`.
+- `aggregate_xplane_events`, `get_avg_step_time` and `get_kernel_stats` skip the events that start before the capture or end after it, which the Task Environment plane gives. `list_xplane_events` lists all events.
 - `get_graph_viewer --output_type=pb` returns the bytes of the module file. XProf serializes the module again with hash-ordered maps.
-- For a multi-host session, the tools that use combined op statistics report no data. `memory_profile` fails. XProf needs its worker service for these sessions.
+- For a multi-host session, the tools that use op statistics combine all hosts, as the server does. `memory_profile` fails. XProf needs its worker service for these sessions.
 
 ## Not available and not supported
 

@@ -579,6 +579,10 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
         keywords.retain(|(existing, _)| *existing != keyword);
         keywords.push((keyword, value));
     }
+    let logdir = |text: &String| text.contains("://") || expand(text).join("plugins/profile").is_dir();
+    if positional.len() > 1 && spec.keyword.iter().any(|key| key == "logdir") && !keywords.iter().any(|(key, _)| key == "logdir") && logdir(&positional[0]) {
+        keywords.push(("logdir".into(), positional.remove(0)));
+    }
     let mut args = Args::default();
     let mut remaining = positional.into_iter();
     for (parameter, required) in &spec.positional {
@@ -600,6 +604,21 @@ fn usage(spec: &Spec) -> String {
     format!("{} <flags>", required.join(" "))
 }
 
+fn help(command: &str, spec: &Spec) -> String {
+    let mut text = format!("NAME\n    xprof {command}\n\nSYNOPSIS\n    xprof {command} {}\n", usage(spec));
+    let (required, optional): (Vec<_>, Vec<_>) = spec.positional.iter().partition(|(_, required)| *required);
+    if !required.is_empty() {
+        text += "\nPOSITIONAL ARGUMENTS\n";
+        required.iter().for_each(|(name, _)| text += &format!("    {}\n", name.to_uppercase()));
+    }
+    text += "\nFLAGS\n";
+    optional.iter().map(|(name, _)| name).chain(&spec.keyword).for_each(|name| text += &format!("    --{name}={}\n", name.to_uppercase()));
+    if spec.varkw {
+        text += "    Additional flags are accepted.\n";
+    }
+    text
+}
+
 fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Error> {
     let has = |name: &str| spec.positional.iter().any(|(parameter, _)| parameter == name) || spec.keyword.iter().any(|parameter| parameter == name);
     let logdir = args.values.iter().find(|(key, _)| key == "logdir").map(|(_, value)| value.clone()).filter(|value| *value != J::Null);
@@ -615,8 +634,12 @@ fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Erro
         (None, Some(J::Str(text))) if has("session_id") && text.contains(['/', '\\', '.']) => Some(text.clone()),
         _ => None,
     };
-    if let Some(target) = target.filter(|target| !has("destination") && !has("run_name") && !target.starts_with("gs://")) {
-        let path = expand(&target);
+    let mut local = logdir.as_ref().map(|logdir| expand(&logdir.text()));
+    if let Some(target) = target.filter(|_| !has("destination") && !has("run_name")) {
+        if target.contains("://") {
+            local = mirror(&target, logdir.is_some(), &spec.positional[0].0, args)?;
+        }
+        let path = local.clone().unwrap_or_else(|| expand(&args.string(&spec.positional[0].0, "")));
         if !path.exists() {
             return fail(Kind::FileNotFound, format!("Trace path '{target}' does not exist."));
         }
@@ -629,7 +652,42 @@ fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Erro
             *value = J::Str(value.text());
         }
     }
-    Ok(logdir.map(|logdir| expand(&logdir.text())))
+    Ok(local)
+}
+
+/// Syncs a remote logdir or session to the cache of the server, and returns the local logdir. A remote session then names its local copy.
+fn mirror(url: &str, logdir: bool, first: &str, args: &mut Args) -> Result<Option<std::path::PathBuf>, Error> {
+    let absent = |message: String| Error::new(Kind::FileNotFound, message);
+    let url = url.trim_end_matches('/');
+    let (url, file) = match url.rsplit_once('/') {
+        Some((dir, name)) if !logdir && client::TRACE_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) => (dir, name),
+        _ => (url, ""),
+    };
+    let (root, name) = if logdir { (url, "") } else { url.rsplit_once('/').filter(|(root, _)| !root.ends_with('/')).ok_or_else(|| absent(format!("Trace path '{url}' does not exist.")))? };
+    let remote = crate::server::remote::Remote::open(root).map_err(absent)?;
+    let session = args.session();
+    let dir = if logdir { remote.mirror.join("plugins/profile").join(&session) } else { remote.mirror.join(name) };
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|error| absent(error.to_string()))?;
+    runtime
+        .block_on(async {
+            if !logdir || !session.is_empty() {
+                remote.sync(&dir, true).await?;
+            }
+            if logdir && (session.is_empty() || client::traces(&dir).is_empty()) {
+                remote.sync(&remote.mirror, false).await?;
+                let run = Local { logdir: Some(remote.mirror.clone()), ..Local::default() }.run_dir(&session).map_err(|error| error.message)?;
+                remote.sync(&run, true).await?;
+            }
+            Ok::<_, String>(())
+        })
+        .map_err(absent)?;
+    if logdir {
+        return Ok(Some(remote.mirror));
+    }
+    if let Some((_, value)) = args.values.iter_mut().find(|(key, _)| key == first) {
+        *value = J::Str(dir.join(file).display().to_string());
+    }
+    Ok(None)
 }
 
 pub fn expand(path: &str) -> std::path::PathBuf {
@@ -769,7 +827,7 @@ pub fn execute(argv: &[String]) -> Option<(i32, Vec<u8>, String)> {
         return None;
     }
     if let Some((_, text, _)) = COMMANDS.iter().find(|(name, _, _)| name == command).filter(|_| argv.iter().skip(1).any(|argument| argument == "--help" || argument == "-h")) {
-        return Some((0, format!("NAME\n    xprof {command}\n\nSYNOPSIS\n    xprof {command} {}\n", usage(&spec(text))).into_bytes(), String::new()));
+        return Some((0, help(command, &spec(text)).into_bytes(), String::new()));
     }
     // The process exits soon after. To drop the loaded planes only costs time.
     Some(match invoke(Box::leak(Box::new(Local { fused: command == "check_host_boundness", ..Local::default() })), command, &argv[1..]) {

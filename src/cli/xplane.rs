@@ -3,7 +3,7 @@ use super::json::{J, py_isdigit, py_repr};
 use super::pyre::{self, Pattern};
 use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round, stdev};
 use crate::obj;
-use crate::tools::counters::{Event, Plane, checked, events, planes};
+use crate::tools::counters::{Event, Plane, capture, checked, events, planes};
 use crate::xplane::{Field, Value, fields, stats};
 use indexmap::IndexMap;
 use rayon::prelude::*;
@@ -75,17 +75,18 @@ fn value_text(value: Value) -> String {
     }
 }
 
-/// Runs `scan` on every line of every trace file, with its plane and its index. The lines run in parallel. The results keep the order of the planes and of the lines.
-fn scan_lines<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize) -> R + Sync) -> Result<Vec<R>, Error> {
-    scan_until(paths, |plane, index, _| scan(plane, index), |_| 0, usize::MAX)
+/// Runs `scan` on every line of every trace file, with its plane, its index and the capture window. The lines run in parallel. The results keep the order of the planes and of the lines.
+fn scan_lines<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize, Capture) -> R + Sync) -> Result<Vec<R>, Error> {
+    scan_until(paths, |plane, index, _, capture| scan(plane, index, capture), |_| 0, usize::MAX)
 }
 
 /// The results of `scan` for each line, in the order of the files. The scan stops after `limit` events. `count` gives the number of events in a result.
-fn scan_until<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize, usize) -> R + Sync, count: impl Fn(&R) -> usize + Sync, mut limit: usize) -> Result<Vec<R>, Error> {
+fn scan_until<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize, usize, Capture) -> R + Sync, count: impl Fn(&R) -> usize + Sync, mut limit: usize) -> Result<Vec<R>, Error> {
     let mut results = Vec::new();
     for path in paths {
         let scanned = checked(&super::read(path)?, |map| {
             let planes = planes(map, |_| true);
+            let capture = capture(&planes);
             let lines: Vec<(&Plane, usize)> = planes.iter().flat_map(|plane| (0..plane.lines.len()).map(move |index| (plane, index))).collect();
             // A few lines can hold most of the events. The largest lines start first, so that the scan does not wait for a large line at the end.
             let mut order: Vec<usize> = (0..lines.len()).collect();
@@ -94,7 +95,7 @@ fn scan_until<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize, usize) ->
             let mut done: Vec<(usize, R)> = (0..rayon::current_num_threads())
                 .into_par_iter()
                 .with_max_len(1)
-                .flat_map_iter(|_| std::iter::from_fn(|| order.get(next.fetch_add(1, Relaxed)).map(|&at| (at, scan(lines[at].0, lines[at].1, usize::MAX)))))
+                .flat_map_iter(|_| std::iter::from_fn(|| order.get(next.fetch_add(1, Relaxed)).map(|&at| (at, scan(lines[at].0, lines[at].1, usize::MAX, capture)))))
                 .collect();
             done.sort_unstable_by_key(|item| item.0);
             let mut found: Vec<R> = done.into_iter().map(|item| item.1).collect();
@@ -106,7 +107,7 @@ fn scan_until<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize, usize) ->
             if at < found.len() {
                 found.truncate(at);
                 if limit > 0 {
-                    found.push(scan(lines[at].0, lines[at].1, limit));
+                    found.push(scan(lines[at].0, lines[at].1, limit, capture));
                 }
                 limit = 0;
             }
@@ -117,7 +118,10 @@ fn scan_until<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize, usize) ->
     Ok(results)
 }
 
-fn visit_line(plane: &Plane, index: usize, mut each: impl FnMut(&Visit) -> bool) -> bool {
+type Capture = Option<(i64, i64)>;
+
+/// Visits the events of a line. With a capture window, it skips the events that start before the capture or end after it.
+fn visit_line(plane: &Plane, index: usize, capture: Capture, mut each: impl FnMut(&Visit) -> bool) -> bool {
     let (bytes, mut line, mut timestamp) = (plane.lines[index], String::new(), 0);
     for (tag, field) in fields(bytes) {
         match (tag, field) {
@@ -126,7 +130,14 @@ fn visit_line(plane: &Plane, index: usize, mut each: impl FnMut(&Visit) -> bool)
             _ => {}
         }
     }
-    events(bytes).all(|event| each(&Visit { plane, line: &line, timestamp, event }))
+    // XProf makes the line times relative to the capture start. Other traces keep the clock times.
+    let window = capture.map(|(start, stop)| {
+        let origin = if timestamp > start / 2 { start } else { 0 };
+        ((origin - timestamp) * 1000, (origin + stop - start - timestamp) * 1000)
+    });
+    events(bytes)
+        .filter(|event| window.is_none_or(|(low, high)| event.offset_ps as i64 >= low && event.offset_ps as i64 + event.duration_ps as i64 <= high))
+        .all(|event| each(&Visit { plane, line: &line, timestamp, event }))
 }
 
 /// The name of an event and if it matches. Only the events with a number as name need work for each event.
@@ -216,10 +227,10 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
         let wanted = if limit <= 0.0 { f64::INFINITY } else { skip.max(0.0).ceil() + limit.ceil() };
         let failed = AtomicBool::new(false);
         // Each plane keeps the first matches that can be in the answer. The planes join in order.
-        let parts = scan_lines(&sources(client, &session)?, |plane, index| {
+        let parts = scan_lines(&sources(client, &session)?, |plane, index, _| {
             let (mut listed, mut matched, mut names) = (Vec::new(), 0usize, Names::new(&events_re));
             if keep(plane) {
-                visit_line(plane, index, |visit| {
+                visit_line(plane, index, None, |visit| {
                     let offset_ps = (visit.start_ns() * 1000.0).trunc();
                     let duration_ps = (visit.duration_ns() * 1000.0).trunc();
                     let before = match &start {
@@ -283,12 +294,12 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
         // The scan stops after the first event above the limit, also in the middle of a line.
         let parts = scan_until(
             &paths,
-            |plane, index, cap| {
+            |plane, index, cap, capture| {
                 let (mut found, mut count, mut names) = (IndexMap::<String, Vec<i128>, FxBuildHasher>::default(), 0usize, Names::new(&events_re));
                 // The slot in `found` of each metadata with a name that is not a number. `None` is a name that does not match.
                 let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
                 if keep(plane) {
-                    visit_line(plane, index, |visit| {
+                    visit_line(plane, index, capture, |visit| {
                         count += 1;
                         let duration = || (visit.duration_ns() * 1000.0).trunc() as i128;
                         if let Some(slot) = slots.get(&visit.event.meta) {
@@ -443,7 +454,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             Err(message) => vec![Err(message.clone())],
         };
         let failure = std::sync::OnceLock::new();
-        let parts = scan_lines(&sources(client, &source)?, |plane, index| {
+        let parts = scan_lines(&sources(client, &source)?, |plane, index, capture| {
             let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
             if !plane.name.starts_with("/device:") {
                 return (durations, intervals, steps);
@@ -462,7 +473,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             };
             // The slot in `durations` of each metadata with a name that is not a number, for the events without `tf_op_name`. `None` is a name that the filters skip.
             let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
-            visit_line(plane, index, |visit| {
+            visit_line(plane, index, capture, |visit| {
                 let &mut (skipped, modules) = kind.get_or_insert_with(|| {
                     let line = visit.line.to_uppercase();
                     let skipped = if tpu { !DEVICE_LINES.iter().any(|word| line.contains(word)) } else { EXCLUDED_LINES.iter().any(|word| line.contains(word)) };
@@ -576,10 +587,10 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
     let function = args.get("func_name").filter(|name| name.truthy());
     let compute = || -> Result<Out, Error> {
         let failed = AtomicBool::new(false);
-        let parts = scan_lines(&sources(client, &source)?, |plane, index| {
+        let parts = scan_lines(&sources(client, &source)?, |plane, index, capture| {
             let (mut durations, mut line) = (Vec::new(), None);
             if plane.name.starts_with("/device:") {
-                visit_line(plane, index, |visit| {
+                visit_line(plane, index, capture, |visit| {
                     if !*line.get_or_insert_with(|| visit.line.to_uppercase().contains("XLA MODULES")) {
                         return true;
                     }
