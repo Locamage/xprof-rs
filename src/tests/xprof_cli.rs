@@ -372,6 +372,44 @@ fn test_multi_host_logdir_session_remote_and_help() {
 }
 
 #[test]
+fn test_remote_store_root_forms_use_latest_session_without_walking_other_runs() {
+    let demo = std::fs::read(super::e2e_oracles::DEMO).unwrap();
+    let root = scratch("remote-store-root");
+    for (run_name, session, hosts) in [("runA", "s1", &["h0", "h1"][..]), ("runA", "s2", &["h0"][..]), ("runB", "s1", &["h0"][..])] {
+        let dir = root.join(run_name).join("plugins/profile").join(session);
+        std::fs::create_dir_all(&dir).unwrap();
+        for host in hosts {
+            std::fs::write(dir.join(format!("{host}.xplane.pb")), &demo).unwrap();
+        }
+    }
+    let run_a = root.join("runA");
+    let session = run_a.join("plugins/profile/s1");
+    let root_url = format!("file://{}", root.display());
+    let run_url = format!("file://{}", run_a.display());
+    let local_run = run_a.display().to_string();
+    let local_session = session.display().to_string();
+    let cases = [
+        (vec!["get_overview".into(), "runA".into(), format!("--logdir={root_url}")], vec!["get_overview".into(), local_run.clone()]),
+        (vec!["get_overview".into(), "runA/plugins/profile/s1".into(), format!("--logdir={root_url}")], vec!["get_overview".into(), local_session.clone()]),
+        (vec!["get_overview".into(), format!("{run_url}/plugins/profile/s1")], vec!["get_overview".into(), local_session]),
+        (vec!["get_overview".into(), run_url.clone(), "s1".into()], vec!["get_overview".into(), local_run.clone(), "s1".into()]),
+        (vec!["get_overview".into(), "s1".into(), format!("--logdir={run_url}")], vec!["get_overview".into(), "s1".into(), format!("--logdir={local_run}")]),
+        (vec!["get_overview".into(), run_url], vec!["get_overview".into(), local_run]),
+    ];
+    for (remote, local) in cases {
+        let execute = |args: &[String]| {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let (code, out, err) = run(&args);
+            assert_eq!(code, 0, "{args:?}: {out} {err}");
+            out
+        };
+        assert_eq!(execute(&remote), execute(&local), "{remote:?}");
+    }
+    let remote = crate::server::remote::Remote::open(&root_url).unwrap();
+    assert!(!remote.mirror.join("runB").exists(), "whole store was mirrored at {}", remote.mirror.display());
+}
+
+#[test]
 fn test_events_outside_the_capture_are_flagged() {
     let demo = super::e2e_oracles::DEMO;
     // The capture of the demo lasts this long. Its last host events end after it.

@@ -118,9 +118,9 @@ impl Remote {
             Ok(listed) => listed.map_err(|error| unreadable(error.to_string())),
             Err(_) => Err(unreadable(format!("No answer in {LIST_TIMEOUT:?}"))),
         };
-        if dir == self.mirror {
+        if dir == self.mirror || dir.ends_with(Path::new("plugins/profile")) {
             // The walk lists `plugins/profile` of each run for its sessions. The folders of each level list in parallel.
-            let (listing, mut pending) = (&listing, vec![(key, false)]);
+            let (listing, mut pending) = (&listing, vec![(key, dir != self.mirror)]);
             while !pending.is_empty() {
                 let listed: Vec<_> = stream::iter(std::mem::take(&mut pending))
                     .map(|(prefix, profile)| async move { listing(&prefix).await.map(|listed| (listed.common_prefixes, profile)) })

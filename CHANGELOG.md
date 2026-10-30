@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Remote logdirs resolve run roots to their latest profile session without walking unrelated runs in the object store.
+
 ## 0.1.3
 
 This release is faster, and it uses less memory on large profiles. More outputs are now the same as the outputs of XProf 2.23.2. The release binary is smaller, and PyPI has wheels of the binary.

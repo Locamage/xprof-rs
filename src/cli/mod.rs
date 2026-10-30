@@ -659,6 +659,24 @@ fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Erro
     Ok(local)
 }
 
+async fn latest(remote: &crate::server::remote::Remote, dir: &std::path::Path) -> Result<Option<std::path::PathBuf>, String> {
+    remote.sync(dir, true).await?;
+    if !client::traces(dir).is_empty() {
+        return Ok(Some(dir.to_path_buf()));
+    }
+    let profile = dir.join("plugins/profile");
+    remote.sync(&profile, false).await?;
+    let mut sessions: Vec<std::path::PathBuf> = std::fs::read_dir(&profile).into_iter().flatten().flatten().map(|entry| entry.path()).filter(|path| path.is_dir()).collect();
+    sessions.sort();
+    if let Some(session) = sessions.pop() {
+        remote.sync(&session, true).await?;
+        if !client::traces(&session).is_empty() {
+            return Ok(Some(session));
+        }
+    }
+    Ok(None)
+}
+
 /// Syncs a remote logdir or session to the cache of the server, and returns the local logdir. A remote session then names its local copy.
 fn mirror(url: &str, logdir: bool, first: &str, args: &mut Args) -> Result<Option<std::path::PathBuf>, Error> {
     let absent = |message: String| Error::new(Kind::FileNotFound, message);
@@ -672,24 +690,43 @@ fn mirror(url: &str, logdir: bool, first: &str, args: &mut Args) -> Result<Optio
     let session = Some(args.session()).filter(|session| !session.is_empty()).unwrap_or_else(|| args.string(first, ""));
     let dir = if logdir { remote.mirror.join("plugins/profile").join(&session) } else { remote.mirror.join(name) };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|error| absent(error.to_string()))?;
-    runtime
+    let resolved = runtime
         .block_on(async {
-            if !logdir || !session.is_empty() {
+            let resolved = if logdir {
+                let found = if session.is_empty() {
+                    latest(&remote, &remote.mirror).await?
+                } else {
+                    remote.sync(&dir, true).await?;
+                    if client::traces(&dir).is_empty() { latest(&remote, &remote.mirror.join(&session)).await? } else { Some(dir.clone()) }
+                };
+                if found.is_none() {
+                    remote.sync(&remote.mirror, false).await?;
+                    let run = Local { logdir: Some(remote.mirror.clone()), ..Local::default() }.run_dir(&session).map_err(|error| error.message)?;
+                    remote.sync(&run, true).await?;
+                }
+                Ok::<_, String>(found)
+            } else if file.is_empty() {
+                let found = latest(&remote, &dir).await?;
+                if found.is_none() {
+                    remote.sync(&remote.mirror, false).await?;
+                    let run = Local { logdir: Some(remote.mirror.clone()), ..Local::default() }.run_dir(name).map_err(|error| error.message)?;
+                    remote.sync(&run, true).await?;
+                    Ok(Some(run))
+                } else {
+                    Ok(found)
+                }
+            } else {
                 remote.sync(&dir, true).await?;
-            }
-            if logdir && (session.is_empty() || client::traces(&dir).is_empty()) {
-                remote.sync(&remote.mirror, false).await?;
-                let run = Local { logdir: Some(remote.mirror.clone()), ..Local::default() }.run_dir(&session).map_err(|error| error.message)?;
-                remote.sync(&run, true).await?;
-            }
-            Ok::<_, String>(())
+                Ok(Some(dir.clone()))
+            };
+            resolved
         })
         .map_err(absent)?;
     if logdir {
         return Ok(Some(remote.mirror));
     }
     if let Some((_, value)) = args.values.iter_mut().find(|(key, _)| key == first) {
-        *value = J::Str(dir.join(file).display().to_string());
+        *value = J::Str(resolved.unwrap_or(dir).join(file).display().to_string());
     }
     Ok(None)
 }
