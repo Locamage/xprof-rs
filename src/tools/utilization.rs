@@ -35,25 +35,15 @@ const SCS_SLOTS: [(&str, &str); 4] = [
     ("SCS: S1 Slot", "S1_INSTRUCTION"),
     ("SCS: Smisc Slot", "SMISC_INSTRUCTION"),
 ];
-const V6E_VECTOR_SLOTS: [(&str, &str); 8] = [
-    ("SC Vector Issue", "VECTOR_ISSUE"),
-    ("SC Vector Issue:V0 Slot", "V0_INSTRUCTION"),
-    ("SC Vector Issue: V1 Slot", "V1_INSTRUCTION"),
-    ("SC Vector Issue: V2 Slot", "V2_INSTRUCTION"),
-    ("SC Vector Issue: VLD Slot", "VLD_INSTRUCTION"),
-    ("SC Vector Issue: VST Slot", "VST_INSTRUCTION"),
-    ("SC Vector Issue:VEX Slot", "VEX_INSTRUCTION"),
-    ("SC Vector Issue:VRES Slot", "VRES_INSTRUCTION"),
-];
-const V7X_VECTOR_SLOTS: [(&str, &str); 8] = [
-    ("SC Vector Issue", "VECTOR_ISSUE"),
-    ("SC Vector Issue: V0 Slot", "V0_INSTRUCTION"),
-    ("SC Vector Issue: V1 Slot", "V1_INSTRUCTION"),
-    ("SC Vector Issue: V2 Slot", "V2_INSTRUCTION"),
-    ("SC Vector Issue: VLD Slot", "VLD_INSTRUCTION"),
-    ("SC Vector Issue: VST Slot", "VST_INSTRUCTION"),
-    ("SC Vector Issue: VEX Slot", "VEX_INSTRUCTION"),
-    ("SC Vector Issue: VRES Slot", "VRES_INSTRUCTION"),
+const VECTOR_SLOTS: [(&str, &str, &str); 8] = [
+    ("SC Vector Issue", "SC Vector Issue", "VECTOR_ISSUE"),
+    ("SC Vector Issue:V0 Slot", "SC Vector Issue: V0 Slot", "V0_INSTRUCTION"),
+    ("SC Vector Issue: V1 Slot", "SC Vector Issue: V1 Slot", "V1_INSTRUCTION"),
+    ("SC Vector Issue: V2 Slot", "SC Vector Issue: V2 Slot", "V2_INSTRUCTION"),
+    ("SC Vector Issue: VLD Slot", "SC Vector Issue: VLD Slot", "VLD_INSTRUCTION"),
+    ("SC Vector Issue: VST Slot", "SC Vector Issue: VST Slot", "VST_INSTRUCTION"),
+    ("SC Vector Issue:VEX Slot", "SC Vector Issue: VEX Slot", "VEX_INSTRUCTION"),
+    ("SC Vector Issue:VRES Slot", "SC Vector Issue: VRES Slot", "VRES_INSTRUCTION"),
 ];
 const VPU_OPS: [&str; 5] = ["FADD", "FMUL", "MISC", "INT", "FMAC"];
 const XLU_INSTRUCTIONS: [&str; 4] = [
@@ -297,18 +287,15 @@ fn sparse_core(
                 .map(|tile| device.id(&format!("{prefix}_{subsystem}_{tile}{SC_SUFFIX}{name}"))),
         )
     };
-    let (scalar, vector, slots) = if device == Device::V6e {
-        ("SCT", "SCT", &V6E_VECTOR_SLOTS)
-    } else {
-        ("SCTD", "SCTC", &V7X_VECTOR_SLOTS)
-    };
+    let (scalar, vector) = if device == Device::V6e { ("SCT", "SCT") } else { ("SCTD", "SCTC") };
     let cycle_peak = count(counters, device.id(&format!("{prefix}_{scalar}_0{SC_SUFFIX}CYCLES")))
         .wrapping_mul(SC_TILES as u64) as f64;
     for (metric, name) in TEC_SLOTS {
         add(metrics, node, metric, tiles(scalar, name) as f64, cycle_peak, INSTRUCTIONS);
     }
-    for (metric, name) in slots {
-        add(metrics, node, metric, tiles(vector, name) as f64, cycle_peak, INSTRUCTIONS);
+    for (v6e_label, v7x_label, name) in VECTOR_SLOTS {
+        let label = if device == Device::V6e { v6e_label } else { v7x_label };
+        add(metrics, node, label, tiles(vector, name) as f64, cycle_peak, INSTRUCTIONS);
     }
     let sequencer =
         |name: &str| count(counters, device.id(&format!("{prefix}_SCS{SC_SUFFIX}{name}"))) as f64;
