@@ -156,11 +156,13 @@ pub fn overview(
             return fail(Kind::Value, "Unexpected overview page data format");
         }
         let mut all = J::Map(Vec::new());
-        sections
+        let properties = sections
             .items()
             .iter()
-            .flat_map(|section| section.at("p").entries())
-            .for_each(|(key, value)| all.set(key, value));
+            .flat_map(|section| section.at("p").entries());
+        for (key, value) in properties {
+            all.set(key, value);
+        }
         let environment = sections.items().iter().find_map(|section| {
             let columns: Vec<String> = section
                 .get("rows")

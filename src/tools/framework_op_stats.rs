@@ -373,9 +373,9 @@ fn table(stats: &OpStats, host: &Db, device: &Db, exclude_idle: bool) -> String 
             "GPU TensorCore utilization",
         );
     }
-    COLUMNS[COLUMNS.len() - 2..]
-        .iter()
-        .for_each(|(id, kind, label)| table.column(id, kind, label));
+    for (id, kind, label) in &COLUMNS[COLUMNS.len() - 2..] {
+        table.column(id, kind, label);
+    }
     let kernels = crate::xplane::gpu::by_op_name(&stats.kernels);
     let (mut rank, mut device_cumulative, mut host_cumulative, mut train) = (0u64, 0.0, 0.0, false);
     for (on_device, db) in [(true, device), (false, host)] {

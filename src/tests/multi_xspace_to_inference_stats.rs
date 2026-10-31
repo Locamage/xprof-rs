@@ -52,9 +52,9 @@ fn test_with_multiple_xspaces() {
         })
         .collect();
     let stats = load(&paths);
-    paths
-        .iter()
-        .for_each(|path| std::fs::remove_file(path).unwrap());
+    for path in &paths {
+        std::fs::remove_file(path).unwrap();
+    }
     assert!(stats.is_some());
 }
 

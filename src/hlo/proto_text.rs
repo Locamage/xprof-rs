@@ -297,9 +297,9 @@ static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
                 .max()
                 .unwrap_or(0)
         ];
-        message
-            .fields()
-            .for_each(|field| checks[field.number() as usize] = check(field.clone()));
+        for field in message.fields() {
+            checks[field.number() as usize] = check(field.clone());
+        }
         checks
     };
     let checks = messages.iter().map(table).collect();
@@ -487,9 +487,9 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                 entries.insert(entry_key, bytes);
             }
             if !json {
-                entries
-                    .values()
-                    .for_each(|bytes| emit(out, depth, spec, &Field::Bytes(0, bytes), format));
+                for bytes in entries.values() {
+                    emit(out, depth, spec, &Field::Bytes(0, bytes), format);
+                }
             } else if !entries.is_empty() || always(spec) {
                 key(out);
                 out.push('{');

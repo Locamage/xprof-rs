@@ -122,10 +122,9 @@ pub fn transmitted_bytes(size: i64, group: i64, transfer_type: &str) -> u64 {
 fn averaged(mut summaries: Vec<Summary>) -> Vec<Summary> {
     for summary in &mut summaries {
         let occurrences = summary.occurrences as f64;
-        summary
-            .times_us
-            .iter_mut()
-            .for_each(|time| *time = safe_divide(*time as f64, occurrences) as u64);
+        for time in &mut summary.times_us {
+            *time = safe_divide(*time as f64, occurrences) as u64;
+        }
     }
     summaries
 }

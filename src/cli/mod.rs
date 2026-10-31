@@ -945,16 +945,15 @@ fn help(command: &str, spec: &Spec) -> String {
         spec.positional.iter().partition(|(_, required)| *required);
     if !required.is_empty() {
         text += "\nPOSITIONAL ARGUMENTS\n";
-        required
-            .iter()
-            .for_each(|(name, _)| text += &format!("    {}\n", name.to_uppercase()));
+        for (name, _) in &required {
+            text += &format!("    {}\n", name.to_uppercase());
+        }
     }
     text += "\nFLAGS\n";
-    optional
-        .iter()
-        .map(|(name, _)| name)
-        .chain(&spec.keyword)
-        .for_each(|name| text += &format!("    --{name}={}\n", name.to_uppercase()));
+    let flags = optional.iter().map(|(name, _)| name).chain(&spec.keyword);
+    for name in flags {
+        text += &format!("    --{name}={}\n", name.to_uppercase());
+    }
     if spec.varkw {
         text += "    Additional flags are accepted.\n";
     }

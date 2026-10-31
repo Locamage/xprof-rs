@@ -465,11 +465,13 @@ fn summarize(steps: &[J], props: Option<&J>) -> J {
 fn overview_steps(raw: &str) -> Option<J> {
     let sections = J::parse(raw)?;
     let mut all = J::Map(Vec::new());
-    sections
+    let properties = sections
         .items()
         .iter()
-        .flat_map(|section| section.at("p").entries())
-        .for_each(|(key, value)| all.set(key, value));
+        .flat_map(|section| section.at("p").entries());
+    for (key, value) in properties {
+        all.set(key, value);
+    }
     let mut step = finite(all.at("steptime_ms_average"));
     if step <= 0.0 && all.has("stat_step_time") {
         step = super::json::py_float(all.at("stat_step_time").text().replace("ms", "").trim())

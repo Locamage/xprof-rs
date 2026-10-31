@@ -354,7 +354,9 @@ pub fn json(planes: &[Plane], map: &[u8]) -> String {
         return String::new();
     };
     let mut allocators = generate(host, map);
-    allocators.values_mut().for_each(process);
+    for allocator in allocators.values_mut() {
+        process(allocator);
+    }
     let memory_ids = allocators
         .iter()
         .filter(|(_, allocator)| !allocator.snapshots.is_empty())

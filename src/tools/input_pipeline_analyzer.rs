@@ -545,9 +545,9 @@ fn tpu_steps(
         .filter(|column| !has_sparse_core || !column.0.starts_with("scv0"))
         .collect();
     steps.column("stepnum", "string", "stepnum");
-    columns
-        .iter()
-        .for_each(|(id, label, _, _)| steps.column(id, "number", label));
+    for (id, label, _, _) in &columns {
+        steps.column(id, "number", label);
+    }
     let ids: Vec<&str> = steps
         .columns
         .iter()
@@ -582,9 +582,9 @@ fn tpu_steps(
         steps.prop(&format!("steptime_ms_{name}"), two(step_summary[index]));
         steps.prop(&format!("infeed_percent_{name}"), one(input_percent[index]));
     }
-    columns
-        .iter()
-        .for_each(|(_, _, key, index)| steps.prop(key, two(breakdown[*index][0])));
+    for (_, _, key, index) in &columns {
+        steps.prop(key, two(breakdown[*index][0]));
+    }
     if has_sparse_core && breakdown[SC_COMPUTE + 2][2] > 0.0 {
         for (key, value) in [
             ("sc_compute", breakdown[SC_COMPUTE][0]),
@@ -614,8 +614,9 @@ fn tpu_steps(
         row.extend(step.infeed_percent.map(Cell::Number));
     }
     cores.column("index", "string", "Index");
-    (0..tpu_steps.len())
-        .for_each(|index| cores.column(&index.to_string(), "string", &index.to_string()));
+    for index in 0..tpu_steps.len() {
+        cores.column(&index.to_string(), "string", &index.to_string());
+    }
     let numbers = tpu_steps
         .iter()
         .map(|step| Cell::Text(step.step_number.to_string()));
@@ -720,9 +721,9 @@ fn generic_steps_table(
         ]
     };
     steps.column("stepnum", "string", "Step number");
-    GENERIC_COLUMNS
-        .iter()
-        .for_each(|(id, label, _, _, _)| steps.column(id, "number", label));
+    for (id, label, _, _, _) in GENERIC_COLUMNS {
+        steps.column(id, "number", label);
+    }
     let ids: Vec<&str> = steps
         .columns
         .iter()
@@ -744,7 +745,8 @@ fn generic_steps_table(
         steps.prop(&format!("{key}_sdv"), one(generic_breakdown[index][1]));
     }
     steps.prop("input_conclusion", bottleneck[0].1.clone());
-    for ((_, statement), prefix) in bottleneck.iter().zip(BOTTLENECK_PREFIXES).skip(1) {
+    let bottlenecks = bottleneck.iter().zip(BOTTLENECK_PREFIXES).skip(1);
+    for ((_, statement), prefix) in bottlenecks {
         steps.prop(&format!("{prefix}bottleneck"), statement.clone());
         steps.prop(&format!("{prefix}statement"), statement.clone());
     }
@@ -828,10 +830,9 @@ pub fn analyze(stats: &OpStats) -> Analysis {
         0.0
     };
     let (mut host, input_time) = host_result(&stats.host, stats.infeed_enqueue, fallback_ratio);
-    INPUT_TIMES
-        .iter()
-        .zip(input_time)
-        .for_each(|(key, value)| host.prop(key, fixed(value, 3)));
+    for (key, value) in INPUT_TIMES.iter().zip(input_time) {
+        host.prop(key, fixed(value, 3));
+    }
     let tf_data = input_time[1..4].iter().any(|&time| time > 0.0);
     let (bottleneck, classification) = if tpu {
         tpu_steps(extra, &mut steps, &mut cores, step_summary)

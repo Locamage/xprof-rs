@@ -332,11 +332,11 @@ pub fn repr_into(out: &mut String, value: f64) {
         .split_once('e')
         .expect("scientific notation has an exponent");
     let mut digits = Short::default();
-    mantissa.split('.').for_each(|part| {
+    for part in mantissa.split('.') {
         digits
             .write_str(part)
             .expect("significand fits in the formatting buffer");
-    });
+    }
     let (digits, exponent) = (
         &mut digits.bytes[..digits.len],
         exponent

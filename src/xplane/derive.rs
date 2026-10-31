@@ -296,11 +296,9 @@ impl Derived {
                 event.dur = event.dur.saturating_sub(PS_PER_NS * shrink as u64);
             }
         }
-        builder
-            .last
-            .iter_mut()
-            .skip(level)
-            .for_each(|last| *last = None);
+        for last in builder.last.iter_mut().skip(level) {
+            *last = None;
+        }
         if level == 0 {
             for &dependent in builder.dependents {
                 self.reset(dependent, 0);
@@ -743,7 +741,9 @@ fn steps(plane: &mut Plane, map: &[u8], names: &HashMap<i64, String>) {
         .into_lines(false)
         .pop()
         .expect("collection is non-empty");
-    line.longs.iter_mut().for_each(|long| *long = "".into());
+    for long in &mut line.longs {
+        *long = "".into();
+    }
     for (index, event) in line.events.iter().enumerate() {
         if let Some(name) = names.get(&event.group) {
             line.args.insert(

@@ -584,7 +584,8 @@ fn merge_host_steps_test() {
         );
     }
     device.named_line(2, "XLA Ops");
-    for (index, ((offset, _), done)) in spans.into_iter().zip([5, 95, 45, 20]).enumerate() {
+    let events = spans.into_iter().zip([5, 95, 45, 20]).enumerate();
+    for (index, ((offset, _), done)) in events {
         device.event(
             2,
             "offload.start.1",

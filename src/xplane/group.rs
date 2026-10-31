@@ -220,7 +220,9 @@ fn csr(nodes: usize, parts: &[&[(u32, u32)]], by_child: bool) -> Members {
             .filter(|edge| edge.0 != NO_PARENT)
     };
     let mut offsets = vec![0u32; nodes + 1];
-    edges().for_each(|edge| offsets[key(edge)] += 1);
+    for edge in edges() {
+        offsets[key(edge)] += 1;
+    }
     offsets.iter_mut().fold(0, |sum, offset| {
         *offset += sum;
         *offset
@@ -662,9 +664,9 @@ fn build_graph(planes: &[Plane], jobs: &[Job], outs: &[Out], nodes: u32) -> (Gra
         .filter(|iterations| !(iterations.len() == 1 && iterations.contains_key(&0)))
         .flat_map(|iterations| iterations.values().cloned())
         .collect();
-    iterations
-        .iter_mut()
-        .for_each(|nodes| nodes.sort_by_key(|&node| order(node)));
+    for nodes in &mut iterations {
+        nodes.sort_by_key(|&node| order(node));
+    }
     iterations.sort_by_key(|nodes| order(nodes[0]));
     edges.extend(
         iterations

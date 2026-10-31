@@ -14,18 +14,16 @@ use std::sync::{LazyLock, OnceLock};
 
 static NAMES: LazyLock<HashMap<&str, (bool, [u8; ROLES])>> = LazyLock::new(|| {
     let mut names: HashMap<&str, (bool, [u8; ROLES])> = HashMap::new();
-    INTERNAL_EVENTS
-        .split(' ')
-        .for_each(|name| names.entry(name).or_default().0 = true);
+    for name in INTERNAL_EVENTS.split(' ') {
+        names.entry(name).or_default().0 = true;
+    }
     for (index, connection) in CONNECTIONS.iter().enumerate() {
-        connection
-            .producers
-            .split(' ')
-            .for_each(|name| names.entry(name).or_default().1[index] = 1);
-        connection
-            .consumers
-            .split(' ')
-            .for_each(|name| names.entry(name).or_default().1[index] = 2);
+        for name in connection.producers.split(' ') {
+            names.entry(name).or_default().1[index] = 1;
+        }
+        for name in connection.consumers.split(' ') {
+            names.entry(name).or_default().1[index] = 2;
+        }
     }
     names
 });
@@ -590,9 +588,9 @@ pub fn parse_checking(
             &name.iter().map(|&byte| byte as u64).collect::<Vec<_>>(),
         )
     });
-    planes
-        .iter_mut()
-        .for_each(|plane| (plane.origin_ns, plane.host) = (origin, host));
+    for plane in &mut planes {
+        (plane.origin_ns, plane.host) = (origin, host);
+    }
     planes
         .par_iter_mut()
         .flat_map(|plane| plane.lines.par_iter_mut())

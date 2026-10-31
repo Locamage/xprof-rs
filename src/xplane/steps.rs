@@ -272,7 +272,9 @@ impl<T> Nest<T> {
 
 fn nest<T>(items: impl Iterator<Item = (Span, T)>, mut finish: impl FnMut(T, Span, u64)) {
     let mut open = Nest(Vec::new());
-    items.for_each(|(span, item)| open.push(span, item, &mut finish));
+    for (span, item) in items {
+        open.push(span, item, &mut finish);
+    }
     open.end(&mut finish);
 }
 
@@ -533,10 +535,9 @@ fn device_lines(
                     );
                 }
                 if name == "Sparse Core Ops" {
-                    device
-                        .active
-                        .iter_mut()
-                        .for_each(|intervals| add_interval(intervals, begin, end));
+                    for intervals in &mut device.active {
+                        add_interval(intervals, begin, end);
+                    }
                 }
             }
         }
@@ -655,7 +656,7 @@ fn device_lines(
             }
             device.events = result;
         } else {
-            grouped.for_each(drop);
+            for _ in grouped {}
         }
     }
     if !device.events.is_empty() {
@@ -1127,7 +1128,8 @@ fn is_training(planes: &[Plane], map: &[u8]) -> bool {
 }
 
 fn add_metrics(total: &mut [Metrics; 2], part: &[Metrics; 2], times: [u64; 2]) {
-    for ((sum, part), time) in total.iter_mut().zip(part).zip(times) {
+    let metrics = total.iter_mut().zip(part).zip(times);
+    for ((sum, part), time) in metrics {
         accumulate(sum, part);
         sum.time_ps = sum.time_ps.wrapping_add(time);
     }
@@ -1317,7 +1319,8 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates], read: bool) 
     let mut step_events: StepEvents = HashMap::new();
     let mut chips: BTreeMap<(bool, u32), [Tracker; 2]> = BTreeMap::new();
     let mut programs = Vec::new();
-    for (index, ((_, plane), output)) in devices.iter().zip(outputs).enumerate() {
+    let device_outputs = devices.iter().zip(outputs).enumerate();
+    for (index, ((_, plane), output)) in device_outputs {
         if !output.events.is_empty() {
             intersect(output.events, &mut step_events, Details::combine);
         }
@@ -1576,25 +1579,25 @@ pub fn combine(all: &[&Extra]) -> Extra {
             .filter(|_| workers.contains(&host))
         {
             let source = &extra.steps[first_steps[host] as usize + index];
-            source.cores.iter().for_each(|(core, info)| {
+            for (core, info) in &source.cores {
                 _ = record
                     .cores
                     .entry(global(core))
                     .or_insert_with(|| info.clone());
-            });
-            source.collectives.iter().for_each(|(core, reduces)| {
+            }
+            for (core, reduces) in &source.collectives {
                 _ = record
                     .collectives
                     .entry(global(core))
                     .or_insert_with(|| reduces.clone());
-            });
+            }
         }
-        extra.cores.iter().for_each(|(core, details)| {
+        for (core, details) in &extra.cores {
             _ = combined
                 .cores
                 .entry(global(core))
                 .or_insert_with(|| details.clone());
-        });
+        }
         for name in &extra.hostnames {
             if !combined.hostnames.contains(name) {
                 combined.hostnames.push(name.clone());

@@ -351,10 +351,9 @@ fn the_reads_of_the_op_statistics_give_the_same_program_steps() {
             .iter_mut()
             .zip([&[1, 2][..], &[1], &[1, 1, NONE_GROUP, 2]])
     {
-        line.events
-            .iter_mut()
-            .zip(groups)
-            .for_each(|(event, &group)| event.group = group);
+        for (event, &group) in line.events.iter_mut().zip(groups) {
+            event.group = group;
+        }
     }
     let templates = [templates(&planes[0], &map)];
     let sums = |extra: &crate::xplane::steps::Extra| {

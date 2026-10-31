@@ -149,9 +149,9 @@ pub fn op_stats(spaces: &[XSpace]) -> Option<Arc<OpStats>> {
 
 pub fn grouped(space: &XSpace) -> (Vec<u8>, Vec<Plane>, Option<HashMap<i64, String>>) {
     let (map, mut planes) = space.parsed();
-    planes
-        .iter_mut()
-        .for_each(|plane| plane.add_threadpool_regions(&map));
+    for plane in &mut planes {
+        plane.add_threadpool_regions(&map);
+    }
     let names = crate::xplane::group::group(&mut planes, &map).map(|groups| groups.names);
     (map, planes, names)
 }
@@ -263,10 +263,12 @@ fn without_unmodeled(message: &mut DynamicMessage) {
             continue;
         };
         match message.get_field_mut(&field) {
-            Value::List(items) => items
-                .iter_mut()
-                .filter_map(|item| item.as_message_mut())
-                .for_each(without_unmodeled),
+            Value::List(items) => {
+                let messages = items.iter_mut().filter_map(|item| item.as_message_mut());
+                for message in messages {
+                    without_unmodeled(message);
+                }
+            }
             Value::Message(child) => without_unmodeled(child),
             _ => {}
         }

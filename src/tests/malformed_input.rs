@@ -70,10 +70,9 @@ fn threadpool_regions(consumer: crate::tests::xspace::V) -> usize {
     let consumer = [("_ct", V::from(15)), ("_c", consumer)];
     plane.event(1, "ThreadpoolListener::StartRegion", 0, 0, &consumer);
     plane.event(1, "ThreadpoolListener::StopRegion", 300, 0, &consumer);
-    plane
-        .lines
-        .iter_mut()
-        .for_each(|line| line.timestamp_ns = 5);
+    for line in &mut plane.lines {
+        line.timestamp_ns = 5;
+    }
     let (map, mut planes) = space.parsed();
     planes[0].add_threadpool_regions(&map);
     let plane = &planes[0];
@@ -319,7 +318,8 @@ fn hlo_text_proto_with_deep_nesting() {
             lengths.push(inner + 1 + encoded_len_varint(inner) as u64);
         }
         let mut chain = Vec::new();
-        for &length in lengths.iter().rev().skip(1) {
+        let lengths = lengths.iter().rev().skip(1);
+        for &length in lengths {
             chain.push(tuple_shape);
             encode_varint(length, &mut chain);
         }

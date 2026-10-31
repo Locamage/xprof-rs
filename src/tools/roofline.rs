@@ -252,7 +252,7 @@ pub fn accumulate(sum: &mut Metrics, part: &Metrics) {
 
 pub fn program(db: &Db) -> ([Metrics; 2], u64) {
     let mut program = Default::default();
-    db.metrics.iter().for_each(|metrics| {
+    for metrics in &db.metrics {
         add_scaled(
             &mut program,
             sums(metrics),
@@ -265,7 +265,7 @@ pub fn program(db: &Db) -> ([Metrics; 2], u64) {
             &metrics.memory,
             1,
         );
-    });
+    }
     program
 }
 

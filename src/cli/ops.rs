@@ -217,9 +217,9 @@ fn leaves(node: &J, prefix: &str, out: &mut Vec<J>) {
     if !children(node).is_empty()
         && fsum(children(node).iter().map(|child| number(child, "raw_time"))) > 0.0
     {
-        children(node)
-            .iter()
-            .for_each(|child| leaves(child, &full, out));
+        for child in children(node) {
+            leaves(child, &full, out);
+        }
         return;
     }
     if number(node, "raw_time") <= 0.0 {
@@ -701,9 +701,9 @@ fn instructions(node: &J, prefix: &str, out: &mut Vec<J>) {
     } else {
         format!("{prefix}/{name}")
     };
-    children(node)
-        .iter()
-        .for_each(|child| instructions(child, &child_prefix, out));
+    for child in children(node) {
+        instructions(child, &child_prefix, out);
+    }
 }
 
 pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {

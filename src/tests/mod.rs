@@ -126,12 +126,14 @@ pub fn temp_dir() -> std::path::PathBuf {
     static ROOT: std::sync::LazyLock<std::path::PathBuf> = std::sync::LazyLock::new(|| {
         fn remove(path: &std::path::Path) {
             _ = std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o700));
-            std::fs::read_dir(path)
+            let directories = std::fs::read_dir(path)
                 .into_iter()
                 .flatten()
                 .map_while(Result::ok)
-                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-                .for_each(|entry| remove(&entry.path()));
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()));
+            for entry in directories {
+                remove(&entry.path());
+            }
             _ = std::fs::remove_dir_all(path);
         }
         let base = std::env::temp_dir();

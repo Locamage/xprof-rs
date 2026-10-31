@@ -214,9 +214,9 @@ fn varying_step_durations() {
     let steps = (0..5)
         .map(|index| {
             let mut step = create_one_test_step(0, 5, index, index as u64 * 2 * STEP_DURATION_PS);
-            step.cores
-                .values_mut()
-                .for_each(|info| info.duration = 2 * STEP_DURATION_PS);
+            for info in step.cores.values_mut() {
+                info.duration = 2 * STEP_DURATION_PS;
+            }
             step
         })
         .collect();
@@ -254,10 +254,9 @@ fn zero_duration_steps() {
     let perhost_stepdb: Vec<Extra> = (0..2)
         .map(|host_id| {
             let mut zero_duration_step = create_one_test_step(host_id, 3, 1, STEP_DURATION_PS);
-            zero_duration_step
-                .cores
-                .values_mut()
-                .for_each(|info| info.duration = 0);
+            for info in zero_duration_step.cores.values_mut() {
+                info.duration = 0;
+            }
             host(vec![
                 create_one_test_step(host_id, 3, 0, 0),
                 zero_duration_step,

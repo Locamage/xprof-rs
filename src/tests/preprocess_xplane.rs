@@ -79,9 +79,9 @@ fn missing_legacy_stat_test() {
 
 fn regions(space: &XSpace) -> Vec<(u64, u64)> {
     let (map, mut planes) = space.parsed();
-    planes
-        .iter_mut()
-        .for_each(|plane| plane.add_threadpool_regions(&map));
+    for plane in &mut planes {
+        plane.add_threadpool_regions(&map);
+    }
     let plane: &Plane = &planes[0];
     plane
         .lines

@@ -1313,7 +1313,8 @@ fn assign_levels(
                     break;
                 }
                 let mut found = 0;
-                for (position, &(ts, dur)) in compact.iter().enumerate().take(end).skip(start) {
+                let events = compact.iter().enumerate().take(end).skip(start);
+                for (position, &(ts, dur)) in events {
                     let state = assigned[position].load(Relaxed);
                     let (current, unbound, flow) = (
                         state & UNASSIGNED,
@@ -1346,7 +1347,9 @@ fn assign_levels(
         if compact.len() < PIPELINE
             || (!cfg!(test) && compact.len() < events.len() / rayon::current_num_threads())
         {
-            (0..SPLIT).for_each(pass);
+            for level in 0..SPLIT {
+                pass(level);
+            }
         } else {
             std::thread::scope(|scope| {
                 for level in 1..SPLIT {
@@ -1355,10 +1358,10 @@ fn assign_levels(
                 pass(0);
             });
         }
-        indices.iter().zip(assigned).for_each(|(&index, level)| {
+        for (&index, level) in indices.iter().zip(assigned) {
             levels[index as usize]
                 .store((level.into_inner() & UNASSIGNED).min(SPLIT as u8), Relaxed);
-        });
+        }
     });
     levels.into_iter().map(AtomicU8::into_inner).collect()
 }

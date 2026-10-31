@@ -235,7 +235,9 @@ impl Shape {
                 self.tuple_shapes.clear();
             }
         }
-        self.tuple_shapes.iter_mut().for_each(Self::normalize);
+        for shape in &mut self.tuple_shapes {
+            Self::normalize(shape);
+        }
     }
 
     pub fn print(&self, out: &mut String, layout: bool) {
@@ -957,7 +959,7 @@ pub fn load(dir: &Path, module: &str) -> Option<Arc<Module<'static>>> {
     let data = std::fs::read(&path).ok()?;
     let complete = |buf: &[u8]| {
         let mut walk = fields(buf);
-        walk.by_ref().for_each(drop);
+        for _ in walk.by_ref() {}
         walk.complete()
     };
     if !complete(&data) || !complete(last_bytes(&data, 1)) {

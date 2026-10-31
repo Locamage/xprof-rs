@@ -8,10 +8,9 @@ fn decode(compressed: &[u8]) -> Response {
     let mut response = Response::decode(&zstd::decode_all(compressed).unwrap()[..]).unwrap();
     let metadata = response.metadata.as_mut().unwrap();
     metadata.processes.sort_by_key(|process| process.id);
-    metadata
-        .processes
-        .iter_mut()
-        .for_each(|process| process.threads.sort_by_key(|thread| thread.id));
+    for process in &mut metadata.processes {
+        process.threads.sort_by_key(|thread| thread.id);
+    }
     for event in response
         .complete_events
         .iter_mut()

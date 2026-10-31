@@ -139,9 +139,9 @@ fn joined_intervals_keep_the_merged_active_time() {
             .collect();
         let joined = streams.iter().flat_map(|stream| {
             let mut intervals = Vec::new();
-            stream
-                .iter()
-                .for_each(|&(begin, end)| add_interval(&mut intervals, begin, end));
+            for &(begin, end) in stream {
+                add_interval(&mut intervals, begin, end);
+            }
             intervals
         });
         assert_eq!(

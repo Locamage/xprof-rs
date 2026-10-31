@@ -121,9 +121,9 @@ fn add_op_metric() {
     plane.event(0, "m2", 0, 100, &[("Time Scale Multiplier", 2.0.into())]);
     plane.event(0, "m3", 0, 100, &[]);
     let mut db = build(&space, true);
-    db.metrics
-        .iter_mut()
-        .for_each(|metrics| metrics.core_type = 0);
+    for metrics in &mut db.metrics {
+        metrics.core_type = 0;
+    }
     assert_db(
         &db,
         r#"metrics_db {

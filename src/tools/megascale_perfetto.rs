@@ -1232,7 +1232,9 @@ impl Writer<'_> {
                 }
                 if let Some(tracks) = trace.megascale.get(&device) {
                     let parent = self.descriptor("Megascale", uuid, None);
-                    tracks.iter().for_each(|track| self.track(track, parent));
+                    for track in tracks {
+                        self.track(track, parent);
+                    }
                 }
             }
         }

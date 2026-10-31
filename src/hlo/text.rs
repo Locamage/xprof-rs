@@ -1643,9 +1643,9 @@ impl<'a> Printer<'a> {
         out.push(')');
         let mut attributes = Vec::new();
         self.extra(node, &inst, true, &mut attributes);
-        attributes.iter().for_each(|attribute| {
+        for attribute in &attributes {
             write!(out, ", {attribute}").expect("writing to a string cannot fail");
-        });
+        }
         if let Some(original) = &inst.original_value {
             write!(
                 out,
@@ -1737,13 +1737,17 @@ impl<'a> Printer<'a> {
             .get(&graph)
             .map_or_else(|| Cow::Owned(module.post_order(graph)), Cow::Borrowed);
         if order.len() <= LINES_PER_TASK {
-            order.iter().for_each(|&node| line(node, out));
+            for &node in order.iter() {
+                line(node, out);
+            }
         } else {
             let parts: Vec<String> = order
                 .par_chunks(LINES_PER_TASK)
                 .map(|chunk| {
                     let mut part = String::new();
-                    chunk.iter().for_each(|&node| line(node, &mut part));
+                    for &node in chunk {
+                        line(node, &mut part);
+                    }
                     part
                 })
                 .collect();
@@ -1759,11 +1763,10 @@ impl<'a> Printer<'a> {
     fn computation_order(&self) -> Vec<usize> {
         let module = self.module;
         let mut visited = vec![false; module.graphs.len()];
-        module
-            .nodes
-            .iter()
-            .flat_map(|node| &node.called)
-            .for_each(|&graph| visited[graph] = true);
+        let called_graphs = module.nodes.iter().flat_map(|node| &node.called);
+        for &graph in called_graphs {
+            visited[graph] = true;
+        }
         let roots: Vec<usize> = (0..module.graphs.len())
             .filter(|&graph| !visited[graph])
             .collect();

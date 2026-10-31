@@ -20,10 +20,12 @@ fn generate(space: &XSpace, groups: &[(i64, &str)]) -> (Vec<u8>, Vec<Plane>) {
         .map(|&(id, name)| (id, name.to_string()))
         .collect();
     derive_gpu(&mut planes, &map, Some(&groups), true);
-    planes
+    let tensor_core_planes = planes
         .iter_mut()
-        .filter(|plane| is_tensor_core(&plane.name))
-        .for_each(|plane| derive(plane, &map));
+        .filter(|plane| is_tensor_core(&plane.name));
+    for plane in tensor_core_planes {
+        derive(plane, &map);
+    }
     (map, planes)
 }
 

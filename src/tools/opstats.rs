@@ -729,12 +729,13 @@ impl Db {
             .par_iter_mut()
             .enumerate()
             .for_each(|(position, destination)| {
-                aligned
-                    .iter()
-                    .for_each(|part| absorb(destination, &part.metrics[position], update_cores));
+                for part in aligned {
+                    absorb(destination, &part.metrics[position], update_cores);
+                }
             });
-        rest.iter()
-            .for_each(|part| db.merge(&mut index, part, update_cores));
+        for part in rest {
+            db.merge(&mut index, part, update_cores);
+        }
         db
     }
 
@@ -884,7 +885,9 @@ pub fn convert_tensor_core(
                 stack.push((event, stats, span, 0));
             }
         }
-        stack.into_iter().rev().for_each(finish);
+        for frame in stack.into_iter().rev() {
+            finish(frame);
+        }
     }
     (
         builder.finish().with_idle(last.wrapping_sub(first)),
@@ -1114,10 +1117,9 @@ impl OpStats {
         );
         let (mut programs, mut perf) = (HashMap::new(), Perf::default());
         for stats in &all {
-            stats
-                .programs
-                .iter()
-                .for_each(|(&id, name)| _ = programs.entry(id).or_insert_with(|| name.clone()));
+            for (&id, name) in &stats.programs {
+                _ = programs.entry(id).or_insert_with(|| name.clone());
+            }
             if stats.perf.peak_tera_flops > 0.0 {
                 perf.peak_tera_flops = stats.perf.peak_tera_flops;
             }

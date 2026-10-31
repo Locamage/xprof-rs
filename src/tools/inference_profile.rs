@@ -1146,17 +1146,19 @@ fn combine(host_id: i32, src: InferenceStats, dst: &mut InferenceStats) {
                 request.model_id_index = index;
             }
             if update_patterns {
-                request.tensor_event_details.iter_mut().for_each(remap);
+                for detail in &mut request.tensor_event_details {
+                    remap(detail);
+                }
             }
         }
         if update_patterns {
-            host.batch_details.iter_mut().for_each(|batch| {
+            for batch in &mut host.batch_details {
                 remap(
                     batch
                         .tensor_event_detail
                         .get_or_insert_with(TensorEventDetail::default),
                 );
-            });
+            }
         }
         dst.inference_stats_per_host.entry(host_id).or_insert(host);
     }
@@ -1534,9 +1536,9 @@ fn request_table(
         table.column("host_batch_formation", "number", "Host batch formation");
         table.column("throughput", "string", "Throughput");
     }
-    TPU_COLUMNS
-        .iter()
-        .for_each(|&(id, kind, label)| table.column(id, kind, label));
+    for (id, kind, label) in TPU_COLUMNS {
+        table.column(id, kind, label);
+    }
     table.column("trace_viewer_url", "string", "Trace Viewer URL");
     let rows = sampled.sampled_requests.iter().map(|request| {
         (
@@ -1712,8 +1714,9 @@ pub fn tables(stats: &InferenceStats) -> String {
     let mut meta = Table::new(&[("model_name", "string", "Model Name")]);
     meta.prop("hasBatching", has_batching.to_string());
     meta.prop("hasTensorPattern", "false");
-    ids.iter()
-        .for_each(|id| meta.row().push(Cell::Text(id.clone())));
+    for id in &ids {
+        meta.row().push(Cell::Text(id.clone()));
+    }
     let mut tables = vec![meta.json()];
     for id in &ids {
         let Some(index) = stats.model_id_db.id_to_index.get(id) else {

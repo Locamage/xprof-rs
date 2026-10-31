@@ -312,7 +312,9 @@ impl J {
                             text
                         })
                         .collect();
-                    parts.iter().for_each(|text| out.push_str(text));
+                    for text in &parts {
+                        out.push_str(text);
+                    }
                 } else {
                     part(out, (0, items));
                 }

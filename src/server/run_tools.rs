@@ -196,9 +196,11 @@ pub(crate) fn python_string_into(out: &mut String, text: &str) {
             '\t' => out.push_str("\\t"),
             '\u{8}' => out.push_str("\\b"),
             '\u{c}' => out.push_str("\\f"),
-            _ => character.encode_utf16(&mut [0; 2]).iter().for_each(|unit| {
-                write!(out, "\\u{unit:04x}").expect("writing to a string cannot fail");
-            }),
+            _ => {
+                for &unit in character.encode_utf16(&mut [0; 2]).iter() {
+                    write!(out, "\\u{unit:04x}").expect("writing to a string cannot fail");
+                }
+            }
         }
         index += character.len_utf8();
         run = index;

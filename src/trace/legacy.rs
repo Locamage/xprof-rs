@@ -124,9 +124,9 @@ fn convert(device: i64, plane: &Plane, map: &[u8], last: u64) -> Vec<Event> {
                     if let Some(step) = line.steps.get(&index) {
                         name.clone_from(&step.name);
                         set(&mut args, "step_name".into(), step.name.clone());
-                        step.stats.iter().for_each(|(key, value)| {
+                        for (key, value) in &step.stats {
                             set(&mut args, (*key).into(), value.to_string());
-                        });
+                        }
                     }
                     args.sort_unstable_by(|a, b| a.0.cmp(&b.0));
                     Some(Event {
@@ -321,10 +321,9 @@ fn select<I: ParallelIterator<Item = u64>>(
     for shift in [48, 32, 16, 0] {
         let high = |value: u64| value.checked_shr(shift + 16).unwrap_or(0);
         let add = |mut counts: Vec<usize>, other: Vec<usize>| {
-            counts
-                .iter_mut()
-                .zip(other)
-                .for_each(|(count, other)| *count += other);
+            for (count, other) in counts.iter_mut().zip(other) {
+                *count += other;
+            }
             counts
         };
         let counts = values()

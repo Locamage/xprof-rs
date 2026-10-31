@@ -119,7 +119,9 @@ pub fn micros(out: &mut String, ps: u64) {
     let fraction = fraction.trim_end_matches('0');
     if !fraction.is_empty() {
         out.push('.');
-        (exponent + 1..0).for_each(|_| out.push('0'));
+        for _ in exponent + 1..0 {
+            out.push('0');
+        }
         out.push_str(fraction);
     }
 }
@@ -228,9 +230,9 @@ fn add_texts(
                 flag.store(true, Relaxed);
             }
         });
-    long_names
-        .values()
-        .for_each(|long| put(texts, long_text(Cow::Borrowed(long))));
+    for long in long_names.values() {
+        put(texts, long_text(Cow::Borrowed(long)));
+    }
     let metas: Vec<(&Plane, &Meta, bool)> = planes
         .iter()
         .zip(&used)
@@ -250,7 +252,9 @@ fn add_texts(
                 put(&mut found, long_text(meta.long_name(map)));
             }
             if framed {
-                frame_texts(plane, slice(map, meta.raw), 5).for_each(|text| put(&mut found, text));
+                for text in frame_texts(plane, slice(map, meta.raw), 5) {
+                    put(&mut found, text);
+                }
             }
             found
         })
@@ -267,7 +271,9 @@ fn add_texts(
         })
         .flat_map_iter(|event| frame_texts(&planes[event.plane as usize], slice(map, event.raw), 4))
         .collect();
-    events.into_iter().for_each(|text| put(texts, text));
+    for text in events {
+        put(texts, text);
+    }
 }
 
 fn table<'a>(
@@ -281,11 +287,9 @@ fn table<'a>(
     >,
 ) -> Vec<String> {
     let mut texts = FxHashMap::default();
-    sources
-        .into_iter()
-        .for_each(|(planes, map, events, long_names)| {
-            add_texts(&mut texts, planes, map, events, long_names);
-        });
+    for (planes, map, events, long_names) in sources {
+        add_texts(&mut texts, planes, map, events, long_names);
+    }
     let mut sorted: Vec<(u64, String)> = texts.into_iter().collect();
     sorted.sort_unstable_by_key(|entry| entry.0);
     sorted.into_iter().map(|entry| entry.1).collect()
@@ -749,9 +753,9 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
                 if !values.is_empty() {
                     text.push('[');
                     text.push_str(&crate::hlo::general(event.ts as f64 / 1e6, 17));
-                    values.iter().for_each(|value| {
+                    for value in values {
                         write!(text, ",{value}").expect("writing to a string cannot fail");
-                    });
+                    }
                     text.push(']');
                 }
                 continue;
@@ -841,7 +845,8 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
     }
     pieces.extend(listed.iter().map(String::as_bytes));
     pieces.push(middle.as_bytes());
-    for (index, chunk) in chunks.iter().filter(|chunk| !chunk.is_empty()).enumerate() {
+    let nonempty_chunks = chunks.iter().filter(|chunk| !chunk.is_empty()).enumerate();
+    for (index, chunk) in nonempty_chunks {
         if index > 0 || !body.is_empty() {
             pieces.push(b",");
         }
