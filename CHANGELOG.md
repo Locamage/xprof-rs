@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+This release adds object-store profile serving and multi-host profile support.
 
 - Remote logdirs resolve run roots to their latest profile session without walking unrelated runs in the object store.
 - Remote URL spellings for the same object share one cache copy, including the server's remote logdir.
@@ -10,6 +12,9 @@
 - The server exposes `/healthz` as a plain-text readiness check.
 - The CLI exposes raw server tool responses through `get_tool_data`.
 - Top-level `--help` lists all commands and their parameter synopses.
+- On a multi-host session, `get_memory_profile` and `get_kpi_metrics` try the hosts in sorted order. They use the first profile with positive capacity and peak HBM. If no host has one, they use the first profile that parses. Before, both commands failed, as they do in XProf.
+- On a multi-host session, `get_xspace_proto` accepts `--host` to save one trace. Without it, the command lists the sorted host names and asks you to pass `--host=<name>`. Before, the command failed, as it does in XProf.
+- A direct trace file gives no utilization data when its file name does not contain the first host name. A profile found with `--logdir` does not use this check. For example, host `worker-0` in `host.xplane.pb` gives no data as a direct file, but it gives utilization data with `--logdir`. If a session has no utilization counters, `--logdir` returns an empty device list with `SUCCESS`.
 
 ## 0.1.3
 
@@ -26,12 +31,10 @@ This release is faster, and it uses less memory on large profiles. More outputs 
 - The trace viewer writes the times as XProf does. XProf writes `%.17g` of the time in microseconds, for example `660215.41857099999`. Before, xprof-rs wrote six decimal places, for example `660215.418571`. The two texts have the same value, but the bytes were different. The response is approximately 4% larger, and its first render takes approximately 5% more time.
 - The `plane_regex`, `event_regex` and `trace_matchers` options of the CLI find text as Python `re` does. Before, they used the syntax of Rust. Thus `$` also matches before a final new line, `(?i)` uses the case rules of Python, and look-around, back references and conditional groups are available. A bad pattern gives the error message of Python, for example `missing ), unterminated subpattern at position 0`.
 - When a CLI command returns an empty list in the `dict` format, it prints nothing, as XProf does. Before, it printed `[]`.
-- On a multi-host session, `get_memory_profile` and `get_kpi_metrics` try the hosts in sorted order. They use the first profile with positive capacity and peak HBM. If no host has one, they use the first profile that parses. Before, both commands failed, as they do in XProf.
-- On a multi-host session, `get_xspace_proto` accepts `--host` to save one trace. Without it, the command lists the sorted host names and asks you to pass `--host=<name>`. Before, the command failed, as it does in XProf.
 - When a number is halfway between two short texts, the CLI writes the text with the even last digit, as Python does. For example, 616143034000 / 8192 gives `75212772.70507812`. Before, xprof-rs wrote `75212772.70507813`.
 - For all option values, such as numbers, `True` and `None`, the CLI gives the same output and errors as XProf. Before, xprof-rs changed many of these values to text, or it gave a different error. Fire reads `1,2` and `(1,)` as tuples, `{1,2}` as a set and `{a:1}` as a dict, and xprof-rs now keeps these kinds apart from lists. For example, `--limit=None` gives the error `'>' not supported between instances of 'NoneType' and 'int'`, and `--output_type=1.5` gives `Unsupported option type for key 'type': <class 'float'>`. An error about an option value now occurs at the same step as in XProf. Thus an error about the session can occur first.
 - `compute_utilization` and `get_kernel_utilization` open each trace file before they read the profile. When a file is a broken link or you cannot read it, they give the `PATH_ERROR` of XProf. The error text is the text of Python, for example `[Errno 2] No such file or directory`. Before, they gave an `INTERNAL_ERROR` with the text "no data returned".
-- A direct trace file gives no utilization data when its file name does not contain the first host name. A profile found with `--logdir` does not use this check. For example, host `worker-0` in `host.xplane.pb` gives no data as a direct file, but it gives utilization data with `--logdir`. If a session has no utilization counters, `--logdir` returns an empty device list with `SUCCESS`.
+- For a local path, `compute_utilization` and `get_kernel_utilization` give data only when the file name contains the first host name of the profile. XProf has the same rule. For example, a profile of the host `worker-0` in the file `host.xplane.pb` gives the "no data returned" error.
 - When an event or a stat has no metadata, the CLI writes its ID as a signed number, as XProf does. For example, it writes `-1`, not `18446744073709551615`.
 - To find an event name that is a number, the CLI uses the rules of `str.isdigit` in Python. Thus `²` and `٣` are numbers, and `½` is not a number.
 - The normalized times of the op statistics change a double to an integer as XProf does on x86-64. A value that is too large gives 2^63, and a negative value wraps. Before, a very large time scale multiplier gave a different time scale for the roofline model.

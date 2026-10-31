@@ -159,3 +159,9 @@ fn top_level_help_lists_every_command() {
     }
     assert!(help.ends_with("xprof-rs <command> --help shows its parameters\n"));
 }
+
+#[test]
+fn release_version_has_a_changelog_section() {
+    let section = format!("## {}", env!("CARGO_PKG_VERSION"));
+    assert!(include_str!("../../CHANGELOG.md").lines().any(|line| line == section));
+}
