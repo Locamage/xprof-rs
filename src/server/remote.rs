@@ -80,12 +80,14 @@ impl Remote {
     }
 
     pub fn new(url: &str, store: Arc<dyn ObjectStore>, root: Key) -> Result<Self, String> {
-        let digest: String = Sha256::digest(url.as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+        let parsed = url::Url::parse(url).map_err(|error| format!("The log directory '{url}' is not a valid URL: {error}"))?;
+        let digest: String = Sha256::digest(parsed[..url::Position::BeforePath].as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+        let root_path = root.as_ref().split('/').filter(|part| !part.is_empty()).fold(PathBuf::new(), |path, part| path.join(part));
         #[cfg(not(test))]
         let temp_dir = std::env::temp_dir;
         #[cfg(test)]
         let temp_dir = crate::tests::temp_dir;
-        let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}"));
+        let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}")).join(root_path);
         let mirror = crate::private_dir(&mirror).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
         let budget = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
         Ok(Self { url: url.to_string(), mirror, budget, used: Mutex::default(), store, root, checked: Mutex::default(), locks: Mutex::default() })

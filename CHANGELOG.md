@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Remote logdirs resolve run roots to their latest profile session without walking unrelated runs in the object store.
+- Remote URL spellings for the same object share one cache copy, including the server's remote logdir.
 
 ## 0.1.3
 

@@ -410,6 +410,41 @@ fn test_remote_store_root_forms_use_latest_session_without_walking_other_runs() 
 }
 
 #[test]
+fn test_remote_spellings_share_one_cached_copy() {
+    use std::os::unix::fs::MetadataExt;
+    let demo = std::fs::read(super::e2e_oracles::DEMO).unwrap();
+    let root = scratch("remote-cache-identity");
+    let session = root.join("runA/plugins/profile/s1");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(session.join("h0.xplane.pb"), &demo).unwrap();
+    let root_url = format!("file://{}", root.display());
+    let run_url = format!("{root_url}/runA");
+    let remote = crate::server::remote::Remote::open(&root_url).unwrap();
+    let cached = remote.mirror.join("runA/plugins/profile/s1/h0.xplane.pb");
+    std::fs::remove_dir_all(&remote.mirror).unwrap();
+    let snapshot = || {
+        let metadata = std::fs::metadata(&cached).unwrap();
+        (metadata.ino(), metadata.mtime(), metadata.mtime_nsec())
+    };
+    let mut first_snapshot = None;
+    for args in [vec![format!("{run_url}/plugins/profile/s1")], vec![run_url.clone(), "s1".into()], vec!["s1".into(), format!("--logdir={run_url}")]] {
+        let mut command = vec!["get_overview".to_string()];
+        command.extend(args);
+        let args: Vec<&str> = command.iter().map(String::as_str).collect();
+        let (code, out, err) = run(&args);
+        assert_eq!(code, 0, "{args:?}: {out} {err}");
+        let current = snapshot();
+        if let Some(first) = first_snapshot {
+            assert_eq!(current, first, "{args:?}");
+        } else {
+            first_snapshot = Some(current);
+        }
+    }
+    let server_remote = crate::server::remote::Remote::open(&root_url).unwrap();
+    assert_eq!(server_remote.mirror.join("runA/plugins/profile/s1/h0.xplane.pb"), cached);
+}
+
+#[test]
 fn test_events_outside_the_capture_are_flagged() {
     let demo = super::e2e_oracles::DEMO;
     // The capture of the demo lasts this long. Its last host events end after it.

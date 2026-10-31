@@ -8,7 +8,7 @@ const DEMO: &[u8] = include_bytes!("../../../../tests/data/demo.xplane.pb");
 
 fn memory(name: &str) -> (Arc<InMemory>, Remote) {
     let store = Arc::new(InMemory::new());
-    let remote = Remote::new(&format!("memory:///{name}-{}", std::process::id()), store.clone(), Key::from("logs")).unwrap();
+    let remote = Remote::new(&format!("memory://{name}-{}", std::process::id()), store.clone(), Key::from("logs")).unwrap();
     _ = std::fs::remove_dir_all(&remote.mirror);
     std::fs::create_dir_all(&remote.mirror).unwrap();
     (store, remote)
