@@ -467,3 +467,74 @@ fn test_events_outside_the_capture_are_flagged() {
     assert!(cut > 0);
     assert_eq!(run(&["get_avg_step_time", demo]).1, "{\n  \"avg_step_time_ms\": 1.7486,\n  \"step_count\": 40\n}\n");
 }
+
+#[test]
+fn test_capture_boundaries_flag_exact_step_and_event_aggregates() {
+    const STEP: &str = "jit_step(11448588407652663271)";
+    const GRPC: &str = "GrpcSystemConfigTrace";
+    let demo = super::e2e_oracles::DEMO;
+    let original = XSpace::decode(&std::fs::read(demo).unwrap()[..]).unwrap();
+    let capture_time = |space: &XSpace, name: &str| {
+        let plane = space.planes.iter().find(|plane| plane.name == "Task Environment").unwrap();
+        let id = plane.stat_metadata.values().find(|metadata| metadata.name == name).unwrap().id;
+        let stat = plane.stats.iter().find(|stat| stat.metadata_id == id).unwrap();
+        stat.uint64_value.map(|value| value as i64).or(stat.int64_value).unwrap()
+    };
+    let start = capture_time(&original, "profile_start_time");
+    let (mut first_start_ps, mut last_end_ps) = (i128::MAX, i128::MIN);
+    for plane in &original.planes {
+        if !plane.name.starts_with("/device:") {
+            continue;
+        }
+        for line in plane.lines.iter().filter(|line| line.name.eq_ignore_ascii_case("XLA Modules")) {
+            for event in &line.events {
+                if plane.event_metadata.get(&event.metadata_id).is_some_and(|metadata| metadata.name == STEP) {
+                    let offset = event.offset_ps.unwrap_or_default() as i128;
+                    let base = line.timestamp_ns as i128 * 1000 + if line.timestamp_ns <= start / 2 { start as i128 * 1000 } else { 0 };
+                    first_start_ps = first_start_ps.min(base + offset);
+                    last_end_ps = last_end_ps.max(base + offset + event.duration_ps as i128);
+                }
+            }
+        }
+    }
+    let start_after_first = i64::try_from(first_start_ps.div_euclid(1000) + 1).unwrap();
+    let stop_before_last = i64::try_from((last_end_ps - 1).div_euclid(1000)).unwrap();
+    let baseline_step = ok(&["get_avg_step_time", demo]);
+    let baseline_aggregate = ok(&["aggregate_xplane_events", demo]);
+    let base_step = baseline_aggregate.at("aggregates").items().iter().find(|aggregate| aggregate.at("event").text() == STEP).unwrap();
+    let base_grpc = baseline_aggregate.at("aggregates").items().iter().find(|aggregate| aggregate.at("event").text() == GRPC).unwrap();
+    assert_eq!(baseline_step.at("step_count").int(), Some(40));
+    assert!(baseline_step.get("truncated_by_capture").is_none());
+    assert_eq!(base_step.at("count").int(), Some(40));
+    assert!(base_step.get("truncated_by_capture").is_none());
+    assert!(base_grpc.get("truncated_by_capture").is_none());
+
+    let mut start_space = original.clone();
+    start_space.planes.iter_mut().find(|plane| plane.name == "Task Environment").unwrap().add_stat("profile_start_time", start_after_first);
+    let start_path = scratch("capture-window-start").join("demo.xplane.pb");
+    std::fs::write(&start_path, start_space.encode_to_vec()).unwrap();
+    let start_path = start_path.to_string_lossy();
+    let start_step = ok(&["get_avg_step_time", &start_path]);
+    let start_aggregate = ok(&["aggregate_xplane_events", &start_path]);
+    let start_jit = start_aggregate.at("aggregates").items().iter().find(|aggregate| aggregate.at("event").text() == STEP).unwrap();
+    let start_grpc = start_aggregate.at("aggregates").items().iter().find(|aggregate| aggregate.at("event").text() == GRPC).unwrap();
+    assert_eq!(start_step.at("step_count").int(), Some(40));
+    assert!(start_step.get("truncated_by_capture").is_none());
+    assert_eq!(start_jit.at("count").int(), Some(40));
+    assert!(start_jit.get("truncated_by_capture").is_none());
+    assert_eq!(start_grpc.at("count").int(), base_grpc.at("count").int());
+    assert_eq!(start_grpc.at("truncated_by_capture").int(), Some(1));
+
+    let mut stop_space = original;
+    stop_space.planes.iter_mut().find(|plane| plane.name == "Task Environment").unwrap().add_stat("profile_stop_time", stop_before_last);
+    let stop_path = scratch("capture-window-stop").join("demo.xplane.pb");
+    std::fs::write(&stop_path, stop_space.encode_to_vec()).unwrap();
+    let stop_path = stop_path.to_string_lossy();
+    let stop_step = ok(&["get_avg_step_time", &stop_path]);
+    let stop_aggregate = ok(&["aggregate_xplane_events", &stop_path]);
+    let stop_jit = stop_aggregate.at("aggregates").items().iter().find(|aggregate| aggregate.at("event").text() == STEP).unwrap();
+    assert_eq!(stop_step.at("step_count").int(), Some(40));
+    assert_eq!(stop_step.at("truncated_by_capture").int(), Some(1));
+    assert_eq!(stop_jit.at("count").int(), Some(40));
+    assert_eq!(stop_jit.at("truncated_by_capture").int(), Some(1));
+}

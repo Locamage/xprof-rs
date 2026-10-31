@@ -4,6 +4,7 @@
 
 - Remote logdirs resolve run roots to their latest profile session without walking unrelated runs in the object store.
 - Remote URL spellings for the same object share one cache copy, including the server's remote logdir.
+- XPlane event and step aggregates report events truncated by the profile capture window.
 
 ## 0.1.3
 
