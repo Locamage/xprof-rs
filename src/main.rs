@@ -1402,6 +1402,7 @@ fn app(state: Shared) -> Router {
     Router::new()
         .route("/open", any(open))
         .route("/progress", any(progress))
+        .route("/healthz", any(|| async { response(StatusCode::OK, "text/plain; charset=utf-8", "ok\n") }))
         .merge(plugin())
         .nest(PREFIX, plugin())
         .fallback(assets)

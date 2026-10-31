@@ -140,3 +140,12 @@ async fn hidden_capture_routes_do_not_connect_to_the_requested_address() {
     let error = listener.accept().unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
 }
+
+#[tokio::test]
+async fn healthz_returns_plain_text_ok() {
+    let state = crate::state(&Settings::default());
+    let reply = crate::tests::legacy::fetch(&state, "/healthz").await;
+    assert_eq!(reply.0, axum::http::StatusCode::OK);
+    assert_eq!(reply.1[axum::http::header::CONTENT_TYPE], "text/plain; charset=utf-8");
+    assert_eq!(reply.2, "ok\n");
+}
