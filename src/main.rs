@@ -181,7 +181,7 @@ struct Rendered {
     gzipped: Option<Arc<[usize]>>,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default)]
 struct Settings {
     logdir: PathBuf,
     port: u16,
@@ -189,14 +189,27 @@ struct Settings {
     src_prefix: Option<String>,
     hide_capture_profile_button: bool,
     enable_tab_name_label: bool,
-    open_uri_pattern: Option<String>,
+    open_uri_pattern: Option<regex::Regex>,
     remote: Option<Arc<Remote>>,
+}
+
+impl PartialEq for Settings {
+    fn eq(&self, other: &Self) -> bool {
+        self.logdir == other.logdir
+            && self.port == other.port
+            && self.host == other.host
+            && self.src_prefix == other.src_prefix
+            && self.hide_capture_profile_button == other.hide_capture_profile_button
+            && self.enable_tab_name_label == other.enable_tab_name_label
+            && self.open_uri_pattern.as_ref().map(regex::Regex::as_str) == other.open_uri_pattern.as_ref().map(regex::Regex::as_str)
+            && self.remote == other.remote
+    }
 }
 
 struct Staging {
     remote: Arc<Remote>,
     started: Instant,
-    result: Mutex<Option<Result<(), String>>>,
+    result: Mutex<Option<Result<PathBuf, String>>>,
 }
 
 struct State_ {
@@ -549,12 +562,7 @@ fn confine(state: &State_, path: &Path) -> Option<PathBuf> {
     })?;
     let missing = &parts[found..];
     let plain = missing.iter().all(|part| matches!(part, Component::Normal(_))) && missing.first().is_none_or(|first| real.join(first).symlink_metadata().is_err());
-    let staged = state
-        .staging
-        .lock()
-        .unwrap()
-        .values()
-        .any(|entry| entry.result.lock().unwrap().as_ref().is_some_and(Result::is_ok) && entry.remote.mirror.join("plugins/profile").canonicalize().is_ok_and(|profile| real.starts_with(profile)));
+    let staged = state.staging.lock().unwrap().values().any(|entry| entry.result.lock().unwrap().as_ref().is_some_and(|result| result.as_ref().is_ok_and(|profile| real.starts_with(profile))));
     (plain && (real.starts_with(&state.logdir) || staged)).then(|| missing.iter().fold(real, |dir, part| dir.join(part)))
 }
 
@@ -1154,10 +1162,10 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
     if let Some(value) = values.get("--max_concurrent_worker_requests").filter(|value| value.parse::<i64>().is_err()) {
         return Err(format!("argument --max_concurrent_worker_requests: invalid int value: '{value}'"));
     }
-    let open_uri_pattern = values.remove("--open_uri_pattern");
-    if let Some(pattern) = &open_uri_pattern {
-        regex::Regex::new(&format!("^(?:{pattern})$")).map_err(|error| format!("argument --open_uri_pattern: invalid regex: {error}"))?;
-    }
+    let open_uri_pattern = values
+        .remove("--open_uri_pattern")
+        .map(|pattern| regex::Regex::new(&format!("^(?:{pattern})$")).map_err(|error| format!("argument --open_uri_pattern: invalid regex: {error}")))
+        .transpose()?;
     Ok(Settings {
         logdir,
         port,
@@ -1183,7 +1191,7 @@ fn state(settings: &Settings) -> Shared {
         renders: Flights::new(),
         extracts: Flights::new(),
         loads: Arc::new(Semaphore::new(((*MEMORY >> 34) as usize).clamp(1, 2))),
-        open_uri_pattern: settings.open_uri_pattern.as_deref().map(|pattern| regex::Regex::new(&format!("^(?:{pattern})$")).unwrap()),
+        open_uri_pattern: settings.open_uri_pattern.clone(),
         staging: Mutex::default(),
         staging_permits: Arc::new(Semaphore::new(4)),
     })
@@ -1236,7 +1244,10 @@ fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
                 found |=
                     list(&session, |file| file.file_type().is_ok_and(|kind| kind.is_file())).iter().any(|path| path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(".xplane.pb")));
             }
-            found.then_some(()).ok_or_else(|| format!("no XPlane protobuf files found under {uri}"))
+            if !found {
+                return Err(format!("no XPlane protobuf files found under {uri}"));
+            }
+            profile.canonicalize().map_err(|error| error.to_string())
         }
         .await;
         *work_entry.result.lock().unwrap() = Some(result);
@@ -1244,10 +1255,9 @@ fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
     Ok(entry)
 }
 
-fn staging_location(entry: &Staging, tool: &str) -> String {
-    let profile = entry.remote.mirror.join("plugins/profile").display().to_string();
+fn staging_location(profile: &Path, tool: &str) -> String {
     let mut query = url::form_urlencoded::Serializer::new(String::new());
-    query.append_pair("run_path", &profile);
+    query.append_pair("run_path", &profile.display().to_string());
     if !tool.is_empty() {
         query.append_pair("tool", tool);
     }
@@ -1277,10 +1287,11 @@ async fn open(State(state): State<Shared>, method: Method, Query(params): Query<
         Ok(entry) => entry,
         Err(error) => return response(StatusCode::BAD_GATEWAY, "text/plain", format!("profile staging failed: {error}\n")),
     };
-    match entry.result.lock().unwrap().clone() {
+    let result = entry.result.lock().unwrap().clone();
+    match result {
         None => response(StatusCode::ACCEPTED, "text/html; charset=utf-8", loading_page(&uri, tool)),
-        Some(Ok(())) => {
-            let location = staging_location(&entry, tool);
+        Some(Ok(profile)) => {
+            let location = staging_location(&profile, tool);
             let mut reply = response(StatusCode::SEE_OTHER, "text/plain", "");
             reply.headers_mut().insert(header::LOCATION, HeaderValue::from_str(&location).unwrap());
             reply
@@ -1305,12 +1316,13 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
         Ok(entry) => entry,
         Err(error) => return response(StatusCode::FORBIDDEN, "application/json", serde_json::json!({"error":error}).to_string()),
     };
-    match entry.result.lock().unwrap().clone() {
+    let result = entry.result.lock().unwrap().clone();
+    match result {
         Some(Err(_)) => {
             remove_staging(&state, &uri, &entry);
             response(StatusCode::OK, "application/json", r#"{"state":"failed"}"#)
         }
-        Some(Ok(())) => response(StatusCode::OK, "application/json", serde_json::json!({"state":"ready","location":staging_location(&entry, tool)}).to_string()),
+        Some(Ok(profile)) => response(StatusCode::OK, "application/json", serde_json::json!({"state":"ready","location":staging_location(&profile, tool)}).to_string()),
         None => {
             let bytes = entry.remote.downloaded_bytes.load(Ordering::Relaxed);
             let elapsed = entry.started.elapsed().as_secs_f64();

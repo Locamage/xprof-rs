@@ -694,34 +694,28 @@ fn mirror(url: &str, logdir: bool, first: &str, args: &mut Args) -> Result<Optio
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|error| absent(error.to_string()))?;
     let resolved = runtime
         .block_on(async {
-            let resolved = if logdir {
-                let found = if session.is_empty() {
+            let found = if logdir {
+                if session.is_empty() {
                     latest(&remote, &remote.mirror).await?
                 } else {
                     remote.sync(&dir, true).await?;
                     if client::traces(&dir).is_empty() { latest(&remote, &remote.mirror.join(&session)).await? } else { Some(dir.clone()) }
-                };
-                if found.is_none() {
-                    remote.sync(&remote.mirror, false).await?;
-                    let run = Local { logdir: Some(remote.mirror.clone()), ..Local::default() }.run_dir(&session).map_err(|error| error.message)?;
-                    remote.sync(&run, true).await?;
                 }
-                Ok::<_, String>(found)
             } else if file.is_empty() {
-                let found = latest(&remote, &dir).await?;
-                if found.is_none() {
-                    remote.sync(&remote.mirror, false).await?;
-                    let run = Local { logdir: Some(remote.mirror.clone()), ..Local::default() }.run_dir(name).map_err(|error| error.message)?;
-                    remote.sync(&run, true).await?;
-                    Ok(Some(run))
-                } else {
-                    Ok(found)
-                }
+                latest(&remote, &dir).await?
             } else {
                 remote.sync(&dir, true).await?;
-                Ok(Some(dir.clone()))
+                Some(dir.clone())
             };
-            resolved
+            if found.is_none() {
+                remote.sync(&remote.mirror, false).await?;
+                let session = if logdir { &session } else { name };
+                let run = Local { logdir: Some(remote.mirror.clone()), ..Local::default() }.run_dir(session).map_err(|error| error.message)?;
+                remote.sync(&run, true).await?;
+                Ok(Some(run))
+            } else {
+                Ok(found)
+            }
         })
         .map_err(absent)?;
     if logdir {

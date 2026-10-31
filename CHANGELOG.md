@@ -6,15 +6,20 @@ This release adds object-store profile serving and multi-host profile support.
 
 - Remote logdirs resolve run roots to their latest profile session without walking unrelated runs in the object store.
 - Remote URL spellings for the same object share one cache copy, including the server's remote logdir.
-- XPlane event and step aggregates report events truncated by the profile capture window.
+- XPlane event and step aggregates report events truncated by the profile capture window. Hiding the capture profile button also refuses capture requests before connecting to their supplied service address.
 - The server stages allowlisted object-store profiles through `/open` and `/progress`, sharing its cache with the CLI and server logdir.
-- Hiding the capture profile button also refuses capture requests before connecting to their supplied service address.
 - The server exposes `/healthz` as a plain-text readiness check.
 - The CLI exposes raw server tool responses through `get_tool_data`.
 - Top-level `--help` lists all commands and their parameter synopses.
 - On a multi-host session, `get_memory_profile` and `get_kpi_metrics` try the hosts in sorted order. They use the first profile with positive capacity and peak HBM. If no host has one, they use the first profile that parses. Before, both commands failed, as they do in XProf.
 - On a multi-host session, `get_xspace_proto` accepts `--host` to save one trace. Without it, the command lists the sorted host names and asks you to pass `--host=<name>`. Before, the command failed, as it does in XProf.
 - A direct trace file gives no utilization data when its file name does not contain the first host name. A profile found with `--logdir` does not use this check. For example, host `worker-0` in `host.xplane.pb` gives no data as a direct file, but it gives utilization data with `--logdir`. If a session has no utilization counters, `--logdir` returns an empty device list with `SUCCESS`.
+- Aggregate and statistics commands, such as `get_overview`, `get_kpi_metrics`, `check_host_boundness`, `get_top_hlo_ops` and `get_hlo_stats`, combine all hosts in a multi-host session, where XProf fails. For `check_host_boundness`, barrier-core times use the host with the smallest name, as in XProf.
+- The `<logdir> <session>` form selects that session. Before, the logdir bound as `session_id` and the session as the next parameter, as in XProf.
+- CLI targets with `://`, such as `s3://` and `gs://`, sync through the server's remote cache.
+- The first remote `/runs` listing walks the object store level by level in parallel and stops at `plugins/profile`. Before, it walked the full store.
+- Per-command `--help` lists every parameter.
+- The CLI strips `.xspace.pb` from host filenames, so `h0.xspace.pb` has host `h0`, as XProf does. Before, the host was `pb`.
 
 ## 0.1.3
 
