@@ -6,6 +6,7 @@
 - Remote URL spellings for the same object share one cache copy, including the server's remote logdir.
 - XPlane event and step aggregates report events truncated by the profile capture window.
 - The server stages allowlisted object-store profiles through `/open` and `/progress`, sharing its cache with the CLI and server logdir.
+- Hiding the capture profile button also refuses capture requests before connecting to their supplied service address.
 
 ## 0.1.3
 

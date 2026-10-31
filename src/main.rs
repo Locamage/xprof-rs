@@ -203,6 +203,7 @@ struct State_ {
     logdir: PathBuf,
     remote: Option<Arc<Remote>>,
     config: String,
+    hide_capture_profile_button: bool,
     hosts: Arc<Memo<Arc<Host>>>,
     stats: Arc<Memo<Option<Arc<OpStats>>>>,
     rendered: moka::future::Cache<String, Rendered>,
@@ -1175,6 +1176,7 @@ fn state(settings: &Settings) -> Shared {
         logdir: settings.logdir.canonicalize().unwrap_or_else(|_| settings.logdir.clone()),
         remote: settings.remote.clone(),
         config: server::run_tools::python_value(&config),
+        hide_capture_profile_button: settings.hide_capture_profile_button,
         hosts: Memo::new(|_, host: &Arc<Host>| host.bytes),
         stats: Memo::new(|stamp, _| stamp.len),
         rendered: cache(*BUDGET_BYTES / 4, |key: &String, value: &Rendered| (key.len() + value.body.len()) as u64),
@@ -1198,7 +1200,11 @@ fn plugin() -> Router<Shared> {
         .route("/config", any(|State(state): State<Shared>| async move { response(StatusCode::OK, "application/json", state.config.clone()) }))
         .route("/module_list", any(module_list))
         .route("/generate_cache", any(generate_cache))
-        .route("/capture_profile", any(|State(state): State<Shared>, Query(params): Query<Params>| async move { server::capture::handle(&state.logdir, state.remote.as_deref(), &params).await }))
+        .route("/capture_profile", any(capture_profile))
+}
+
+async fn capture_profile(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
+    if state.hide_capture_profile_button { response(StatusCode::NOT_FOUND, "text/plain", "Not Found\n") } else { server::capture::handle(&state.logdir, state.remote.as_deref(), &params).await }
 }
 
 fn stage_uri(state: &State_, uri: &str) -> Result<String, String> {

@@ -124,3 +124,19 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
     let post = app(restricted).oneshot(Request::builder().method("POST").uri("/open?uri=gs%3A%2F%2Fbucket%2Fprofile").body(Body::empty()).unwrap()).await.unwrap();
     assert_eq!(post.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
+
+#[tokio::test]
+async fn hidden_capture_routes_do_not_connect_to_the_requested_address() {
+    use crate::{Settings, state};
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = state(&Settings { hide_capture_profile_button: true, ..Default::default() });
+    for path in ["/capture_profile", "/data/plugin/profile/capture_profile"] {
+        let reply = crate::tests::legacy::fetch(&state, &format!("{path}?service_addr={address}")).await;
+        assert_eq!((reply.0, reply.2.as_str()), (axum::http::StatusCode::NOT_FOUND, "Not Found\n"));
+    }
+    let error = listener.accept().unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+}
