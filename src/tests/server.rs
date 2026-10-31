@@ -149,3 +149,13 @@ async fn healthz_returns_plain_text_ok() {
     assert_eq!(reply.1[axum::http::header::CONTENT_TYPE], "text/plain; charset=utf-8");
     assert_eq!(reply.2, "ok\n");
 }
+
+#[test]
+fn top_level_help_lists_every_command() {
+    let help = crate::top_help();
+    assert!(help.starts_with("usage: xprof-rs "));
+    for (name, synopsis, _) in crate::cli::COMMANDS {
+        assert!(help.contains(&format!("  {name} {synopsis}")), "{name}");
+    }
+    assert!(help.ends_with("xprof-rs <command> --help shows its parameters\n"));
+}

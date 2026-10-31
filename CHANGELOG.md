@@ -9,6 +9,7 @@
 - Hiding the capture profile button also refuses capture requests before connecting to their supplied service address.
 - The server exposes `/healthz` as a plain-text readiness check.
 - The CLI exposes raw server tool responses through `get_tool_data`.
+- Top-level `--help` lists all commands and their parameter synopses.
 
 ## 0.1.3
 

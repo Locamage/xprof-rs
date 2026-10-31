@@ -1419,6 +1419,10 @@ fn app(state: Shared) -> Router {
         .with_state(state)
 }
 
+fn top_help() -> String {
+    format!("{USAGE}\n\ncommands:\n{}\nxprof-rs <command> --help shows its parameters\n", cli::COMMANDS.iter().map(|(name, synopsis, _)| format!("  {name} {synopsis}")).collect::<Vec<_>>().join("\n"))
+}
+
 fn main() -> anyhow::Result<()> {
     let threads = std::thread::available_parallelism().map_or(1, usize::from).min(MAX_THREADS);
     rayon::ThreadPoolBuilder::new().num_threads(threads).build_global()?;
@@ -1431,7 +1435,7 @@ fn main() -> anyhow::Result<()> {
     }
     unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, purge_delay) };
     if argv.iter().any(|argument| argument == "--help" || argument == "-h") {
-        println!("{USAGE}");
+        print!("{}", top_help());
         return Ok(());
     }
     let settings = arguments(argv).unwrap_or_else(|error| {
