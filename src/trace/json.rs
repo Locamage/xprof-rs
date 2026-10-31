@@ -818,7 +818,7 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
                 Some(std::mem::replace(total, *total + found.len()))
             })
             .collect();
-        let renumbered = parts
+        let renumbered: Vec<String> = parts
             .par_iter()
             .zip(&offsets)
             .map(|((text, _), &offset)| renumber(text, offset))

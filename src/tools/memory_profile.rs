@@ -357,7 +357,7 @@ pub fn json(planes: &[Plane], map: &[u8]) -> String {
     for allocator in allocators.values_mut() {
         process(allocator);
     }
-    let memory_ids = allocators
+    let memory_ids: Vec<String> = allocators
         .iter()
         .filter(|(_, allocator)| !allocator.snapshots.is_empty())
         .map(|(id, _)| id.clone())

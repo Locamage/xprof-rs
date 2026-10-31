@@ -302,7 +302,7 @@ static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
         }
         checks
     };
-    let checks = messages.iter().map(table).collect();
+    let checks: Vec<Checks> = messages.iter().map(table).collect();
     (index["xla.HloProto"], checks)
 });
 

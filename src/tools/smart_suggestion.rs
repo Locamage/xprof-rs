@@ -248,13 +248,13 @@ fn stragglers(data: &dyn ToolData, event: &str) -> Data<Vec<Straggler>> {
     if hosts.len() < 3 {
         return Ok(Vec::new());
     }
-    let center = median(hosts.iter().map(|(_, percent)| *percent).collect());
-    let mad = median(
-        hosts
-            .iter()
-            .map(|(_, percent)| (percent - center).abs())
-            .collect(),
-    );
+    let percentiles: Vec<f64> = hosts.iter().map(|(_, percent)| *percent).collect();
+    let center = median(percentiles);
+    let deviations: Vec<f64> = hosts
+        .iter()
+        .map(|(_, percent)| (percent - center).abs())
+        .collect();
+    let mad = median(deviations);
     Ok(hosts
         .into_iter()
         .filter_map(|(hostname, percent)| {

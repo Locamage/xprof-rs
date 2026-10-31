@@ -484,7 +484,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         } else {
             ops.len()
         };
-        let operations = with_fraction(sorted(ops).into_iter().take(limit).collect(), matched_time);
+        let selected: Vec<J> = sorted(ops).into_iter().take(limit).collect();
+        let operations = with_fraction(selected, matched_time);
         let top = top_name(&operations);
         return Ok(obj! {
             "category" => matched,
@@ -538,7 +539,7 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
             };
             let grouped = summary.iter().map(|entry| {
                 let category = entry.at("category").text();
-                let ops = sorted(ops_of(&category))
+                let ops: Vec<J> = sorted(ops_of(&category))
                     .into_iter()
                     .take(per_category)
                     .collect();

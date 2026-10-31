@@ -178,7 +178,7 @@ struct Parsed {
 
 impl Derived {
     fn new(lines: &[(i64, &str, &'static [usize])], base: i64, suffix: &str, gpu: bool) -> Self {
-        let lines = lines
+        let lines: Vec<Builder> = lines
             .iter()
             .map(|&(id, name, dependents)| Builder {
                 id: base + id,
@@ -707,7 +707,7 @@ fn annotate(plane: &Plane, map: &[u8], stream: usize, base: i64, symbols: &Symbo
                 }
             }
         } else if !found.text(gpu::TF_OP).is_empty() {
-            let parsed = derived.parse(&found.text(gpu::TF_OP), "");
+            let parsed: Parsed = derived.parse(&found.text(gpu::TF_OP), "");
             derived.apply(&parsed, span, group);
         }
     }

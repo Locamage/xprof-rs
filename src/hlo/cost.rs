@@ -363,7 +363,7 @@ impl<'m> Context<'m> {
         }
         let revisits = callers[module.entry] > 0
             || (0..module.graphs.len()).any(|graph| entered[graph] && callers[graph] > 1);
-        let insts = (0..module.nodes.len()).map(|_| OnceCell::new()).collect();
+        let insts: Vec<OnceCell<Inst>> = (0..module.nodes.len()).map(|_| OnceCell::new()).collect();
         Context {
             module,
             insts,

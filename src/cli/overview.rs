@@ -818,7 +818,7 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
             .split(',')
             .map(|field| field.trim().to_string())
             .collect();
-        let rows = lines
+        let rows: Vec<J> = lines
             .map(|line| {
                 J::Map(
                     header

@@ -732,7 +732,7 @@ fn collective(
 
 impl<'a> Printer<'a> {
     pub fn new(module: &'a Module<'a>, style: Style, metadata: bool) -> Self {
-        let async_graphs = module
+        let async_graphs: HashSet<usize> = module
             .nodes
             .iter()
             .filter(|node| node.opcode == "async-start")

@@ -620,9 +620,8 @@ pub fn infos(planes: &[Plane], map: &[u8], devices: &[&Plane]) -> Infos {
 impl<'a> Builder<'a> {
     fn enter(&mut self, op: &Tracker) {
         let Some(info) = op.info else { return };
-        let metrics = self
-            .db
-            .entry(&mut self.index, op.program, &op.name.as_str().into());
+        let name: ArcStr = op.name.as_str().into();
+        let metrics = self.db.entry(&mut self.index, op.program, &name);
         if metrics.occurrences == 0 && metrics.category.is_empty() && metrics.provenance.is_empty()
         {
             metrics.category = if info.category.is_empty() {

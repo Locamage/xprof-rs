@@ -643,7 +643,7 @@ fn device_lines(
                 db.2 += self_time;
             });
             for (group, (_, times, total)) in dbs {
-                let categories = times
+                let categories: BTreeMap<String, u64> = times
                     .into_iter()
                     .zip(&names)
                     .filter_map(|(time, name)| Some((name.to_string(), time?)))

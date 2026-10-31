@@ -200,7 +200,7 @@ pub fn serve(
         }
         "graph" | "adj_nodes" if node.is_empty() => Err("node_name should not be empty".into()),
         "graph" => {
-            let width = text("graph_width")
+            let width: i64 = text("graph_width")
                 .filter(|value| value.bytes().all(|byte| byte.is_ascii_digit()))
                 .map_or(Some(3), |value| value.parse().ok())
                 .unwrap_or(3);

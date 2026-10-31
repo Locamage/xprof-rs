@@ -313,7 +313,7 @@ pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
     let mut keys: Vec<(u64, u64)> = metas.iter().filter_map(key).collect();
     keys.sort_unstable();
     keys.dedup();
-    let slots = metas
+    let slots: Vec<u32> = metas
         .iter()
         .map(|template| {
             key(template).map_or(u32::MAX, |key| {
@@ -322,7 +322,7 @@ pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
             })
         })
         .collect();
-    let sums = metas
+    let sums: Vec<u8> = metas
         .iter()
         .map(|template| {
             template

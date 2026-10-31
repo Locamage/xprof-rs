@@ -312,7 +312,8 @@ pub fn device_tf_db(device: &Db) -> Db {
         } else {
             parse_tf_op(&metrics.provenance)
         };
-        let tf = db.entry(&mut index, 0, &op.name.as_str().into());
+        let name: ArcStr = op.name.as_str().into();
+        let tf = db.entry(&mut index, 0, &name);
         if tf.category.is_empty() {
             tf.category = if op.kind.is_empty() {
                 UNKNOWN

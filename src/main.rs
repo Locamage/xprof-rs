@@ -12,11 +12,12 @@ mod xplane;
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use anyhow::Context;
+use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::{Query, Request, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::Response;
-use axum::{Router, routing::any};
+use axum::routing::any;
 use cli::json::py_repr;
 use futures_util::future::{BoxFuture, FutureExt, Shared as Joined, try_join_all};
 use rayon::prelude::*;
@@ -33,7 +34,9 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::Semaphore;
 use tools::opstats::OpStats;
-use tower_http::{CompressionLevel, catch_panic::CatchPanicLayer, compression::CompressionLayer};
+use tower_http::CompressionLevel;
+use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::compression::CompressionLayer;
 use trace::json::{Args, View, quoted, render};
 use trace::{MAX_SERIAL, Options, Trace};
 use xplane::Plane;
@@ -2364,7 +2367,8 @@ async fn first_values(mut request: Request) -> Request {
             })
             .collect();
         let target = format!("{}?{}", request.uri().path(), kept.join("&"));
-        if let Ok(uri) = target.parse() {
+        let parsed: Result<Uri, _> = target.parse();
+        if let Ok(uri) = parsed {
             *request.uri_mut() = uri;
         }
     }

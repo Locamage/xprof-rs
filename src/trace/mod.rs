@@ -775,7 +775,7 @@ impl Trace {
     /// Moves the lines out of `planes` when they are converted.
     pub fn build(planes: &mut [Plane], host: &str, map: &[u8]) -> Self {
         let layout = layout(planes, host);
-        let inputs = layout
+        let inputs: Vec<Vec<Ev>> = layout
             .jobs
             .iter()
             .map(|job| std::mem::take(&mut planes[job.plane].lines[job.line].events))
@@ -1011,7 +1011,7 @@ impl Trace {
             .filter(|(_, device)| is_tpu_core_device_name(&device.name))
             .map(|(id, _)| *id)
             .collect();
-        let dma_devices = devices
+        let dma_devices: HashSet<u32> = devices
             .iter()
             .filter(|(_, device)| {
                 !tpu_devices.is_empty()

@@ -442,7 +442,7 @@ impl<'a> Events<'a> {
         for (index, event) in all.iter().enumerate() {
             by_name.entry(event.name).or_default().push(index);
         }
-        let roots = (0..all.len())
+        let roots: Vec<usize> = (0..all.len())
             .filter(|&index| match event_stat(all[index].raw, ids.root) {
                 Some(Value::Int(-1)) => true,
                 Some(Value::Int(1)) => all[index].name.starts_with(USER_REQUEST_PREFIX),
@@ -1331,7 +1331,7 @@ pub fn regroup(stats: &mut InferenceStats) {
         }
         for (tensor_pattern_index, mut times) in times {
             times.sort_unstable();
-            let linearize_delinearize_percentile_time = TENSOR_PERCENTILES
+            let linearize_delinearize_percentile_time: Vec<(f64, u64)> = TENSOR_PERCENTILES
                 .iter()
                 .map(|&percentile| {
                     (

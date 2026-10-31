@@ -109,7 +109,7 @@ impl Remote {
             .join(root_path);
         let mirror = crate::private_dir(&mirror)
             .map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
-        let budget = std::env::var(CACHE_BYTES)
+        let budget: u64 = std::env::var(CACHE_BYTES)
             .ok()
             .and_then(|bytes| bytes.parse().ok())
             .unwrap_or(DEFAULT_CACHE_BYTES);

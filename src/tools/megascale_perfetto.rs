@@ -187,13 +187,15 @@ fn parse_graph_key(key: &str) -> GraphKey {
     else {
         return info;
     };
-    let Ok(device_id) = device.parse() else {
+    let device_id: Result<i64, _> = device.parse();
+    let Ok(device_id) = device_id else {
         return info;
     };
     info.device_id = device_id;
     info.short_name = tail[..dollar].to_string();
     let iteration = &after[marker + 2..];
-    if let Ok(value) = iteration[..digits(iteration)].parse() {
+    let value: Result<i64, _> = iteration[..digits(iteration)].parse();
+    if let Ok(value) = value {
         info.iteration = value;
     }
     info
