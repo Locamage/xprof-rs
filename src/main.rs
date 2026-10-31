@@ -75,10 +75,10 @@ pub(crate) const XPLANE_TOOLS: [&str; 19] = [
     "inference_profile", "memory_viewer", "graph_viewer", "megascale_stats", "perf_counters", "utilization_viewer", "kernel_utilization", "smart_suggestion",
 ];
 const SWITCHES: [&str; 2] = ["--hide_capture_profile_button", "--enable_tab_name_label"];
-const VALUE_FLAGS: [&str; 7] = ["--logdir", "--port", "--host", "--src_prefix", "--grpc_port", "--worker_service_address", "--max_concurrent_worker_requests"];
+const VALUE_FLAGS: [&str; 8] = ["--logdir", "--port", "--host", "--src_prefix", "--grpc_port", "--worker_service_address", "--max_concurrent_worker_requests", "--open_uri_pattern"];
 const NO_DATA: &str = "No Data";
 const OUTSIDE: &str = "Path outside logdir";
-const USAGE: &str = "usage: xprof-rs [--logdir DIR|URL] [--port PORT] [--host ADDRESS] [--src_prefix PREFIX] [--hide_capture_profile_button] [--enable_tab_name_label]\n       [--grpc_port PORT] [--worker_service_address ADDRESS] [--max_concurrent_worker_requests N]  (The server accepts the last three flags and does not use them.)";
+const USAGE: &str = "usage: xprof-rs [--logdir DIR|URL] [--port PORT] [--host ADDRESS] [--src_prefix PREFIX] [--hide_capture_profile_button] [--enable_tab_name_label] [--open_uri_pattern REGEX]\n       [--grpc_port PORT] [--worker_service_address ADDRESS] [--max_concurrent_worker_requests N]  (The server accepts the last three flags and does not use them.)\n       Example: --open_uri_pattern='(gs|s3)://[^/]+/(.*/)?ttl=[1-9][0-9]*d/xprof/[^/]+'";
 const SECURITY_POLICY: &str = "default-src 'self';script-src 'self' 'unsafe-eval' 'unsafe-inline' https://www.gstatic.com;object-src 'none';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com;font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com data:;connect-src 'self' data: www.gstatic.com;img-src 'self' blob: data:;frame-src 'self' https://ui.perfetto.dev;script-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/ https://www.gstatic.com";
 const STATS_TOOLS: [&str; 8] = ["hlo_stats", "kernel_stats", "framework_op_stats", "overview_page", "input_pipeline_analyzer", "op_profile", "roofline_model", "pod_viewer"];
 const ALL_HOSTS_ONLY: [&str; 3] = ["overview_page", "pod_viewer", "smart_suggestion"];
@@ -189,7 +189,14 @@ struct Settings {
     src_prefix: Option<String>,
     hide_capture_profile_button: bool,
     enable_tab_name_label: bool,
+    open_uri_pattern: Option<String>,
     remote: Option<Arc<Remote>>,
+}
+
+struct Staging {
+    remote: Arc<Remote>,
+    started: Instant,
+    result: Mutex<Option<Result<(), String>>>,
 }
 
 struct State_ {
@@ -202,6 +209,9 @@ struct State_ {
     renders: Flights<String, Rendered>,
     extracts: Flights<PathBuf, Vec<String>>,
     loads: Arc<Semaphore>,
+    open_uri_pattern: Option<regex::Regex>,
+    staging: Mutex<HashMap<String, Arc<Staging>>>,
+    staging_permits: Arc<Semaphore>,
 }
 
 type Shared = Arc<State_>;
@@ -538,7 +548,13 @@ fn confine(state: &State_, path: &Path) -> Option<PathBuf> {
     })?;
     let missing = &parts[found..];
     let plain = missing.iter().all(|part| matches!(part, Component::Normal(_))) && missing.first().is_none_or(|first| real.join(first).symlink_metadata().is_err());
-    (plain && real.starts_with(&state.logdir)).then(|| missing.iter().fold(real, |dir, part| dir.join(part)))
+    let staged = state
+        .staging
+        .lock()
+        .unwrap()
+        .values()
+        .any(|entry| entry.result.lock().unwrap().as_ref().is_some_and(Result::is_ok) && entry.remote.mirror.join("plugins/profile").canonicalize().is_ok_and(|profile| real.starts_with(profile)));
+    (plain && (real.starts_with(&state.logdir) || staged)).then(|| missing.iter().fold(real, |dir, part| dir.join(part)))
 }
 
 fn run_dir(state: &State_, run: &str) -> Option<PathBuf> {
@@ -1137,6 +1153,10 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
     if let Some(value) = values.get("--max_concurrent_worker_requests").filter(|value| value.parse::<i64>().is_err()) {
         return Err(format!("argument --max_concurrent_worker_requests: invalid int value: '{value}'"));
     }
+    let open_uri_pattern = values.remove("--open_uri_pattern");
+    if let Some(pattern) = &open_uri_pattern {
+        regex::Regex::new(&format!("^(?:{pattern})$")).map_err(|error| format!("argument --open_uri_pattern: invalid regex: {error}"))?;
+    }
     Ok(Settings {
         logdir,
         port,
@@ -1144,6 +1164,7 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
         src_prefix: values.remove("--src_prefix"),
         hide_capture_profile_button: switches.contains(&"--hide_capture_profile_button".to_string()),
         enable_tab_name_label: switches.contains(&"--enable_tab_name_label".to_string()),
+        open_uri_pattern,
         remote,
     })
 }
@@ -1160,6 +1181,9 @@ fn state(settings: &Settings) -> Shared {
         renders: Flights::new(),
         extracts: Flights::new(),
         loads: Arc::new(Semaphore::new(((*MEMORY >> 34) as usize).clamp(1, 2))),
+        open_uri_pattern: settings.open_uri_pattern.as_deref().map(|pattern| regex::Regex::new(&format!("^(?:{pattern})$")).unwrap()),
+        staging: Mutex::default(),
+        staging_permits: Arc::new(Semaphore::new(4)),
     })
 }
 
@@ -1177,6 +1201,185 @@ fn plugin() -> Router<Shared> {
         .route("/capture_profile", any(|State(state): State<Shared>, Query(params): Query<Params>| async move { server::capture::handle(&state.logdir, state.remote.as_deref(), &params).await }))
 }
 
+fn stage_uri(state: &State_, uri: &str) -> Result<String, String> {
+    let uri = uri.trim_end_matches('/');
+    if state.open_uri_pattern.as_ref().is_none_or(|pattern| !pattern.is_match(uri)) {
+        return Err("URI is not allowed by --open_uri_pattern".into());
+    }
+    Ok(uri.to_string())
+}
+
+fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
+    let mut entries = state.staging.lock().unwrap();
+    if let Some(entry) = entries.get(uri) {
+        return Ok(entry.clone());
+    }
+    let remote = Arc::new(Remote::open(uri)?);
+    let entry = Arc::new(Staging { remote, started: Instant::now(), result: Mutex::default() });
+    entries.insert(uri.to_string(), entry.clone());
+    let (work_entry, permits, uri) = (entry.clone(), state.staging_permits.clone(), uri.to_string());
+    tokio::spawn(async move {
+        let result = async {
+            let _permit = permits.acquire_owned().await.map_err(|error| error.to_string())?;
+            let profile = work_entry.remote.mirror.join("plugins/profile");
+            work_entry.remote.sync(&profile, false).await?;
+            let sessions: Vec<PathBuf> = std::fs::read_dir(&profile).into_iter().flatten().flatten().map(|item| item.path()).filter(|path| path.is_dir()).collect();
+            let mut found = false;
+            for session in sessions {
+                work_entry.remote.sync(&session, true).await?;
+                found |=
+                    list(&session, |file| file.file_type().is_ok_and(|kind| kind.is_file())).iter().any(|path| path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(".xplane.pb")));
+            }
+            found.then_some(()).ok_or_else(|| format!("no XPlane protobuf files found under {uri}"))
+        }
+        .await;
+        *work_entry.result.lock().unwrap() = Some(result);
+    });
+    Ok(entry)
+}
+
+fn staging_location(entry: &Staging, tool: &str) -> String {
+    let profile = entry.remote.mirror.join("plugins/profile").display().to_string();
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query.append_pair("run_path", &profile);
+    if !tool.is_empty() {
+        query.append_pair("tool", tool);
+    }
+    format!("./?{}", query.finish())
+}
+
+fn remove_staging(state: &State_, uri: &str, entry: &Arc<Staging>) {
+    let mut entries = state.staging.lock().unwrap();
+    if entries.get(uri).is_some_and(|current| Arc::ptr_eq(current, entry)) {
+        entries.remove(uri);
+    }
+}
+
+async fn open(State(state): State<Shared>, method: Method, Query(params): Query<Params>) -> Response {
+    if method != Method::GET {
+        return response(StatusCode::METHOD_NOT_ALLOWED, "text/plain", "GET required\n");
+    }
+    let Some(uri) = params.get("uri").filter(|uri| !uri.is_empty()) else {
+        return response(StatusCode::BAD_REQUEST, "text/plain", "missing uri query parameter\n");
+    };
+    let uri = match stage_uri(&state, uri) {
+        Ok(uri) => uri,
+        Err(error) => return response(StatusCode::FORBIDDEN, "text/plain", format!("{error}\n")),
+    };
+    let tool = params.get("tool").map_or("", String::as_str);
+    let entry = match staging(&state, &uri) {
+        Ok(entry) => entry,
+        Err(error) => return response(StatusCode::BAD_GATEWAY, "text/plain", format!("profile staging failed: {error}\n")),
+    };
+    match entry.result.lock().unwrap().clone() {
+        None => response(StatusCode::ACCEPTED, "text/html; charset=utf-8", loading_page(&uri, tool)),
+        Some(Ok(())) => {
+            let location = staging_location(&entry, tool);
+            let mut reply = response(StatusCode::SEE_OTHER, "text/plain", "");
+            reply.headers_mut().insert(header::LOCATION, HeaderValue::from_str(&location).unwrap());
+            reply
+        }
+        Some(Err(error)) => {
+            remove_staging(&state, &uri, &entry);
+            response(StatusCode::BAD_GATEWAY, "text/plain", format!("profile staging failed: {error}\n"))
+        }
+    }
+}
+
+async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
+    let Some(uri) = params.get("uri").filter(|uri| !uri.is_empty()) else {
+        return response(StatusCode::FORBIDDEN, "application/json", r#"{"error":"missing uri query parameter"}"#);
+    };
+    let uri = match stage_uri(&state, uri) {
+        Ok(uri) => uri,
+        Err(error) => return response(StatusCode::FORBIDDEN, "application/json", serde_json::json!({"error":error}).to_string()),
+    };
+    let tool = params.get("tool").map_or("", String::as_str);
+    let entry = match staging(&state, &uri) {
+        Ok(entry) => entry,
+        Err(error) => return response(StatusCode::FORBIDDEN, "application/json", serde_json::json!({"error":error}).to_string()),
+    };
+    match entry.result.lock().unwrap().clone() {
+        Some(Err(_)) => {
+            remove_staging(&state, &uri, &entry);
+            response(StatusCode::OK, "application/json", r#"{"state":"failed"}"#)
+        }
+        Some(Ok(())) => response(StatusCode::OK, "application/json", serde_json::json!({"state":"ready","location":staging_location(&entry, tool)}).to_string()),
+        None => {
+            let bytes = entry.remote.downloaded_bytes.load(Ordering::Relaxed);
+            let elapsed = entry.started.elapsed().as_secs_f64();
+            let throughput = if elapsed == 0.0 { 0 } else { (bytes as f64 / elapsed).round() as u64 };
+            response(
+                StatusCode::OK,
+                "application/json",
+                serde_json::json!({
+                    "state": "downloading",
+                    "downloaded_bytes": bytes,
+                    "files_completed": entry.remote.files_completed.load(Ordering::Relaxed),
+                    "total_files": null,
+                    "elapsed_seconds": (elapsed * 10.0).round() / 10.0,
+                    "throughput_bytes_per_second": throughput
+                })
+                .to_string(),
+            )
+        }
+    }
+}
+
+fn loading_page(uri: &str, tool: &str) -> String {
+    let escaped = uri.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#x27;");
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query.append_pair("uri", uri);
+    if !tool.is_empty() {
+        query.append_pair("tool", tool);
+    }
+    let progress_url = format!("./progress?{}", query.finish());
+    format!(
+        r#"<!doctype html>
+<html><head><meta charset="utf-8"><title>Loading XProf profile</title>
+<style>
+body {{ font: 16px system-ui; margin: 4rem auto; max-width: 48rem; padding: 0 1rem; }}
+.bar {{ background: #ddd; border-radius: 4px; height: 8px; margin: 2rem 0; overflow: hidden; }}
+.bar::after {{
+  animation: move 1.2s infinite linear; background: #1976d2; content: "";
+  display: block; height: 100%; width: 35%;
+}}
+@keyframes move {{ from {{ margin-left: -35%; }} to {{ margin-left: 100%; }} }}
+code {{ overflow-wrap: anywhere; }}
+</style></head>
+<body><h1>Loading XProf profile</h1><p><code>{escaped}</code></p>
+<div class="bar"></div><p id="status">Starting download…</p>
+<script>
+const status = document.getElementById('status');
+const units = value => {{
+  if (value < 1024 * 1024) return `${{(value / 1024).toFixed(1)}} KiB`;
+  return `${{(value / 1024 / 1024).toFixed(1)}} MiB`;
+}};
+async function update() {{
+  try {{
+    const response = await fetch({progress_url}, {{cache: 'no-store'}});
+    const progress = await response.json();
+    if (progress.state === 'ready') {{ window.location.replace(progress.location); return; }}
+    if (progress.state === 'failed') {{
+      status.textContent = 'Download failed. Reload this page to try again.';
+      return;
+    }}
+    if (progress.state === 'downloading') {{
+      const files = progress.total_files === null
+        ? `${{progress.files_completed}} files`
+        : `${{progress.files_completed}} of ${{progress.total_files}} files`;
+      status.textContent = `${{units(progress.downloaded_bytes)}} downloaded · ${{files}} · ` +
+        `${{units(progress.throughput_bytes_per_second)}}/s · ${{progress.elapsed_seconds.toFixed(1)}} seconds`;
+    }}
+  }} catch (error) {{ status.textContent = 'Waiting for the XProf service…'; }}
+  window.setTimeout(update, 1000);
+}}
+update();
+</script></body></html>"#,
+        progress_url = serde_json::to_string(&progress_url).unwrap()
+    )
+}
+
 async fn first_values(mut request: Request) -> Request {
     if let Some(query) = request.uri().query() {
         let mut seen = BTreeSet::new();
@@ -1191,6 +1394,8 @@ async fn first_values(mut request: Request) -> Request {
 
 fn app(state: Shared) -> Router {
     Router::new()
+        .route("/open", any(open))
+        .route("/progress", any(progress))
         .merge(plugin())
         .nest(PREFIX, plugin())
         .fallback(assets)

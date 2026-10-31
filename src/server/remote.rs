@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::os::unix::fs::FileExt;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -59,6 +60,8 @@ pub struct Remote {
     pub mirror: PathBuf,
     pub budget: u64,
     pub used: Mutex<HashMap<PathBuf, Instant>>,
+    pub downloaded_bytes: AtomicU64,
+    pub files_completed: AtomicU64,
     store: Arc<dyn ObjectStore>,
     root: Key,
     checked: Mutex<HashMap<PathBuf, Instant>>,
@@ -90,7 +93,18 @@ impl Remote {
         let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}")).join(root_path);
         let mirror = crate::private_dir(&mirror).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
         let budget = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
-        Ok(Self { url: url.to_string(), mirror, budget, used: Mutex::default(), store, root, checked: Mutex::default(), locks: Mutex::default() })
+        Ok(Self {
+            url: url.to_string(),
+            mirror,
+            budget,
+            used: Mutex::default(),
+            downloaded_bytes: AtomicU64::default(),
+            files_completed: AtomicU64::default(),
+            store,
+            root,
+            checked: Mutex::default(),
+            locks: Mutex::default(),
+        })
     }
 
     fn key(&self, dir: &Path) -> Option<Key> {
@@ -164,13 +178,20 @@ impl Remote {
                         let (file, location) = (file.clone(), &object.location);
                         async move {
                             let bytes = self.store.get_range(location, start..(start + PART_BYTES).min(object.size)).await.map_err(|error| unreadable(error.to_string()))?;
-                            blocking(move || file.write_all_at(&bytes, start)).await.map_err(unwritable)
+                            let len = bytes.len() as u64;
+                            blocking(move || file.write_all_at(&bytes, start)).await.map_err(unwritable)?;
+                            self.downloaded_bytes.fetch_add(len, Ordering::Relaxed);
+                            Ok::<_, String>(())
                         }
                     })
                     .buffer_unordered(PARALLEL_PARTS)
                     .try_collect::<Vec<()>>()
                     .await
-                    .and_then(|_| file.set_modified(SystemTime::from(object.last_modified)).and_then(|()| std::fs::rename(&partial.0, &path)).map_err(unwritable))
+                    .and_then(|_| {
+                        file.set_modified(SystemTime::from(object.last_modified)).and_then(|()| std::fs::rename(&partial.0, &path)).map_err(unwritable)?;
+                        self.files_completed.fetch_add(1, Ordering::Relaxed);
+                        Ok(())
+                    })
             };
             stream::iter(wanted).map(|(path, object)| fetch(path, object)).buffer_unordered(PARALLEL_FILES).try_collect::<Vec<()>>().await?;
             let used = self.used.lock().unwrap().clone();

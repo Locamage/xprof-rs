@@ -5,6 +5,7 @@
 - Remote logdirs resolve run roots to their latest profile session without walking unrelated runs in the object store.
 - Remote URL spellings for the same object share one cache copy, including the server's remote logdir.
 - XPlane event and step aggregates report events truncated by the profile capture window.
+- The server stages allowlisted object-store profiles through `/open` and `/progress`, sharing its cache with the CLI and server logdir.
 
 ## 0.1.3
 
