@@ -8,6 +8,7 @@
 - The server stages allowlisted object-store profiles through `/open` and `/progress`, sharing its cache with the CLI and server logdir.
 - Hiding the capture profile button also refuses capture requests before connecting to their supplied service address.
 - The server exposes `/healthz` as a plain-text readiness check.
+- The CLI exposes raw server tool responses through `get_tool_data`.
 
 ## 0.1.3
 

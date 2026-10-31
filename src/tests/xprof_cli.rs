@@ -372,6 +372,44 @@ fn test_multi_host_logdir_session_remote_and_help() {
 }
 
 #[test]
+fn get_tool_data_matches_server_responses_for_cpu_and_gpu_traces() {
+    use crate::cli::client::Client;
+    use std::io::Read;
+    let gpu = include_bytes!("../../tests/data/gpu/xplane/g1_basic/gpuhost.xplane.pb.gz");
+    let mut gpu_trace = Vec::new();
+    flate2::read::GzDecoder::new(&gpu[..]).read_to_end(&mut gpu_trace).unwrap();
+    let fixtures = [("demo", include_bytes!("../../tests/data/demo.xplane.pb").to_vec()), ("gpu", gpu_trace)];
+    for (name, trace) in fixtures {
+        let logdir = scratch(&format!("tool-data-{name}"));
+        let session = logdir.join("plugins/profile/s");
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(session.join("host.xplane.pb"), &trace).unwrap();
+        let server_state = crate::state(&crate::Settings { logdir: logdir.clone(), ..Default::default() });
+        for tool in ["overview_page", "kernel_stats", "framework_op_stats", "op_profile", "hlo_stats", "memory_profile", "input_pipeline_analyzer", "trace_viewer@"] {
+            let mut query = url::form_urlencoded::Serializer::new(String::new());
+            query.append_pair("run", "s").append_pair("tag", tool);
+            let uri = format!("/data?{}", query.finish());
+            let expected = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(super::legacy::fetch(&server_state, &uri));
+            assert_eq!(expected.0, axum::http::StatusCode::OK, "{name} {tool}: {}", expected.2);
+            let output = logdir.join(format!("{tool}.out"));
+            let argv = ["get_tool_data".to_string(), "s".to_string(), format!("--tool={tool}"), format!("--output_path={}", output.display()), format!("--logdir={}", logdir.display())];
+            let (code, result, error) = crate::cli::execute(&argv).unwrap();
+            assert_eq!(code, 0, "{name} {tool}: {} {error}", String::from_utf8_lossy(&result));
+            let actual = std::fs::read(output).unwrap();
+            assert_eq!(actual, expected.2.as_bytes(), "{name} {tool}");
+            if tool == "trace_viewer@" {
+                assert!(String::from_utf8_lossy(&actual).contains("\"returnedEventsSize\""));
+            }
+        }
+    }
+    let expected = crate::cli::client::Local::default().fetch("unknown", "s", &[]).unwrap_err();
+    let argv = ["get_tool_data".to_string(), "s".to_string(), "--tool=unknown".to_string()];
+    let (code, out, _) = crate::cli::execute(&argv).unwrap();
+    assert_ne!(code, 0);
+    assert_eq!(J::parse(&String::from_utf8(out).unwrap()).unwrap().at("error").text(), expected.message);
+}
+
+#[test]
 fn test_remote_store_root_forms_use_latest_session_without_walking_other_runs() {
     let demo = std::fs::read(super::e2e_oracles::DEMO).unwrap();
     let root = scratch("remote-store-root");

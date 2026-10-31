@@ -12,6 +12,7 @@ use client::{Client, Local};
 use json::J;
 use num_bigint::{BigInt, BigUint};
 use num_traits::ToPrimitive;
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 
@@ -52,7 +53,7 @@ pub fn nlargest_float(value: Option<&J>, n: f64, size: usize) -> Option<&'static
 
 type Handler = fn(&dyn Client, &Args) -> Result<Out, Error>;
 
-pub const COMMANDS: [(&str, &str, Handler); 30] = [
+pub const COMMANDS: [(&str, &str, Handler); 31] = [
     ("aggregate_xplane_events", "session_id! plane_regex event_regex bypass_cache | logdir", xplane::aggregate_xplane_events),
     ("check_host_boundness", "session_id! func_name bypass_cache | logdir", steps::check_host_boundness),
     ("compute_utilization", "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes bypass_cache logdir", xplane::get_kernel_utilization),
@@ -80,6 +81,7 @@ pub const COMMANDS: [(&str, &str, Handler); 30] = [
     ("get_profile_summary", "session_id! bypass_cache | logdir", ops::get_profile_summary),
     ("get_roofline_model", "session_id! | top_n group_by bypass_cache logdir", overview::get_roofline_model),
     ("get_step_trace", "session_id! | step_num limit device_core include_summary bypass_cache logdir", steps::get_step_trace),
+    ("get_tool_data", "session_id! tool! | host output_path bypass_cache logdir", get_tool_data),
     ("get_top_hlo_ops", "session_id! | limit category_filter bypass_cache logdir", ops::get_top_hlo_ops),
     ("get_utilization_viewer", "session_id! | host device node bypass_cache logdir", overview::get_utilization_viewer),
     ("get_xspace_proto", "session_id! as_text output_path host bypass_cache | logdir **", xplane::get_xspace_proto),
@@ -859,6 +861,38 @@ pub fn invoke(client: &mut Local, command: &str, argv: &[String]) -> Result<(Out
     let (mut args, leftover) = bind(command, &spec, argv)?;
     client.logdir = wrap(&spec, &mut args)?.or(client.logdir.take());
     Ok((handler(client, &args)?, leftover))
+}
+
+fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
+    let tool = args.text("tool").unwrap_or_default();
+    let name = tool.strip_suffix(".json").unwrap_or(&tool);
+    let name = if name == "hlo_op_profile" { "op_profile" } else { name };
+    if !crate::XPLANE_TOOLS.contains(&name) {
+        return fail(Kind::Value, format!("Unknown XProf tool name: {}", json::py_repr(&tool)));
+    }
+    let dir = client.run_dir(&args.session())?;
+    let mut params = HashMap::from([("tag".to_string(), tool), ("run".to_string(), dir.file_name().unwrap_or_default().to_string_lossy().into_owned())]);
+    if let Some(host) = args.text("host") {
+        params.insert("host".into(), host);
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|error| Error::new(Kind::Runtime, error.to_string()))?;
+    let logdir = dir.parent().unwrap_or(Path::new(".")).to_path_buf();
+    let state = crate::state(&crate::Settings { logdir, ..Default::default() });
+    let response = runtime.block_on(crate::serve(state, dir, params));
+    let status = response.status();
+    let reply = runtime.block_on(axum::body::to_bytes(response.into_body(), usize::MAX)).map_err(|error| Error::new(Kind::Runtime, error.to_string()))?;
+    if status.as_u16() != 200 {
+        return fail(Kind::Runtime, String::from_utf8_lossy(&reply).into_owned());
+    }
+    let reply = reply.to_vec();
+    if let Some(output) = args.text("output_path").filter(|path| !path.is_empty()) {
+        let path = Path::new(&output);
+        path.parent().filter(|parent| !parent.as_os_str().is_empty()).map(std::fs::create_dir_all).transpose().map_err(|error| Error::new(Kind::Os, error.to_string()))?;
+        std::fs::write(path, &reply).map_err(|error| Error::new(Kind::Os, error.to_string()))?;
+        Ok(Out::Text(output))
+    } else {
+        Ok(Out::Bytes(reply))
+    }
 }
 
 pub fn execute(argv: &[String]) -> Option<(i32, Vec<u8>, String)> {
