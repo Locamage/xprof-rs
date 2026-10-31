@@ -36,10 +36,14 @@ fn test_start_server_errors() {
 }
 
 #[test]
-fn test_open_uri_pattern_is_compiled_and_anchored() {
-    let pattern = run(&["--open_uri_pattern", "s3://[^/]+/profile"]).unwrap().open_uri_pattern.unwrap();
+fn test_open_uri_pattern_is_validated_and_anchored() {
+    let settings = run(&["--open_uri_pattern", "s3://[^/]+/profile"]).unwrap();
+    assert_eq!(settings.open_uri_pattern.as_deref(), Some("s3://[^/]+/profile"));
+    let server = crate::state(&settings);
+    let pattern = server.open_uri_pattern.as_ref().unwrap();
     assert!(pattern.is_match("s3://bucket/profile"));
     assert!(!pattern.is_match("prefix-s3://bucket/profile"));
+    assert!(run(&["--open_uri_pattern", "("]).unwrap_err().contains("invalid regex"));
 }
 
 #[test]
@@ -81,14 +85,13 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
     let demo = include_bytes!("../../tests/data/demo.xplane.pb");
-    let open_uri_pattern = regex::Regex::new("file://.*").unwrap();
     for local_logdir in [None, Some(crate::tests::legacy::logdir("open-local"))] {
         let root = crate::tests::legacy::logdir(if local_logdir.is_some() { "open-local-store" } else { "open-no-logdir-store" });
         for host in ["h0", "h1"] {
             std::fs::write(root.join(format!("run/plugins/profile/s/{host}.xplane.pb")), demo).unwrap();
         }
         let uri = format!("file://{}", root.join("run").display());
-        let state = state(&Settings { logdir: local_logdir.unwrap_or_default(), open_uri_pattern: Some(open_uri_pattern.clone()), ..Default::default() });
+        let state = state(&Settings { logdir: local_logdir.unwrap_or_default(), open_uri_pattern: Some("file://.*".into()), ..Default::default() });
         let opened = crate::tests::legacy::fetch(&state, &format!("/open?uri={}&tool=trace_viewer", url::form_urlencoded::byte_serialize(uri.as_bytes()).collect::<String>())).await;
         assert!(matches!(opened.0, StatusCode::ACCEPTED | StatusCode::SEE_OTHER), "{}", opened.2);
         let stage = state.staging.lock().unwrap().values().next().unwrap().clone();
@@ -126,7 +129,7 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
 
     let unrestricted = state(&Settings::default());
     assert_eq!(crate::tests::legacy::fetch(&unrestricted, "/open?uri=file%3A%2F%2Ftmp%2Fprofile").await.0, StatusCode::FORBIDDEN);
-    let restricted = state(&Settings { open_uri_pattern: Some(regex::Regex::new("gs://.*").unwrap()), ..Default::default() });
+    let restricted = state(&Settings { open_uri_pattern: Some("gs://.*".into()), ..Default::default() });
     assert_eq!(crate::tests::legacy::fetch(&restricted, "/open?uri=file%3A%2F%2Ftmp%2Fprofile").await.0, StatusCode::FORBIDDEN);
     assert_eq!(crate::tests::legacy::fetch(&restricted, "/open").await.0, StatusCode::BAD_REQUEST);
     let post = app(restricted).oneshot(Request::builder().method("POST").uri("/open?uri=gs%3A%2F%2Fbucket%2Fprofile").body(Body::empty()).unwrap()).await.unwrap();

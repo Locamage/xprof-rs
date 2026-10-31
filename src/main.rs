@@ -181,7 +181,7 @@ struct Rendered {
     gzipped: Option<Arc<[usize]>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 struct Settings {
     logdir: PathBuf,
     port: u16,
@@ -189,21 +189,8 @@ struct Settings {
     src_prefix: Option<String>,
     hide_capture_profile_button: bool,
     enable_tab_name_label: bool,
-    open_uri_pattern: Option<regex::Regex>,
+    open_uri_pattern: Option<String>,
     remote: Option<Arc<Remote>>,
-}
-
-impl PartialEq for Settings {
-    fn eq(&self, other: &Self) -> bool {
-        self.logdir == other.logdir
-            && self.port == other.port
-            && self.host == other.host
-            && self.src_prefix == other.src_prefix
-            && self.hide_capture_profile_button == other.hide_capture_profile_button
-            && self.enable_tab_name_label == other.enable_tab_name_label
-            && self.open_uri_pattern.as_ref().map(regex::Regex::as_str) == other.open_uri_pattern.as_ref().map(regex::Regex::as_str)
-            && self.remote == other.remote
-    }
 }
 
 struct Staging {
@@ -1162,10 +1149,10 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
     if let Some(value) = values.get("--max_concurrent_worker_requests").filter(|value| value.parse::<i64>().is_err()) {
         return Err(format!("argument --max_concurrent_worker_requests: invalid int value: '{value}'"));
     }
-    let open_uri_pattern = values
-        .remove("--open_uri_pattern")
-        .map(|pattern| regex::Regex::new(&format!("^(?:{pattern})$")).map_err(|error| format!("argument --open_uri_pattern: invalid regex: {error}")))
-        .transpose()?;
+    let open_uri_pattern = values.remove("--open_uri_pattern");
+    if let Some(pattern) = &open_uri_pattern {
+        regex::Regex::new(&format!("^(?:{pattern})$")).map_err(|error| format!("argument --open_uri_pattern: invalid regex: {error}"))?;
+    }
     Ok(Settings {
         logdir,
         port,
@@ -1191,7 +1178,7 @@ fn state(settings: &Settings) -> Shared {
         renders: Flights::new(),
         extracts: Flights::new(),
         loads: Arc::new(Semaphore::new(((*MEMORY >> 34) as usize).clamp(1, 2))),
-        open_uri_pattern: settings.open_uri_pattern.clone(),
+        open_uri_pattern: settings.open_uri_pattern.as_deref().map(|pattern| regex::Regex::new(&format!("^(?:{pattern})$")).unwrap()),
         staging: Mutex::default(),
         staging_permits: Arc::new(Semaphore::new(4)),
     })
