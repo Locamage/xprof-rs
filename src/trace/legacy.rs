@@ -395,14 +395,28 @@ fn text((devices, events): (Devices, Vec<Event>)) -> String {
     );
     for (device, (name, resources)) in &devices {
         if !name.is_empty() {
-            writeln!(out, "{{\"args\": {{\"name\": {}}}, \"name\": \"process_name\", \"ph\": \"M\", \"pid\": {device}}},", python_string(name)).expect("writing to a string cannot fail");
+            let _ = writeln!(
+                out,
+                "{{\"args\": {{\"name\": {}}}, \"name\": \"process_name\", \"ph\": \"M\", \"pid\": {device}}},",
+                python_string(name)
+            );
         }
-        writeln!(out, "{{\"args\": {{\"sort_index\": {device}}}, \"name\": \"process_sort_index\", \"ph\": \"M\", \"pid\": {device}}},").expect("writing to a string cannot fail");
+        let _ = writeln!(
+            out,
+            "{{\"args\": {{\"sort_index\": {device}}}, \"name\": \"process_sort_index\", \"ph\": \"M\", \"pid\": {device}}},"
+        );
         for (resource, name) in resources {
             if !name.is_empty() {
-                writeln!(out, "{{\"args\": {{\"name\": {}}}, \"name\": \"thread_name\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},", python_string(name)).expect("writing to a string cannot fail");
+                let _ = writeln!(
+                    out,
+                    "{{\"args\": {{\"name\": {}}}, \"name\": \"thread_name\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},",
+                    python_string(name)
+                );
             }
-            writeln!(out, "{{\"args\": {{\"sort_index\": {resource}}}, \"name\": \"thread_sort_index\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},").expect("writing to a string cannot fail");
+            let _ = writeln!(
+                out,
+                "{{\"args\": {{\"sort_index\": {resource}}}, \"name\": \"thread_sort_index\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},"
+            );
         }
     }
     let lines: Vec<String> = events
@@ -428,18 +442,16 @@ fn text((devices, events): (Devices, Vec<Event>)) -> String {
                 }
                 part.push_str("\"name\": ");
                 python_string_into(&mut part, &event.name);
-                write!(
+                let _ = write!(
                     part,
                     ", \"ph\": {}, \"pid\": {}, ",
                     if event.dur != 0 { "\"X\"" } else { "\"i\"" },
                     event.device
-                )
-                .expect("writing to a string cannot fail");
+                );
                 if event.dur == 0 {
                     part.push_str("\"s\": \"t\", ");
                 }
-                write!(part, "\"tid\": {}, \"ts\": ", event.resource)
-                    .expect("writing to a string cannot fail");
+                let _ = write!(part, "\"tid\": {}, \"ts\": ", event.resource);
                 repr_into(&mut part, event.ts as f64 / 1e6);
                 part.push_str("},\n");
             }

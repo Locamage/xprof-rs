@@ -487,8 +487,7 @@ fn perf_rows(plane: &Plane, host: &str) -> Vec<String> {
                             })
                         });
                         string(&mut out, name);
-                        write!(out, "}},{{\"f\":\"0x{value:x}\",\"v\":")
-                            .expect("writing to a string cannot fail");
+                        let _ = write!(out, "}},{{\"f\":\"0x{value:x}\",\"v\":");
                         number(&mut out, value as f64);
                         for text in [description, set] {
                             out.push_str("},{\"v\":");

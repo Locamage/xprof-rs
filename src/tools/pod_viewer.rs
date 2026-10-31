@@ -41,11 +41,9 @@ fn record(host_name: &str, step_num: u32, info: &StepInfo) -> String {
         quoted(host_name)
     );
     proto_double(&mut out, pico_to_micro(info.duration));
-    write!(out, ",\"bottleneck\":{},\"stepBreakdownUs\":{{", quoted(bottleneck))
-        .expect("writing to a string cannot fail");
+    let _ = write!(out, ",\"bottleneck\":{},\"stepBreakdownUs\":{{", quoted(bottleneck));
     for (index, ps) in breakdown_ps.iter().enumerate() {
-        write!(out, "{}\"{}\":", if index > 0 { "," } else { "" }, index + 1)
-            .expect("writing to a string cannot fail");
+        let _ = write!(out, "{}\"{}\":", if index > 0 { "," } else { "" }, index + 1);
         proto_double(&mut out, pico_to_micro(*ps));
     }
     out.push_str("}}");
@@ -65,16 +63,14 @@ pub fn render(extra: &Extra) -> String {
     let mut out = String::from("{\"podStatsSequence\":{\"podStatsMap\":[");
     let mut next = 0;
     for (position, step) in extra.steps.iter().enumerate() {
-        write!(
+        let _ = write!(
             out,
             "{}{{\"stepNum\":{},\"podStatsPerCore\":{{",
             if position > 0 { "," } else { "" },
             step.num
-        )
-        .expect("writing to a string cannot fail");
+        );
         for (index, core) in step.cores.keys().enumerate() {
-            write!(out, "{}\"{core}\":", if index > 0 { "," } else { "" })
-                .expect("writing to a string cannot fail");
+            let _ = write!(out, "{}\"{core}\":", if index > 0 { "," } else { "" });
             out.push_str(records.get(next).map_or(EMPTY_RECORD, String::as_str));
             next += 1;
         }
@@ -85,19 +81,20 @@ pub fn render(extra: &Extra) -> String {
         (true, true) => quoted(EMPTY_INTERSECT),
         (true, false) => quoted(NO_STEP_MARKER),
     };
-    write!(out, "]}},\"diagnostics\":{{\"info\":[],\"warnings\":[{warning}],\"errors\":[]}},\"stepBreakdownEvents\":[").expect("writing to a string cannot fail");
+    let _ = write!(
+        out,
+        "]}},\"diagnostics\":{{\"info\":[],\"warnings\":[{warning}],\"errors\":[]}},\"stepBreakdownEvents\":["
+    );
     for (index, (name, _)) in GENERIC_EVENTS.iter().enumerate() {
-        write!(
+        let _ = write!(
             out,
             "{}{{\"id\":{},\"name\":{}}}",
             if index > 0 { "," } else { "" },
             index + 1,
             quoted(name)
-        )
-        .expect("writing to a string cannot fail");
+        );
     }
-    write!(out, "],\"deviceType\":{}}}", quoted(&extra.device_type))
-        .expect("writing to a string cannot fail");
+    let _ = write!(out, "],\"deviceType\":{}}}", quoted(&extra.device_type));
     out
 }
 

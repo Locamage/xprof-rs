@@ -146,8 +146,7 @@ fn decimal(out: &mut String, digits: &str, point: i32, max_exponent: i32) {
             out.push('.');
             out.push_str(&digits[1..]);
         }
-        write!(out, "e{}{:02}", if point - 1 < 0 { '-' } else { '+' }, (point - 1).abs())
-            .expect("writing to a string cannot fail");
+        let _ = write!(out, "e{}{:02}", if point - 1 < 0 { '-' } else { '+' }, (point - 1).abs());
     }
 }
 

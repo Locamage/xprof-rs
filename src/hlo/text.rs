@@ -347,15 +347,13 @@ pub fn block_scaling_config_text(config: &xla::BlockScalingConfig) -> String {
     let side = |name: &str, side: &xla::block_scaling_config::TensorBlockScalingConfig| {
         let mut text = format!("{name}={{scale_idx={}", side.scale_idx);
         if let Some(zero) = side.zero_idx {
-            write!(text, " zero_idx={zero}").expect("writing to a string cannot fail");
+            let _ = write!(text, " zero_idx={zero}");
         }
         if !side.strides.is_empty() {
-            write!(text, " strides={}", side.strides.iter().join("x"))
-                .expect("writing to a string cannot fail");
+            let _ = write!(text, " strides={}", side.strides.iter().join("x"));
         }
         if !side.steps.is_empty() {
-            write!(text, " steps={}", side.steps.iter().join("x"))
-                .expect("writing to a string cannot fail");
+            let _ = write!(text, " steps={}", side.steps.iter().join("x"));
         }
         text + "}"
     };
@@ -377,7 +375,7 @@ pub fn iota_text<T: Copy + Into<i64>>(dims: &[i64], reshape: &[i64], perm: &[T])
     }
     let mut out = format!("[{}]<=[{}]", dims.iter().join(","), reshape.iter().join(","));
     if reshape.len() > 1 {
-        write!(out, "T({})", perm.iter().join(",")).expect("writing to a string cannot fail");
+        let _ = write!(out, "T({})", perm.iter().join(","));
     }
     out
 }
@@ -390,7 +388,7 @@ pub(crate) fn separate(out: &mut String, index: usize, interval: usize) {
     match index {
         0 => {}
         index if interval != 0 && index % interval == 0 => {
-            write!(out, ", /*index={index}*/").expect("writing to a string cannot fail");
+            let _ = write!(out, ", /*index={index}*/");
         }
         _ => out.push_str(", "),
     }
@@ -574,8 +572,7 @@ fn mesh_groups(list: &MeshAxesReplicaGroupListProto) -> String {
             .and_then(|index| mesh.axes.get(index))
             .map_or_else(|| index.to_string(), |axis| format!("'{}'", axis.name));
         if let Some(sub) = &axis.sub_axis_info {
-            write!(text, ":({}){}", sub.pre_size, sub.size)
-                .expect("writing to a string cannot fail");
+            let _ = write!(text, ":({}){}", sub.pre_size, sub.size);
         }
         text
     };
@@ -811,11 +808,10 @@ impl<'a> Printer<'a> {
         {
             text.push_str(", unreduced");
             if !reduction.is_empty() {
-                write!(text, "={reduction}").expect("writing to a string cannot fail");
+                let _ = write!(text, "={reduction}");
             }
             if sharding.unreduced_axes.len() < mesh.axes.len() {
-                write!(text, "{{{}}}", axes(&sharding.unreduced_axes))
-                    .expect("writing to a string cannot fail");
+                let _ = write!(text, "{{{}}}", axes(&sharding.unreduced_axes));
             }
         } else if !sharding.manual_axes.is_empty()
             && in_order(&sharding.manual_axes)
@@ -831,19 +827,16 @@ impl<'a> Printer<'a> {
                 };
                 format!("{{{}{open}}}", axes(&dimension.axes))
             });
-            write!(text, ", [{}]", dimensions.format(", "))
-                .expect("writing to a string cannot fail");
+            let _ = write!(text, ", [{}]", dimensions.format(", "));
             if !sharding.replicated_axes.is_empty() {
-                write!(text, ", replicated={{{}}}", axes(&sharding.replicated_axes))
-                    .expect("writing to a string cannot fail");
+                let _ = write!(text, ", replicated={{{}}}", axes(&sharding.replicated_axes));
             }
             if !sharding.unreduced_axes.is_empty() {
-                write!(text, ", unreduced={reduction}{{{}}}", axes(&sharding.unreduced_axes))
-                    .expect("writing to a string cannot fail");
+                let _ =
+                    write!(text, ", unreduced={reduction}{{{}}}", axes(&sharding.unreduced_axes));
             }
             if !sharding.manual_axes.is_empty() {
-                write!(text, ", manual={{{}}}", axes(&sharding.manual_axes))
-                    .expect("writing to a string cannot fail");
+                let _ = write!(text, ", manual={{{}}}", axes(&sharding.manual_axes));
             }
         }
         text + &metadata + "}"
@@ -861,8 +854,7 @@ impl<'a> Printer<'a> {
         let mut suffix = String::new();
         if sharding.is_shard_group {
             let kind = if sharding.shard_group_type == 0 { "shard_as" } else { "shard_like" };
-            write!(suffix, " {kind} {}", sharding.shard_group_id)
-                .expect("writing to a string cannot fail");
+            let _ = write!(suffix, " {kind} {}", sharding.shard_group_id);
         }
         if self.metadata && !sharding.metadata.is_empty() {
             let items = sharding
@@ -877,10 +869,12 @@ impl<'a> Printer<'a> {
                 })
                 .join("}, {");
             match sharding.metadata.len() {
-                1 => write!(suffix, " metadata={{{items}}}")
-                    .expect("writing to a string cannot fail"),
-                _ => write!(suffix, " metadata={{{{{items}}}}}")
-                    .expect("writing to a string cannot fail"),
+                1 => {
+                    let _ = write!(suffix, " metadata={{{items}}}");
+                }
+                _ => {
+                    let _ = write!(suffix, " metadata={{{{{items}}}}}");
+                }
             }
         }
         let (devices, reshape, dims, subgroups) = (
@@ -905,27 +899,29 @@ impl<'a> Printer<'a> {
                 out.push('}');
             }
             1 => {
-                write!(out, "{{maximal device={}{suffix}}}", devices.first().copied().unwrap_or(0))
-                    .expect("writing to a string cannot fail");
+                let _ = write!(
+                    out,
+                    "{{maximal device={}{suffix}}}",
+                    devices.first().copied().unwrap_or(0)
+                );
             }
-            kind @ (0 | 4 | 5 | 6) => write!(
-                out,
-                "{{{}{suffix}}}",
-                ["replicated", "", "", "", "manual", "unknown", "unreduced"][kind as usize]
-            )
-            .expect("writing to a string cannot fail"),
+            kind @ (0 | 4 | 5 | 6) => {
+                let _ = write!(
+                    out,
+                    "{{{}{suffix}}}",
+                    ["replicated", "", "", "", "manual", "unknown", "unreduced"][kind as usize]
+                );
+            }
             _ if replicated => {
-                write!(out, "{{replicated{suffix}}}").expect("writing to a string cannot fail");
+                let _ = write!(out, "{{replicated{suffix}}}");
             }
             _ if subgroup => {
-                write!(out, "{{{}{suffix}}}", SUBGROUPS[subgroups[0] as usize])
-                    .expect("writing to a string cannot fail");
+                let _ = write!(out, "{{{}{suffix}}}", SUBGROUPS[subgroups[0] as usize]);
             }
             _ => {
                 out.push_str("{devices=");
                 if reshape.is_empty() {
-                    write!(out, "[{}]{}", dims.iter().join(","), devices.iter().join(","))
-                        .expect("writing to a string cannot fail");
+                    let _ = write!(out, "[{}]{}", dims.iter().join(","), devices.iter().join(","));
                 } else {
                     out.push_str(&iota_text(dims, reshape, &sharding.iota_transpose_perm));
                 }
@@ -937,10 +933,9 @@ impl<'a> Printer<'a> {
                         .iter()
                         .map(|&kind| SUBGROUPS.get(kind as usize).copied().unwrap_or("error_type."))
                         .join(", ");
-                    write!(out, " last_tile_dims={{{names}}}")
-                        .expect("writing to a string cannot fail");
+                    let _ = write!(out, " last_tile_dims={{{names}}}");
                 }
-                write!(out, "{suffix}}}").expect("writing to a string cannot fail");
+                let _ = write!(out, "{suffix}}}");
             }
         }
     }
@@ -1052,7 +1047,7 @@ impl<'a> Printer<'a> {
                 _ => out.push_str("{...}"),
             },
             "parameter" => {
-                write!(out, "{}", entry.parameter).expect("writing to a string cannot fail");
+                let _ = write!(out, "{}", entry.parameter);
             }
             _ => {
                 for (index, &operand) in entry.operands.iter().enumerate() {
@@ -1441,25 +1436,27 @@ impl<'a> Printer<'a> {
     pub fn instruction(&self, node: usize, out: &mut String) -> Inst {
         let module = self.module;
         let entry = &module.nodes[node];
-        write!(
+        let _ = write!(
             out,
             "{} = {} {}(",
             self.name(&entry.name),
             entry.shape.text(true),
             self.opcode(node)
-        )
-        .expect("writing to a string cannot fail");
+        );
         let inst = module.printed(node);
         self.operands(node, &inst, out);
         out.push(')');
         let mut attributes = Vec::new();
         self.extra(node, &inst, true, &mut attributes);
         for attribute in &attributes {
-            write!(out, ", {attribute}").expect("writing to a string cannot fail");
+            let _ = write!(out, ", {attribute}");
         }
         if let Some(original) = &inst.original_value {
-            write!(out, ", origin={{{}}}", original_value(original, &entry.shape, &mut Vec::new()))
-                .expect("writing to a string cannot fail");
+            let _ = write!(
+                out,
+                ", origin={{{}}}",
+                original_value(original, &entry.shape, &mut Vec::new())
+            );
         }
         let metadata = msg(&inst.metadata);
         let frame = self.frames.of[node];
@@ -1475,12 +1472,11 @@ impl<'a> Printer<'a> {
                 || frame != 0
                 || metadata.metadata_payload.is_some())
         {
-            write!(
+            let _ = write!(
                 out,
                 ", metadata={{{}}}",
                 metadata_text(&metadata, frame, &module.proto.payloads)
-            )
-            .expect("writing to a string cannot fail");
+            );
         }
         if self.style == Style::Expression {
             return inst;
@@ -1509,7 +1505,7 @@ impl<'a> Printer<'a> {
         if graph == module.entry {
             out.push_str("ENTRY ");
         }
-        write!(out, "{} ", self.graph_name(graph)).expect("writing to a string cannot fail");
+        let _ = write!(out, "{} ", self.graph_name(graph));
         if self.style != Style::Short {
             let parameters = entry.parameters.iter().map(|&parameter| &module.nodes[parameter]);
             let parameters = parameters.map(|node| {
@@ -1519,13 +1515,12 @@ impl<'a> Printer<'a> {
                     node.shape.text(false)
                 )
             });
-            write!(
+            let _ = write!(
                 out,
                 "({}) -> {} ",
                 parameters.format(", "),
                 module.nodes[entry.root].shape.text(false)
-            )
-            .expect("writing to a string cannot fail");
+            );
         }
         out.push_str("{\n");
         let line = |node: usize, out: &mut String| {
@@ -1555,8 +1550,7 @@ impl<'a> Printer<'a> {
         }
         out.push('}');
         if !entry.thread.is_empty() && entry.thread != "main" {
-            write!(out, ", execution_thread=\"{}\"", entry.thread)
-                .expect("writing to a string cannot fail");
+            let _ = write!(out, ", execution_thread=\"{}\"", entry.thread);
         }
     }
 
@@ -1648,8 +1642,7 @@ impl<'a> Printer<'a> {
             if pieces.len() != aliases.len() {
                 return None;
             }
-            write!(out, ", input_output_alias={{ {} }}", pieces.iter().join(", "))
-                .expect("writing to a string cannot fail");
+            let _ = write!(out, ", input_output_alias={{ {} }}", pieces.iter().join(", "));
         }
         let donors = proto
             .buffer_donor
@@ -1662,7 +1655,7 @@ impl<'a> Printer<'a> {
             .map(|(number, index)| format!("({number}, {{{}}})", index.iter().join(",")))
             .join(", ");
         if !donors.is_empty() {
-            write!(out, ", buffer_donor={{ {donors} }}").expect("writing to a string cannot fail");
+            let _ = write!(out, ", buffer_donor={{ {donors} }}");
         }
         let program = proto.host_program_shape.as_ref()?;
         out.push_str(", entry_computation_layout={(");
@@ -1670,12 +1663,10 @@ impl<'a> Printer<'a> {
             separate(&mut out, index, INDEX_INTERVAL);
             parameter.print(&mut out, true);
         }
-        write!(out, ")->{}}}", msg(&program.result).text(true))
-            .expect("writing to a string cannot fail");
+        let _ = write!(out, ")->{}}}", msg(&program.result).text(true));
         let attributes = &msg(&proto.frontend_attributes).map;
         if !attributes.is_empty() {
-            write!(out, ", frontend_attributes={}", frontend_attributes(attributes))
-                .expect("writing to a string cannot fail");
+            let _ = write!(out, ", frontend_attributes={}", frontend_attributes(attributes));
         }
         if let Some(table) =
             proto.original_value_recovery_table.as_ref().filter(|table| !table.entries.is_empty())
@@ -1684,13 +1675,12 @@ impl<'a> Printer<'a> {
             let mut entries: Vec<_> = table.entries.iter().collect();
             entries.sort_by_key(|entry| array_key(&entry.old_original_array));
             for entry in entries {
-                write!(
+                let _ = write!(
                     out,
                     "  {{{}}} : {{{}}}",
                     original_array(&msg(&entry.old_original_array)),
                     original_array(&msg(&entry.new_original_array))
-                )
-                .expect("writing to a string cannot fail");
+                );
                 if let Some(recovery) = &entry.recovery_module {
                     let recovery = Module::parse(Cow::Owned(
                         xla::HloProto { hlo_module: Some(recovery.clone()), ..Default::default() }
@@ -1708,8 +1698,7 @@ impl<'a> Printer<'a> {
                                 if line.is_empty() { String::new() } else { format!("    {line}") }
                             })
                             .join("\n");
-                    write!(out, ",\n  \"\n{text}\n\n  \"")
-                        .expect("writing to a string cannot fail");
+                    let _ = write!(out, ",\n  \"\n{text}\n\n  \"");
                 }
                 out.push('\n');
             }
@@ -1745,8 +1734,7 @@ impl<'a> Printer<'a> {
                     attributes.join(",")
                 )
             });
-            write!(out, ",\ndebug_attributes={{\n{}\n}}", lines.join(",\n"))
-                .expect("writing to a string cannot fail");
+            let _ = write!(out, ",\ndebug_attributes={{\n{}\n}}", lines.join(",\n"));
         }
         let frames = &self.frames;
         if self.metadata && !frames.frames.is_empty() {
@@ -1755,25 +1743,27 @@ impl<'a> Printer<'a> {
             {
                 out.push_str(title);
                 for (position, name) in names.iter().enumerate() {
-                    writeln!(out, "{} \"{}\"", position + 1, escaped(name))
-                        .expect("writing to a string cannot fail");
+                    let _ = writeln!(out, "{} \"{}\"", position + 1, escaped(name));
                 }
             }
             out.push_str("\nFileLocations\n");
             for (position, [file, function, line, column, end_line, end_column]) in
                 frames.locations.iter().enumerate()
             {
-                writeln!(out, "{} {{file_name_id={file} function_name_id={function} line={line} end_line={end_line} column={column} end_column={end_column}}}", position + 1).expect("writing to a string cannot fail");
+                let _ = writeln!(
+                    out,
+                    "{} {{file_name_id={file} function_name_id={function} line={line} end_line={end_line} column={column} end_column={end_column}}}",
+                    position + 1
+                );
             }
             out.push_str("\nStackFrames\n");
             for (position, (location, parent)) in frames.frames.iter().enumerate() {
-                writeln!(
+                let _ = writeln!(
                     out,
                     "{} {{file_location_id={location} parent_frame_id={}}}",
                     position + 1,
                     parent + 1
-                )
-                .expect("writing to a string cannot fail");
+                );
             }
         }
         out.push_str("\n\n");
@@ -1813,17 +1803,21 @@ fn print_array(
     let spaced = if remaining[0] <= 1 { "" } else { " " };
     match (rank, remaining.len()) {
         (1, _) => out.push('{'),
-        (_, 1) => write!(out, "{}{{{spaced}", if oneline { "" } else { "  " })
-            .expect("writing to a string cannot fail"),
-        _ if rank > 3 && !indices.is_empty() => write!(
-            out,
-            "{{ /*i{}={}*/{}",
-            indices.len() - 1,
-            indices.last().expect("indices are non-empty"),
-            if remaining[0] > 0 { linebreak } else { "" }
-        )
-        .expect("writing to a string cannot fail"),
-        _ => write!(out, "{{{linebreak}").expect("writing to a string cannot fail"),
+        (_, 1) => {
+            let _ = write!(out, "{}{{{spaced}", if oneline { "" } else { "  " });
+        }
+        _ if rank > 3 && !indices.is_empty() => {
+            let _ = write!(
+                out,
+                "{{ /*i{}={}*/{}",
+                indices.len() - 1,
+                indices.last().expect("indices are non-empty"),
+                if remaining[0] > 0 { linebreak } else { "" }
+            );
+        }
+        _ => {
+            let _ = write!(out, "{{{linebreak}");
+        }
     }
     for index in 0..remaining[0] {
         indices.push(index);
@@ -1836,8 +1830,12 @@ fn print_array(
     }
     match (rank, remaining.len()) {
         (1, _) => out.push('}'),
-        (_, 1) => write!(out, "{spaced}}}").expect("writing to a string cannot fail"),
-        _ => write!(out, "{linebreak}}}").expect("writing to a string cannot fail"),
+        (_, 1) => {
+            let _ = write!(out, "{spaced}}}");
+        }
+        _ => {
+            let _ = write!(out, "{linebreak}}}");
+        }
     }
 }
 
@@ -1913,7 +1911,7 @@ fn float_text(value: f64, digits: usize, payload: Option<(u64, u32)>) -> String 
     if let Some((bits, payload_bits)) = payload.filter(|_| value.is_nan()) {
         let mask = (1u64 << payload_bits) - 1;
         if bits & mask != 1 << (payload_bits - 1) {
-            write!(text, "(0x{:x})", bits & mask).expect("writing to a string cannot fail");
+            let _ = write!(text, "(0x{:x})", bits & mask);
         }
     }
     text

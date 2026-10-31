@@ -259,10 +259,11 @@ impl Shape {
         let primitive = |out: &mut String, kind: i32, symbol: char| match kind {
             0 => {}
             2..=9 | 21 | 22 | 26 | 27 | 30 | 31 => {
-                write!(out, "{symbol}({})", type_name(kind))
-                    .expect("writing to a string cannot fail");
+                let _ = write!(out, "{symbol}({})", type_name(kind));
             }
-            _ => write!(out, "{symbol}(invalid)").expect("writing to a string cannot fail"),
+            _ => {
+                let _ = write!(out, "{symbol}(invalid)");
+            }
         };
         let start = out.len();
         out.push('{');
@@ -285,31 +286,29 @@ impl Shape {
                     match dimension {
                         0.. => number(out, dimension),
                         i64::MIN => out.push('*'),
-                        _ => write!(out, "Invalid value {dimension}")
-                            .expect("writing to a string cannot fail"),
+                        _ => {
+                            let _ = write!(out, "Invalid value {dimension}");
+                        }
                     }
                 }
                 out.push(')');
             }
         }
         if !matches!(shape_layout.tail_padding_alignment_in_elements, 0 | 1) {
-            write!(out, "L({})", shape_layout.tail_padding_alignment_in_elements)
-                .expect("writing to a string cannot fail");
+            let _ = write!(out, "L({})", shape_layout.tail_padding_alignment_in_elements);
         }
         primitive(out, shape_layout.index_primitive_type, '#');
         primitive(out, shape_layout.pointer_primitive_type, '*');
         if shape_layout.element_size_in_bits != 0 {
-            write!(out, "E({})", shape_layout.element_size_in_bits)
-                .expect("writing to a string cannot fail");
+            let _ = write!(out, "E({})", shape_layout.element_size_in_bits);
         }
         if shape_layout.memory_space != 0 {
-            write!(out, "S({})", shape_layout.memory_space)
-                .expect("writing to a string cannot fail");
+            let _ = write!(out, "S({})", shape_layout.memory_space);
         }
         if !shape_layout.split_configs.is_empty() {
             out.push_str("SC");
             for split in &shape_layout.split_configs {
-                write!(out, "({}:", split.dimension).expect("writing to a string cannot fail");
+                let _ = write!(out, "({}:", split.dimension);
                 for (index, &at) in split.split_indices.iter().enumerate() {
                     if index > 0 {
                         out.push(',');
@@ -325,8 +324,7 @@ impl Shape {
             out.push(')');
         }
         if shape_layout.dynamic_shape_metadata_prefix_bytes > 0 {
-            write!(out, "M({})", shape_layout.dynamic_shape_metadata_prefix_bytes)
-                .expect("writing to a string cannot fail");
+            let _ = write!(out, "M({})", shape_layout.dynamic_shape_metadata_prefix_bytes);
         }
         if out.len() == colon + 1 {
             out.truncate(colon);

@@ -176,7 +176,7 @@ pub(crate) fn python_string_into(out: &mut String, text: &str) {
             '\u{c}' => out.push_str("\\f"),
             _ => {
                 for &unit in character.encode_utf16(&mut [0; 2]).iter() {
-                    write!(out, "\\u{unit:04x}").expect("writing to a string cannot fail");
+                    let _ = write!(out, "\\u{unit:04x}");
                 }
             }
         }

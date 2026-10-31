@@ -76,7 +76,9 @@ pub fn c_escape(out: &mut String, bytes: &[u8]) {
             b'\'' => out.push_str("\\'"),
             b'\\' => out.push_str("\\\\"),
             0x20..=0x7e => out.push(byte as char),
-            byte => write!(out, "\\{byte:03o}").expect("writing to a string cannot fail"),
+            byte => {
+                let _ = write!(out, "\\{byte:03o}");
+            }
         }
     }
 }
@@ -138,7 +140,7 @@ pub fn json_string(out: &mut String, text: &str) {
             | '\u{e0020}'..='\u{e007f}' => {
                 let mut units = [0u16; 2];
                 for unit in character.encode_utf16(&mut units) {
-                    write!(out, "\\u{unit:04x}").expect("writing to a string cannot fail");
+                    let _ = write!(out, "\\u{unit:04x}");
                 }
             }
             character => out.push(character),
@@ -215,20 +217,23 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
                         |text| text.parse() == Ok(f32::from_bits(raw as u32)),
                     ));
                 }
-                Kind::Bool => write!(out, "{}", raw != 0).expect("writing to a string cannot fail"),
+                Kind::Bool => {
+                    let _ = write!(out, "{}", raw != 0);
+                }
                 Kind::Enum(values) => match values.get_value(raw as i32) {
                     Some(value) if json => json_string(out, value.name()),
                     Some(value) => out.push_str(value.name()),
-                    None => write!(out, "{}", raw as i32).expect("writing to a string cannot fail"),
+                    None => {
+                        let _ = write!(out, "{}", raw as i32);
+                    }
                 },
                 Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 | Kind::Uint64 | Kind::Fixed64
                     if json =>
                 {
-                    write!(out, "\"{}\"", decode(kind, raw))
-                        .expect("writing to a string cannot fail");
+                    let _ = write!(out, "\"{}\"", decode(kind, raw));
                 }
                 kind => {
-                    write!(out, "{}", decode(kind, raw)).expect("writing to a string cannot fail");
+                    let _ = write!(out, "{}", decode(kind, raw));
                 }
             }
         }
@@ -426,8 +431,12 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
         let kind = &spec.kind;
         let key = |out: &mut String| {
             if json {
-                write!(out, "{}\"{}\":", if out.len() > start { "," } else { "" }, spec.json_name)
-                    .expect("writing to a string cannot fail");
+                let _ = write!(
+                    out,
+                    "{}\"{}\":",
+                    if out.len() > start { "," } else { "" },
+                    spec.json_name
+                );
             }
         };
         if spec.map {

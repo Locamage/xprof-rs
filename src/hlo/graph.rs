@@ -800,7 +800,7 @@ impl Dumper<'_> {
         let mut body = label;
         for part in [trivial, extra, inlined, backend_config].iter().filter(|part| !part.is_empty())
         {
-            write!(body, "<br/>{part}").expect("writing to a string cannot fail");
+            let _ = write!(body, "<br/>{part}");
         }
         let statistic = statistic_colors(&module.inst(node).statistics_viz.unwrap_or_default());
         format!(
@@ -842,7 +842,7 @@ impl Dumper<'_> {
                 .iter()
                 .filter(|part| !part.is_empty())
             {
-                write!(label, "<br/>{part}").expect("writing to a string cannot fail");
+                let _ = write!(label, "<br/>{part}");
             }
             let highlight = self.show(parent) == Show::Highlight;
             let statistic =
@@ -866,12 +866,11 @@ impl Dumper<'_> {
                 "style=rounded; color=black;".to_string(),
             )
         };
-        write!(
+        let _ = write!(
             out,
             "subgraph {} {{\n{style}\nlabel = <{label}>;\nlabelloc = t;\ntooltip = \" \";\n",
             computation_id(graph)
-        )
-        .expect("writing to a string cannot fail");
+        );
         true
     }
 
@@ -883,8 +882,7 @@ impl Dumper<'_> {
             let top = stack.len() - 1;
             let Some(&node) = module.graphs[graph].nodes.get(position) else {
                 if top > 0 {
-                    write!(out, "\n}}  // {}\n\n", computation_id(graph))
-                        .expect("writing to a string cannot fail");
+                    let _ = write!(out, "\n}}  // {}\n\n", computation_id(graph));
                 }
                 stack.pop();
                 continue;
@@ -927,8 +925,7 @@ impl Dumper<'_> {
         let graph = &module.graphs[self.computation];
         let mut label = format!("{}<br/>Computation {}", self.label, graph.name);
         if let Some(fusion) = self.fusion_of(self.computation) {
-            write!(label, " (in fusion instruction {})", module.nodes[fusion].name)
-                .expect("writing to a string cannot fail");
+            let _ = write!(label, " (in fusion instruction {})", module.nodes[fusion].name);
         } else if self.computation == module.entry {
             label.push_str("<br/>ENTRY computation");
         } else if !self.callers[self.computation].is_empty() {
@@ -936,19 +933,17 @@ impl Dumper<'_> {
                 .iter()
                 .map(|&caller| &module.nodes[caller].name)
                 .join(", ");
-            write!(label, "<br/>Caller instructions: {names}")
-                .expect("writing to a string cannot fail");
+            let _ = write!(label, "<br/>Caller instructions: {names}");
         }
         let mut rules = String::new();
         let mut rule = |kind: &str, id: i64, edge: i64, color: &str| {
             if !rules.is_empty() {
                 rules.push('\n');
             }
-            write!(
+            let _ = write!(
                 rules,
                 "  %23{kind}{id}:hover ~ %23edge{edge} text {{ fill: {color}; }}\n  %23{kind}{id}:hover ~ %23edge{edge} path {{ stroke: {color}; stroke-width: .2em; }}\n  %23{kind}{id}:hover ~ %23edge{edge} polygon {{ fill: {color}; stroke: {color}; stroke-width: .2em; }}\n"
-            )
-            .expect("writing to a string cannot fail");
+            );
         };
         for (index, &(from, to, _)) in self.edges.iter().enumerate() {
             let edge = index as i64 + 1;
