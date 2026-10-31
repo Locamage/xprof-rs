@@ -266,7 +266,7 @@ impl<'a> Builder<'a> {
                         PROVENANCE_NODE,
                         parent,
                         if position + 1 == parts.len() {
-                            part.split(':').next().unwrap()
+                            part.split(':').next().expect("iterator is non-empty")
                         } else {
                             part
                         },
@@ -374,7 +374,7 @@ impl<'a> Builder<'a> {
 
     fn deduplicate(&mut self, node: usize) {
         let top = &self.nodes[self.nodes[node].children[0]];
-        let top_xla = top.xla.clone().unwrap();
+        let top_xla = top.xla.clone().expect("required value is present");
         let name = Cow::Owned(format!("{} and its duplicate(s)", top.name));
         let mut xla = Xla {
             expression: top_xla.expression,
@@ -482,7 +482,8 @@ impl<'a> Builder<'a> {
         json_string(out, &self.nodes[index].name);
         out.push_str(",\"metrics\":{");
         for (position, (key, values, count)) in self.fields(index).iter().enumerate() {
-            write!(out, "{}\"{key}\":", if position > 0 { "," } else { "" }).unwrap();
+            write!(out, "{}\"{key}\":", if position > 0 { "," } else { "" })
+                .expect("writing to a string cannot fail");
             let values = &values[..*count];
             if let [value] = values {
                 proto_double(out, *value);
@@ -511,18 +512,20 @@ impl<'a> Builder<'a> {
             if xla.layout {
                 out.push_str(",\"layout\":{\"dimensions\":[]}");
             }
-            write!(out, ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\"sourceInfo\":{{\"fileName\":", xla.program_id).unwrap();
+            write!(out, ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\"sourceInfo\":{{\"fileName\":", xla.program_id).expect("writing to a string cannot fail");
             let (file, line, stack) = xla.source.map_or(("", 0, ""), |source| {
                 (&*source.file, source.line, &*source.stack)
             });
             json_string(out, file);
-            write!(out, ",\"lineNumber\":{line},\"stackFrame\":").unwrap();
+            write!(out, ",\"lineNumber\":{line},\"stackFrame\":")
+                .expect("writing to a string cannot fail");
             json_string(out, stack);
             out.push_str("},\"xprofKernelMetadata\":");
             json_string(out, &kernel_metadata(xla.expression));
             out.push('}');
         }
-        write!(out, ",\"numChildren\":{}}}", node.num_children).unwrap();
+        write!(out, ",\"numChildren\":{}}}", node.num_children)
+            .expect("writing to a string cannot fail");
     }
 
     /// The value of the JSON text that `write` gives.
@@ -748,7 +751,7 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
         format!(",\"deviceType\":\"{device}\"")
     };
     if with_busy {
-        write!(out, ",\"{key}ExcludeIdle\":").unwrap();
+        write!(out, ",\"{key}ExcludeIdle\":").expect("writing to a string cannot fail");
         pieces.push(std::mem::take(&mut out));
         pieces.extend(busy);
     }

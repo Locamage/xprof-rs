@@ -207,7 +207,10 @@ fn collect<'a>(
 }
 
 fn hlo_op_name(expression: &str) -> &str {
-    let name = expression.split(" = ").next().unwrap();
+    let name = expression
+        .split(" = ")
+        .next()
+        .expect("iterator is non-empty");
     name.strip_prefix('%').unwrap_or(name)
 }
 
@@ -282,7 +285,7 @@ pub fn json(stats: &OpStats) -> String {
                         .long_name
                         .split('=')
                         .next()
-                        .unwrap()
+                        .expect("iterator is non-empty")
                         .contains(".remat")
                         || metrics.provenance.contains("rematted_computation"),
                 ),

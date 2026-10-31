@@ -431,14 +431,14 @@ fn text((devices, events): (Devices, Vec<Event>)) -> String {
     );
     for (device, (name, resources)) in &devices {
         if !name.is_empty() {
-            writeln!(out, "{{\"args\": {{\"name\": {}}}, \"name\": \"process_name\", \"ph\": \"M\", \"pid\": {device}}},", python_string(name)).unwrap();
+            writeln!(out, "{{\"args\": {{\"name\": {}}}, \"name\": \"process_name\", \"ph\": \"M\", \"pid\": {device}}},", python_string(name)).expect("writing to a string cannot fail");
         }
-        writeln!(out, "{{\"args\": {{\"sort_index\": {device}}}, \"name\": \"process_sort_index\", \"ph\": \"M\", \"pid\": {device}}},").unwrap();
+        writeln!(out, "{{\"args\": {{\"sort_index\": {device}}}, \"name\": \"process_sort_index\", \"ph\": \"M\", \"pid\": {device}}},").expect("writing to a string cannot fail");
         for (resource, name) in resources {
             if !name.is_empty() {
-                writeln!(out, "{{\"args\": {{\"name\": {}}}, \"name\": \"thread_name\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},", python_string(name)).unwrap();
+                writeln!(out, "{{\"args\": {{\"name\": {}}}, \"name\": \"thread_name\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},", python_string(name)).expect("writing to a string cannot fail");
             }
-            writeln!(out, "{{\"args\": {{\"sort_index\": {resource}}}, \"name\": \"thread_sort_index\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},").unwrap();
+            writeln!(out, "{{\"args\": {{\"sort_index\": {resource}}}, \"name\": \"thread_sort_index\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},").expect("writing to a string cannot fail");
         }
     }
     let lines: Vec<String> = events
@@ -470,11 +470,12 @@ fn text((devices, events): (Devices, Vec<Event>)) -> String {
                     if event.dur != 0 { "\"X\"" } else { "\"i\"" },
                     event.device
                 )
-                .unwrap();
+                .expect("writing to a string cannot fail");
                 if event.dur == 0 {
                     part.push_str("\"s\": \"t\", ");
                 }
-                write!(part, "\"tid\": {}, \"ts\": ", event.resource).unwrap();
+                write!(part, "\"tid\": {}, \"ts\": ", event.resource)
+                    .expect("writing to a string cannot fail");
                 repr_into(&mut part, event.ts as f64 / 1e6);
                 part.push_str("},\n");
             }

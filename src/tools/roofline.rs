@@ -235,7 +235,7 @@ fn row(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], metrics: &Metrics, 
         table.rows.push(
             GPU_COLUMNS
                 .iter()
-                .map(|&index| cells[index].take().unwrap())
+                .map(|&index| cells[index].take().expect("required value is present"))
                 .collect(),
         );
     } else {

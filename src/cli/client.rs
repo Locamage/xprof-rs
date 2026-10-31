@@ -255,7 +255,10 @@ pub struct Local {
 impl Local {
     /// The op statistics of all the hosts. The process loads each file one time and extends it when a tool needs more.
     fn stats(&self, paths: &[PathBuf], fused: bool, part: Part) -> Option<Arc<OpStats>> {
-        let (mut loaded, mut kept) = (self.loaded.lock().unwrap(), self.kept.write().unwrap());
+        let (mut loaded, mut kept) = (
+            self.loaded.lock().expect("lock poisoned"),
+            self.kept.write().expect("lock poisoned"),
+        );
         let all: Vec<_> = paths
             .iter()
             .map(|path| {
@@ -282,12 +285,18 @@ impl Local {
 
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
     fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> Option<T> {
-        if let Some(kept) = self.kept.write().unwrap().get_mut(path).filter(|kept| {
-            !kept
-                .planes
-                .iter()
-                .any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))
-        }) {
+        if let Some(kept) = self
+            .kept
+            .write()
+            .expect("lock poisoned")
+            .get_mut(path)
+            .filter(|kept| {
+                !kept
+                    .planes
+                    .iter()
+                    .any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))
+            })
+        {
             kept.finish(true);
             return Some(read(&kept.planes, kept.map()));
         }
@@ -458,7 +467,7 @@ impl Client for Local {
                     let Some(path) = path else {
                         return fail(Kind::Assertion, "");
                     };
-                    match self.kept.write().unwrap().get_mut(path) {
+                    match self.kept.write().expect("lock poisoned").get_mut(path) {
                         Some(kept) => {
                             kept.finish(false);
                             Some(crate::tools::memory_profile::json(&kept.planes, kept.map()))
@@ -508,9 +517,9 @@ impl Client for Local {
                     let known =
                         (name == "utilization_viewer" && paths.len() == 1)
                             .then(|| {
-                                self.kept.read().unwrap().get(&paths[0]).map(|kept| {
-                                    crate::tools::counters::utilization_viewer(kept.map())
-                                })
+                                self.kept.read().expect("lock poisoned").get(&paths[0]).map(
+                                    |kept| crate::tools::counters::utilization_viewer(kept.map()),
+                                )
                             })
                             .flatten();
                     known.or_else(|| crate::tools::counters::serve(name, &paths))

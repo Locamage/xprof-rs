@@ -15,7 +15,8 @@ const DESCRIPTORS: &[u8] = include_bytes!("../data/hlo_descriptors.pb");
 
 static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
     let mut pool = DescriptorPool::global();
-    pool.decode_file_descriptor_set(DESCRIPTORS).unwrap();
+    pool.decode_file_descriptor_set(DESCRIPTORS)
+        .expect("embedded hlo descriptors are valid");
     pool
 });
 
@@ -83,7 +84,7 @@ pub fn c_escape(out: &mut String, bytes: &[u8]) {
             b'\'' => out.push_str("\\'"),
             b'\\' => out.push_str("\\\\"),
             0x20..=0x7e => out.push(byte as char),
-            byte => write!(out, "\\{byte:03o}").unwrap(),
+            byte => write!(out, "\\{byte:03o}").expect("writing to a string cannot fail"),
         }
     }
 }
@@ -148,7 +149,7 @@ pub fn json_string(out: &mut String, text: &str) {
             | '\u{e0020}'..='\u{e007f}' => {
                 let mut units = [0u16; 2];
                 for unit in character.encode_utf16(&mut units) {
-                    write!(out, "\\u{unit:04x}").unwrap();
+                    write!(out, "\\u{unit:04x}").expect("writing to a string cannot fail");
                 }
             }
             character => out.push(character),
@@ -226,18 +227,21 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
                     [6, 9],
                     |text| text.parse() == Ok(f32::from_bits(raw as u32)),
                 )),
-                Kind::Bool => write!(out, "{}", raw != 0).unwrap(),
+                Kind::Bool => write!(out, "{}", raw != 0).expect("writing to a string cannot fail"),
                 Kind::Enum(values) => match values.get_value(raw as i32) {
                     Some(value) if json => json_string(out, value.name()),
                     Some(value) => out.push_str(value.name()),
-                    None => write!(out, "{}", raw as i32).unwrap(),
+                    None => write!(out, "{}", raw as i32).expect("writing to a string cannot fail"),
                 },
                 Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 | Kind::Uint64 | Kind::Fixed64
                     if json =>
                 {
-                    write!(out, "\"{}\"", decode(kind, raw)).unwrap();
+                    write!(out, "\"{}\"", decode(kind, raw))
+                        .expect("writing to a string cannot fail");
                 }
-                kind => write!(out, "{}", decode(kind, raw)).unwrap(),
+                kind => {
+                    write!(out, "{}", decode(kind, raw)).expect("writing to a string cannot fail");
+                }
             }
         }
     }
@@ -457,7 +461,7 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                     if out.len() > start { "," } else { "" },
                     spec.json_name
                 )
-                .unwrap();
+                .expect("writing to a string cannot fail");
             }
         };
         if spec.map {

@@ -52,7 +52,7 @@ pub fn map(file: File, len: u64) -> Result<Input, File> {
         return Err(file);
     }
     // The lock makes sure that the thread sees the lease break of a new mapping.
-    let mut leases = LEASES.lock().unwrap();
+    let mut leases = LEASES.lock().expect("lock poisoned");
     if unsafe { libc::fcntl(fd, libc::F_SETLEASE, libc::F_RDLCK) } != 0
         || !file.metadata().is_ok_and(|meta| meta.len() == len)
     {
@@ -104,7 +104,7 @@ pub struct Mapping {
 #[cfg(target_os = "linux")]
 impl Drop for Mapping {
     fn drop(&mut self) {
-        let mut leases = LEASES.lock().unwrap();
+        let mut leases = LEASES.lock().expect("lock poisoned");
         leases.retain(|lease| lease.start != self.start);
         unsafe { libc::munmap(std::ptr::with_exposed_provenance_mut(self.start), self.len) };
     }
@@ -180,7 +180,7 @@ static LISTENING: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
             return;
         }
         // During a lease break, `F_GETLEASE` gives `F_UNLCK`. A lease that the thread cannot copy stays, and the writer waits for the lease break time of the system.
-        LEASES.lock().unwrap().retain(|lease| unsafe { libc::fcntl(lease.fd, libc::F_GETLEASE) } == libc::F_RDLCK || !lease.copy());
+        LEASES.lock().expect("lock poisoned").retain(|lease| unsafe { libc::fcntl(lease.fd, libc::F_GETLEASE) } == libc::F_RDLCK || !lease.copy());
     };
     if std::thread::Builder::new()
         .name("leases".into())

@@ -14,13 +14,17 @@ const NO_HLO: &str = "No compiled HLO module proto found in profile session. To 
 const NO_GRAPH: &str = "No graph_viewer data found in profile session. Ensure workload was profiled with XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto'.";
 const SUGGESTIONS: usize = 10;
 const NEIGHBORHOOD_RADIUS: i64 = 2;
-static COMPUTATION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?:ENTRY\s+)?%?([a-zA-Z0-9._-]+)\b.*\{\s*$").unwrap());
-static INSTRUCTION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^%?([a-zA-Z0-9._-]+)\s*=(.*)$").unwrap());
-static METADATA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)metadata=\{.*?\}").unwrap());
-static NUMBERED: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_]*)\.\d+$").unwrap());
+static COMPUTATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:ENTRY\s+)?%?([a-zA-Z0-9._-]+)\b.*\{\s*$").expect("regular expression is valid")
+});
+static INSTRUCTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^%?([a-zA-Z0-9._-]+)\s*=(.*)$").expect("regular expression is valid")
+});
+static METADATA: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)metadata=\{.*?\}").expect("regular expression is valid"));
+static NUMBERED: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_]*)\.\d+$").expect("regular expression is valid")
+});
 
 pub fn proto_files(client: &dyn Client, session: &str) -> Result<Vec<PathBuf>, Error> {
     let run = client.run_dir(session)?;

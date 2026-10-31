@@ -346,7 +346,7 @@ fn string(out: &mut String, text: &str, ascii: bool) {
     if ascii {
         python_string_into(out, text);
     } else {
-        out.push_str(&serde_json::to_string(text).unwrap());
+        out.push_str(&serde_json::to_string(text).expect("serializing a string cannot fail"));
     }
 }
 

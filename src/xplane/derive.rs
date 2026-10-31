@@ -45,7 +45,13 @@ impl TfOp<'_> {
                 .name
                 .trim_end_matches(|c: char| c.is_ascii_whitespace())
                 .to_string(),
-            Category::TfData => format!("Iterator::{}", self.name.rsplit("::").next().unwrap()),
+            Category::TfData => format!(
+                "Iterator::{}",
+                self.name
+                    .rsplit("::")
+                    .next()
+                    .expect("iterator is non-empty")
+            ),
             _ => self.kind.to_string(),
         }
     }
@@ -84,8 +90,8 @@ pub fn tf_op(full: &str) -> TfOp<'_> {
         return op(Category::TensorFlow, name, kind);
     }
     let derived = if kind.is_empty() {
-        let last = name.rsplit('/').next().unwrap();
-        let suffix = last.rsplit('_').next().unwrap();
+        let last = name.rsplit('/').next().expect("iterator is non-empty");
+        let suffix = last.rsplit('_').next().expect("iterator is non-empty");
         if last.len() > suffix.len() && suffix.trim_ascii().parse::<i64>().is_ok() {
             &last[..last.len() - suffix.len() - 1]
         } else {
@@ -275,10 +281,13 @@ impl Derived {
             .filter(|&top| top > level)
         {
             let max_shrink =
-                (builder.events[builder.last[top].unwrap().0].dur / PS_PER_NS) as i64 - 1;
+                (builder.events[builder.last[top].expect("required value is present").0].dur
+                    / PS_PER_NS) as i64
+                    - 1;
             let (mut shrink, mut previous) = (0i64, None);
             for index in level..=top {
-                let event = &mut builder.events[builder.last[index].unwrap().0];
+                let event =
+                    &mut builder.events[builder.last[index].expect("required value is present").0];
                 let span = (event.ts, event.dur);
                 if shrink < max_shrink && previous == Some(span) {
                     shrink += 1;
@@ -389,7 +398,7 @@ fn tagger(plane: &Plane) -> impl Fn(&[u8], u32) -> Option<Tags> + Sync + Copy + 
                     *source = plane.text(&stat.value);
                 }
                 Value::Int(_) | Value::Uint(_) if Some(stat.id) == async_id => {
-                    *is_async = stat.value.int().unwrap() as u64;
+                    *is_async = stat.value.int().expect("required value is present") as u64;
                 }
                 _ => {}
             }
@@ -590,7 +599,11 @@ fn symbols(planes: &[Plane], map: &[u8]) -> Symbols {
                     } else {
                         format!(
                             "{}:{}",
-                            metadata.source_file.rsplit('/').next().unwrap(),
+                            metadata
+                                .source_file
+                                .rsplit('/')
+                                .next()
+                                .expect("iterator is non-empty"),
                             metadata.source_line
                         )
                     };
@@ -713,19 +726,23 @@ fn steps(plane: &mut Plane, map: &[u8], names: &HashMap<i64, String>) {
     let mut key = String::new();
     for (line, index) in sorted(plane, &lines) {
         let event = &mut plane.lines[line].events[index];
-        if let Some(group) = event_group(slice(map, event.raw), event.group, group_id) {
+        let group = if let Some(group) = event_group(slice(map, event.raw), event.group, group_id) {
             last = Some(group);
+            group
         } else {
             let Some(group) = last else { continue };
             event.group = group;
-        }
-        let group = last.unwrap();
+            group
+        };
         key.clear();
         _ = write!(key, "{group}");
         let meta = derived.meta(0, &key, names.get(&group).map_or("", String::as_str));
         derived.expand_or_add(0, meta, (event.ts, event.ts + event.dur), group, None, 0);
     }
-    let mut line = derived.into_lines(false).pop().unwrap();
+    let mut line = derived
+        .into_lines(false)
+        .pop()
+        .expect("collection is non-empty");
     line.longs.iter_mut().for_each(|long| *long = "".into());
     for (index, event) in line.events.iter().enumerate() {
         if let Some(name) = names.get(&event.group) {
@@ -860,7 +877,11 @@ fn launch_lines(
             {
                 let (mut device, mut correlation, mut group) = (None, None, None);
                 for stat in stats(slice(map, event.raw), 4, |id| ids.contains(&Some(id))) {
-                    match ids.iter().position(|id| *id == Some(stat.id)).unwrap() {
+                    match ids
+                        .iter()
+                        .position(|id| *id == Some(stat.id))
+                        .expect("required value is present")
+                    {
                         0 => device = stat.value.int(),
                         1 => correlation = stat.value.int(),
                         _ => group = Some(stat.value.signed()),

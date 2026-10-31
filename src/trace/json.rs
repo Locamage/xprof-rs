@@ -62,7 +62,7 @@ fn push_quoted(out: &mut String, text: &str) {
     } else {
         out.push_str(
             &serde_json::to_string(text)
-                .unwrap()
+                .expect("serializing a string cannot fail")
                 .replace('<', "\\u003c")
                 .replace('>', "\\u003e")
                 .replace('&', "\\u0026")
@@ -301,7 +301,7 @@ fn frames_json(frames: &[String]) -> Vec<String> {
                 if index > 0 { "," } else { "" },
                 index + 1
             )
-            .unwrap();
+            .expect("writing to a string cannot fail");
             push_quoted(&mut out, frame);
             out.push('}');
         }
@@ -552,7 +552,7 @@ pub fn write_event(
                 "e"
             }
         )
-        .unwrap();
+        .expect("writing to a string cannot fail");
     } else {
         out.push_str(",\"dur\":");
         micros(out, event.dur.max(1));
@@ -560,7 +560,7 @@ pub fn write_event(
             out.push_str(",\"bind_id\":");
             number(out, trace.flow_ids[event.flow as usize]);
             if !category.is_empty() {
-                write!(out, ",\"cat\":\"{category}\"").unwrap();
+                write!(out, ",\"cat\":\"{category}\"").expect("writing to a string cannot fail");
             }
             out.push_str(match entry {
                 FLOW_START => ",\"flow_out\":true",
@@ -576,7 +576,7 @@ pub fn write_event(
         out.push_str(",\"args\":{");
         let start = out.len();
         if event.group != NONE_GROUP {
-            write!(out, "\"group_id\":{}", event.group).unwrap();
+            write!(out, "\"group_id\":{}", event.group).expect("writing to a string cannot fail");
         }
         match extra.filter(|_| forced_entry.is_none()) {
             None if forced_entry.is_none() => write!(
@@ -584,7 +584,7 @@ pub fn write_event(
                 "{}\"uid\":{serial}",
                 if out.len() > start { "," } else { "" }
             )
-            .unwrap(),
+            .expect("writing to a string cannot fail"),
             None => {}
             Some((plane, map, frames, keys, marked)) => {
                 let (args, stack) = full_args(trace, plane, event, map, frames, keys);
@@ -603,7 +603,7 @@ pub fn write_event(
         } else {
             ("", "")
         };
-        write!(out, ",\"sf\":{open}{frame}{close}").unwrap();
+        write!(out, ",\"sf\":{open}{frame}{close}").expect("writing to a string cannot fail");
     }
     if serial > 0 {
         out.push_str(",\"z\":");
@@ -634,7 +634,9 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
     let seconds = |ps: u64| {
         format!(
             "{}",
-            format!("{:.5e}", ps as f64 / 1e9).parse::<f64>().unwrap()
+            format!("{:.5e}", ps as f64 / 1e9)
+                .parse::<f64>()
+                .expect("value has valid syntax")
         )
     };
     let mut out = String::with_capacity(total * 140 + 4096);
@@ -649,21 +651,21 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
             String::new()
         }
     )
-    .unwrap();
+    .expect("writing to a string cannot fail");
     write!(
         out,
         "\"returnedEventsSize\":{total},\"filteredByVisibility\":true,\"fullTimespan\":[{},{}],",
         seconds(min_ps),
         seconds(max_ps)
     )
-    .unwrap();
+    .expect("writing to a string cannot fail");
     let devices = devices(views);
     let mut body = String::new();
     for (pid, device) in &devices {
         body.push_str(if body.is_empty() { "" } else { "," });
-        write!(body, "{{\"args\":{{\"name\":{}}},\"name\":\"process_name\",\"ph\":\"M\",\"pid\":{pid},\"thread_count\":{}}},{{\"args\":{{\"sort_index\":{pid}}},\"name\":\"process_sort_index\",\"ph\":\"M\",\"pid\":{pid}}}", quoted(&device.name), device.resources.len()).unwrap();
+        write!(body, "{{\"args\":{{\"name\":{}}},\"name\":\"process_name\",\"ph\":\"M\",\"pid\":{pid},\"thread_count\":{}}},{{\"args\":{{\"sort_index\":{pid}}},\"name\":\"process_sort_index\",\"ph\":\"M\",\"pid\":{pid}}}", quoted(&device.name), device.resources.len()).expect("writing to a string cannot fail");
         for (resource, name) in &device.resources {
-            write!(body, ",{{\"args\":{{\"name\":{}}},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":{pid},\"tid\":{resource}}},{{\"args\":{{\"sort_index\":{resource}}},\"name\":\"thread_sort_index\",\"ph\":\"M\",\"pid\":{pid},\"tid\":{resource}}}", quoted(name)).unwrap();
+            write!(body, ",{{\"args\":{{\"name\":{}}},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":{pid},\"tid\":{resource}}},{{\"args\":{{\"sort_index\":{resource}}},\"name\":\"thread_sort_index\",\"ph\":\"M\",\"pid\":{pid},\"tid\":{resource}}}", quoted(name)).expect("writing to a string cannot fail");
         }
     }
     let ordered = ordered(views);
@@ -734,9 +736,10 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
                         "\"pid\":{pid},\"name\":{},\"ph\":\"C\"",
                         quoted(&view.trace.names[event.name as usize])
                     )
-                    .unwrap();
+                    .expect("writing to a string cannot fail");
                     if let Some(first) = first {
-                        write!(text, ",\"event_stats\":{}", quoted(&first)).unwrap();
+                        write!(text, ",\"event_stats\":{}", quoted(&first))
+                            .expect("writing to a string cannot fail");
                     }
                     text.push_str(",\"entries\":[");
                     open = Some(counter_key(entry));
@@ -746,9 +749,9 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
                 if !values.is_empty() {
                     text.push('[');
                     text.push_str(&crate::hlo::general(event.ts as f64 / 1e6, 17));
-                    values
-                        .iter()
-                        .for_each(|value| write!(text, ",{value}").unwrap());
+                    values.iter().for_each(|value| {
+                        write!(text, ",{value}").expect("writing to a string cannot fail");
+                    });
                     text.push(']');
                 }
                 continue;
@@ -782,8 +785,8 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
         text
     };
     let mut bounds = vec![0];
-    while *bounds.last().unwrap() < ordered.len() {
-        let mut end = (bounds.last().unwrap() + 4096).min(ordered.len());
+    while *bounds.last().expect("required value is present") < ordered.len() {
+        let mut end = (bounds.last().expect("required value is present") + 4096).min(ordered.len());
         while end < ordered.len()
             && is_counter(&ordered[end])
             && counter_key(&ordered[end - 1]) == counter_key(&ordered[end])

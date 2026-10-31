@@ -432,7 +432,7 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
                     (ev.ts as i64).wrapping_add(origin_ps),
                     &mut trace.strings,
                 );
-                raw_fragments.get_mut(&device).unwrap()[index]
+                raw_fragments.get_mut(&device).expect("entry exists")[index]
                     .events
                     .push(built);
             }
@@ -1059,10 +1059,13 @@ impl Writer<'_> {
             &mut data.annotation_names,
             &mut data.annotation_texts,
         ];
-        list.into_iter().nth(which).unwrap().push(Interned {
-            iid,
-            text: Some(self.trace.strings.get(id).into()),
-        });
+        list.into_iter()
+            .nth(which)
+            .expect("required value is present")
+            .push(Interned {
+                iid,
+                text: Some(self.trace.strings.get(id).into()),
+            });
         iid
     }
 

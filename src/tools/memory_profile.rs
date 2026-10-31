@@ -228,7 +228,7 @@ fn process(allocator: &mut Allocator) {
                     snapshots[(begin..begin + width)
                         .rev()
                         .max_by_key(|&index| in_use(&snapshots[index]))
-                        .unwrap()]
+                        .expect("required value is present")]
                     .clone(),
                 );
             }

@@ -498,15 +498,15 @@ fn perf_rows(plane: &Plane, host: &str) -> Vec<String> {
             let line = line(bytes);
             let mut prefix = format!(
                 "{{\"c\":[{{\"v\":{}}},{{\"v\":",
-                serde_json::to_string(host).unwrap()
+                serde_json::to_string(host).expect("serializing a string cannot fail")
             );
             number(&mut prefix, chip as f64);
             write!(
                 prefix,
                 "}},{{\"v\":{}}},{{\"v\":",
-                serde_json::to_string(&line.name).unwrap()
+                serde_json::to_string(&line.name).expect("writing to a string cannot fail")
             )
-            .unwrap();
+            .expect("serializing a string cannot fail");
             number(&mut prefix, line.id as f64);
             prefix.push_str("},{\"v\":");
             chunks(line.bytes)
@@ -531,7 +531,8 @@ fn perf_rows(plane: &Plane, host: &str) -> Vec<String> {
                                 })
                         });
                         string(&mut out, name);
-                        write!(out, "}},{{\"f\":\"0x{value:x}\",\"v\":").unwrap();
+                        write!(out, "}},{{\"f\":\"0x{value:x}\",\"v\":")
+                            .expect("writing to a string cannot fail");
                         number(&mut out, value as f64);
                         for text in [description, set] {
                             out.push_str("},{\"v\":");

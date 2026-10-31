@@ -49,11 +49,16 @@ const BANDWIDTH_RENAMES: [(&str, &str); 2] = [
 const BYTES_PER_GIB: f64 = 1073741824.0;
 const BYTES_PER_MIB: f64 = 1048576.0;
 pub const CUSTOM_CALL_GUIDANCE: &str = "Op-level metrics unavailable for custom calls. Use get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events for Pallas kernels.";
-static XID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"--streamz_default_root_labels=\S*xmanager:int:(\d+)").unwrap());
-static TITLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"title=['"]([^'"]+)['"]"#).unwrap());
-static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
-static NUMBERED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:XLU|MXU)\d+$").unwrap());
+static XID: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"--streamz_default_root_labels=\S*xmanager:int:(\d+)")
+        .expect("regular expression is valid")
+});
+static TITLE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"title=['"]([^'"]+)['"]"#).expect("regular expression is valid"));
+static TAG: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<[^>]+>").expect("regular expression is valid"));
+static NUMBERED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:XLU|MXU)\d+$").expect("regular expression is valid"));
 
 pub fn row_dict(table: &J, row: &J) -> J {
     let ids = table

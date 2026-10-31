@@ -354,7 +354,11 @@ pub fn training(name: &str, kind: &str) -> bool {
         (kind.is_empty()
             || (!name.is_empty()
                 && is_jax_op_type(kind)
-                && name.rsplit('/').next().unwrap().contains(kind)))
+                && name
+                    .rsplit('/')
+                    .next()
+                    .expect("iterator is non-empty")
+                    .contains(kind)))
             && name.split('/').any(|scope| scope.starts_with("transpose("))
     }
 }

@@ -379,7 +379,7 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
             (plane.name.clone(), listed, matched)
         })?;
         if failed.into_inner() {
-            return Err(start.and(end).unwrap_err());
+            return Err(start.and(end).expect_err("failed boundary has an error"));
         }
         let (mut listed, mut matched, mut skipped) = (Vec::new(), 0usize, 0usize);
         for (plane, found, count) in parts {

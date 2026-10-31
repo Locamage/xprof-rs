@@ -686,7 +686,7 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
             .map(|step| step.name.as_str())
             .or(links.step.as_deref())
         {
-            let mut extra = extra.lock().unwrap();
+            let mut extra = extra.lock().expect("lock poisoned");
             extra.push(step.into());
             name = extra_base + extra.len() as u32 - 1;
         }
@@ -700,7 +700,7 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
         });
         let raw = match line.args.get(&index) {
             Some(extra) => {
-                let mut args = args.lock().unwrap();
+                let mut args = args.lock().expect("lock poisoned");
                 args.push(extra.clone());
                 (u32::MAX, args.len() as u32 - 1)
             }
@@ -764,8 +764,8 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
     unsafe { events.set_len(total) };
     (
         events,
-        extra.into_inner().unwrap(),
-        args.into_inner().unwrap(),
+        extra.into_inner().expect("lock poisoned"),
+        args.into_inner().expect("lock poisoned"),
         bounds,
         flows,
     )
@@ -1305,8 +1305,8 @@ fn assign_levels(
                     let ready =
                         || done[level - 1].load(Acquire) >= end || remaining.load(Relaxed) == 0;
                     drop(
-                        wake.wait_while(lock.lock().unwrap(), |()| !ready())
-                            .unwrap(),
+                        wake.wait_while(lock.lock().expect("lock poisoned"), |()| !ready())
+                            .expect("lock poisoned"),
                     );
                 }
                 if remaining.load(Relaxed) == 0 {
@@ -1339,7 +1339,7 @@ fn assign_levels(
                 }
                 remaining.fetch_sub(found, Relaxed);
                 done[level].store(end, Release);
-                drop(lock.lock().unwrap());
+                drop(lock.lock().expect("lock poisoned"));
                 wake.notify_all();
             }
         };

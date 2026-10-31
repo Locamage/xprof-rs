@@ -316,7 +316,10 @@ pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
     let slots = metas
         .iter()
         .map(|template| {
-            key(template).map_or(u32::MAX, |key| keys.binary_search(&key).unwrap() as u32)
+            key(template).map_or(u32::MAX, |key| {
+                keys.binary_search(&key)
+                    .expect("key is in the sorted collection") as u32
+            })
         })
         .collect();
     let sums = metas
@@ -873,7 +876,7 @@ pub fn convert_tensor_core(
                     {
                         break;
                     }
-                    finish(stack.pop().unwrap());
+                    finish(stack.pop().expect("collection is non-empty"));
                 }
                 if let Some(top) = stack.last_mut() {
                     top.3 = top.3.saturating_add(span.1);
@@ -1053,7 +1056,11 @@ pub fn load_kept(
             &planes,
             &map,
             |db| {
-                modules = parsing.take().unwrap().join().unwrap();
+                modules = parsing
+                    .take()
+                    .expect("parser task is available")
+                    .join()
+                    .expect("worker thread did not panic");
                 if !modules.is_empty() {
                     crate::hlo::attach_fused(&modules, db);
                 }
@@ -1062,7 +1069,7 @@ pub fn load_kept(
             spans,
         );
         if let Some(parsing) = parsing {
-            modules = parsing.join().unwrap();
+            modules = parsing.join().expect("worker thread did not panic");
         }
         (stats, modules, underived)
     });
@@ -1219,9 +1226,9 @@ fn op_stats(
             let extra = scope.spawn(|| steps(planes, map, &templates, part, !combined));
             let device = scope.spawn(device);
             (
-                device.join().unwrap(),
-                extra.join().unwrap(),
-                side.join().unwrap(),
+                device.join().expect("worker thread did not panic"),
+                extra.join().expect("worker thread did not panic"),
+                side.join().expect("worker thread did not panic"),
             )
         });
     crate::release(templates);

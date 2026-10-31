@@ -40,7 +40,7 @@ struct Unlock<'a> {
 
 impl Drop for Unlock<'_> {
     fn drop(&mut self) {
-        let mut locks = self.locks.lock().unwrap();
+        let mut locks = self.locks.lock().expect("lock poisoned");
         if Arc::strong_count(&self.lock) == 2 {
             locks.remove(self.dir);
         }
@@ -151,7 +151,7 @@ impl Remote {
         if touch {
             self.used
                 .lock()
-                .unwrap()
+                .expect("lock poisoned")
                 .insert(dir.to_path_buf(), Instant::now());
         }
         let unlock = Unlock {
@@ -160,7 +160,7 @@ impl Remote {
             lock: self
                 .locks
                 .lock()
-                .unwrap()
+                .expect("lock poisoned")
                 .entry(dir.to_path_buf())
                 .or_default()
                 .clone(),
@@ -169,7 +169,7 @@ impl Remote {
         if self
             .checked
             .lock()
-            .unwrap()
+            .expect("lock poisoned")
             .get(dir)
             .is_some_and(|at| at.elapsed() < RECHECK)
         {
@@ -293,7 +293,7 @@ impl Remote {
                 .buffer_unordered(PARALLEL_FILES)
                 .try_collect::<Vec<()>>()
                 .await?;
-            let used = self.used.lock().unwrap().clone();
+            let used = self.used.lock().expect("lock poisoned").clone();
             let is_file =
                 |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_file());
             let mut held: Vec<_> = sessions(&self.mirror)
@@ -313,7 +313,12 @@ impl Remote {
                 .sum();
             held.sort_by_key(|(at, _, _)| *at);
             // A session with a lock has a sync that can still write its files.
-            let busy = |session: &PathBuf| self.locks.lock().unwrap().contains_key(session);
+            let busy = |session: &PathBuf| {
+                self.locks
+                    .lock()
+                    .expect("lock poisoned")
+                    .contains_key(session)
+            };
             for (_, session, files) in held.into_iter().filter(|(at, session, _)| {
                 session != dir && at.is_none_or(|at| at.elapsed() >= IN_USE) && !busy(session)
             }) {
@@ -327,11 +332,11 @@ impl Remote {
                         0
                     };
                 }
-                self.checked.lock().unwrap().remove(&session);
-                self.used.lock().unwrap().remove(&session);
+                self.checked.lock().expect("lock poisoned").remove(&session);
+                self.used.lock().expect("lock poisoned").remove(&session);
             }
         }
-        let mut checked = self.checked.lock().unwrap();
+        let mut checked = self.checked.lock().expect("lock poisoned");
         checked.retain(|_, at| at.elapsed() < RECHECK);
         checked.insert(dir.to_path_buf(), Instant::now());
         Ok(())

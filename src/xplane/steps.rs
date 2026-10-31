@@ -150,7 +150,7 @@ fn intersect<T>(
     }
     destination.retain(|step, _| source.contains_key(step));
     for (step, value) in destination.iter_mut() {
-        merge(value, source.remove(step).unwrap());
+        merge(value, source.remove(step).expect("entry exists"));
     }
 }
 
@@ -254,7 +254,7 @@ struct Nest<T>(Vec<(Span, u64, T)>);
 impl<T> Nest<T> {
     fn push(&mut self, span: Span, item: T, finish: &mut impl FnMut(T, Span, u64)) {
         while self.0.last().is_some_and(|top| !top.0.includes(span)) {
-            let (span, children, item) = self.0.pop().unwrap();
+            let (span, children, item) = self.0.pop().expect("collection is non-empty");
             finish(item, span, span.duration.saturating_sub(children));
         }
         if let Some(top) = self.0.last_mut() {
@@ -568,7 +568,7 @@ fn device_lines(
                     );
                 }
             }
-            let own: [Option<i64>; 4] = own[..4].try_into().unwrap();
+            let own: [Option<i64>; 4] = own[..4].try_into().expect("slice has the expected length");
             Some((
                 index,
                 event,

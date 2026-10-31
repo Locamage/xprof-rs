@@ -29,9 +29,11 @@ const NO_PROFILE: &str = "No HLO op_profile found in trace. For JAX traces, ensu
 /// The default `max_recursion_depth` of `json_format.Parse` in protobuf.
 const MAX_MESSAGE_DEPTH: usize = 100;
 const TOO_DEEP: &str = "Message too deep. Max recursion depth is 100";
-static TARGET: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"custom_call_target="([^"]+)""#).unwrap());
-static OP_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"%([^%=]+) =").unwrap());
+static TARGET: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"custom_call_target="([^"]+)""#).expect("regular expression is valid")
+});
+static OP_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"%([^%=]+) =").expect("regular expression is valid"));
 
 pub fn field<'a>(node: &'a J, name: &str) -> &'a J {
     let camel = |key: &str| {

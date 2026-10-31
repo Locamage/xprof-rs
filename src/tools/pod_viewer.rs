@@ -50,7 +50,7 @@ fn record(host_name: &str, step_num: u32, info: &StepInfo) -> String {
         ",\"bottleneck\":{},\"stepBreakdownUs\":{{",
         quoted(bottleneck)
     )
-    .unwrap();
+    .expect("writing to a string cannot fail");
     for (index, ps) in breakdown_ps.iter().enumerate() {
         write!(
             out,
@@ -58,7 +58,7 @@ fn record(host_name: &str, step_num: u32, info: &StepInfo) -> String {
             if index > 0 { "," } else { "" },
             index + 1
         )
-        .unwrap();
+        .expect("writing to a string cannot fail");
         proto_double(&mut out, pico_to_micro(*ps));
     }
     out.push_str("}}");
@@ -87,9 +87,10 @@ pub fn render(extra: &Extra) -> String {
             if position > 0 { "," } else { "" },
             step.num
         )
-        .unwrap();
+        .expect("writing to a string cannot fail");
         for (index, core) in step.cores.keys().enumerate() {
-            write!(out, "{}\"{core}\":", if index > 0 { "," } else { "" }).unwrap();
+            write!(out, "{}\"{core}\":", if index > 0 { "," } else { "" })
+                .expect("writing to a string cannot fail");
             out.push_str(records.get(next).map_or(EMPTY_RECORD, String::as_str));
             next += 1;
         }
@@ -100,7 +101,7 @@ pub fn render(extra: &Extra) -> String {
         (true, true) => quoted(EMPTY_INTERSECT),
         (true, false) => quoted(NO_STEP_MARKER),
     };
-    write!(out, "]}},\"diagnostics\":{{\"info\":[],\"warnings\":[{warning}],\"errors\":[]}},\"stepBreakdownEvents\":[").unwrap();
+    write!(out, "]}},\"diagnostics\":{{\"info\":[],\"warnings\":[{warning}],\"errors\":[]}},\"stepBreakdownEvents\":[").expect("writing to a string cannot fail");
     for (index, (name, _)) in GENERIC_EVENTS.iter().enumerate() {
         write!(
             out,
@@ -109,9 +110,10 @@ pub fn render(extra: &Extra) -> String {
             index + 1,
             quoted(name)
         )
-        .unwrap();
+        .expect("writing to a string cannot fail");
     }
-    write!(out, "],\"deviceType\":{}}}", quoted(&extra.device_type)).unwrap();
+    write!(out, "],\"deviceType\":{}}}", quoted(&extra.device_type))
+        .expect("writing to a string cannot fail");
     out
 }
 

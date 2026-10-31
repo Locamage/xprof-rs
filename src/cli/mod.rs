@@ -1323,7 +1323,10 @@ pub fn both<A: Send, B: Send>(
     match client.shared() {
         Some(shared) => std::thread::scope(|scope| {
             let second = scope.spawn(move || second(shared));
-            (first(shared), second.join().unwrap())
+            (
+                first(shared),
+                second.join().expect("worker thread did not panic"),
+            )
         }),
         None => (first(client), second(client)),
     }

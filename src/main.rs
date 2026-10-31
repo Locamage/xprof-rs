@@ -188,12 +188,12 @@ impl<K: Hash + Eq + Clone + Send + 'static, T: Clone + Send + Sync + 'static> Fl
         key: K,
         work: impl FnOnce() -> F,
     ) -> Flight<T> {
-        let mut flights = self.0.lock().unwrap();
+        let mut flights = self.0.lock().expect("lock poisoned");
         let flight = flights.entry(key.clone()).or_insert_with(|| {
             let (flights, work) = (self.0.clone(), AssertUnwindSafe(work()).catch_unwind());
             let task = tokio::spawn(async move {
                 let outcome = work.await.map_err(|payload| panic_message(&*payload));
-                flights.lock().unwrap().remove(&key);
+                flights.lock().expect("lock poisoned").remove(&key);
                 outcome
             });
             task.map(|joined| joined.unwrap_or_else(|error| Err(error.to_string().into())))
@@ -625,7 +625,13 @@ fn sessions(logdir: &Path) -> Vec<(String, PathBuf)> {
                 .into_iter()
                 .map(|session| {
                     (
-                        format!("{prefix}{}", session.file_name().unwrap().to_string_lossy()),
+                        format!(
+                            "{prefix}{}",
+                            session
+                                .file_name()
+                                .expect("path has a valid file name")
+                                .to_string_lossy()
+                        ),
                         session,
                     )
                 }),
@@ -637,7 +643,13 @@ fn sessions(logdir: &Path) -> Vec<(String, PathBuf)> {
                 .map(|child| {
                     (
                         child.clone(),
-                        format!("{prefix}{}/", child.file_name().unwrap().to_string_lossy()),
+                        format!(
+                            "{prefix}{}/",
+                            child
+                                .file_name()
+                                .expect("path has a valid file name")
+                                .to_string_lossy()
+                        ),
                     )
                 }),
         );
@@ -680,7 +692,7 @@ fn response(status: StatusCode, content_type: &str, body: impl Into<Body>) -> Re
         .header(header::CONTENT_TYPE, content_type)
         .header("x-served-by", "xprof-rs")
         .body(body.into())
-        .unwrap()
+        .expect("response headers are valid")
 }
 
 async fn assets(request: Request) -> Response {
@@ -738,9 +750,10 @@ async fn assets(request: Request) -> Response {
     reply
         .headers_mut()
         .insert(header::VARY, HeaderValue::from_static("accept-encoding"));
-    reply
-        .headers_mut()
-        .insert(header::ETAG, HeaderValue::from_str(&tag).unwrap());
+    reply.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(&tag).expect("etag is a valid header value"),
+    );
     reply
 }
 
@@ -771,12 +784,12 @@ fn negotiate(
                     };
                     flate2::Decompress::new(false)
                         .decompress(&body[start..end], out, flate2::FlushDecompress::Sync)
-                        .unwrap();
+                        .expect("compressed body is valid");
                 });
         } else {
             flate2::read::GzDecoder::new(&body[..])
                 .read_to_end(&mut raw)
-                .unwrap();
+                .expect("compressed body is valid");
         }
         *reply.body_mut() = Body::from(raw);
     }
@@ -786,8 +799,12 @@ fn negotiate(
 /// The length of the decoded gzip `body` of `gzip`. The trailer has the length modulo 2^32, and only the last part is shorter than `GZIP_CHUNK`.
 fn decoded_len(body: &[u8], ends: &[usize]) -> usize {
     let full = (ends.len() - 1) * GZIP_CHUNK;
-    full + u32::from_le_bytes(body[body.len() - 4..].try_into().unwrap()).wrapping_sub(full as u32)
-        as usize
+    full + u32::from_le_bytes(
+        body[body.len() - 4..]
+            .try_into()
+            .expect("slice has the expected length"),
+    )
+    .wrapping_sub(full as u32) as usize
 }
 
 /// Resolves the deepest part of the path that exists. The parts after it must be plain names, and the first of them must not be a symlink to a path that does not exist.
@@ -813,13 +830,23 @@ fn confine(state: &State_, path: &Path) -> Option<PathBuf> {
         && missing
             .first()
             .is_none_or(|first| real.join(first).symlink_metadata().is_err());
-    let staged = state.staging.lock().unwrap().values().any(|entry| {
-        entry.result.lock().unwrap().as_ref().is_some_and(|result| {
-            result
+    let staged = state
+        .staging
+        .lock()
+        .expect("lock poisoned")
+        .values()
+        .any(|entry| {
+            entry
+                .result
+                .lock()
+                .expect("lock poisoned")
                 .as_ref()
-                .is_ok_and(|profile| real.starts_with(profile))
-        })
-    });
+                .is_some_and(|result| {
+                    result
+                        .as_ref()
+                        .is_ok_and(|profile| real.starts_with(profile))
+                })
+        });
     (plain && (real.starts_with(&state.logdir) || staged))
         .then(|| missing.iter().fold(real, |dir, part| dir.join(part)))
 }
@@ -954,7 +981,7 @@ fn gzip(body: &[u8]) -> (Bytes, Arc<[usize]>) {
                 let consumed = deflate.total_in() as usize;
                 let status = deflate
                     .compress_vec(&chunk[consumed..], &mut out, flush)
-                    .unwrap();
+                    .expect("response body can be compressed");
                 if status == flate2::Status::StreamEnd
                     || (deflate.total_in() as usize == chunk.len() && out.len() < out.capacity())
                 {
@@ -1159,7 +1186,7 @@ async fn data_csv(
         let quote = |text: &str| format!("\"{}\"", text.replace('"', "\"\""));
         let cell = |value: &serde_json::Value| match value {
             serde_json::Value::Number(number) if number.is_f64() => {
-                tools::table::repr(number.as_f64().unwrap())
+                tools::table::repr(number.as_f64().expect("field has the expected type"))
             }
             serde_json::Value::Number(number) => number.to_string(),
             serde_json::Value::String(text) => text.clone(),
@@ -1211,7 +1238,8 @@ async fn data_csv(
         let mut reply = response(StatusCode::OK, "text/csv", csv);
         reply.headers_mut().insert(
             header::CONTENT_DISPOSITION,
-            HeaderValue::from_str(&format!("attachment; filename=\"{name}.csv\"")).unwrap(),
+            HeaderValue::from_str(&format!("attachment; filename=\"{name}.csv\""))
+                .expect("filename is a valid header value"),
         );
         reply
     };
@@ -1843,7 +1871,7 @@ async fn prefetch(state: Shared) {
             let mut used: Vec<(PathBuf, Instant)> = remote
                 .used
                 .lock()
-                .unwrap()
+                .expect("lock poisoned")
                 .clone()
                 .into_iter()
                 .filter(|(dir, _)| !xplanes(dir).is_empty())
@@ -2010,10 +2038,9 @@ fn state(settings: &Settings) -> Shared {
         renders: Flights::new(),
         extracts: Flights::new(),
         loads: Arc::new(Semaphore::new(((*MEMORY >> 34) as usize).clamp(1, 2))),
-        open_uri_pattern: settings
-            .open_uri_pattern
-            .as_deref()
-            .map(|pattern| regex::Regex::new(&format!("^(?:{pattern})$")).unwrap()),
+        open_uri_pattern: settings.open_uri_pattern.as_deref().map(|pattern| {
+            regex::Regex::new(&format!("^(?:{pattern})$")).expect("pattern validated by arguments")
+        }),
         staging: Mutex::default(),
         staging_permits: Arc::new(Semaphore::new(4)),
     })
@@ -2062,7 +2089,7 @@ fn stage_uri(state: &State_, uri: &str) -> Result<String, String> {
 }
 
 fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
-    let mut entries = state.staging.lock().unwrap();
+    let mut entries = state.staging.lock().expect("lock poisoned");
     if let Some(entry) = entries.get(uri) {
         return Ok(entry.clone());
     }
@@ -2111,7 +2138,7 @@ fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
             profile.canonicalize().map_err(|error| error.to_string())
         }
         .await;
-        *work_entry.result.lock().unwrap() = Some(result);
+        *work_entry.result.lock().expect("lock poisoned") = Some(result);
     });
     Ok(entry)
 }
@@ -2126,7 +2153,7 @@ fn staging_location(profile: &Path, tool: &str) -> String {
 }
 
 fn remove_staging(state: &State_, uri: &str, entry: &Arc<Staging>) {
-    let mut entries = state.staging.lock().unwrap();
+    let mut entries = state.staging.lock().expect("lock poisoned");
     if entries
         .get(uri)
         .is_some_and(|current| Arc::ptr_eq(current, entry))
@@ -2169,7 +2196,7 @@ async fn open(
             );
         }
     };
-    let result = entry.result.lock().unwrap().clone();
+    let result = entry.result.lock().expect("lock poisoned").clone();
     match result {
         None => response(
             StatusCode::ACCEPTED,
@@ -2179,9 +2206,11 @@ async fn open(
         Some(Ok(profile)) => {
             let location = staging_location(&profile, tool);
             let mut reply = response(StatusCode::SEE_OTHER, "text/plain", "");
-            reply
-                .headers_mut()
-                .insert(header::LOCATION, HeaderValue::from_str(&location).unwrap());
+            reply.headers_mut().insert(
+                header::LOCATION,
+                HeaderValue::from_str(&location)
+                    .expect("redirect location is a valid header value"),
+            );
             reply
         }
         Some(Err(error)) => {
@@ -2224,7 +2253,7 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
             );
         }
     };
-    let result = entry.result.lock().unwrap().clone();
+    let result = entry.result.lock().expect("lock poisoned").clone();
     match result {
         Some(Err(_)) => {
             remove_staging(&state, &uri, &entry);
@@ -2316,7 +2345,8 @@ async function update() {{
 }}
 update();
 </script></body></html>"#,
-        progress_url = serde_json::to_string(&progress_url).unwrap()
+        progress_url =
+            serde_json::to_string(&progress_url).expect("serializing a string cannot fail")
     )
 }
 

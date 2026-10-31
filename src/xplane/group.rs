@@ -556,20 +556,18 @@ fn merge(plane: &mut Plane, map: &[u8], index: usize, names: &HashMap<i64, Strin
         }
         let (last, end) = (kept.len() - 1, event.ts + event.dur);
         idle += stat(&event, idle_id).unwrap_or(0);
-        let step = steps.get_mut(&last).unwrap();
-        if let Some((begin, duration)) = span {
+        let step = steps.get_mut(&last).expect("entry exists");
+        if let Some((mut begin, mut duration)) = span {
             let other = device_span(&event);
             if other.1 != 0 {
-                span = Some(if duration == 0 {
-                    other
+                if duration == 0 {
+                    (begin, duration) = other;
                 } else {
-                    (
-                        begin.min(other.0),
-                        (begin + duration).max(other.0 + other.1) - begin.min(other.0),
-                    )
-                });
+                    let end = (begin + duration).max(other.0 + other.1);
+                    begin = begin.min(other.0);
+                    duration = end - begin;
+                }
             }
-            let (begin, duration) = span.unwrap();
             step.stats.retain(|(key, _)| *key == IDLE);
             step.stats
                 .extend([(OFFSET, begin as i64), (DURATION, duration as i64)]);

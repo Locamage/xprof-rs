@@ -249,7 +249,11 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
         if *tag != 1 {
             name(
                 &mut interner,
-                &mut series.metadata.as_mut().unwrap().name_ref,
+                &mut series
+                    .metadata
+                    .as_mut()
+                    .expect("series metadata is present")
+                    .name_ref,
             );
         }
         for (index, metadata) in series.event_metadata.iter_mut().enumerate() {
@@ -278,6 +282,8 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
         })
         .collect();
     let mut raw = parts.concat();
-    response.encode(&mut raw).unwrap();
-    zstd::bulk::compress(&raw, 1).unwrap()
+    response
+        .encode(&mut raw)
+        .expect("trace response can be encoded");
+    zstd::bulk::compress(&raw, 1).expect("trace response can be compressed")
 }

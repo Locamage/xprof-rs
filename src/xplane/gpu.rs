@@ -609,7 +609,7 @@ pub fn infos(planes: &[Plane], map: &[u8], devices: &[&Plane]) -> Infos {
                 },
             );
             for (name, node) in nodes {
-                found.get_mut(name).unwrap().cost =
+                found.get_mut(name).expect("entry exists").cost =
                     costs.as_ref().and_then(|costs| costs.get(node).cloned());
             }
             (program, found)

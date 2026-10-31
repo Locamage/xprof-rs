@@ -558,7 +558,7 @@ fn unicode_escape(source: &mut Source, c: char) -> Parsed<Option<u32>> {
     if escape.len() != full {
         return Err(source.error(&format!("incomplete escape {escape}"), escape.len()));
     }
-    let value = u32::from_str_radix(&escape[2..], 16).unwrap();
+    let value = u32::from_str_radix(&escape[2..], 16).expect("escape digits are valid");
     if value > 0x10FFFF {
         return Err(source.error(&format!("bad escape {escape}"), escape.len()));
     }
@@ -585,7 +585,7 @@ fn class_escape(source: &mut Source, c: char) -> Parsed<Item> {
     }
     if octal(c) {
         let escape = format!("\\{c}{}", source.get_while(2, octal)?);
-        let value = u32::from_str_radix(&escape[1..], 8).unwrap();
+        let value = u32::from_str_radix(&escape[1..], 8).expect("escape digits are valid");
         if value > 0o377 {
             return Err(source.error(
                 &format!("octal escape value {escape} outside of range 0-0o377"),
@@ -610,7 +610,7 @@ fn escape(source: &mut Source, c: char, state: &State) -> Parsed<Escaped> {
     if c == '0' {
         let digits = source.get_while(2, octal)?;
         return Ok(Escaped::Item(Item::Literal(
-            u32::from_str_radix(&format!("0{digits}"), 8).unwrap(),
+            u32::from_str_radix(&format!("0{digits}"), 8).expect("escape digits are valid"),
         )));
     }
     if c.is_ascii_digit() {
@@ -622,8 +622,13 @@ fn escape(source: &mut Source, c: char, state: &State) -> Parsed<Escaped> {
             source.advance()?;
             escape.push(next);
             if octal(c) && octal(next) && source.next.and_then(Tok::char).is_some_and(octal) {
-                escape.push(source.get()?.and_then(Tok::char).unwrap());
-                let value = u32::from_str_radix(&escape[1..], 8).unwrap();
+                escape.push(
+                    source
+                        .get()?
+                        .and_then(Tok::char)
+                        .expect("octal escape has a third digit"),
+                );
+                let value = u32::from_str_radix(&escape[1..], 8).expect("escape digits are valid");
                 if value > 0o377 {
                     return Err(source.error(
                         &format!("octal escape value {escape} outside of range 0-0o377"),
@@ -633,7 +638,7 @@ fn escape(source: &mut Source, c: char, state: &State) -> Parsed<Escaped> {
                 return Ok(Escaped::Item(Item::Literal(value)));
             }
         }
-        let group: usize = escape[1..].parse().unwrap();
+        let group: usize = escape[1..].parse().expect("value has valid syntax");
         if group < state.widths.len() {
             if !state.closed(group) {
                 return Err(source.error("cannot refer to an open group", escape.len()));
@@ -670,7 +675,7 @@ fn parse_sub(
         }
     }
     Ok(if items.len() == 1 {
-        items.pop().unwrap()
+        items.pop().expect("collection is non-empty")
     } else {
         vec![Node::Branch(items)]
     })
@@ -783,7 +788,7 @@ fn parse_flags(source: &mut Source, state: &mut State, first: char) -> Parsed<Op
     let (mut add, mut delete, mut c) = (0, 0, first);
     if c != '-' {
         loop {
-            let value = flag(c).unwrap();
+            let value = flag(c).expect("required value is present");
             if c == 'L' {
                 return Err(source.error(
                     "bad inline flags: cannot use 'L' flag with a str pattern",
@@ -841,7 +846,10 @@ fn parse_flags(source: &mut Source, state: &mut State, first: char) -> Parsed<Op
             ));
         }
         loop {
-            let value = next.char().and_then(flag).unwrap();
+            let value = next
+                .char()
+                .and_then(flag)
+                .expect("required value is present");
             if value & TYPE_FLAGS != 0 {
                 return Err(source.error(
                     "bad inline flags: cannot turn off flags 'a', 'u' and 'L'",
@@ -958,7 +966,7 @@ fn parse(
                 } else {
                     Repeat::Greedy
                 };
-                let item = sub.pop().unwrap();
+                let item = sub.pop().expect("collection is non-empty");
                 sub.push(Node::Repeat(min, max, kind, Box::new(item)));
             }
             '.' => sub.push(Node::Any),

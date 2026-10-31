@@ -175,7 +175,7 @@ async fn call<
     let reply = client
         .unary(
             request,
-            path.parse().unwrap(),
+            path.parse().expect("service address is valid"),
             ProstCodec::<Req, Rep>::default(),
         )
         .await?;
