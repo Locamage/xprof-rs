@@ -200,12 +200,7 @@ pub fn temp_dir() -> PathBuf {
 }
 
 fn latest_run(dir: &Path) -> Option<PathBuf> {
-    let mut runs: Vec<PathBuf> = std::fs::read_dir(dir.join("plugins/profile"))
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect();
+    let mut runs = crate::subdirs(&dir.join("plugins/profile"));
     runs.sort();
     runs.pop()
 }

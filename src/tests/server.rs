@@ -130,6 +130,19 @@ fn test_value_flag_does_not_take_the_next_flag() {
     );
 }
 
+#[test]
+fn loading_page_matches_full_body_for_escaped_uri_and_tool() {
+    let uri = "file://host/a&<>\"'";
+    let expected = include_str!("../server/loading.html")
+        .trim_end_matches('\n')
+        .replace("__XPROF_URI__", "file://host/a&amp;&lt;&gt;&quot;&#x27;")
+        .replace(
+            "__XPROF_PROGRESS_URL__",
+            r#""./progress?uri=file%3A%2F%2Fhost%2Fa%26%3C%3E%22%27&tool=trace_viewer""#,
+        );
+    assert_eq!(crate::loading_page(uri, "trace_viewer").as_bytes(), expected.as_bytes());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
     use crate::{Body, app, state};

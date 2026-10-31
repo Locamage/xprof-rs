@@ -580,6 +580,10 @@ fn xplanes(dir: &Path) -> Vec<PathBuf> {
     list(dir, |entry| entry.file_name().to_string_lossy().ends_with(".xplane.pb"))
 }
 
+fn subdirs(dir: &Path) -> Vec<PathBuf> {
+    list(dir, |entry| entry.path().is_dir())
+}
+
 fn sessions(logdir: &Path) -> Vec<(String, PathBuf)> {
     if logdir.as_os_str().is_empty() {
         return Vec::new();
@@ -1829,14 +1833,6 @@ async fn capture_profile(State(state): State<Shared>, Query(params): Query<Param
     server::capture::handle(&state.logdir, state.remote.as_deref(), &params).await
 }
 
-fn stage_uri(state: &State_, uri: &str) -> Result<String, String> {
-    let uri = uri.trim_end_matches('/');
-    if state.open_uri_pattern.as_ref().is_none_or(|pattern| !pattern.is_match(uri)) {
-        return Err("URI is not allowed by --open_uri_pattern".into());
-    }
-    Ok(uri.to_string())
-}
-
 fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
     let mut entries = state.staging.lock().expect("lock poisoned");
     if let Some(entry) = entries.get(uri) {
@@ -1852,22 +1848,11 @@ fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
             let _permit = permits.acquire_owned().await.map_err(|error| error.to_string())?;
             let profile = work_entry.remote.mirror.join("plugins/profile");
             work_entry.remote.sync(&profile, false).await?;
-            let sessions: Vec<PathBuf> = std::fs::read_dir(&profile)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|item| item.path())
-                .filter(|path| path.is_dir())
-                .collect();
+            let sessions = subdirs(&profile);
             let mut found = false;
             for session in sessions {
                 work_entry.remote.sync(&session, true).await?;
-                found |= list(&session, |file| file.file_type().is_ok_and(|kind| kind.is_file()))
-                    .iter()
-                    .any(|path| {
-                        path.file_name()
-                            .is_some_and(|name| name.to_string_lossy().ends_with(".xplane.pb"))
-                    });
+                found |= !xplanes(&session).is_empty();
             }
             if !found {
                 return Err(format!("no XPlane protobuf files found under {uri}"));
@@ -1907,12 +1892,16 @@ async fn open(
     let Some(uri) = params.get("uri").filter(|uri| !uri.is_empty()) else {
         return response(StatusCode::BAD_REQUEST, "text/plain", "missing uri query parameter\n");
     };
-    let uri = match stage_uri(&state, uri) {
-        Ok(uri) => uri,
-        Err(error) => return response(StatusCode::FORBIDDEN, "text/plain", format!("{error}\n")),
-    };
+    let uri = uri.trim_end_matches('/');
+    if state.open_uri_pattern.as_ref().is_none_or(|pattern| !pattern.is_match(uri)) {
+        return response(
+            StatusCode::FORBIDDEN,
+            "text/plain",
+            "URI is not allowed by --open_uri_pattern\n",
+        );
+    }
     let tool = params.get("tool").map_or("", String::as_str);
-    let entry = match staging(&state, &uri) {
+    let entry = match staging(&state, uri) {
         Ok(entry) => entry,
         Err(error) => {
             return response(
@@ -1924,9 +1913,7 @@ async fn open(
     };
     let result = entry.result.lock().expect("lock poisoned").clone();
     match result {
-        None => {
-            response(StatusCode::ACCEPTED, "text/html; charset=utf-8", loading_page(&uri, tool))
-        }
+        None => response(StatusCode::ACCEPTED, "text/html; charset=utf-8", loading_page(uri, tool)),
         Some(Ok(profile)) => {
             let location = staging_location(&profile, tool);
             let mut reply = response(StatusCode::SEE_OTHER, "text/plain", "");
@@ -1938,7 +1925,7 @@ async fn open(
             reply
         }
         Some(Err(error)) => {
-            remove_staging(&state, &uri, &entry);
+            remove_staging(&state, uri, &entry);
             response(
                 StatusCode::BAD_GATEWAY,
                 "text/plain",
@@ -1956,18 +1943,16 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
             r#"{"error":"missing uri query parameter"}"#,
         );
     };
-    let uri = match stage_uri(&state, uri) {
-        Ok(uri) => uri,
-        Err(error) => {
-            return response(
-                StatusCode::FORBIDDEN,
-                "application/json",
-                serde_json::json!({"error":error}).to_string(),
-            );
-        }
-    };
+    let uri = uri.trim_end_matches('/');
+    if state.open_uri_pattern.as_ref().is_none_or(|pattern| !pattern.is_match(uri)) {
+        return response(
+            StatusCode::FORBIDDEN,
+            "application/json",
+            r#"{"error":"URI is not allowed by --open_uri_pattern"}"#,
+        );
+    }
     let tool = params.get("tool").map_or("", String::as_str);
-    let entry = match staging(&state, &uri) {
+    let entry = match staging(&state, uri) {
         Ok(entry) => entry,
         Err(error) => {
             return response(
@@ -1980,7 +1965,7 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
     let result = entry.result.lock().expect("lock poisoned").clone();
     match result {
         Some(Err(_)) => {
-            remove_staging(&state, &uri, &entry);
+            remove_staging(&state, uri, &entry);
             response(StatusCode::OK, "application/json", r#"{"state":"failed"}"#)
         }
         Some(Ok(profile)) => response(
@@ -2024,51 +2009,13 @@ fn loading_page(uri: &str, tool: &str) -> String {
         query.append_pair("tool", tool);
     }
     let progress_url = format!("./progress?{}", query.finish());
-    format!(
-        r#"<!doctype html>
-<html><head><meta charset="utf-8"><title>Loading XProf profile</title>
-<style>
-body {{ font: 16px system-ui; margin: 4rem auto; max-width: 48rem; padding: 0 1rem; }}
-.bar {{ background: #ddd; border-radius: 4px; height: 8px; margin: 2rem 0; overflow: hidden; }}
-.bar::after {{
-  animation: move 1.2s infinite linear; background: #1976d2; content: "";
-  display: block; height: 100%; width: 35%;
-}}
-@keyframes move {{ from {{ margin-left: -35%; }} to {{ margin-left: 100%; }} }}
-code {{ overflow-wrap: anywhere; }}
-</style></head>
-<body><h1>Loading XProf profile</h1><p><code>{escaped}</code></p>
-<div class="bar"></div><p id="status">Starting download…</p>
-<script>
-const status = document.getElementById('status');
-const units = value => {{
-  if (value < 1024 * 1024) return `${{(value / 1024).toFixed(1)}} KiB`;
-  return `${{(value / 1024 / 1024).toFixed(1)}} MiB`;
-}};
-async function update() {{
-  try {{
-    const response = await fetch({progress_url}, {{cache: 'no-store'}});
-    const progress = await response.json();
-    if (progress.state === 'ready') {{ window.location.replace(progress.location); return; }}
-    if (progress.state === 'failed') {{
-      status.textContent = 'Download failed. Reload this page to try again.';
-      return;
-    }}
-    if (progress.state === 'downloading') {{
-      const files = progress.total_files === null
-        ? `${{progress.files_completed}} files`
-        : `${{progress.files_completed}} of ${{progress.total_files}} files`;
-      status.textContent = `${{units(progress.downloaded_bytes)}} downloaded · ${{files}} · ` +
-        `${{units(progress.throughput_bytes_per_second)}}/s · ${{progress.elapsed_seconds.toFixed(1)}} seconds`;
-    }}
-  }} catch (error) {{ status.textContent = 'Waiting for the XProf service…'; }}
-  window.setTimeout(update, 1000);
-}}
-update();
-</script></body></html>"#,
-        progress_url =
-            serde_json::to_string(&progress_url).expect("serializing a string cannot fail")
-    )
+    include_str!("server/loading.html")
+        .trim_end_matches('\n')
+        .replace("__XPROF_URI__", &escaped)
+        .replace(
+            "__XPROF_PROGRESS_URL__",
+            &serde_json::to_string(&progress_url).expect("serializing a string cannot fail"),
+        )
 }
 
 async fn first_values(mut request: Request) -> Request {

@@ -918,13 +918,7 @@ async fn latest(
     }
     let profile = dir.join("plugins/profile");
     remote.sync(&profile, false).await?;
-    let mut sessions: Vec<std::path::PathBuf> = std::fs::read_dir(&profile)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect();
+    let mut sessions = crate::subdirs(&profile);
     sessions.sort();
     if let Some(session) = sessions.pop() {
         remote.sync(&session, true).await?;
