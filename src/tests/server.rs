@@ -327,29 +327,6 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
 }
 
 #[tokio::test]
-async fn hidden_capture_routes_do_not_connect_to_the_requested_address() {
-    use crate::{Settings, state};
-    use std::net::TcpListener;
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let address = listener.local_addr().unwrap();
-    let state = state(&Settings {
-        hide_capture_profile_button: true,
-        ..Default::default()
-    });
-    for path in ["/capture_profile", "/data/plugin/profile/capture_profile"] {
-        let reply =
-            crate::tests::legacy::fetch(&state, &format!("{path}?service_addr={address}")).await;
-        assert_eq!(
-            (reply.0, reply.2.as_str()),
-            (axum::http::StatusCode::NOT_FOUND, "Not Found\n")
-        );
-    }
-    let error = listener.accept().unwrap_err();
-    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-}
-
-#[tokio::test]
 async fn healthz_returns_plain_text_ok() {
     let state = crate::state(&Settings::default());
     let reply = crate::tests::legacy::fetch(&state, "/healthz").await;

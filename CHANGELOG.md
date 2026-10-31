@@ -8,7 +8,6 @@ This release adds object-store profile serving and multi-host profile support.
 - Remote URL spellings for the same object share one cache copy, including the server's remote logdir.
 - XPlane event and step aggregates report events truncated by the profile capture window.
 - The server stages allowlisted object-store profiles through `/open` and `/progress`, sharing its cache with the CLI and server logdir.
-- When the capture profile button is hidden, the capture endpoints return 404. Hiding the button but keeping an endpoint that connects to an address from the request is useless and unsafe, so no new flag is needed.
 - The server exposes `/healthz` as a plain-text readiness check.
 - The CLI exposes raw server tool responses through `get_tool_data`.
 - Top-level `--help` lists all commands and their parameter synopses.
