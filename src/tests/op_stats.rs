@@ -86,14 +86,23 @@ fn gpu_run_environment() {
     space.gpu(1).add_stat("device_vendor", "Nvidia");
     let stats = op_stats(&[space]).unwrap();
     let extra = &stats.extra;
-    assert_eq!((extra.device_type.as_str(), extra.hostnames.len(), extra.tasks, extra.core_count), ("Nvidia GPU", 1, 1, 2));
+    assert_eq!(
+        (extra.device_type.as_str(), extra.hostnames.len(), extra.tasks, extra.core_count),
+        ("Nvidia GPU", 1, 1, 2)
+    );
 }
 
 fn tf_step(space: &mut XSpace, executor_duration: i64, op: (&str, i64, &[(&str, V)])) {
     let host = space.host();
     host.event(0, "TraceContext", 0, 100, &[("step_num", 123.into())]);
     host.event(0, "FunctionRun", 10, 90, &[("id", 0.into()), ("_pt", 1.into()), ("_p", 0.into())]);
-    host.event(1, "ExecutorState::Process", 20, executor_duration, &[("id", 0.into()), ("_ct", 1.into()), ("_c", 0.into())]);
+    host.event(
+        1,
+        "ExecutorState::Process",
+        20,
+        executor_duration,
+        &[("id", 0.into()), ("_ct", 1.into()), ("_c", 0.into())],
+    );
     host.event(1, op.0, 30, op.1, op.2);
 }
 
@@ -123,7 +132,10 @@ fn propagate_and_dedup_errors() {
 #[test]
 fn hostnames() {
     let space = XSpace { hostnames: vec!["host1".into()], ..Default::default() };
-    assert_eq!(op_stats(&[space]).unwrap().extra.cores[&DEFAULT_GPU_LOCAL_CORE_ID].hostname, "host1");
+    assert_eq!(
+        op_stats(&[space]).unwrap().extra.cores[&DEFAULT_GPU_LOCAL_CORE_ID].hostname,
+        "host1"
+    );
 }
 
 #[test]
@@ -165,7 +177,14 @@ fn tpu_perf_env() {
     plane.add_stat("memory_bandwidth", 900u64 * 1000 * 1000 * 1000);
     plane.add_stat("compute_cap_major", 7);
     plane.add_stat("compute_cap_minor", 0);
-    let peaks = [("sram_rd", 101.0), ("sram_wr", 102.0), ("cmem_rd", 101.0), ("cmem_wr", 102.0), ("vmem_rd", 201.0), ("vmem_wr", 202.0)];
+    let peaks = [
+        ("sram_rd", 101.0),
+        ("sram_wr", 102.0),
+        ("cmem_rd", 101.0),
+        ("cmem_wr", 102.0),
+        ("vmem_rd", 201.0),
+        ("vmem_wr", 202.0),
+    ];
     for (memory, peak) in peaks {
         plane.add_stat(&format!("peak_{memory}_bw_gigabytes_per_second"), peak);
     }
@@ -185,14 +204,26 @@ fn tpu_run_environment() {
     space.tpu(1, "TPU V4", 0.0, 0.0, None);
     let stats = op_stats(&[space]).unwrap();
     let extra = &stats.extra;
-    assert_eq!((extra.device_type.as_str(), extra.hostnames.len(), extra.tasks, extra.core_count), ("TPU V4", 1, 1, 2));
+    assert_eq!(
+        (extra.device_type.as_str(), extra.hostnames.len(), extra.tasks, extra.core_count),
+        ("TPU V4", 1, 1, 2)
+    );
 }
 
 #[test]
 fn tpu_device_trace_to_step_db() {
     let mut space = XSpace::default();
     let plane = space.tpu(0, "TPU V4", 141.0, 1000.0, None);
-    plane.metadata_stats("op_name", &[("program_id", 1.into()), ("symbol_id", 1.into()), ("self_duration_ps", 10.into()), ("tf_op", "tf_op_name".into()), ("hlo_category", "category".into())]);
+    plane.metadata_stats(
+        "op_name",
+        &[
+            ("program_id", 1.into()),
+            ("symbol_id", 1.into()),
+            ("self_duration_ps", 10.into()),
+            ("tf_op", "tf_op_name".into()),
+            ("hlo_category", "category".into()),
+        ],
+    );
     plane.named_line(1, "Framework Ops");
     plane.event(1, "op_name", 0, 10 * 1000, &[]);
     let stats = op_stats(&[space]).unwrap();
@@ -232,15 +263,30 @@ fn tpu_tc_and_sc_step_db_test() {
     sparse.id = 2;
     sparse.name = "/device:TPU:0 SparseCore 0".into();
     sparse.named_line(0, "Sparse Core Steps");
-    sparse.event(0, "Step 1", 1000, 10000, &[("group_id", 1.into()), ("step_idle_time_ps", 9000.into())]);
+    sparse.event(
+        0,
+        "Step 1",
+        1000,
+        10000,
+        &[("group_id", 1.into()), ("step_idle_time_ps", 9000.into())],
+    );
     sparse.named_line(1, "Sparse Core Ops");
-    sparse.event(1, "op.2", 1010, 1000, &[("hlo_category", "sparse_core_op".into()), ("group_id", 1.into())]);
+    sparse.event(
+        1,
+        "op.2",
+        1010,
+        1000,
+        &[("hlo_category", "sparse_core_op".into()), ("group_id", 1.into())],
+    );
     let stats = op_stats(&[space]).unwrap();
     assert_eq!(stats.extra.steps.len(), 1);
     let cores = &stats.extra.steps[0].cores;
     assert_eq!(cores.len(), 2);
     assert_eq!((cores[&1].duration, cores[&1].begin), (100000, 100));
-    assert_eq!((cores[&(SPARSE_CORE_START + 2)].duration, cores[&(SPARSE_CORE_START + 2)].begin), (10000, 1000));
+    assert_eq!(
+        (cores[&(SPARSE_CORE_START + 2)].duration, cores[&(SPARSE_CORE_START + 2)].begin),
+        (10000, 1000)
+    );
 }
 
 fn duty_cycle(space: XSpace) -> ([u64; 2], [u64; 2]) {
@@ -319,7 +365,10 @@ fn handle_sparse_core_busy_op_metrics() {
     core.named_line(2, "XLA Ops");
     for index in 1..=4 {
         let (offset, group) = (10 * index, [("group_id", V::from(index))]);
-        core.metadata_stats(&format!("op.{index}"), &[("program_id", 1.into()), ("symbol_id", index.into())]);
+        core.metadata_stats(
+            &format!("op.{index}"),
+            &[("program_id", 1.into()), ("symbol_id", index.into())],
+        );
         core.event(0, &format!("step.{index}"), offset, 10, &group);
         core.event(1, &format!("module.{index}"), offset, 10, &group);
         core.event(2, &format!("op.{index}"), offset + 5, 5, &group);
@@ -332,7 +381,13 @@ fn handle_sparse_core_busy_op_metrics() {
     sparse.named_line(2, "Sparse Core Ops");
     for index in 1..=4 {
         let (offset, group) = (10 * index, [("group_id", V::from(index))]);
-        sparse.event(0, &format!("step.{index}"), offset, 10, &[("step_idle_time_ps", 5.into()), ("group_id", index.into())]);
+        sparse.event(
+            0,
+            &format!("step.{index}"),
+            offset,
+            10,
+            &[("step_idle_time_ps", 5.into()), ("group_id", index.into())],
+        );
         sparse.event(1, &format!("module.{index}"), offset, 10, &group);
         sparse.event(2, &format!("scs op.{index}"), offset + 5, 5, &group);
     }
@@ -349,17 +404,40 @@ fn handle_input_pipeline_slowness_causing_device_idleness() {
     device.named_line(0, "Steps");
     device.event(0, "Step 1", 1000, 10000, &[("group_id", 1.into())]);
     device.named_line(1, "XLA Ops");
-    device.metadata_stats("op.1", &[("hlo_category", "arithmetic".into()), ("program_id", 1.into()), ("symbol_id", 1.into()), ("flops", 1000.into())]);
+    device.metadata_stats(
+        "op.1",
+        &[
+            ("hlo_category", "arithmetic".into()),
+            ("program_id", 1.into()),
+            ("symbol_id", 1.into()),
+            ("flops", 1000.into()),
+        ],
+    );
     device.event(1, "op.1", 2000, 8000, &[("group_id", 1.into())]);
     let host = space.host();
     host.named_line(0, "main");
-    host.event(0, "Iterator::Batch::Map::TFRecord", 500, 2300, &[("group_id", 1.into()), ("_ipl_stage_id", 1.into()), ("_ipl_stage_name", "TFRecord".into())]);
+    host.event(
+        0,
+        "Iterator::Batch::Map::TFRecord",
+        500,
+        2300,
+        &[
+            ("group_id", 1.into()),
+            ("_ipl_stage_id", 1.into()),
+            ("_ipl_stage_name", "TFRecord".into()),
+        ],
+    );
     let stats = op_stats(&[space]).unwrap();
     assert_eq!(stats.extra.steps.len(), 1);
     let cores = &stats.extra.steps[0].cores;
     assert_eq!(cores.len(), 1);
-    let Breakdown::Categories(categories) = &cores[&0].breakdown else { panic!("expected a generic step breakdown") };
-    assert_eq!((categories.get(IDLE), categories.get("infeed"), categories.get("arithmetic")), (Some(&0), Some(&2000), Some(&8000)));
+    let Breakdown::Categories(categories) = &cores[&0].breakdown else {
+        panic!("expected a generic step breakdown")
+    };
+    assert_eq!(
+        (categories.get(IDLE), categories.get("infeed"), categories.get("arithmetic")),
+        (Some(&0), Some(&2000), Some(&8000))
+    );
 }
 
 fn custom_call_duty_cycle(ops: &[CustomCall], module_duration: i64) -> ([u64; 2], [u64; 2]) {
@@ -375,7 +453,11 @@ fn custom_call_duty_cycle(ops: &[CustomCall], module_duration: i64) -> ([u64; 2]
 #[test]
 fn construct_hc_duty_cycle_tracker_from_custom_call() {
     let (busy, idle) = custom_call_duty_cycle(
-        &[("custom_call_0_flops", "custom-call", 10, &[("flops", 0.into())]), ("custom_call_with_flops", "custom-call", 20, &[("flops", 5.into())]), ("custom_call_no_flops", "custom-call", 30, &[])],
+        &[
+            ("custom_call_0_flops", "custom-call", 10, &[("flops", 0.into())]),
+            ("custom_call_with_flops", "custom-call", 20, &[("flops", 5.into())]),
+            ("custom_call_no_flops", "custom-call", 30, &[]),
+        ],
         50,
     );
     assert_eq!((busy[1], idle[1]), (10, 40));
@@ -387,9 +469,19 @@ fn construct_hc_duty_cycle_tracker_from_custom_call_with_ici() {
         &[
             ("custom_call_with_ici", "custom-call", 10, &[("uses_ici", 1.into())]),
             ("custom_call_no_ici_no_flops", "custom-call", 20, &[("uses_ici", 0.into())]),
-            ("custom_call_with_ici_and_flops", "custom-call", 30, &[("uses_ici", 1.into()), ("flops", 5.into())]),
+            (
+                "custom_call_with_ici_and_flops",
+                "custom-call",
+                30,
+                &[("uses_ici", 1.into()), ("flops", 5.into())],
+            ),
             ("custom_call_no_ici", "custom-call", 40, &[]),
-            ("custom_call_with_model_flops", "custom-call", 50, &[("uses_ici", 0.into()), ("model_flops", 5.into())]),
+            (
+                "custom_call_with_model_flops",
+                "custom-call",
+                50,
+                &[("uses_ici", 0.into()), ("model_flops", 5.into())],
+            ),
             ("megacore_op", "megacore", 15, &[]),
             ("dot", "dot", 60, &[("uses_ici", 1.into()), ("flops", 10.into())]),
             ("add", "add", 70, &[("uses_ici", 1.into())]),

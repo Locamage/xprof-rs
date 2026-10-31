@@ -7,7 +7,10 @@ fn get_stat_test() {
     space.add_plane().event(0, "test_event", 0, 0, &[("test_stat", 42.into())]);
     let (map, planes) = space.parsed();
     let (plane, event) = (&planes[0], &planes[0].lines[0].events[0]);
-    assert_eq!(plane.stat(&map, event.meta, event.raw, "test_stat").and_then(|value| value.int()), Some(42));
+    assert_eq!(
+        plane.stat(&map, event.meta, event.raw, "test_stat").and_then(|value| value.int()),
+        Some(42)
+    );
     assert!(plane.stat(&map, event.meta, event.raw, "missing_stat").is_none());
 }
 
@@ -36,7 +39,9 @@ fn get_event_or_metadata_stat_test() {
         _ => None,
     };
     let text = |name: &str| match stat(name) {
-        Some(Value::Str(bytes) | Value::Bytes(bytes)) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        Some(Value::Str(bytes) | Value::Bytes(bytes)) => {
+            Some(String::from_utf8_lossy(bytes).into_owned())
+        }
         _ => None,
     };
     assert_eq!((int("test_stat"), int("meta_only_stat")), (Some(20), Some(30)));

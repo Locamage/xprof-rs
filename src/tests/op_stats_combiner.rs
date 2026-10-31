@@ -4,12 +4,16 @@ use crate::xplane::steps::TPU;
 use std::sync::Arc;
 
 fn combine(all: &[&str]) -> Arc<OpStats> {
-    OpStats::combine(&all.iter().map(|text| Some(Arc::new(op_stats(text)))).collect::<Vec<_>>()).unwrap()
+    OpStats::combine(&all.iter().map(|text| Some(Arc::new(op_stats(text)))).collect::<Vec<_>>())
+        .unwrap()
 }
 
 #[test]
 fn combine_run_environment_with_unknown_device() {
-    let dst_op_stats = combine(&[r#"run_environment { device_type: "TPU" }"#, r#"run_environment { device_type: "Device" }"#]);
+    let dst_op_stats = combine(&[
+        r#"run_environment { device_type: "TPU" }"#,
+        r#"run_environment { device_type: "Device" }"#,
+    ]);
     assert_eq!(dst_op_stats.extra.device_type, "TPU");
 }
 
@@ -23,7 +27,10 @@ fn combine_perf_env_order_zero() {
 
 #[test]
 fn combine_run_environment_with_mismatch_hardware_type() {
-    let dst_op_stats = combine(&["run_environment { hardware_type: CPU_ONLY }", "run_environment { hardware_type: TPU }"]);
+    let dst_op_stats = combine(&[
+        "run_environment { hardware_type: CPU_ONLY }",
+        "run_environment { hardware_type: TPU }",
+    ]);
     assert_eq!(dst_op_stats.extra.hardware, TPU);
     assert!(dst_op_stats.tpu);
 }

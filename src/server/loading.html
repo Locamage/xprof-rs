@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Loading XProf profile</title>
+<style>
+body { font: 16px system-ui; margin: 4rem auto; max-width: 48rem; padding: 0 1rem; }
+.bar { background: #ddd; border-radius: 4px; height: 8px; margin: 2rem 0; overflow: hidden; }
+.bar::after {
+  animation: move 1.2s infinite linear; background: #1976d2; content: "";
+  display: block; height: 100%; width: 35%;
+}
+@keyframes move { from { margin-left: -35%; } to { margin-left: 100%; } }
+code { overflow-wrap: anywhere; }
+</style></head>
+<body><h1>Loading XProf profile</h1><p><code>__XPROF_URI__</code></p>
+<div class="bar"></div><p id="status">Starting download…</p>
+<script>
+const status = document.getElementById('status');
+const units = value => {
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MiB`;
+};
+async function update() {
+  try {
+    const response = await fetch(__XPROF_PROGRESS_URL__, {cache: 'no-store'});
+    const progress = await response.json();
+    if (progress.state === 'ready') { window.location.replace(progress.location); return; }
+    if (progress.state === 'failed') {
+      status.textContent = 'Download failed. Reload this page to try again.';
+      return;
+    }
+    if (progress.state === 'downloading') {
+      const files = progress.total_files === null
+        ? `${progress.files_completed} files`
+        : `${progress.files_completed} of ${progress.total_files} files`;
+      status.textContent = `${units(progress.downloaded_bytes)} downloaded · ${files} · ` +
+        `${units(progress.throughput_bytes_per_second)}/s · ${progress.elapsed_seconds.toFixed(1)} seconds`;
+    }
+  } catch (error) { status.textContent = 'Waiting for the XProf service…'; }
+  window.setTimeout(update, 1000);
+}
+update();
+</script></body></html>

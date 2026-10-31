@@ -3,8 +3,9 @@ use crate::tools::input_pipeline_analyzer::{EMPTY_INTERSECT, NO_STEP_MARKER};
 use crate::tools::op_profile::proto_double;
 use crate::tools::opstats::{OpStats, pico_to_micro};
 use crate::xplane::steps::{
-    Breakdown, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE, DEVICE_TO_HOST, DEVICE_WAIT_DEVICE, DEVICE_WAIT_HOST, Extra, HOST_COMPILE, HOST_COMPUTE, HOST_PREPARE,
-    HOST_TO_DEVICE, HOST_WAIT_INPUT, StepInfo, UNKNOWN_TIME,
+    Breakdown, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE,
+    DEVICE_TO_HOST, DEVICE_WAIT_DEVICE, DEVICE_WAIT_HOST, Extra, HOST_COMPILE, HOST_COMPUTE,
+    HOST_PREPARE, HOST_TO_DEVICE, HOST_WAIT_INPUT, StepInfo, UNKNOWN_TIME,
 };
 use std::fmt::Write;
 
@@ -24,15 +25,25 @@ const EMPTY_RECORD: &str = "{\"hostName\":\"\",\"chipId\":0,\"nodeId\":0,\"stepN
 
 fn record(host_name: &str, step_num: u32, info: &StepInfo) -> String {
     let breakdown_ps = GENERIC_EVENTS.map(|(_, kinds)| match &info.breakdown {
-        Breakdown::Types(types) => kinds.iter().map(|kind| types.get(kind).copied().unwrap_or(0)).sum(),
+        Breakdown::Types(types) => {
+            kinds.iter().map(|kind| types.get(kind).copied().unwrap_or(0)).sum()
+        }
         Breakdown::Categories(_) => 0,
     });
-    let bottleneck = breakdown_ps.iter().zip(GENERIC_EVENTS).map(|(&ps, (name, _))| (ps, name)).max().map_or("", |metric| metric.1);
-    let mut out = format!("{{\"hostName\":{},\"chipId\":0,\"nodeId\":0,\"stepNum\":{step_num},\"totalDurationUs\":", quoted(host_name));
+    let bottleneck = breakdown_ps
+        .iter()
+        .zip(GENERIC_EVENTS)
+        .map(|(&ps, (name, _))| (ps, name))
+        .max()
+        .map_or("", |metric| metric.1);
+    let mut out = format!(
+        "{{\"hostName\":{},\"chipId\":0,\"nodeId\":0,\"stepNum\":{step_num},\"totalDurationUs\":",
+        quoted(host_name)
+    );
     proto_double(&mut out, pico_to_micro(info.duration));
-    write!(out, ",\"bottleneck\":{},\"stepBreakdownUs\":{{", quoted(bottleneck)).unwrap();
+    let _ = write!(out, ",\"bottleneck\":{},\"stepBreakdownUs\":{{", quoted(bottleneck));
     for (index, ps) in breakdown_ps.iter().enumerate() {
-        write!(out, "{}\"{}\":", if index > 0 { "," } else { "" }, index + 1).unwrap();
+        let _ = write!(out, "{}\"{}\":", if index > 0 { "," } else { "" }, index + 1);
         proto_double(&mut out, pico_to_micro(*ps));
     }
     out.push_str("}}");
@@ -40,14 +51,26 @@ fn record(host_name: &str, step_num: u32, info: &StepInfo) -> String {
 }
 
 pub fn render(extra: &Extra) -> String {
-    let records: Vec<String> =
-        extra.steps.iter().flat_map(|step| step.cores.iter().filter_map(move |(core, info)| extra.cores.get(core).map(|details| record(&details.hostname, step.num, info)))).collect();
+    let records: Vec<String> = extra
+        .steps
+        .iter()
+        .flat_map(|step| {
+            step.cores.iter().filter_map(move |(core, info)| {
+                extra.cores.get(core).map(|details| record(&details.hostname, step.num, info))
+            })
+        })
+        .collect();
     let mut out = String::from("{\"podStatsSequence\":{\"podStatsMap\":[");
     let mut next = 0;
     for (position, step) in extra.steps.iter().enumerate() {
-        write!(out, "{}{{\"stepNum\":{},\"podStatsPerCore\":{{", if position > 0 { "," } else { "" }, step.num).unwrap();
+        let _ = write!(
+            out,
+            "{}{{\"stepNum\":{},\"podStatsPerCore\":{{",
+            if position > 0 { "," } else { "" },
+            step.num
+        );
         for (index, core) in step.cores.keys().enumerate() {
-            write!(out, "{}\"{core}\":", if index > 0 { "," } else { "" }).unwrap();
+            let _ = write!(out, "{}\"{core}\":", if index > 0 { "," } else { "" });
             out.push_str(records.get(next).map_or(EMPTY_RECORD, String::as_str));
             next += 1;
         }
@@ -58,11 +81,20 @@ pub fn render(extra: &Extra) -> String {
         (true, true) => quoted(EMPTY_INTERSECT),
         (true, false) => quoted(NO_STEP_MARKER),
     };
-    write!(out, "]}},\"diagnostics\":{{\"info\":[],\"warnings\":[{warning}],\"errors\":[]}},\"stepBreakdownEvents\":[").unwrap();
+    let _ = write!(
+        out,
+        "]}},\"diagnostics\":{{\"info\":[],\"warnings\":[{warning}],\"errors\":[]}},\"stepBreakdownEvents\":["
+    );
     for (index, (name, _)) in GENERIC_EVENTS.iter().enumerate() {
-        write!(out, "{}{{\"id\":{},\"name\":{}}}", if index > 0 { "," } else { "" }, index + 1, quoted(name)).unwrap();
+        let _ = write!(
+            out,
+            "{}{{\"id\":{},\"name\":{}}}",
+            if index > 0 { "," } else { "" },
+            index + 1,
+            quoted(name)
+        );
     }
-    write!(out, "],\"deviceType\":{}}}", quoted(&extra.device_type)).unwrap();
+    let _ = write!(out, "],\"deviceType\":{}}}", quoted(&extra.device_type));
     out
 }
 

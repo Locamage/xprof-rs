@@ -15,7 +15,9 @@ static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
 static DIRS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn hlo_proto(text: &str) -> HloProto {
-    let message = DynamicMessage::parse_text_format(POOL.get_message_by_name("xla.HloProto").unwrap(), text).unwrap();
+    let message =
+        DynamicMessage::parse_text_format(POOL.get_message_by_name("xla.HloProto").unwrap(), text)
+            .unwrap();
     HloProto::decode(&message.encode_to_vec()[..]).unwrap()
 }
 
@@ -24,7 +26,11 @@ pub fn module(proto: &HloProto) -> Module<'static> {
 }
 
 pub fn session_dir(name: &str) -> PathBuf {
-    let dir = crate::tests::temp_dir().join(format!("xprof-rs-{name}-{}-{}", std::process::id(), DIRS.fetch_add(1, Ordering::Relaxed)));
+    let dir = crate::tests::temp_dir().join(format!(
+        "xprof-rs-{name}-{}-{}",
+        std::process::id(),
+        DIRS.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

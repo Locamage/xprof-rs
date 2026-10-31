@@ -48,11 +48,13 @@ pub const TOKEN: i32 = 17;
 pub const BUFFER: i32 = 34;
 const TYPE_NAMES: &str = "primitive_type_invalid pred s8 s16 s32 s64 u8 u16 u32 u64 f16 f32 f64 tuple opaque c64 bf16 token c128 f8e5m2 f8e4m3fn s4 u4 f8e4m3b11fnuz f8e5m2fnuz f8e4m3fnuz s2 u2 f8e4m3 f8e3m4 s1 u1 f4e2m1fn f8e8m0fnu buffer f6e3m2fn f6e2m3fn";
 pub const OPCODES: &str = "abs acos acosh add add-dependency after-all all-gather all-gather-done all-gather-start all-reduce all-reduce-done all-reduce-start all-to-all and asin asinh async-done async-start async-update atan2 atanh batch-norm-grad batch-norm-inference batch-norm-training bitcast bitcast-convert broadcast call cbrt ceil cholesky clamp count-leading-zeros collective-broadcast collective-permute collective-permute-done collective-permute-start collective-reduce compare complex concatenate conditional constant convert convolution copy copy-done copy-start cosine cosh custom-call divide domain dot dynamic-reshape dynamic-slice dynamic-update-slice erf exponential exponential-minus-one fft floor fusion gather get-dimension-size get-tuple-element imag infeed iota is-finite log log-plus-one logistic map maximum minimum mulhi multiply negate not opt-barrier or outfeed pad parameter partition-id popcnt power ragged-all-to-all ragged-dot real recv recv-done reduce reduce-precision reduce-scatter reduce-window remainder replica-id reshape reverse rng rng-bit-generator rng-get-and-update-state round-nearest-afz round-nearest-even rsqrt scaled-dot scan scatter select select-and-scatter send send-done set-dimension-size shift-left shift-right-arithmetic shift-right-logical sign sine sinh slice sort sqrt stochastic-convert subtract tan tanh topk transpose triangular-solve tuple while xor";
-const COMPARISONS: &str = "equal-to not-equal-to greater-than-or-equal-to greater-than less-than-or-equal-to less-than";
+const COMPARISONS: &str =
+    "equal-to not-equal-to greater-than-or-equal-to greater-than less-than-or-equal-to less-than";
 pub const ELEMENTWISE: &str = "abs acos acosh asin asinh atanh round-nearest-afz round-nearest-even ceil count-leading-zeros convert bitcast-convert copy cosine cosh erf exponential exponential-minus-one floor imag is-finite log log-plus-one not negate popcnt real reduce-precision rsqrt logistic sign sine sinh sqrt cbrt tan tanh add atan2 compare complex divide maximum minimum multiply mulhi power remainder subtract and or xor shift-left shift-right-arithmetic shift-right-logical stochastic-convert select clamp constant rng";
 
 static TYPES: LazyLock<Vec<&str>> = LazyLock::new(|| TYPE_NAMES.split(' ').collect());
-static KNOWN_OPCODES: LazyLock<std::collections::HashSet<&str>> = LazyLock::new(|| OPCODES.split(' ').chain(COMPARISONS.split(' ')).collect());
+static KNOWN_OPCODES: LazyLock<std::collections::HashSet<&str>> =
+    LazyLock::new(|| OPCODES.split(' ').chain(COMPARISONS.split(' ')).collect());
 type Cached = (PathBuf, SystemTime, Arc<Module<'static>>);
 
 static CACHE: LazyLock<Mutex<Vec<Cached>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -89,7 +91,15 @@ pub fn general(value: f64, precision: usize) -> String {
         return if value.is_sign_negative() { "-nan" } else { "nan" }.into();
     }
     let mut buffer = [0u8; 64];
-    let length = unsafe { libc::snprintf(buffer.as_mut_ptr().cast(), buffer.len(), c"%.*g".as_ptr(), precision as libc::c_int, value) };
+    let length = unsafe {
+        libc::snprintf(
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            c"%.*g".as_ptr(),
+            precision as libc::c_int,
+            value,
+        )
+    };
     String::from_utf8_lossy(&buffer[..length as usize]).into_owned()
 }
 
@@ -98,21 +108,29 @@ pub fn round_trip(out: &mut String, value: f64) {
     use std::io::Write as _;
     if !value.is_normal() {
         let short = general(value, 15);
-        return out.push_str(&if short.parse::<f64>().ok() == Some(value) { short } else { general(value, 17) });
+        return out.push_str(&if short.parse::<f64>().ok() == Some(value) {
+            short
+        } else {
+            general(value, 17)
+        });
     }
     let mut text = [0u8; 32];
     let free = {
         let mut cursor = &mut text[..];
-        write!(cursor, "{:e}", value.abs()).unwrap();
+        write!(cursor, "{:e}", value.abs()).expect("number fits in the formatting buffer");
         cursor.len()
     };
     let text = &text[..32 - free];
-    let split = text.iter().position(|&byte| byte == b'e').unwrap();
+    let split =
+        text.iter().position(|&byte| byte == b'e').expect("formatted number has an exponent");
     let digits: Vec<u8> = text[..split].iter().copied().filter(|&byte| byte != b'.').collect();
     if digits.len() > 15 {
         return out.push_str(&general(value, 17));
     }
-    let exponent: i32 = std::str::from_utf8(&text[split + 1..]).unwrap().parse().unwrap();
+    let exponent: i32 = std::str::from_utf8(&text[split + 1..])
+        .expect("generated bytes are valid utf-8")
+        .parse()
+        .expect("formatted exponent is an integer");
     let digit = |index: usize| char::from(digits.get(index).copied().unwrap_or(b'0'));
     if value.is_sign_negative() {
         out.push('-');
@@ -155,8 +173,12 @@ pub fn sanitize(name: &str) -> String {
             *byte = b'_';
         }
     }
-    let mut out = String::from_utf8(out).unwrap();
-    if TYPES.contains(&out.as_str()) && out != "tuple" && out != "buffer" && out != "primitive_type_invalid" {
+    let mut out = String::from_utf8(out).expect("generated bytes are valid utf-8");
+    if TYPES.contains(&out.as_str())
+        && out != "tuple"
+        && out != "buffer"
+        && out != "primitive_type_invalid"
+    {
         out.push('_');
     }
     if out.starts_with("__") && !out.starts_with("__xla_") {
@@ -167,7 +189,8 @@ pub fn sanitize(name: &str) -> String {
 
 impl Shape {
     pub fn is_array(&self) -> bool {
-        !matches!(self.element_type, 0 | TUPLE | OPAQUE | TOKEN | BUFFER) && (self.element_type as usize) < TYPES.len()
+        !matches!(self.element_type, 0 | TUPLE | OPAQUE | TOKEN | BUFFER)
+            && (self.element_type as usize) < TYPES.len()
     }
 
     pub fn is_tuple(&self) -> bool {
@@ -192,13 +215,20 @@ impl Shape {
                 self.tuple_shapes.clear();
             }
         }
-        self.tuple_shapes.iter_mut().for_each(Self::normalize);
+        for shape in &mut self.tuple_shapes {
+            Self::normalize(shape);
+        }
     }
 
     pub fn print(&self, out: &mut String, layout: bool) {
         if self.is_tuple() || self.element_type == BUFFER {
             out.push_str(if self.is_tuple() { "(" } else { "b(" });
-            for (index, element) in self.tuple_shapes.iter().take(if self.is_tuple() { usize::MAX } else { 1 }).enumerate() {
+            for (index, element) in self
+                .tuple_shapes
+                .iter()
+                .take(if self.is_tuple() { usize::MAX } else { 1 })
+                .enumerate()
+            {
                 separate(out, index, 5);
                 element.print(out, layout);
             }
@@ -222,12 +252,18 @@ impl Shape {
             }
         }
         out.push(']');
-        let Some(shape_layout) = self.layout.as_ref().filter(|_| layout && self.is_array()) else { return };
+        let Some(shape_layout) = self.layout.as_ref().filter(|_| layout && self.is_array()) else {
+            return;
+        };
         let number = |out: &mut String, value: i64| out.push_str(itoa::Buffer::new().format(value));
         let primitive = |out: &mut String, kind: i32, symbol: char| match kind {
             0 => {}
-            2..=9 | 21 | 22 | 26 | 27 | 30 | 31 => write!(out, "{symbol}({})", type_name(kind)).unwrap(),
-            _ => write!(out, "{symbol}(invalid)").unwrap(),
+            2..=9 | 21 | 22 | 26 | 27 | 30 | 31 => {
+                let _ = write!(out, "{symbol}({})", type_name(kind));
+            }
+            _ => {
+                let _ = write!(out, "{symbol}(invalid)");
+            }
         };
         let start = out.len();
         out.push('{');
@@ -250,27 +286,29 @@ impl Shape {
                     match dimension {
                         0.. => number(out, dimension),
                         i64::MIN => out.push('*'),
-                        _ => write!(out, "Invalid value {dimension}").unwrap(),
+                        _ => {
+                            let _ = write!(out, "Invalid value {dimension}");
+                        }
                     }
                 }
                 out.push(')');
             }
         }
         if !matches!(shape_layout.tail_padding_alignment_in_elements, 0 | 1) {
-            write!(out, "L({})", shape_layout.tail_padding_alignment_in_elements).unwrap();
+            let _ = write!(out, "L({})", shape_layout.tail_padding_alignment_in_elements);
         }
         primitive(out, shape_layout.index_primitive_type, '#');
         primitive(out, shape_layout.pointer_primitive_type, '*');
         if shape_layout.element_size_in_bits != 0 {
-            write!(out, "E({})", shape_layout.element_size_in_bits).unwrap();
+            let _ = write!(out, "E({})", shape_layout.element_size_in_bits);
         }
         if shape_layout.memory_space != 0 {
-            write!(out, "S({})", shape_layout.memory_space).unwrap();
+            let _ = write!(out, "S({})", shape_layout.memory_space);
         }
         if !shape_layout.split_configs.is_empty() {
             out.push_str("SC");
             for split in &shape_layout.split_configs {
-                write!(out, "({}:", split.dimension).unwrap();
+                let _ = write!(out, "({}:", split.dimension);
                 for (index, &at) in split.split_indices.iter().enumerate() {
                     if index > 0 {
                         out.push(',');
@@ -286,7 +324,7 @@ impl Shape {
             out.push(')');
         }
         if shape_layout.dynamic_shape_metadata_prefix_bytes > 0 {
-            write!(out, "M({})", shape_layout.dynamic_shape_metadata_prefix_bytes).unwrap();
+            let _ = write!(out, "M({})", shape_layout.dynamic_shape_metadata_prefix_bytes);
         }
         if out.len() == colon + 1 {
             out.truncate(colon);
@@ -308,10 +346,14 @@ impl Shape {
             TUPLE => 8 * self.tuple_shapes.len() as i64,
             BUFFER => self.tuple_shapes.first().map_or(0, Self::unpadded_bytes),
             OPAQUE => 8,
-            _ if self.is_array() => match self.layout.as_ref().map_or(0, |layout| layout.element_size_in_bits) {
-                0 => self.elements() * ((crate::hlo::cost::bit_width(self.element_type) + 7) / 8),
-                bits => (self.elements() * bits + 7).div_euclid(8),
-            },
+            _ if self.is_array() => {
+                match self.layout.as_ref().map_or(0, |layout| layout.element_size_in_bits) {
+                    0 => {
+                        self.elements() * ((crate::hlo::cost::bit_width(self.element_type) + 7) / 8)
+                    }
+                    bits => (self.elements() * bits + 7).div_euclid(8),
+                }
+            }
             _ => 0,
         }
     }
@@ -404,7 +446,14 @@ impl<'a> Module<'a> {
                     }
                 }
                 let entry = &self.nodes[current];
-                stack.extend(entry.operands.iter().rev().chain(&entry.predecessors).filter(|&&next| state[next - first] != 2));
+                stack.extend(
+                    entry
+                        .operands
+                        .iter()
+                        .rev()
+                        .chain(&entry.predecessors)
+                        .filter(|&&next| state[next - first] != 2),
+                );
             }
         }
         order
@@ -418,22 +467,38 @@ impl<'a> Module<'a> {
             .par_iter()
             .map(|body| {
                 let (rest, instructions) = split(body, 2);
-                (xla::HloComputationProto::decode(rest.as_slice()).unwrap_or_default(), instructions)
+                (
+                    xla::HloComputationProto::decode(rest.as_slice()).unwrap_or_default(),
+                    instructions,
+                )
             })
             .collect();
-        let ids: HashMap<i64, usize> = parts.iter().enumerate().map(|(index, (computation, _))| (computation.id, index)).collect();
+        let ids: HashMap<i64, usize> = parts
+            .iter()
+            .enumerate()
+            .map(|(index, (computation, _))| (computation.id, index))
+            .collect();
         let mut starts = vec![0];
         for (_, instructions) in &parts {
             starts.push(starts[starts.len() - 1] + instructions.len());
         }
-        let spans: Vec<(usize, &[u8])> = parts.iter().enumerate().flat_map(|(index, (_, instructions))| instructions.iter().map(move |body| (index, *body))).collect();
+        let spans: Vec<(usize, &[u8])> = parts
+            .iter()
+            .enumerate()
+            .flat_map(|(index, (_, instructions))| {
+                instructions.iter().map(move |body| (index, *body))
+            })
+            .collect();
         let mut decoded: Vec<(Node, bool, [Vec<i64>; 3])> = spans
             .par_iter()
             .map(|&(computation, body)| {
                 let mut inst = xla::HloInstructionLite::decode(body).unwrap_or_default();
                 let start = body.as_ptr() as usize - bytes.as_ptr() as usize;
-                let sound =
-                    !inst.name.is_empty() && KNOWN_OPCODES.contains(inst.opcode.as_str()) && inst.shape.as_ref().is_some_and(|shape| inst.opcode != "constant" || one_bit_leaf(shape).is_none());
+                let sound = !inst.name.is_empty()
+                    && KNOWN_OPCODES.contains(inst.opcode.as_str())
+                    && inst.shape.as_ref().is_some_and(|shape| {
+                        inst.opcode != "constant" || one_bit_leaf(shape).is_none()
+                    });
                 let node = Node {
                     raw: (start, start + body.len()),
                     name: sanitize(&inst.name),
@@ -444,54 +509,85 @@ impl<'a> Module<'a> {
                     }),
                     id: inst.id,
                     parameter: inst.parameter_number,
-                    frame: inst.metadata.as_ref().map_or(0, |metadata| i64::from(metadata.stack_frame_id)),
+                    frame: inst
+                        .metadata
+                        .as_ref()
+                        .map_or(0, |metadata| i64::from(metadata.stack_frame_id)),
                     computation,
                     ..Node::default()
                 };
-                (node, sound, [inst.operand_ids, inst.control_predecessor_ids, inst.called_computation_ids])
+                (
+                    node,
+                    sound,
+                    [inst.operand_ids, inst.control_predecessor_ids, inst.called_computation_ids],
+                )
             })
             .collect();
         let linked: Vec<bool> = decoded
             .par_chunk_by_mut(|a, b| a.0.computation == b.0.computation)
             .map(|chunk| {
                 let (index, first) = (chunk[0].0.computation, starts[chunk[0].0.computation]);
-                let local: HashMap<i32, usize> = chunk.iter().enumerate().map(|(position, (node, _, _))| (node.id as i32, first + position)).collect();
+                let local: HashMap<i32, usize> = chunk
+                    .iter()
+                    .enumerate()
+                    .map(|(position, (node, _, _))| (node.id as i32, first + position))
+                    .collect();
                 let mut valid = true;
                 for position in 0..chunk.len() {
                     let [operand_ids, control_ids, called_ids] = &chunk[position].2;
-                    let operands: Vec<usize> = operand_ids.iter().filter_map(|id| local.get(&(*id as i32)).copied()).collect();
+                    let operands: Vec<usize> = operand_ids
+                        .iter()
+                        .filter_map(|id| local.get(&(*id as i32)).copied())
+                        .collect();
                     let mut predecessors = Vec::new();
                     for id in control_ids {
                         match local.get(&(*id as i32)) {
-                            Some(&target) if !predecessors.contains(&target) => predecessors.push(target),
+                            Some(&target) if !predecessors.contains(&target) => {
+                                predecessors.push(target);
+                            }
                             Some(_) => {}
                             None => valid = false,
                         }
                     }
-                    let called: Vec<usize> = called_ids.iter().filter_map(|id| ids.get(id).copied()).collect();
-                    let earlier = |targets: &[usize]| targets.iter().all(|&target| target < first + position);
+                    let called: Vec<usize> =
+                        called_ids.iter().filter_map(|id| ids.get(id).copied()).collect();
+                    let earlier =
+                        |targets: &[usize]| targets.iter().all(|&target| target < first + position);
                     valid &= chunk[position].1 && earlier(&operands) && earlier(&predecessors);
-                    valid &= operands.len() == operand_ids.len() && called.len() == called_ids.len() && called.iter().all(|&graph| graph < index);
+                    valid &= operands.len() == operand_ids.len()
+                        && called.len() == called_ids.len()
+                        && called.iter().all(|&graph| graph < index);
                     for &target in &operands {
                         if chunk[target - first].0.users.last() != Some(&(first + position)) {
                             chunk[target - first].0.users.push(first + position);
                         }
                     }
                     let node = &mut chunk[position].0;
-                    (node.operands, node.predecessors, node.called) = (operands, predecessors, called);
+                    (node.operands, node.predecessors, node.called) =
+                        (operands, predecessors, called);
                 }
                 valid
             })
             .collect();
         let nodes: Vec<Node> = decoded.into_iter().map(|(node, _, _)| node).collect();
         let mut valid = fields(bytes).any(|(number, _)| number == 1)
-            && proto.host_program_shape.as_ref().is_some_and(|program| program.parameters.len() == program.parameter_names.len())
+            && proto
+                .host_program_shape
+                .as_ref()
+                .is_some_and(|program| program.parameters.len() == program.parameter_names.len())
             && linked.iter().all(|linked| *linked);
         let mut graphs = Vec::with_capacity(parts.len());
         for (index, (computation, _)) in parts.into_iter().enumerate() {
             let range = starts[index]..starts[index + 1];
-            let root = range.clone().rev().find(|&node| nodes[node].id as i32 == computation.root_id as i32);
-            let mut parameters: Vec<(i64, usize)> = range.clone().filter(|&node| nodes[node].opcode == "parameter").map(|node| (nodes[node].parameter, node)).collect();
+            let root = range
+                .clone()
+                .rev()
+                .find(|&node| nodes[node].id as i32 == computation.root_id as i32);
+            let mut parameters: Vec<(i64, usize)> = range
+                .clone()
+                .filter(|&node| nodes[node].opcode == "parameter")
+                .map(|node| (nodes[node].parameter, node))
+                .collect();
             parameters.sort_unstable();
             valid &= root.is_some();
             graphs.push(Graph {
@@ -505,25 +601,46 @@ impl<'a> Module<'a> {
             });
         }
         let entry = graphs.iter().rposition(|graph| graph.id == proto.entry_computation_id);
-        Module { proto, nodes, graphs, valid: valid && entry.is_some(), entry: entry.unwrap_or(usize::MAX), data }
+        Module {
+            proto,
+            nodes,
+            graphs,
+            valid: valid && entry.is_some(),
+            entry: entry.unwrap_or(usize::MAX),
+            data,
+        }
     }
 
     pub fn error(&self) -> String {
         if !fields(&self.data).any(|(number, _)| number == 1) {
             return "No HLO module found in the HLO proto".into();
         }
-        let Some(program) = &self.proto.host_program_shape else { return "No program shape found in the proto".into() };
+        let Some(program) = &self.proto.host_program_shape else {
+            return "No program shape found in the proto".into();
+        };
         if program.parameters.len() != program.parameter_names.len() {
-            let message = format!("ProgramShapeProto has different numbers of parameters and parameter names: {} vs {}", program.parameters.len(), program.parameter_names.len());
-            return format!("RET_CHECK failure (external/xla/xla/shape.cc:532) num_params == num_param_names {message}");
+            let message = format!(
+                "ProgramShapeProto has different numbers of parameters and parameter names: {} vs {}",
+                program.parameters.len(),
+                program.parameter_names.len()
+            );
+            return format!(
+                "RET_CHECK failure (external/xla/xla/shape.cc:532) num_params == num_param_names {message}"
+            );
         }
-        let failure = |place: &str, condition: &str, message: String| format!("RET_CHECK failure (external/xla/xla/hlo/ir/{place}) {condition} {message}");
+        let failure = |place: &str, condition: &str, message: String| {
+            format!("RET_CHECK failure (external/xla/xla/hlo/ir/{place}) {condition} {message}")
+        };
         for (index, graph) in self.graphs.iter().enumerate() {
             let mut defined = std::collections::HashSet::new();
             for &node in &graph.nodes {
                 let inst = self.inst(node);
                 if inst.opcode.is_empty() {
-                    return failure("hlo_instruction.cc:312", "!proto.opcode().empty()", String::new());
+                    return failure(
+                        "hlo_instruction.cc:312",
+                        "!proto.opcode().empty()",
+                        String::new(),
+                    );
                 }
                 if !KNOWN_OPCODES.contains(inst.opcode.as_str()) {
                     return format!("Unknown opcode: {}", inst.opcode);
@@ -533,21 +650,50 @@ impl<'a> Module<'a> {
                 }
                 if !inst.operand_ids.iter().all(|id| defined.contains(&(*id as i32))) {
                     let condition = "absl::c_all_of(proto.operand_ids(), [&](int64_t id) { return instruction_map.contains( CalculateLocalId(id)); })";
-                    return failure("hlo_instruction.cc:385", condition, format!("{} instruction contains invalid operand id(s)", inst.name));
+                    return failure(
+                        "hlo_instruction.cc:385",
+                        condition,
+                        format!("{} instruction contains invalid operand id(s)", inst.name),
+                    );
                 }
-                if !inst.called_computation_ids.iter().all(|id| self.graphs[..index].iter().any(|earlier| earlier.id == i64::from(*id as i32))) {
+                if !inst.called_computation_ids.iter().all(|id| {
+                    self.graphs[..index].iter().any(|earlier| earlier.id == i64::from(*id as i32))
+                }) {
                     let condition = "absl::c_all_of(proto.called_computation_ids(), [&](int64_t id) { return computation_map.contains( CalculateLocalId(id)); })";
-                    return failure("hlo_instruction.cc:391", condition, format!("{} instruction references invalid computation id(s)", inst.name));
+                    return failure(
+                        "hlo_instruction.cc:391",
+                        condition,
+                        format!("{} instruction references invalid computation id(s)", inst.name),
+                    );
                 }
-                if let Some(leaf) = inst.literal.as_ref().and_then(|literal| literal.shape.as_ref()).and_then(one_bit_leaf).filter(|_| inst.opcode == "constant") {
+                if let Some(leaf) = inst
+                    .literal
+                    .as_ref()
+                    .and_then(|literal| literal.shape.as_ref())
+                    .and_then(one_bit_leaf)
+                    .filter(|_| inst.opcode == "constant")
+                {
                     return format!("Is called on unsupported shape: {}", leaf.text(true));
                 }
-                if let Some(id) = inst.control_predecessor_ids.iter().find(|id| !defined.contains(&(**id as i32))) {
-                    let message = format!("No instruction with id {id} (local id: {}) in computation {}", *id as i32, inst.name);
-                    return failure("hlo_instruction.cc:1434", "ContainsKey(instruction_map, local_predecessor_id)", message);
+                if let Some(id) =
+                    inst.control_predecessor_ids.iter().find(|id| !defined.contains(&(**id as i32)))
+                {
+                    let message = format!(
+                        "No instruction with id {id} (local id: {}) in computation {}",
+                        *id as i32, inst.name
+                    );
+                    return failure(
+                        "hlo_instruction.cc:1434",
+                        "ContainsKey(instruction_map, local_predecessor_id)",
+                        message,
+                    );
                 }
                 if inst.name.is_empty() {
-                    return failure("hlo_instruction.cc:1442", "!proto.name().empty()", String::new());
+                    return failure(
+                        "hlo_instruction.cc:1442",
+                        "!proto.name().empty()",
+                        String::new(),
+                    );
                 }
                 defined.insert(inst.id as i32);
             }
@@ -556,7 +702,11 @@ impl<'a> Module<'a> {
                 return failure("hlo_computation.cc:1371", "proto.root_id() != -1", String::new());
             }
             if !defined.contains(&(root as i32)) {
-                return failure("hlo_computation.cc:1373", "ContainsKey(instruction_map, root_local_id)", "Root instruction not found in instruction map".into());
+                return failure(
+                    "hlo_computation.cc:1373",
+                    "ContainsKey(instruction_map, root_local_id)",
+                    "Root instruction not found in instruction map".into(),
+                );
             }
         }
         if self.entry == usize::MAX {
@@ -576,8 +726,15 @@ impl<'a> Module<'a> {
         let (mut buf, mut inst) = (&self.data[start..end], Inst::default());
         while !buf.is_empty() {
             let field = prost::encoding::decode_key(&mut buf).and_then(|(tag, wire)| match tag {
-                3 => prost::encoding::skip_field(wire, tag, &mut buf, prost::encoding::DecodeContext::default()),
-                _ => inst.merge_field(tag, wire, &mut buf, prost::encoding::DecodeContext::default()),
+                3 => prost::encoding::skip_field(
+                    wire,
+                    tag,
+                    &mut buf,
+                    prost::encoding::DecodeContext::default(),
+                ),
+                _ => {
+                    inst.merge_field(tag, wire, &mut buf, prost::encoding::DecodeContext::default())
+                }
             });
             if field.is_err() {
                 return Inst::default();
@@ -587,15 +744,22 @@ impl<'a> Module<'a> {
     }
 
     pub fn backend_config<'b>(&'b self, inst: &'b Inst) -> Option<Cow<'b, [u8]>> {
-        let raw: &[u8] = match inst.backend_config_payload.as_ref().map(|payload| &payload.payload_source) {
-            None => &inst.backend_config,
-            Some(Some(xla::payload::PayloadSource::Id(id))) => usize::try_from(*id).ok().and_then(|id| self.proto.payloads.get(id))?,
-            Some(Some(xla::payload::PayloadSource::Value(value))) => value,
-            Some(None) => &[],
-        };
+        let raw: &[u8] =
+            match inst.backend_config_payload.as_ref().map(|payload| &payload.payload_source) {
+                None => &inst.backend_config,
+                Some(Some(xla::payload::PayloadSource::Id(id))) => {
+                    usize::try_from(*id).ok().and_then(|id| self.proto.payloads.get(id))?
+                }
+                Some(Some(xla::payload::PayloadSource::Value(value))) => value,
+                Some(None) => &[],
+            };
         let mut out = Cow::Borrowed(raw);
         let mut from = 0;
-        while let Some(at) = out[from..].windows(LEGACY_QUEUES.len()).position(|window| window == LEGACY_QUEUES).map(|at| at + from) {
+        while let Some(at) = out[from..]
+            .windows(LEGACY_QUEUES.len())
+            .position(|window| window == LEGACY_QUEUES)
+            .map(|at| at + from)
+        {
             let mut end = at + LEGACY_QUEUES.len();
             let matched = b":[],".iter().all(|&expected| {
                 end += out[end..].iter().take_while(|byte| b" \t\n\r\x0c".contains(byte)).count();
@@ -627,8 +791,16 @@ impl<'a> Module<'a> {
             "fusion" => fusion_category(&self.inst(node).fusion_kind).to_string(),
             "convolution" => {
                 let dimensions = self.inst(node).window.unwrap_or_default().dimensions;
-                let base = if dimensions.iter().any(|dimension| dimension.base_dilation != 1) { " base-dilated" } else { "" };
-                let window = if dimensions.iter().any(|dimension| dimension.window_dilation != 1) { " window-dilated" } else { "" };
+                let base = if dimensions.iter().any(|dimension| dimension.base_dilation != 1) {
+                    " base-dilated"
+                } else {
+                    ""
+                };
+                let window = if dimensions.iter().any(|dimension| dimension.window_dilation != 1) {
+                    " window-dilated"
+                } else {
+                    ""
+                };
                 format!("convolution{base}{window}")
             }
             "transpose" | "copy" | "reshape" | "dynamic-reshape" => "data formatting".to_string(),
@@ -640,10 +812,18 @@ impl<'a> Module<'a> {
     fn is_elementwise(&self, node: usize) -> bool {
         let entry = &self.nodes[node];
         match entry.opcode.as_str() {
-            "bitcast-convert" => entry.operands.first().is_some_and(|&operand| cost::storage_bit_width(entry.shape.element_type) == cost::storage_bit_width(self.nodes[operand].shape.element_type)),
+            "bitcast-convert" => entry.operands.first().is_some_and(|&operand| {
+                cost::storage_bit_width(entry.shape.element_type)
+                    == cost::storage_bit_width(self.nodes[operand].shape.element_type)
+            }),
             "map" => {
                 let dimensions = &self.inst(node).dimensions;
-                dimensions.is_empty() || (dimensions.len() == entry.shape.dimensions.len() && dimensions.iter().enumerate().all(|(position, &dimension)| dimension == position as i64))
+                dimensions.is_empty()
+                    || (dimensions.len() == entry.shape.dimensions.len()
+                        && dimensions
+                            .iter()
+                            .enumerate()
+                            .all(|(position, &dimension)| dimension == position as i64))
             }
             opcode => ELEMENTWISE.split(' ').any(|name| name == opcode),
         }
@@ -668,27 +848,38 @@ pub fn fusion_category(kind: &str) -> &'static str {
 }
 
 pub fn modules(dir: &Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    entries.filter_map(|entry| entry.ok()?.file_name().to_str()?.strip_suffix(SUFFIX).map(str::to_string)).collect()
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|entry| {
+            entry.ok()?.file_name().to_str()?.strip_suffix(SUFFIX).map(str::to_string)
+        })
+        .collect()
 }
 
 pub fn load(dir: &Path, module: &str) -> Option<Arc<Module<'static>>> {
     let path = dir.join(format!("{module}{SUFFIX}"));
     let modified = std::fs::metadata(&path).ok()?.modified().ok()?;
-    if let Some((_, _, cached)) = CACHE.lock().unwrap().iter().find(|(cached, time, _)| *cached == path && *time == modified) {
+    if let Some((_, _, cached)) = CACHE
+        .lock()
+        .expect("lock poisoned")
+        .iter()
+        .find(|(cached, time, _)| *cached == path && *time == modified)
+    {
         return Some(cached.clone());
     }
     let data = std::fs::read(&path).ok()?;
     let complete = |buf: &[u8]| {
         let mut walk = fields(buf);
-        walk.by_ref().for_each(drop);
+        for _ in walk.by_ref() {}
         walk.complete()
     };
     if !complete(&data) || !complete(last_bytes(&data, 1)) {
         return None;
     }
     let parsed = Arc::new(Module::parse(Cow::Owned(data)));
-    let mut cache = CACHE.lock().unwrap();
+    let mut cache = CACHE.lock().expect("lock poisoned");
     cache.retain(|(cached, _, _)| *cached != path);
     cache.insert(0, (path, modified, parsed.clone()));
     cache.truncate(CACHED_MODULES);
@@ -696,9 +887,14 @@ pub fn load(dir: &Path, module: &str) -> Option<Arc<Module<'static>>> {
 }
 
 pub fn by_options(dir: &Path, params: &HashMap<String, String>) -> Option<Arc<Module<'static>>> {
-    match (params.get("module_name").filter(|name| !name.is_empty()), params.get("program_id").filter(|id| !id.is_empty())) {
+    match (
+        params.get("module_name").filter(|name| !name.is_empty()),
+        params.get("program_id").filter(|id| !id.is_empty()),
+    ) {
         (Some(module), _) => load(dir, module),
-        (None, Some(program)) => load(dir, modules(dir).iter().find(|module| module.contains(program.as_str()))?),
+        (None, Some(program)) => {
+            load(dir, modules(dir).iter().find(|module| module.contains(program.as_str()))?)
+        }
         (None, None) => None,
     }
 }
@@ -732,7 +928,17 @@ pub fn extract(dir: &Path, xspaces: &[PathBuf]) -> Option<()> {
                 }
             }
             let planes = crate::xplane::parse(&metadata).ok()?;
-            Some(protos(&planes, &metadata).into_iter().map(|(program, bytes)| (format!("{}({program})", module_name(bytes)).replace('/', "_"), bytes.to_vec())).collect::<Vec<_>>())
+            Some(
+                protos(&planes, &metadata)
+                    .into_iter()
+                    .map(|(program, bytes)| {
+                        (
+                            format!("{}({program})", module_name(bytes)).replace('/', "_"),
+                            bytes.to_vec(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
         };
         let (valid, found) = rayon::join(|| crate::tools::counters::valid_space(&data), found);
         if !valid {
@@ -754,11 +960,17 @@ pub fn extract(dir: &Path, xspaces: &[PathBuf]) -> Option<()> {
 pub fn protos<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, &'a [u8])> {
     let mut found = IndexMap::new();
     for plane in planes.iter().filter(|plane| plane.name == "/host:metadata") {
-        let Some(proto) = plane.id("HLO Proto").or_else(|| plane.id("Hlo Proto")) else { continue };
+        let Some(proto) = plane.id("HLO Proto").or_else(|| plane.id("Hlo Proto")) else {
+            continue;
+        };
         let program = plane.id("program_id");
         for (index, meta) in plane.meta.iter().enumerate() {
             let raw = slice(map, meta.raw);
-            let Some(Value::Bytes(body)) = stats(raw, 5, |stat| stat == proto).next().map(|stat| stat.value) else { continue };
+            let Some(Value::Bytes(body)) =
+                stats(raw, 5, |stat| stat == proto).next().map(|stat| stat.value)
+            else {
+                continue;
+            };
             let parses = meta.hlo_parses.get().copied().unwrap_or_else(|| {
                 let parses = proto_text::parses_hlo(body);
                 meta.hlo_parses.set(parses).ok();
@@ -768,9 +980,17 @@ pub fn protos<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, &'a [u8])> {
                 continue;
             }
             let name = meta.long_name(map);
-            let named = name.strip_suffix(')').and_then(|name| name.rsplit_once('(')).map(|(_, digits)| digits).filter(|digits| !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()));
+            let named = name
+                .strip_suffix(')')
+                .and_then(|name| name.rsplit_once('('))
+                .map(|(_, digits)| digits)
+                .filter(|digits| {
+                    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+                });
             let fixed = named.and_then(|digits| digits.parse::<u64>().ok()).unwrap_or(index as u64);
-            let id = program.and_then(|program| stats(raw, 5, |stat| stat == program).next()).map_or(fixed, |stat| stat.value.int().unwrap_or(0) as u64);
+            let id = program
+                .and_then(|program| stats(raw, 5, |stat| stat == program).next())
+                .map_or(fixed, |stat| stat.value.int().unwrap_or(0) as u64);
             found.entry(id).or_insert(body);
         }
     }
@@ -782,12 +1002,29 @@ pub fn module_name(proto: &[u8]) -> String {
 }
 
 /// Shared fused graphs expand as a tree. The depth and the budget limit the size of that tree.
-fn fused_children(printer: &Printer, node: usize, depth: usize, budget: &mut usize) -> Vec<Metrics> {
+fn fused_children(
+    printer: &Printer,
+    node: usize,
+    depth: usize,
+    budget: &mut usize,
+) -> Vec<Metrics> {
     let module = printer.module;
-    let Some(&graph) = module.nodes[node].called.first().filter(|_| module.nodes[node].opcode == "fusion" && depth < MAX_FUSED_DEPTH) else { return Vec::new() };
+    let Some(&graph) = module.nodes[node]
+        .called
+        .first()
+        .filter(|_| module.nodes[node].opcode == "fusion" && depth < MAX_FUSED_DEPTH)
+    else {
+        return Vec::new();
+    };
     let mut children = Vec::new();
-    for &child in module.graphs[graph].nodes.iter().filter(|&&child| !matches!(module.nodes[child].opcode.as_str(), "parameter" | "tuple")) {
-        let Some(left) = budget.checked_sub(1) else { break };
+    for &child in module.graphs[graph]
+        .nodes
+        .iter()
+        .filter(|&&child| !matches!(module.nodes[child].opcode.as_str(), "parameter" | "tuple"))
+    {
+        let Some(left) = budget.checked_sub(1) else {
+            break;
+        };
         *budget = left;
         let mut long_name = String::new();
         let metadata = printer.instruction(child, &mut long_name).metadata.unwrap_or_default();
@@ -824,7 +1061,13 @@ pub fn attach_fused(modules: &[(u64, Module)], db: &mut Db) {
         .filter(|(_, module)| module.valid)
         .map(|(id, module)| {
             let found: Vec<(&str, usize)> = match wanted.get(id) {
-                Some(wanted) => module.nodes.par_iter().enumerate().filter(|(_, node)| wanted.contains(node.name.as_str())).map(|(index, node)| (node.name.as_str(), index)).collect(),
+                Some(wanted) => module
+                    .nodes
+                    .par_iter()
+                    .enumerate()
+                    .filter(|(_, node)| wanted.contains(node.name.as_str()))
+                    .map(|(index, node)| (node.name.as_str(), index))
+                    .collect(),
                 None => Vec::new(),
             };
             let mut names = FxHashMap::default();
@@ -835,8 +1078,12 @@ pub fn attach_fused(modules: &[(u64, Module)], db: &mut Db) {
         })
         .collect();
     db.metrics.par_iter_mut().for_each(|metrics| {
-        let Some((printer, names)) = printers.get(&metrics.module) else { return };
-        let Some(&index) = names.get(metrics.name.as_str()) else { return };
+        let Some((printer, names)) = printers.get(&metrics.module) else {
+            return;
+        };
+        let Some(&index) = names.get(metrics.name.as_str()) else {
+            return;
+        };
         let children = fused_children(printer, index, 0, &mut { MAX_FUSED_CHILDREN });
         metrics.children.metrics.extend(children);
     });

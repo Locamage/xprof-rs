@@ -1,5 +1,7 @@
 use crate::tools::event_fractions::Fractions;
-use crate::tools::smart_suggestion::{Data, InputPipeline, Node, Overview, RULES, Rule, Step, ToolData};
+use crate::tools::smart_suggestion::{
+    Data, InputPipeline, Node, Overview, RULES, Rule, Step, ToolData,
+};
 use std::collections::BTreeMap;
 
 pub type StepInfo<'a> = (&'a [(u32, u64)], &'a [(&'a str, u64)]);
@@ -71,16 +73,34 @@ pub fn apply(name: &str, provider: &MockToolDataProvider) -> Data<Option<SmartSu
     Ok(Some(SmartSuggestion { rule_name: rule.name, suggestion_text: (rule.generate)(provider)? }))
 }
 
-pub fn overview_page(mxu_utilization_percent: f64, memory_bw_utilization_relative_to_hw_limit_percent: f64) -> Option<Overview> {
-    Some(Overview { mxu_percent: mxu_utilization_percent, hbm_percent: memory_bw_utilization_relative_to_hw_limit_percent })
+pub fn overview_page(
+    mxu_utilization_percent: f64,
+    memory_bw_utilization_relative_to_hw_limit_percent: f64,
+) -> Option<Overview> {
+    Some(Overview {
+        mxu_percent: mxu_utilization_percent,
+        hbm_percent: memory_bw_utilization_relative_to_hw_limit_percent,
+    })
 }
 
-pub fn input_pipeline_analysis(input_percent: f64, enqueue_us: f64, demanded_file_read_us: f64) -> Option<InputPipeline> {
+pub fn input_pipeline_analysis(
+    input_percent: f64,
+    enqueue_us: f64,
+    demanded_file_read_us: f64,
+) -> Option<InputPipeline> {
     Some(InputPipeline { input_percent, enqueue_us, demanded_file_read_us, ..Default::default() })
 }
 
-pub fn tpu_step_time_breakdown(step_time_average: f64, tc_idle_ms_average: f64, sc_step_time_ms_average: f64) -> Option<InputPipeline> {
-    Some(InputPipeline { step_time_ms: step_time_average, tpu: Some((tc_idle_ms_average, sc_step_time_ms_average)), ..Default::default() })
+pub fn tpu_step_time_breakdown(
+    step_time_average: f64,
+    tc_idle_ms_average: f64,
+    sc_step_time_ms_average: f64,
+) -> Option<InputPipeline> {
+    Some(InputPipeline {
+        step_time_ms: step_time_average,
+        tpu: Some((tc_idle_ms_average, sc_step_time_ms_average)),
+        ..Default::default()
+    })
 }
 
 pub fn generic_step_time_breakdown(step_time_average: f64) -> Option<InputPipeline> {
@@ -89,19 +109,40 @@ pub fn generic_step_time_breakdown(step_time_average: f64) -> Option<InputPipeli
 
 pub fn step_sequence(steps: &[StepInfo]) -> Option<Vec<Step>> {
     Some(
-        steps.iter().map(|(cores, categories)| Step { cores: cores.to_vec(), categories: categories.iter().map(|(category, self_time_ps)| (category.to_string(), *self_time_ps)).collect() }).collect(),
+        steps
+            .iter()
+            .map(|(cores, categories)| Step {
+                cores: cores.to_vec(),
+                categories: categories
+                    .iter()
+                    .map(|(category, self_time_ps)| (category.to_string(), *self_time_ps))
+                    .collect(),
+            })
+            .collect(),
     )
 }
 
-pub fn event_time_fractions(chips: &[(&str, &[f32])], hosts: &[(&str, &[f32])]) -> Option<Fractions> {
-    let map = |entries: &[(&str, &[f32])]| entries.iter().map(|(name, fractions)| (name.to_string(), fractions.to_vec())).collect::<BTreeMap<_, _>>();
+pub fn event_time_fractions(
+    chips: &[(&str, &[f32])],
+    hosts: &[(&str, &[f32])],
+) -> Option<Fractions> {
+    let map = |entries: &[(&str, &[f32])]| {
+        entries
+            .iter()
+            .map(|(name, fractions)| (name.to_string(), fractions.to_vec()))
+            .collect::<BTreeMap<_, _>>()
+    };
     Some(Fractions { chips: map(chips), hosts: map(hosts) })
 }
 
 pub fn op_profile_with_async_done(root_raw_time: f64, name: &str, raw_time: f64) -> Option<Node> {
     let leaf = Node { name: name.into(), raw_time, ..Default::default() };
     let async_done = Node { name: "async-done".into(), children: vec![leaf], ..Default::default() };
-    Some(Node { raw_time: root_raw_time, children: vec![Node { children: vec![async_done], ..Default::default() }], ..Default::default() })
+    Some(Node {
+        raw_time: root_raw_time,
+        children: vec![Node { children: vec![async_done], ..Default::default() }],
+        ..Default::default()
+    })
 }
 
 pub fn memory_profile(peak_bytes_in_use: f64, memory_capacity: f64) -> Option<Vec<(f64, f64)>> {

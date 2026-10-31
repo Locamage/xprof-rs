@@ -37,7 +37,9 @@ fn test_d03_d04_error_on_empty_or_corrupt_trace() {
     assert_eq!(Local::default().xspace_paths(&dir).unwrap_err().kind, Kind::FileNotFound);
     let corrupt = dir.join("corrupt.xplane.pb");
     std::fs::write(&corrupt, b"CORRUPT_INVALID_PROTOBUF_BYTES").unwrap();
-    let error = xplane::list_xplane_events(&Local::default(), &args(corrupt.to_str().unwrap(), &[])).unwrap_err();
+    let error =
+        xplane::list_xplane_events(&Local::default(), &args(corrupt.to_str().unwrap(), &[]))
+            .unwrap_err();
     assert_eq!(error.kind, Kind::Value);
 }
 
@@ -50,7 +52,8 @@ fn test_d05_silent_truncation_resolved() {
 
 #[test]
 fn test_d08_empty_category_filter_returns_empty_list() {
-    let result = demo_query("d08", "get_top_hlo_ops", &["--category_filter=non_existent_category_xyz"]);
+    let result =
+        demo_query("d08", "get_top_hlo_ops", &["--category_filter=non_existent_category_xyz"]);
     assert!(!result.has("error"));
     assert_eq!(result.at("top_by_time"), &J::List(Vec::new()));
     assert_eq!(result.at("total_matched").int(), Some(0));
@@ -94,12 +97,20 @@ fn test_d15_roofline_bottleneck_intensity_and_deduplication() {
     assert!(!result.has("error"));
     let program = result.at("program");
     for key in [
-        "bottleneck_operational_intensity_flop_per_byte", "optimal_flop_rate_gflops", "dma_stall_percent", "hbm_read_bw_utilization_percent", "hbm_write_bw_utilization_percent",
-        "vmem_read_bw_utilization_percent", "vmem_write_bw_utilization_percent", "cmem_read_bw_utilization_percent", "cmem_write_bw_utilization_percent",
+        "bottleneck_operational_intensity_flop_per_byte",
+        "optimal_flop_rate_gflops",
+        "dma_stall_percent",
+        "hbm_read_bw_utilization_percent",
+        "hbm_write_bw_utilization_percent",
+        "vmem_read_bw_utilization_percent",
+        "vmem_write_bw_utilization_percent",
+        "cmem_read_bw_utilization_percent",
+        "cmem_write_bw_utilization_percent",
     ] {
         assert!(program.has(key), "{key}");
     }
-    let mut ranks: Vec<i128> = result.at("top_operations").items().iter().filter_map(|op| op.at("rank").int()).collect();
+    let mut ranks: Vec<i128> =
+        result.at("top_operations").items().iter().filter_map(|op| op.at("rank").int()).collect();
     let count = ranks.len();
     ranks.sort_unstable();
     ranks.dedup();
@@ -110,11 +121,19 @@ fn test_d15_roofline_bottleneck_intensity_and_deduplication() {
 fn test_d16_perf_counters_non_null_payload() {
     let dir = scratch("d16");
     let path = demo(&dir);
-    let data = Local::default().fetch_text("perf_counters", path.to_str().unwrap(), &[("bypass_cache", "True".into())]).unwrap().unwrap();
+    let data = Local::default()
+        .fetch_text("perf_counters", path.to_str().unwrap(), &[("bypass_cache", "True".into())])
+        .unwrap()
+        .unwrap();
     assert_ne!(data, "null");
     let table = parse(&data);
     assert!(table.has("cols") && table.has("rows"));
-    let ids: Vec<String> = table.at("cols").items().iter().map(|column| column.get("id").or_else(|| column.get("label")).unwrap().text()).collect();
+    let ids: Vec<String> = table
+        .at("cols")
+        .items()
+        .iter()
+        .map(|column| column.get("id").or_else(|| column.get("label")).unwrap().text())
+        .collect();
     for id in ["Host", "Chip", "Kernel", "Counter"] {
         assert!(ids.iter().any(|column| column == id), "{id}");
     }
@@ -132,7 +151,16 @@ fn test_d23_get_hlo_neighborhood_default_mode_bfs_expansion() {
     let dir = scratch("d23n");
     std::fs::write(dir.join("module_0001.jit_compute.hlo_proto.pb"), b"").unwrap();
     let fake = Fake::fixed(SHORT_TXT_GRAPH).in_dir(&dir);
-    let found = hlo::neighborhood(&fake, dir.to_str().unwrap(), Some(&J::from("mul")), &J::Int(2), None, None, false).unwrap();
+    let found = hlo::neighborhood(
+        &fake,
+        dir.to_str().unwrap(),
+        Some(&J::from("mul")),
+        &J::Int(2),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
     let in_order = ["[dist=1]", "neg", "w", "x"]
         .iter()
         .scan(0, |start, needle| {
@@ -166,7 +194,12 @@ fn test_d02_stays_closed_across_all_swap_cases() {
     let swapped = overview(&path);
     assert_ne!(training, swapped, "normal swap must invalidate");
     std::fs::write(&path, training_trace(TRAINING_STEP_PS)).unwrap();
-    std::fs::File::options().write(true).open(&path).unwrap().set_modified(std::fs::metadata(DEMO).unwrap().modified().unwrap()).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(std::fs::metadata(DEMO).unwrap().modified().unwrap())
+        .unwrap();
     assert_eq!(overview(&path), training, "timestamp-preserving clone must be re-read");
 }
 
@@ -207,12 +240,21 @@ fn test_d16_llo_remediation_when_absent() {
     let dir = scratch("d16llo");
     std::fs::write(dir.join("host1.xplane.pb"), training_trace(TRAINING_STEP_PS)).unwrap();
     let fake = Fake::fixed("").with_hosts(&["host1"]).in_dir(&dir);
-    for result in [xplane::get_llo_analysis(&fake, &args("test_session", &[])), xplane::get_llo_debug_string(&fake, &args("test_session", &[]))] {
+    for result in [
+        xplane::get_llo_analysis(&fake, &args("test_session", &[])),
+        xplane::get_llo_debug_string(&fake, &args("test_session", &[])),
+    ] {
         let result = json(result);
         assert_eq!(result.at("status").str(), Some("UNAVAILABLE"));
         assert_eq!(result.at("reason").str(), Some("LLO_DATA_ABSENT"));
         let remediation = result.at("remediation").text();
-        for needle in ["LIBTPU_INIT_ARGS", "--xla_xprof_enable_custom_call_tracing=true", "Python 3.11+", "JAX >= 0.11.0", "xprof-nightly"] {
+        for needle in [
+            "LIBTPU_INIT_ARGS",
+            "--xla_xprof_enable_custom_call_tracing=true",
+            "Python 3.11+",
+            "JAX >= 0.11.0",
+            "xprof-nightly",
+        ] {
             assert!(remediation.contains(needle), "{needle}");
         }
     }
@@ -230,8 +272,14 @@ fn test_d19_hlo_op_profile_exception_contracts() {
     let dir = scratch("d19");
     let path = demo(&dir);
     let path = path.to_str().unwrap();
-    assert_eq!(run(&["get_hlo_op_profile", path, "--category=completely_nonexistent_category_xyz"]).0, 3);
-    assert_eq!(run(&["get_hlo_op_profile", path, "--view=tree", "--path=nonexistent/tree/path/xyz"]).0, 3);
+    assert_eq!(
+        run(&["get_hlo_op_profile", path, "--category=completely_nonexistent_category_xyz"]).0,
+        3
+    );
+    assert_eq!(
+        run(&["get_hlo_op_profile", path, "--view=tree", "--path=nonexistent/tree/path/xyz"]).0,
+        3
+    );
     assert_eq!(run(&["get_hlo_op_profile", path, "--view=invalid_unsupported_view"]).0, 4);
     assert_eq!(run(&["get_hlo_op_profile", path, "--sort_by=invalid_sort_key"]).0, 4);
 }
@@ -243,25 +291,47 @@ fn test_d20_hlo_stats_datatable_schema_fidelity() {
     let path = path.to_str().unwrap();
     let records = parse(&run(&["get_hlo_stats", path, "--limit=10"]).1);
     let top = &records.items()[0];
-    for key in ["rank", "program_id", "category", "op_name", "total_self_time_us", "self_time_percent", "measured_flop_rate", "measured_memory_bw_gbs", "bound_by", "source_file", "source_line"] {
+    for key in [
+        "rank",
+        "program_id",
+        "category",
+        "op_name",
+        "total_self_time_us",
+        "self_time_percent",
+        "measured_flop_rate",
+        "measured_memory_bw_gbs",
+        "bound_by",
+        "source_file",
+        "source_line",
+    ] {
         assert!(top.has(key), "{key}");
     }
-    assert_eq!(parse(&run(&["get_hlo_stats", path, "--limit=5", "--bypass_cache"]).1).items().len(), 5);
+    assert_eq!(
+        parse(&run(&["get_hlo_stats", path, "--limit=5", "--bypass_cache"]).1).items().len(),
+        5
+    );
     let sorted = parse(&run(&["get_hlo_stats", path, "--limit=5", "--sort_by=total_time"]).1);
     assert_eq!(sorted.items().len(), 5);
-    assert!(sorted.items()[0].at("total_time_us").float() >= sorted.items()[1].at("total_time_us").float());
+    assert!(
+        sorted.items()[0].at("total_time_us").float()
+            >= sorted.items()[1].at("total_time_us").float()
+    );
 }
 
 #[test]
 fn test_d21_cache_collision_prevention_across_distinct_logdirs_with_same_session_id() {
     let dir = scratch("d21");
     let (first, second) = (dir.join("dir_a"), dir.join("dir_c"));
-    for (logdir, data) in [(&first, training_trace(TRAINING_STEP_PS)), (&second, std::fs::read(DEMO).unwrap())] {
+    for (logdir, data) in
+        [(&first, training_trace(TRAINING_STEP_PS)), (&second, std::fs::read(DEMO).unwrap())]
+    {
         let run_dir = logdir.join("plugins/profile").join(SESSION_ID);
         std::fs::create_dir_all(&run_dir).unwrap();
         std::fs::write(run_dir.join("trace.xplane.pb"), data).unwrap();
     }
-    let query = |logdir: &Path| run(&["get_overview", SESSION_ID, &format!("--logdir={}", logdir.display())]);
+    let query = |logdir: &Path| {
+        run(&["get_overview", SESSION_ID, &format!("--logdir={}", logdir.display())])
+    };
     let (left, right) = (query(&first), query(&second));
     assert_eq!((left.0, right.0), (0, 0), "{} {}", left.1, right.1);
     assert_ne!(parse(&left.1), parse(&right.1));
@@ -280,11 +350,22 @@ fn test_d23_upload_trace_import_roundtrip() {
     let source = session(&dir.join("source"), "host.xplane.pb", &training_trace(TRAINING_STEP_PS));
     let logdir = dir.join("logdir");
     let logdir_flag = format!("--logdir={}", logdir.display());
-    let result = ok(&["upload_trace", source.to_str().unwrap(), &logdir_flag, "--run_name=imported_step_100"]);
+    let result = ok(&[
+        "upload_trace",
+        source.to_str().unwrap(),
+        &logdir_flag,
+        "--run_name=imported_step_100",
+    ]);
     assert_eq!(result.at("status").str(), Some("success"));
     assert!(Path::new(result.at("run_path").str().unwrap()).is_dir());
     let imported = Path::new(result.at("imported_file").str().unwrap());
     assert!(imported.exists());
     assert_eq!(imported.file_name(), source.file_name());
-    assert_eq!(ok(&["get_overview", "imported_step_100", &logdir_flag]).at("performance_summary").at("steptime_ms_average").str(), Some("20.00"));
+    assert_eq!(
+        ok(&["get_overview", "imported_step_100", &logdir_flag])
+            .at("performance_summary")
+            .at("steptime_ms_average")
+            .str(),
+        Some("20.00")
+    );
 }

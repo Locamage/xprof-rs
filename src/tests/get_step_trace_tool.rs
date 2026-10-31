@@ -4,8 +4,7 @@ use crate::cli::steps::get_step_trace;
 use crate::cli::{Error, Kind};
 
 const INPUT_PIPELINE: &str = r#"[{"cols": [{"id": "stepnum", "type": "string"}, {"id": "noninfeedTimeMs", "type": "number"}, {"id": "infeedTimeMs", "type": "number"}, {"id": "tooltip", "type": "string"}, {"id": "infeedPercentAverage", "type": "number"}], "rows": [{"c": [{"v": "1"}, {"v": 20.0}, {"v": 80.0}, {"v": "tooltip 1"}, {"v": 80.0}]}, {"c": [{"v": "2"}, {"v": 30.0}, {"v": 70.0}, {"v": "tooltip 2"}, {"v": 70.0}]}], "p": {"steptime_ms_average": "100.0", "steptime_ms_minimum": "100.0", "steptime_ms_maximum": "100.0", "steptime_ms_standard_deviation": "0.0", "infeed_percent_average": "75.0", "summary_conclusion": "Program is input-bound"}}]"#;
-const OVERVIEW: &str =
-    r#"[{"p": {"steptime_ms_average": "50.0", "steptime_ms_standard_deviation": "2.5", "tc_infeed_ms_average": "5.0", "tc_outfeed_ms_average": "1.0", "tc_idle_ms_average": "4.0"}}]"#;
+const OVERVIEW: &str = r#"[{"p": {"steptime_ms_average": "50.0", "steptime_ms_standard_deviation": "2.5", "tc_infeed_ms_average": "5.0", "tc_outfeed_ms_average": "1.0", "tc_idle_ms_average": "4.0"}}]"#;
 const TWO_STEPS: &str = r#"{"podStatsSequence": {"podStatsMap": [{"stepNum": 221, "podStatsPerCore": {"0": {"chipId": 0, "nodeId": 0, "hostName": "host1", "stepNum": 221, "totalDurationUs": 300000.0, "highFlopsComputeUs": 150000.0, "crsDurationUs": 50000.0, "sendDurationUs": 20000.0, "recvDurationUs": 30000.0, "hostInfeedDurationUs": 10000.0, "hostOutfeedDurationUs": 5000.0, "bottleneck": "Send and Recv"}, "1": {"chipId": 0, "nodeId": 1, "hostName": "host1", "stepNum": 221, "totalDurationUs": 300000.0, "highFlopsComputeUs": 150000.0, "crsDurationUs": 50000.0, "sendDurationUs": 20000.0, "recvDurationUs": 30000.0, "hostInfeedDurationUs": 10000.0, "hostOutfeedDurationUs": 5000.0, "bottleneck": "Send and Recv"}}}, {"stepNum": 222, "podStatsPerCore": {"0": {"chipId": 0, "nodeId": 0, "hostName": "host1", "stepNum": 222, "totalDurationUs": 400000.0, "highFlopsComputeUs": 200000.0, "crsDurationUs": 60000.0, "sendDurationUs": 30000.0, "recvDurationUs": 40000.0, "hostInfeedDurationUs": 20000.0, "hostOutfeedDurationUs": 10000.0, "bottleneck": "All-Reduce"}}}]}}"#;
 const ONE_CORE: &str = r#"{"podStatsSequence": {"podStatsMap": [{"stepNum": 1, "podStatsPerCore": {"0": {"totalDurationUs": 100000.0, "highFlopsComputeUs": 90000.0}}}]}}"#;
 
@@ -88,7 +87,13 @@ fn test_get_step_trace_device_core_not_found() {
 
 #[test]
 fn test_get_step_trace_device_core_not_found_fallback() {
-    let fake = Fake::tools(|tool| if tool == "pod_viewer.json" { Some(ONE_CORE.into()) } else { input_pipeline_fallback(tool) });
+    let fake = Fake::tools(|tool| {
+        if tool == "pod_viewer.json" {
+            Some(ONE_CORE.into())
+        } else {
+            input_pipeline_fallback(tool)
+        }
+    });
     let result = step_trace(&fake, &[("device_core", J::Int(999))]);
     assert!(!result.has("status"));
     assert!(result.has("summary") && result.has("step_breakdown"));
@@ -132,7 +137,10 @@ fn test_get_step_trace_from_overview_page_fallback() {
 #[test]
 fn test_get_step_trace_from_overview_page_fallback_with_step_rows() {
     let data = r#"[{"cols": [{"id": "stepnum"}, {"id": "computeTimeMs"}], "rows": [{"c": [{"v": "1"}, {"v": 10.0}]}, {"c": [{"v": "2"}, {"v": 12.0}]}, {"c": [{"v": "3"}, {"v": 11.0}]}]}, {"p": {"steptime_ms_average": "50.0", "tc_infeed_ms_average": "5.0"}}]"#;
-    let result = step_trace(&Fake::tools(move |tool| (tool == "overview_page.json").then(|| data.to_string())), &[]);
+    let result = step_trace(
+        &Fake::tools(move |tool| (tool == "overview_page.json").then(|| data.to_string())),
+        &[],
+    );
     assert!(!result.has("error"));
     let summary = result.at("summary");
     assert_eq!(summary.at("total_steps"), &J::Int(3));
@@ -143,7 +151,10 @@ fn test_get_step_trace_from_overview_page_fallback_with_step_rows() {
 #[test]
 fn test_get_step_trace_from_overview_page_fallback_with_total_steps_prop() {
     let data = r#"[{"p": {"steptime_ms_average": "50.0", "total_steps": "42"}}]"#;
-    let result = step_trace(&Fake::tools(move |tool| (tool == "overview_page.json").then(|| data.to_string())), &[]);
+    let result = step_trace(
+        &Fake::tools(move |tool| (tool == "overview_page.json").then(|| data.to_string())),
+        &[],
+    );
     assert_eq!(result.at("summary").at("total_steps"), &J::Int(42));
     assert_eq!(result.at("summary").at("is_aggregate"), &J::Bool(true));
 }
@@ -157,7 +168,8 @@ fn test_get_step_trace_no_data() {
 
 #[test]
 fn test_get_step_trace_exception_handled() {
-    let result = step_trace(&Fake::new(|_, _| Err(Error::new(Kind::Runtime, "Backend unavailable"))), &[]);
+    let result =
+        step_trace(&Fake::new(|_, _| Err(Error::new(Kind::Runtime, "Backend unavailable"))), &[]);
     assert_eq!(result.at("status").str(), Some("NO_DATA"));
     assert!(result.at("message").text().contains("No step trace data"));
 }
@@ -167,7 +179,13 @@ fn test_get_step_trace_bypass_cache() {
     let fake = Fake::fixed("");
     let result = step_trace(&fake, &[("bypass_cache", J::Bool(true))]);
     assert_eq!(result.at("status").str(), Some("NO_DATA"));
-    let expected = ("pod_viewer.json".to_string(), vec![("format".to_string(), "json".to_string()), ("bypass_cache".to_string(), "True".to_string())]);
+    let expected = (
+        "pod_viewer.json".to_string(),
+        vec![
+            ("format".to_string(), "json".to_string()),
+            ("bypass_cache".to_string(), "True".to_string()),
+        ],
+    );
     assert!(fake.calls.borrow().contains(&expected));
 }
 
@@ -205,7 +223,10 @@ fn test_get_step_trace_pod_viewer_empty_breakdown_falls_back() {
     let result = step_trace(&fake, &[]);
     let summary = result.at("summary").clone();
     let step = &result.at("step_breakdown").items()[0];
-    assert!(step.at("communication_time_ms").float().unwrap().is_sign_positive(), "an empty sum must be 0.0, not -0.0");
+    assert!(
+        step.at("communication_time_ms").float().unwrap().is_sign_positive(),
+        "an empty sum must be 0.0, not -0.0"
+    );
     near(summary.at("step_time_ms_average"), 234.5234, 2);
     near(summary.at("compute_time_ms_average"), 231.9487, 2);
     assert!(summary.at("compute_percent").float().unwrap() > 95.0);
@@ -216,7 +237,9 @@ fn test_get_step_trace_pod_viewer_empty_breakdown_falls_back() {
 fn test_get_step_trace_input_pipeline_unknown_tool_name_falls_back() {
     let fake = Fake::new(|tool, _| match tool {
         "pod_viewer.json" | "pod_viewer" => Ok(None),
-        "input_pipeline_analyzer" => Err(Error::new(Kind::Value, format!("Unknown XProf tool name: '{tool}'"))),
+        "input_pipeline_analyzer" => {
+            Err(Error::new(Kind::Value, format!("Unknown XProf tool name: '{tool}'")))
+        }
         _ => Ok(overview_fallback(tool).map(String::into_bytes)),
     });
     let result = step_trace(&fake, &[]);
@@ -234,7 +257,16 @@ fn test_get_step_trace_pod_viewer_reports_unattributed_time_as_idle() {
     near(step.at("compute_time_ms"), 80.0, 2);
     near(step.at("idle_time_ms"), 10.0, 2);
     near(step.at("idle_percent"), 10.0, 2);
-    let covered: f64 = ["compute_time_ms", "communication_time_ms", "infeed_time_ms", "outfeed_time_ms", "idle_time_ms"].iter().map(|key| step.at(key).float().unwrap()).sum();
+    let covered: f64 = [
+        "compute_time_ms",
+        "communication_time_ms",
+        "infeed_time_ms",
+        "outfeed_time_ms",
+        "idle_time_ms",
+    ]
+    .iter()
+    .map(|key| step.at(key).float().unwrap())
+    .sum();
     near(&J::Float(covered), step.at("step_time_ms").float().unwrap(), 2);
     near(result.at("summary").at("idle_time_ms_average"), 10.0, 2);
     near(result.at("summary").at("idle_percent"), 10.0, 2);
@@ -243,7 +275,9 @@ fn test_get_step_trace_pod_viewer_reports_unattributed_time_as_idle() {
 #[test]
 fn test_get_step_trace_input_pipeline_reports_tc_idle_time() {
     let data = r#"[{}, {"cols": [{"id": "stepnum"}, {"id": "tcComputeTimeMs"}, {"id": "tcInfeedTimeMs"}, {"id": "tcOutfeedTimeMs"}, {"id": "tcIdleTimeMs"}], "rows": [{"c": [{"v": "0"}, {"v": 231.9486925}, {"v": 0.0}, {"v": 0.0}, {"v": 2.5746775}]}]}]"#;
-    let fake = Fake::tools(move |tool| (!matches!(tool, "pod_viewer.json" | "pod_viewer")).then(|| data.to_string()));
+    let fake = Fake::tools(move |tool| {
+        (!matches!(tool, "pod_viewer.json" | "pod_viewer")).then(|| data.to_string())
+    });
     let step = step_trace(&fake, &[]).at("step_breakdown").items()[0].clone();
     near(step.at("step_time_ms"), 234.5234, 3);
     near(step.at("compute_time_ms"), 231.9487, 3);

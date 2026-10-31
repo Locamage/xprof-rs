@@ -1,5 +1,7 @@
 use crate::hlo::profiler::{
-    ActiveAllocation, HloModule, MemoryActivityMetadata as Activity, MemoryAggregationStats as Stats, MemoryProfile, MemoryProfileSnapshot, MemoryProfileSummary, PerAllocatorMemoryProfile,
+    ActiveAllocation, HloModule, MemoryActivityMetadata as Activity,
+    MemoryAggregationStats as Stats, MemoryProfile, MemoryProfileSnapshot, MemoryProfileSummary,
+    PerAllocatorMemoryProfile,
 };
 use crate::xplane::{Ev, Field, NONE_GROUP, Plane, Value, fields, slice, stats};
 use rayon::prelude::*;
@@ -38,12 +40,22 @@ struct Allocator {
 }
 
 fn data_type(value: i64) -> String {
-    let name = |value: i64| DATA_TYPES.split(' ').nth(value as usize).filter(|_| value >= 0).map_or_else(|| format!("unknown dtype enum ({value})"), str::to_string);
+    let name = |value: i64| {
+        DATA_TYPES
+            .split(' ')
+            .nth(value as usize)
+            .filter(|_| value >= 0)
+            .map_or_else(|| format!("unknown dtype enum ({value})"), str::to_string)
+    };
     if value > 100 { format!("{}_ref", name(value - 100)) } else { name(value) }
 }
 
 fn offset(raw: &[u8]) -> i64 {
-    fields(raw).find_map(|(tag, field)| if let (2, Field::Num(offset)) = (tag, field) { Some(offset as i64) } else { None }).unwrap_or(0)
+    fields(raw)
+        .find_map(|(tag, field)| {
+            if let (2, Field::Num(offset)) = (tag, field) { Some(offset as i64) } else { None }
+        })
+        .unwrap_or(0)
 }
 
 fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
@@ -56,14 +68,29 @@ fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
             _ => 0,
         })
         .collect();
-    let events: Vec<&Ev> = plane.lines.iter().flat_map(|line| &line.events).filter(|event| activities[event.meta as usize] != 0).collect();
+    let events: Vec<&Ev> = plane
+        .lines
+        .iter()
+        .flat_map(|line| &line.events)
+        .filter(|event| activities[event.meta as usize] != 0)
+        .collect();
     let snapshots: Vec<(String, Snapshot)> = events
         .par_iter()
         .map(|event| {
             let raw = slice(map, event.raw);
-            let (mut stats_, mut meta, mut memory_id) = (Stats::default(), Activity { memory_activity: activities[event.meta as usize], step_id: -1, ..Default::default() }, String::new());
+            let (mut stats_, mut meta, mut memory_id) = (
+                Stats::default(),
+                Activity {
+                    memory_activity: activities[event.meta as usize],
+                    step_id: -1,
+                    ..Default::default()
+                },
+                String::new(),
+            );
             for stat in stats(raw, 4, |_| true) {
-                let Some(name) = plane.stat_names.get(stat.id) else { continue };
+                let Some(name) = plane.stat_names.get(stat.id) else {
+                    continue;
+                };
                 let int = if let Value::Int(value) = stat.value { value } else { 0 };
                 match &**name {
                     "index_on_host" | "device_ordinal" => memory_id = int.to_string(),
@@ -71,7 +98,10 @@ fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
                     "bytes_reserved" => stats_.stack_reserved_bytes = int,
                     "bytes_allocated" => stats_.heap_allocated_bytes = int,
                     "bytes_available" => stats_.free_memory_bytes = int,
-                    "fragmentation" => stats_.fragmentation = if let Value::Double(value) = stat.value { value } else { 0.0 },
+                    "fragmentation" => {
+                        stats_.fragmentation =
+                            if let Value::Double(value) = stat.value { value } else { 0.0 }
+                    }
                     "peak_bytes_in_use" => stats_.peak_bytes_in_use = int,
                     "requested_bytes" => meta.requested_bytes = int,
                     "allocation_bytes" => meta.allocation_bytes = int,
@@ -107,7 +137,14 @@ fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
 }
 
 fn key(meta: &Activity) -> (i64, i64, &str, &str, &str, &str) {
-    (meta.allocation_bytes.wrapping_neg(), meta.requested_bytes.wrapping_neg(), &meta.tf_op_name, &meta.region_type, &meta.data_type, &meta.tensor_shape)
+    (
+        meta.allocation_bytes.wrapping_neg(),
+        meta.requested_bytes.wrapping_neg(),
+        &meta.tf_op_name,
+        &meta.region_type,
+        &meta.data_type,
+        &meta.tensor_shape,
+    )
 }
 
 fn process(allocator: &mut Allocator) {
@@ -128,21 +165,32 @@ fn process(allocator: &mut Allocator) {
             if let Some(source) = allocations.remove(&address) {
                 let source = snapshots[source].meta.clone();
                 let meta = &mut snapshots[index].meta;
-                (meta.tf_op_name, meta.region_type, meta.data_type, meta.tensor_shape) = (source.tf_op_name, source.region_type, source.data_type, source.tensor_shape);
+                (meta.tf_op_name, meta.region_type, meta.data_type, meta.tensor_shape) =
+                    (source.tf_op_name, source.region_type, source.data_type, source.tensor_shape);
             }
         } else {
             allocations.entry(address).or_insert(index);
         }
     }
     let count = snapshots.len();
-    let in_use = |snapshot: &Snapshot| snapshot.stats.heap_allocated_bytes.wrapping_add(snapshot.stats.stack_reserved_bytes);
+    let in_use = |snapshot: &Snapshot| {
+        snapshot.stats.heap_allocated_bytes.wrapping_add(snapshot.stats.stack_reserved_bytes)
+    };
     allocator.sampled = if count > MAX_SNAPSHOTS {
         let width = count / MAX_SNAPSHOTS;
         let first = MAX_SNAPSHOTS * (width + 1) - count;
         let mut sampled = Vec::with_capacity(MAX_SNAPSHOTS);
-        for (width, samples, start) in [(width, first, 0), (width + 1, MAX_SNAPSHOTS - first, width * first)] {
+        for (width, samples, start) in
+            [(width, first, 0), (width + 1, MAX_SNAPSHOTS - first, width * first)]
+        {
             for begin in (0..samples).map(|sample| start + width * sample) {
-                sampled.push(snapshots[(begin..begin + width).rev().max_by_key(|&index| in_use(&snapshots[index])).unwrap()].clone());
+                sampled.push(
+                    snapshots[(begin..begin + width)
+                        .rev()
+                        .max_by_key(|&index| in_use(&snapshots[index]))
+                        .expect("required value is present")]
+                    .clone(),
+                );
             }
         }
         sampled
@@ -150,7 +198,10 @@ fn process(allocator: &mut Allocator) {
         snapshots.clone()
     };
     let summary = &allocator.summary;
-    let peak_step = snapshots.iter().rfind(|snapshot| in_use(snapshot) == summary.peak.peak_bytes_in_use).map_or(0, |snapshot| snapshot.meta.step_id);
+    let peak_step = snapshots
+        .iter()
+        .rfind(|snapshot| in_use(snapshot) == summary.peak.peak_bytes_in_use)
+        .map_or(0, |snapshot| snapshot.meta.step_id);
     let (mut unmapped, mut unmapped_free) = (summary.peak.heap_allocated_bytes, 0i64);
     let mut active: HashMap<u64, usize> = HashMap::new();
     for (index, snapshot) in snapshots.iter().enumerate() {
@@ -173,7 +224,8 @@ fn process(allocator: &mut Allocator) {
     unmapped = unmapped.wrapping_sub(unmapped_free);
     let mut order: Vec<usize> = active.into_values().collect();
     order.sort_unstable();
-    let mut entries: Vec<(i64, &Activity)> = order.into_iter().map(|index| (index as i64, &snapshots[index].meta)).collect();
+    let mut entries: Vec<(i64, &Activity)> =
+        order.into_iter().map(|index| (index as i64, &snapshots[index].meta)).collect();
     let special = |name: &str, bytes: i64, region: &str| Activity {
         memory_activity: ALLOCATION,
         requested_bytes: bytes,
@@ -192,13 +244,22 @@ fn process(allocator: &mut Allocator) {
     if summary.peak.stack_reserved_bytes > 0 {
         specials.push(special("stack", summary.peak.stack_reserved_bytes, "stack"));
     }
-    entries.extend(specials.iter().enumerate().map(|(position, meta)| (-(position as i64) - 1, meta)));
+    entries
+        .extend(specials.iter().enumerate().map(|(position, meta)| (-(position as i64) - 1, meta)));
     entries.sort_by_key(|(_, meta)| key(meta));
     let mut active: Vec<ActiveAllocation> = entries
         .chunk_by(|a, b| key(a.1) == key(b.1))
-        .map(|group| ActiveAllocation { snapshot_index: group[0].0, special_index: if group[0].0 < 0 { -group[0].0 - 1 } else { -1 }, num_occurrences: group.len() as i64 })
+        .map(|group| ActiveAllocation {
+            snapshot_index: group[0].0,
+            special_index: if group[0].0 < 0 { -group[0].0 - 1 } else { -1 },
+            num_occurrences: group.len() as i64,
+        })
         .collect();
-    let kept: Vec<Snapshot> = active.iter().filter(|entry| entry.snapshot_index >= 0).map(|entry| snapshots[entry.snapshot_index as usize].clone()).collect();
+    let kept: Vec<Snapshot> = active
+        .iter()
+        .filter(|entry| entry.snapshot_index >= 0)
+        .map(|entry| snapshots[entry.snapshot_index as usize].clone())
+        .collect();
     for (next, entry) in active.iter_mut().filter(|entry| entry.snapshot_index >= 0).enumerate() {
         entry.snapshot_index = next as i64;
     }
@@ -208,7 +269,11 @@ fn process(allocator: &mut Allocator) {
 }
 
 fn snapshot(snapshot: Snapshot) -> MemoryProfileSnapshot {
-    MemoryProfileSnapshot { time_offset_ps: snapshot.time, aggregation_stats: Some(snapshot.stats), activity_metadata: Some(snapshot.meta) }
+    MemoryProfileSnapshot {
+        time_offset_ps: snapshot.time,
+        aggregation_stats: Some(snapshot.stats),
+        activity_metadata: Some(snapshot.meta),
+    }
 }
 
 /// The memory profile of a file. A file that is not a valid `XSpace` gives `None`.
@@ -221,7 +286,9 @@ pub fn load(path: &std::path::Path) -> anyhow::Result<Option<String>> {
 
 /// The memory profile uses the groups, but not the op statistics or the derived lines of the TPUs.
 pub fn from_map(map: &[u8]) -> anyhow::Result<Option<String>> {
-    let Some(mut planes) = crate::parse_checked(map, false)? else { return Ok(None) };
+    let Some(mut planes) = crate::parse_checked(map, false)? else {
+        return Ok(None);
+    };
     crate::group(&mut planes, map, false);
     let profile = json(&planes, map);
     crate::release(planes);
@@ -229,14 +296,29 @@ pub fn from_map(map: &[u8]) -> anyhow::Result<Option<String>> {
 }
 
 pub fn json(planes: &[Plane], map: &[u8]) -> String {
-    let Some(host) = planes.iter().find(|plane| plane.name == HOST_PLANE) else { return String::new() };
+    let Some(host) = planes.iter().find(|plane| plane.name == HOST_PLANE) else {
+        return String::new();
+    };
     let mut allocators = generate(host, map);
-    allocators.values_mut().for_each(process);
-    let memory_ids = allocators.iter().filter(|(_, allocator)| !allocator.snapshots.is_empty()).map(|(id, _)| id.clone()).collect();
+    for allocator in allocators.values_mut() {
+        process(allocator);
+    }
+    let memory_ids: Vec<String> = allocators
+        .iter()
+        .filter(|(_, allocator)| !allocator.snapshots.is_empty())
+        .map(|(id, _)| id.clone())
+        .collect();
     let hlo_modules = planes
         .iter()
         .filter(|plane| plane.name.starts_with(TPU_PREFIX))
-        .flat_map(|plane| plane.lines.iter().filter(|line| line.name == MODULE_LINE).flat_map(|line| &line.events).map(move |event| (plane, event)))
+        .flat_map(|plane| {
+            plane
+                .lines
+                .iter()
+                .filter(|line| line.name == MODULE_LINE)
+                .flat_map(|line| &line.events)
+                .map(move |event| (plane, event))
+        })
         .enumerate()
         .map(|(id, (plane, event))| {
             let start = offset(slice(map, event.raw));
@@ -268,7 +350,17 @@ pub fn json(planes: &[Plane], map: &[u8]) -> String {
             (id, profile)
         })
         .collect();
-    crate::hlo::proto_text::json("tensorflow.profiler.MemoryProfile", &MemoryProfile { memory_profile_per_allocator, num_hosts: 1, memory_ids, version: 1, hlo_modules }, true)
+    crate::hlo::proto_text::json(
+        "tensorflow.profiler.MemoryProfile",
+        &MemoryProfile {
+            memory_profile_per_allocator,
+            num_hosts: 1,
+            memory_ids,
+            version: 1,
+            hlo_modules,
+        },
+        true,
+    )
 }
 
 #[cfg(test)]

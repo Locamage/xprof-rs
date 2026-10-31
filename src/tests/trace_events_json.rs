@@ -7,7 +7,13 @@ fn test_json_conversion() {
     let mut space = XSpace::default();
     let first = space.gpu(0);
     first.named_line(2, "R1.2");
-    first.event(2, "E1.2.1", 100_000, 10_000, &[("label", "E1.2.1".into()), ("extra", "extra info".into())]);
+    first.event(
+        2,
+        "E1.2.1",
+        100_000,
+        10_000,
+        &[("label", "E1.2.1".into()), ("extra", "extra info".into())],
+    );
     let second = space.gpu(1);
     second.named_line(2, "R2.2");
     second.event(2, "E2.2.1", 105_000, 0, &[]);

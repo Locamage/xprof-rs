@@ -6,30 +6,79 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 const PERFORMANCE_SUMMARY_KEYS: [&str; 22] = [
-    "steptime_ms_average", "steptime_ms_standard_deviation", "tc_idle_ms_average", "tc_infeed_ms_average", "tc_outfeed_ms_average", "host_transfer_ms_average", "sc_step_time_ms_average",
-    "sc_idle_ms_average", "sc_infeed_ms_average", "sc_outfeed_ms_average", "mxu_utilization_percent", "flop_rate_utilization_relative_to_roofline", "device_duty_cycle_percent",
-    "memory_bw_utilization_relative_to_hw_limit", "program_goodput_percent", "host_tf_op_percent", "device_tf_op_percent", "host_op_time_eager_percent", "device_op_time_eager_percent",
-    "device_idle_time_percent", "hbm_bw_utilization_percent", "host_idle_time_percent",
+    "steptime_ms_average",
+    "steptime_ms_standard_deviation",
+    "tc_idle_ms_average",
+    "tc_infeed_ms_average",
+    "tc_outfeed_ms_average",
+    "host_transfer_ms_average",
+    "sc_step_time_ms_average",
+    "sc_idle_ms_average",
+    "sc_infeed_ms_average",
+    "sc_outfeed_ms_average",
+    "mxu_utilization_percent",
+    "flop_rate_utilization_relative_to_roofline",
+    "device_duty_cycle_percent",
+    "memory_bw_utilization_relative_to_hw_limit",
+    "program_goodput_percent",
+    "host_tf_op_percent",
+    "device_tf_op_percent",
+    "host_op_time_eager_percent",
+    "device_op_time_eager_percent",
+    "device_idle_time_percent",
+    "hbm_bw_utilization_percent",
+    "host_idle_time_percent",
 ];
-const RUN_ENVIRONMENT_KEYS: [&str; 10] =
-    ["is_training", "profile_start_time", "profile_duration_ms", "host_count", "task_count", "device_type", "device_core_count", "change_list", "build_time", "build_target"];
+const RUN_ENVIRONMENT_KEYS: [&str; 10] = [
+    "is_training",
+    "profile_start_time",
+    "profile_duration_ms",
+    "host_count",
+    "task_count",
+    "device_type",
+    "device_core_count",
+    "change_list",
+    "build_time",
+    "build_target",
+];
 const ZERO_PERCENTS: [&str; 3] = ["0.0%", "0%", "0.0"];
-const BANDWIDTH_RENAMES: [(&str, &str); 2] = [("peak_hbm_bw", "peak_hbm_bw_gibs"), ("peak_vmem_bw", "peak_vmem_bw_gibs")];
+const BANDWIDTH_RENAMES: [(&str, &str); 2] =
+    [("peak_hbm_bw", "peak_hbm_bw_gibs"), ("peak_vmem_bw", "peak_vmem_bw_gibs")];
 const BYTES_PER_GIB: f64 = 1073741824.0;
 const BYTES_PER_MIB: f64 = 1048576.0;
 pub const CUSTOM_CALL_GUIDANCE: &str = "Op-level metrics unavailable for custom calls. Use get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events for Pallas kernels.";
-static XID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"--streamz_default_root_labels=\S*xmanager:int:(\d+)").unwrap());
-static TITLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"title=['"]([^'"]+)['"]"#).unwrap());
-static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
-static NUMBERED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:XLU|MXU)\d+$").unwrap());
+static XID: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"--streamz_default_root_labels=\S*xmanager:int:(\d+)")
+        .expect("regular expression is valid")
+});
+static TITLE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"title=['"]([^'"]+)['"]"#).expect("regular expression is valid"));
+static TAG: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<[^>]+>").expect("regular expression is valid"));
+static NUMBERED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:XLU|MXU)\d+$").expect("regular expression is valid"));
 
 pub fn row_dict(table: &J, row: &J) -> J {
-    let ids = table.at("cols").items().iter().map(|column| column.get("id").map_or(String::new(), J::text));
-    J::Map(ids.zip(row.at("c").items().iter().map(|cell| if let J::Map(_) = cell { cell.at("v").clone() } else { cell.clone() })).collect())
+    let ids = table
+        .at("cols")
+        .items()
+        .iter()
+        .map(|column| column.get("id").map_or(String::new(), J::text));
+    J::Map(
+        ids.zip(
+            row.at("c")
+                .items()
+                .iter()
+                .map(|cell| if let J::Map(_) = cell { cell.at("v").clone() } else { cell.clone() }),
+        )
+        .collect(),
+    )
 }
 
 fn zero(value: Option<&J>) -> bool {
-    value.is_none_or(|value| !value.truthy() || value.str().is_some_and(|text| ZERO_PERCENTS.contains(&text)))
+    value.is_none_or(|value| {
+        !value.truthy() || value.str().is_some_and(|text| ZERO_PERCENTS.contains(&text))
+    })
 }
 
 fn percent(value: f64) -> String {
@@ -38,7 +87,8 @@ fn percent(value: f64) -> String {
 
 fn roofline_fallback(client: &dyn Client, session: &str, summary: &mut J) -> Option<()> {
     let needs_flop = zero(summary.get("flop_rate_utilization_relative_to_roofline"));
-    let needs_memory = zero(summary.get("memory_bw_utilization_relative_to_hw_limit")) && zero(summary.get("hbm_bw_utilization_percent"));
+    let needs_memory = zero(summary.get("memory_bw_utilization_relative_to_hw_limit"))
+        && zero(summary.get("hbm_bw_utilization_percent"));
     if !needs_flop && !needs_memory {
         return None;
     }
@@ -72,28 +122,71 @@ fn roofline_fallback(client: &dyn Client, session: &str, summary: &mut J) -> Opt
     Some(())
 }
 
-pub fn overview(client: &dyn Client, session: &str, include_command: bool, bypass: bool) -> Result<J, Error> {
+pub fn overview(
+    client: &dyn Client,
+    session: &str,
+    include_command: bool,
+    bypass: bool,
+) -> Result<J, Error> {
     let compute = || -> Result<J, Error> {
-        let params: Vec<(&str, String)> = vec![("format", "json".to_string()), super::bypass(bypass)];
+        let params: Vec<(&str, String)> =
+            vec![("format", "json".to_string()), super::bypass(bypass)];
         let data = client.fetch_either("overview_page", "overview_page.json", session, &params)?;
-        let data = data.ok_or_else(|| Error::new(Kind::FileNotFound, "No overview data returned for the session"))?;
-        let sections = J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
+        let data = data.ok_or_else(|| {
+            Error::new(Kind::FileNotFound, "No overview data returned for the session")
+        })?;
+        let sections = J::parse(&data)
+            .ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
         if sections.items().is_empty() {
             return fail(Kind::Value, "Unexpected overview page data format");
         }
         let mut all = J::Map(Vec::new());
-        sections.items().iter().flat_map(|section| section.at("p").entries()).for_each(|(key, value)| all.set(key, value));
+        let properties = sections.items().iter().flat_map(|section| section.at("p").entries());
+        for (key, value) in properties {
+            all.set(key, value);
+        }
         let environment = sections.items().iter().find_map(|section| {
-            let columns: Vec<String> = section.get("rows").and(section.get("cols"))?.items().iter().map(|column| column.at("id").text()).collect();
+            let columns: Vec<String> = section
+                .get("rows")
+                .and(section.get("cols"))?
+                .items()
+                .iter()
+                .map(|column| column.at("id").text())
+                .collect();
             let row = section.at("rows").items().first().filter(|row| row.at("c").truthy())?;
-            let cell = |id: &str| columns.iter().position(|column| column == id).map(|index| row.at("c").items().get(index).map_or(J::Null, |cell| cell.at("v").clone()));
-            columns.iter().any(|column| column == "host_id").then(|| (cell("host_id"), cell("bns_address"), cell("command_line")))
+            let cell = |id: &str| {
+                columns.iter().position(|column| column == id).map(|index| {
+                    row.at("c").items().get(index).map_or(J::Null, |cell| cell.at("v").clone())
+                })
+            };
+            columns
+                .iter()
+                .any(|column| column == "host_id")
+                .then(|| (cell("host_id"), cell("bns_address"), cell("command_line")))
         });
         let (hostname, bns, command) = environment.unwrap_or_default();
-        let mut summary = J::Map(all.entries().iter().filter(|(key, _)| key.starts_with("stat_") || key.starts_with("sc_") || PERFORMANCE_SUMMARY_KEYS.contains(&key.as_str())).cloned().collect());
+        let mut summary = J::Map(
+            all.entries()
+                .iter()
+                .filter(|(key, _)| {
+                    key.starts_with("stat_")
+                        || key.starts_with("sc_")
+                        || PERFORMANCE_SUMMARY_KEYS.contains(&key.as_str())
+                })
+                .cloned()
+                .collect(),
+        );
         roofline_fallback(client, session, &mut summary);
-        let mut run =
-            J::Map(all.entries().iter().filter(|(key, _)| (key.starts_with("run_") || RUN_ENVIRONMENT_KEYS.contains(&key.as_str())) && (key != "run_command" || include_command)).cloned().collect());
+        let mut run = J::Map(
+            all.entries()
+                .iter()
+                .filter(|(key, _)| {
+                    (key.starts_with("run_") || RUN_ENVIRONMENT_KEYS.contains(&key.as_str()))
+                        && (key != "run_command" || include_command)
+                })
+                .cloned()
+                .collect(),
+        );
         if let Some(hostname) = hostname.filter(J::truthy) {
             run.set("hostname", hostname);
         }
@@ -101,22 +194,35 @@ pub fn overview(client: &dyn Client, session: &str, include_command: bool, bypas
             run.set("bns", bns);
         }
         let command = command.filter(J::truthy);
-        if let Some(command) = command.as_ref().filter(|_| include_command && !run.has("run_command")) {
+        if let Some(command) =
+            command.as_ref().filter(|_| include_command && !run.has("run_command"))
+        {
             run.set("run_command", command);
         }
         if let Some(device) = all.get("device_type") {
             run.set("device_type", device.clone());
         }
-        if let Some(xid) = command.as_ref().and_then(|command| XID.captures(&command.text()).map(|found| found[1].to_string())) {
+        if let Some(xid) = command
+            .as_ref()
+            .and_then(|command| XID.captures(&command.text()).map(|found| found[1].to_string()))
+        {
             run.set("xid", xid);
         }
         Ok(obj! {"performance_summary" => summary, "run_environment" => run})
     };
-    compute().map_err(|error| rethrow(error, |error| format!("Error fetching overview data: {}", error.message)))
+    compute().map_err(|error| {
+        rethrow(error, |error| format!("Error fetching overview data: {}", error.message))
+    })
 }
 
 pub fn get_overview(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    Ok(overview(client, &args.session(), args.flag("include_command", false), args.flag("bypass_cache", false))?.into())
+    Ok(overview(
+        client,
+        &args.session(),
+        args.flag("include_command", false),
+        args.flag("bypass_cache", false),
+    )?
+    .into())
 }
 
 struct Memory {
@@ -131,17 +237,26 @@ struct Memory {
 fn integer(value: &J, default: i128) -> Result<i128, Error> {
     match value {
         J::Null => Ok(default),
-        value => {
-            value.int().filter(|_| !matches!(value, J::Str(text) if text.contains('.'))).ok_or_else(|| Error::new(Kind::Value, format!("invalid literal for int() with base 10: {}", value.repr())))
-        }
+        value => value
+            .int()
+            .filter(|_| !matches!(value, J::Str(text) if text.contains('.')))
+            .ok_or_else(|| {
+                Error::new(
+                    Kind::Value,
+                    format!("invalid literal for int() with base 10: {}", value.repr()),
+                )
+            }),
     }
 }
 
 fn parse_memory(data: &str) -> Result<Memory, Error> {
     let parsed = J::parse(data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse JSON for memory profile: JSONDecodeError('Expecting value: line 1 column 1 (char 0)')"))?;
     let devices = if let J::Map(_) = parsed { vec![parsed] } else { parsed.items().to_vec() };
-    let Some(first) = devices.first() else { return fail(Kind::Value, "Unexpected memory profile data format: not a list or empty") };
-    let mut memory = Memory { capacity: -1, peak: -1, stack: -1, heap: -1, free: -1, fragmentation: -1.0 };
+    let Some(first) = devices.first() else {
+        return fail(Kind::Value, "Unexpected memory profile data format: not a list or empty");
+    };
+    let mut memory =
+        Memory { capacity: -1, peak: -1, stack: -1, heap: -1, free: -1, fragmentation: -1.0 };
     let take = |summary: &J, peak_key: &str, memory: &mut Memory| -> Result<(), Error> {
         memory.capacity = memory.capacity.max(integer(summary.at("memoryCapacity"), -1)?);
         let stats = summary.at("peakStats");
@@ -151,7 +266,8 @@ fn parse_memory(data: &str) -> Result<Memory, Error> {
             memory.stack = integer(stats.at("stackReservedBytes"), -1)?;
             memory.heap = integer(stats.at("heapAllocatedBytes"), -1)?;
             memory.free = integer(stats.at("freeMemoryBytes"), -1)?;
-            memory.fragmentation = stats.get("fragmentation").map_or(Some(-1.0), J::float).unwrap_or(-1.0);
+            memory.fragmentation =
+                stats.get("fragmentation").map_or(Some(-1.0), J::float).unwrap_or(-1.0);
         }
         Ok(())
     };
@@ -171,7 +287,12 @@ fn parse_memory(data: &str) -> Result<Memory, Error> {
         }
     } else if first.has("peakMemoryUsageMiB") {
         for item in devices.iter().filter(|item| item.has("peakMemoryUsageMiB")) {
-            if let Some(peak) = item.at("peakMemoryUsageMiB").float().map(|value| value * BYTES_PER_MIB).filter(|peak| *peak > memory.peak as f64) {
+            if let Some(peak) = item
+                .at("peakMemoryUsageMiB")
+                .float()
+                .map(|value| value * BYTES_PER_MIB)
+                .filter(|peak| *peak > memory.peak as f64)
+            {
                 memory.peak = peak as i128;
             }
         }
@@ -212,7 +333,9 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
                             (best, error) = (Some(memory), None);
                             break;
                         }
-                        (Some(memory), failure) if best.is_none() => (best, error) = (Some(memory), failure),
+                        (Some(memory), failure) if best.is_none() => {
+                            (best, error) = (Some(memory), failure);
+                        }
                         (None, Some(failure)) => error = Some(failure),
                         _ => {}
                     }
@@ -220,10 +343,20 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
             }
         }
     }
-    let gib = |bytes: i128, positive: bool| if bytes > 0 || (!positive && bytes >= 0) { round(bytes as f64 / BYTES_PER_GIB, 2) } else { -1.0 };
+    let gib = |bytes: i128, positive: bool| {
+        if bytes > 0 || (!positive && bytes >= 0) {
+            round(bytes as f64 / BYTES_PER_GIB, 2)
+        } else {
+            -1.0
+        }
+    };
     let Some(memory) = best else {
         return match error {
-            Some(error) if error.contains("Failed to parse JSON") || error.contains("Value error") => fail(Kind::Value, error),
+            Some(error)
+                if error.contains("Failed to parse JSON") || error.contains("Value error") =>
+            {
+                fail(Kind::Value, error)
+            }
             Some(error) => fail(Kind::Runtime, format!("Error fetching memory profile: {error}")),
             None => Ok(obj! {
                 "memory_capacity_gib" => -1.0,
@@ -233,7 +366,8 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
         };
     };
     let (capacity, peak) = (gib(memory.capacity, true), gib(memory.peak, true));
-    let utilization = if capacity > 0.0 && peak > 0.0 { round(peak / capacity * 100.0, 2) } else { -1.0 };
+    let utilization =
+        if capacity > 0.0 && peak > 0.0 { round(peak / capacity * 100.0, 2) } else { -1.0 };
     Ok(obj! {
         "memory_capacity_gib" => capacity,
         "peak_memory_usage_gib" => peak,
@@ -253,8 +387,12 @@ pub fn get_memory_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
 
 pub fn get_kpi_metrics(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
-    let overview = overview(client, &session, false, args.flag("bypass_cache", false)).map_err(|error| rethrow(error, |error| format!("Error in get_overview: {}", error.message)))?;
-    let memory = memory_profile(client, &session, args.flag("bypass_cache", false)).unwrap_or_else(|_| obj! {"peak_memory_usage_gib" => "N/A"});
+    let overview =
+        overview(client, &session, false, args.flag("bypass_cache", false)).map_err(|error| {
+            rethrow(error, |error| format!("Error in get_overview: {}", error.message))
+        })?;
+    let memory = memory_profile(client, &session, args.flag("bypass_cache", false))
+        .unwrap_or_else(|_| obj! {"peak_memory_usage_gib" => "N/A"});
     let pick = |section: &J, key: &str| section.get(key).cloned().unwrap_or_else(|| J::from("N/A"));
     let (summary, run) = (overview.at("performance_summary"), overview.at("run_environment"));
     Ok(obj! {
@@ -269,31 +407,80 @@ pub fn get_kpi_metrics(client: &dyn Client, args: &Args) -> Result<Out, Error> {
 }
 
 fn device_info(props: &J) -> J {
-    J::Map(props.entries().iter().map(|(key, value)| (key.clone(), value.float().filter(|_| !matches!(value, J::Bool(_) | J::Null)).map_or_else(|| value.clone(), J::Float))).collect())
+    J::Map(
+        props
+            .entries()
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key.clone(),
+                    value
+                        .float()
+                        .filter(|_| !matches!(value, J::Bool(_) | J::Null))
+                        .map_or_else(|| value.clone(), J::Float),
+                )
+            })
+            .collect(),
+    )
 }
 
 pub fn get_device_information(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let params = [bypass(args.flag("bypass_cache", false))];
     let compute = || -> Result<J, Error> {
-        let data = client.roofline_properties(&session, &params)?.ok_or_else(|| Error::new(Kind::FileNotFound, format!("No roofline model data returned for session {session}.")))?;
+        let data = client.roofline_properties(&session, &params)?.ok_or_else(|| {
+            Error::new(
+                Kind::FileNotFound,
+                format!("No roofline model data returned for session {session}."),
+            )
+        })?;
         let parsed = J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse roofline model data: JSONDecodeError('Expecting value: line 1 column 1 (char 0)')"))?;
-        let table = parsed.items().first().ok_or_else(|| Error::new(Kind::Value, "Unexpected roofline model data format"))?;
+        let table = parsed
+            .items()
+            .first()
+            .ok_or_else(|| Error::new(Kind::Value, "Unexpected roofline model data format"))?;
         let info = device_info(table.at("p"));
-        let mut renamed =
-            J::Map(info.entries().iter().map(|(key, value)| (BANDWIDTH_RENAMES.iter().find(|(from, _)| from == key).map_or(key.as_str(), |(_, to)| to).to_string(), value.clone())).collect());
-        let units: Vec<(String, J)> = BANDWIDTH_RENAMES.iter().filter(|(_, to)| renamed.has(to)).map(|(_, to)| (to.to_string(), J::from("GiB/s"))).collect();
+        let mut renamed = J::Map(
+            info.entries()
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        BANDWIDTH_RENAMES
+                            .iter()
+                            .find(|(from, _)| from == key)
+                            .map_or(key.as_str(), |(_, to)| to)
+                            .to_string(),
+                        value.clone(),
+                    )
+                })
+                .collect(),
+        );
+        let units: Vec<(String, J)> = BANDWIDTH_RENAMES
+            .iter()
+            .filter(|(_, to)| renamed.has(to))
+            .map(|(_, to)| (to.to_string(), J::from("GiB/s")))
+            .collect();
         if !units.is_empty() {
             renamed.set("units", J::Map(units));
         }
         Ok(renamed)
     };
-    Ok(compute().map_err(|error| rethrow(error, |error| format!("Error fetching device information for session {session}: {}", error.repr())))?.into())
+    Ok(compute()
+        .map_err(|error| {
+            rethrow(error, |error| {
+                format!("Error fetching device information for session {session}: {}", error.repr())
+            })
+        })?
+        .into())
 }
 
 pub fn get_hosts(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
-    let hosts = client.hosts(&session).map_err(|error| rethrow(error, |error| format!("Error fetching hosts for session {session}: {}", error.repr())))?;
+    let hosts = client.hosts(&session).map_err(|error| {
+        rethrow(error, |error| {
+            format!("Error fetching hosts for session {session}: {}", error.repr())
+        })
+    })?;
     if hosts.is_empty() {
         return fail(Kind::FileNotFound, format!("No hosts found for session {session}."));
     }
@@ -301,7 +488,9 @@ pub fn get_hosts(client: &dyn Client, args: &Args) -> Result<Out, Error> {
 }
 
 fn strip_html(text: &J) -> String {
-    let Some(text) = text.str().filter(|text| !text.is_empty()) else { return String::new() };
+    let Some(text) = text.str().filter(|text| !text.is_empty()) else {
+        return String::new();
+    };
     match TITLE.captures(text) {
         Some(found) => found[1].replace('\n', " -> "),
         None => TAG.replace_all(text, "").trim().to_string(),
@@ -312,16 +501,28 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
     let session = args.session();
     let params = [bypass(args.flag("bypass_cache", false))];
     let compute = || -> Result<J, Error> {
-        let data = client.fetch_either("roofline_model.json", "roofline_model", &session, &params)?;
+        let data =
+            client.fetch_either("roofline_model.json", "roofline_model", &session, &params)?;
         let Some(data) = data else {
-            return Ok(obj! {"status" => "NO_DATA", "message" => format!("No roofline model data found for session {}.", py_repr(&session))});
+            return Ok(
+                obj! {"status" => "NO_DATA", "message" => format!("No roofline model data found for session {}.", py_repr(&session))},
+            );
         };
-        let parsed = J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
-        let table = parsed.items().first().ok_or_else(|| Error::new(Kind::Value, "Unexpected roofline model data format: expected non-empty list"))?;
+        let parsed = J::parse(&data)
+            .ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
+        let table = parsed.items().first().ok_or_else(|| {
+            Error::new(
+                Kind::Value,
+                "Unexpected roofline model data format: expected non-empty list",
+            )
+        })?;
         let info = device_info(table.at("p"));
-        let rows: Vec<J> = table.at("rows").items().iter().map(|row| row_dict(table, row)).collect();
+        let rows: Vec<J> =
+            table.at("rows").items().iter().map(|row| row_dict(table, row)).collect();
         let Some(program) = rows.first() else {
-            return Ok(obj! {"status" => "NO_DATA", "message" => "Roofline model table has no rows", "device_info" => info});
+            return Ok(
+                obj! {"status" => "NO_DATA", "message" => "Roofline model table has no rows", "device_info" => info},
+            );
         };
         let number = |row: &J, key: &str| row.at(key).float().unwrap_or(0.0);
         let utilization = |util: &str, bandwidth: &str, peaks: [&str; 2]| {
@@ -363,10 +564,25 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
         let mut seen = Vec::new();
         let mut operations: Vec<J> = Vec::new();
         for row in rows.iter().skip(1).filter(|row| number(row, "total_self_time") > 0.0) {
-            let name = Some(row.at("operation")).filter(|value| value.truthy()).unwrap_or_else(|| row.get("hlo_name").unwrap_or(&J::Null)).clone();
-            let category = Some(row.at("category")).filter(|value| value.truthy()).unwrap_or_else(|| row.get("hlo_category").unwrap_or(&J::Null)).clone();
-            let mut bound = Some(row.at("bound_by")).filter(|value| value.truthy()).cloned().unwrap_or_else(|| J::from("Unknown"));
-            if bound == J::from("Unknown") && (name.text().starts_with("custom-call") || matches!(category.text().to_lowercase().as_str(), "custom-call" | "custom_call")) {
+            let name = Some(row.at("operation"))
+                .filter(|value| value.truthy())
+                .unwrap_or_else(|| row.get("hlo_name").unwrap_or(&J::Null))
+                .clone();
+            let category = Some(row.at("category"))
+                .filter(|value| value.truthy())
+                .unwrap_or_else(|| row.get("hlo_category").unwrap_or(&J::Null))
+                .clone();
+            let mut bound = Some(row.at("bound_by"))
+                .filter(|value| value.truthy())
+                .cloned()
+                .unwrap_or_else(|| J::from("Unknown"));
+            if bound == J::from("Unknown")
+                && (name.text().starts_with("custom-call")
+                    || matches!(
+                        category.text().to_lowercase().as_str(),
+                        "custom-call" | "custom_call"
+                    ))
+            {
                 bound = J::from("CustomCall (opaque)");
             }
             let rank = number(row, "rank").trunc() as i64;
@@ -393,10 +609,21 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
             });
         }
         let total = operations.len();
-        operations.sort_by(|left, right| right.at("total_self_time_ms").float().partial_cmp(&left.at("total_self_time_ms").float()).unwrap_or(std::cmp::Ordering::Equal));
+        operations.sort_by(|left, right| {
+            right
+                .at("total_self_time_ms")
+                .float()
+                .partial_cmp(&left.at("total_self_time_ms").float())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         operations.truncate(super::slice_end(args.raw("top_n").unwrap_or(&J::Int(15)), total)?);
-        let custom = operations.iter().any(|operation| operation.at("bound_by").str() == Some("CustomCall (opaque)"));
-        if custom && (matches!(summary.at("bound_by"), J::Null) || matches!(summary.at("bound_by").str(), Some("Unknown" | ""))) {
+        let custom = operations
+            .iter()
+            .any(|operation| operation.at("bound_by").str() == Some("CustomCall (opaque)"));
+        if custom
+            && (matches!(summary.at("bound_by"), J::Null)
+                || matches!(summary.at("bound_by").str(), Some("Unknown" | "")))
+        {
             summary.set("bound_by", "CustomCall (opaque)");
         }
         let mut output = obj! {"program" => summary, "device_info" => info, "top_operations" => operations, "total_operations_analyzed" => total};
@@ -408,7 +635,11 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
     Ok(compute()
         .map_err(|error| {
             rethrow(error, |error| {
-                if error.message.is_empty() { format!("Error fetching roofline model: {}", error.name()) } else { format!("Error fetching roofline model: {}: {}", error.name(), error.message) }
+                if error.message.is_empty() {
+                    format!("Error fetching roofline model: {}", error.name())
+                } else {
+                    format!("Error fetching roofline model: {}: {}", error.name(), error.message)
+                }
             })
         })?
         .into())
@@ -416,7 +647,11 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
 
 fn loose_float(value: &J, default: f64) -> f64 {
     match value {
-        J::Str(text) if matches!(text.trim().to_lowercase().as_str(), "nan" | "none" | "" | "null") => default,
+        J::Str(text)
+            if matches!(text.trim().to_lowercase().as_str(), "nan" | "none" | "" | "null") =>
+        {
+            default
+        }
         value => value.float().unwrap_or(default),
     }
 }
@@ -425,7 +660,11 @@ fn percentage(rows: &[&J]) -> Option<f64> {
     if rows.is_empty() {
         return None;
     }
-    let peaked: Vec<f64> = rows.iter().filter(|row| loose_float(row.at("Peak"), 0.0) > 0.0).map(|row| loose_float(row.at("Achieved"), 0.0) * 100.0 / loose_float(row.at("Peak"), 1.0)).collect();
+    let peaked: Vec<f64> = rows
+        .iter()
+        .filter(|row| loose_float(row.at("Peak"), 0.0) > 0.0)
+        .map(|row| loose_float(row.at("Achieved"), 0.0) * 100.0 / loose_float(row.at("Peak"), 1.0))
+        .collect();
     if !peaked.is_empty() {
         return Some(round(fsum(peaked.iter().copied()) / peaked.len() as f64, 2));
     }
@@ -440,19 +679,50 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
             .items()
             .iter()
             .enumerate()
-            .map(|(index, column)| Some(column.at("label")).filter(|label| label.truthy()).or(column.get("id")).map_or(format!("col_{index}"), J::text))
+            .map(|(index, column)| {
+                Some(column.at("label"))
+                    .filter(|label| label.truthy())
+                    .or(column.get("id"))
+                    .map_or(format!("col_{index}"), J::text)
+            })
             .collect();
         let rows = table
             .at("rows")
             .items()
             .iter()
-            .map(|row| J::Map(labels.iter().cloned().zip(row.at("c").items().iter().map(|cell| if let J::Map(_) = cell { cell.at("v").clone() } else { cell.clone() })).collect()))
+            .map(|row| {
+                J::Map(
+                    labels
+                        .iter()
+                        .cloned()
+                        .zip(row.at("c").items().iter().map(|cell| {
+                            if let J::Map(_) = cell { cell.at("v").clone() } else { cell.clone() }
+                        }))
+                        .collect(),
+                )
+            })
             .collect();
         (rows, labels)
     } else {
         let mut lines = raw.lines();
-        let header: Vec<String> = lines.next().unwrap_or_default().split(',').map(|field| field.trim().to_string()).collect();
-        let rows = lines.map(|line| J::Map(header.iter().cloned().zip(line.split(',').map(|value| J::from(value.trim()))).filter(|(key, _)| !key.is_empty()).collect())).collect();
+        let header: Vec<String> = lines
+            .next()
+            .unwrap_or_default()
+            .split(',')
+            .map(|field| field.trim().to_string())
+            .collect();
+        let rows: Vec<J> = lines
+            .map(|line| {
+                J::Map(
+                    header
+                        .iter()
+                        .cloned()
+                        .zip(line.split(',').map(|value| J::from(value.trim())))
+                        .filter(|(key, _)| !key.is_empty())
+                        .collect(),
+                )
+            })
+            .collect();
         (rows, header.into_iter().filter(|field| !field.is_empty()).collect())
     };
     if rows.is_empty() {
@@ -464,16 +734,29 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
         if fields.iter().any(|field| field == column) || rows.iter().any(|row| row.has(column)) {
             selected.retain(|row| {
                 let value = row.at(column);
-                *value != J::Null && !matches!(value.text().to_lowercase().as_str(), "nan" | "none" | "") && loose_float(value, -1.0).trunc() as i64 == wanted
+                *value != J::Null
+                    && !matches!(value.text().to_lowercase().as_str(), "nan" | "none" | "")
+                    && loose_float(value, -1.0).trunc() as i64 == wanted
             });
         } else if wanted != 0 {
-            warnings.push(format!("{column} column missing; ignoring {}={wanted} filter", column.to_lowercase()));
+            warnings.push(format!(
+                "{column} column missing; ignoring {}={wanted} filter",
+                column.to_lowercase()
+            ));
         }
     }
     if selected.is_empty() {
         return obj! {"status" => "NO_DATA", "message" => format!("No data found for Host {host} Device {device} Node {node}")};
     }
-    let named = |name: &str| percentage(&selected.iter().copied().filter(|row| row.at("Name").str() == Some(name)).collect::<Vec<_>>());
+    let named = |name: &str| {
+        percentage(
+            &selected
+                .iter()
+                .copied()
+                .filter(|row| row.at("Name").str() == Some(name))
+                .collect::<Vec<_>>(),
+        )
+    };
     let mut names: Vec<String> = Vec::new();
     for row in &selected {
         if row.at("Name").truthy() && !names.contains(&row.at("Name").text()) {
@@ -481,11 +764,27 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
         }
     }
     let average = |prefix: &str| {
-        let values: Vec<f64> = names.iter().filter(|name| NUMBERED.is_match(name) && name.starts_with(prefix)).filter_map(|name| named(name)).collect();
+        let values: Vec<f64> = names
+            .iter()
+            .filter(|name| NUMBERED.is_match(name) && name.starts_with(prefix))
+            .filter_map(|name| named(name))
+            .collect();
         (!values.is_empty()).then(|| round(fsum(values.iter().copied()) / values.len() as f64, 2))
     };
-    let mxu_values: Vec<f64> = names.iter().filter(|name| NUMBERED.is_match(name) && name.starts_with("MXU")).filter_map(|name| named(name)).collect();
-    let hbm = percentage(&selected.iter().copied().filter(|row| matches!(row.at("Name").str(), Some("HBM Rd+Wr (per chip)" | "HBM Rd+Wr"))).collect::<Vec<_>>());
+    let mxu_values: Vec<f64> = names
+        .iter()
+        .filter(|name| NUMBERED.is_match(name) && name.starts_with("MXU"))
+        .filter_map(|name| named(name))
+        .collect();
+    let hbm = percentage(
+        &selected
+            .iter()
+            .copied()
+            .filter(|row| {
+                matches!(row.at("Name").str(), Some("HBM Rd+Wr (per chip)" | "HBM Rd+Wr"))
+            })
+            .collect::<Vec<_>>(),
+    );
     let idleness = if selected.iter().any(|row| row.at("Name").str() == Some("No MXU Busy")) {
         named("No MXU Busy")
     } else if !mxu_values.is_empty() {
@@ -506,8 +805,14 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
         ("mxu_utilization_percent", named("Avg MXU Busy").or_else(|| average("MXU"))),
         ("idleness_percent", idleness),
     ];
-    let mut output = J::Map(results.into_iter().filter_map(|(key, value)| Some((key.to_string(), J::Float(value?)))).collect());
-    let metrics: Vec<(String, J)> = names.iter().filter_map(|name| Some((name.clone(), J::Float(named(name)?)))).collect();
+    let mut output = J::Map(
+        results
+            .into_iter()
+            .filter_map(|(key, value)| Some((key.to_string(), J::Float(value?))))
+            .collect(),
+    );
+    let metrics: Vec<(String, J)> =
+        names.iter().filter_map(|name| Some((name.clone(), J::Float(named(name)?)))).collect();
     if !metrics.is_empty() {
         output.set("metrics", J::Map(metrics));
     }
@@ -518,29 +823,51 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
 }
 
 /// `indices` holds the host, device and node, or the error of Python `int()` for them.
-pub fn utilization_viewer(client: &dyn Client, session: &str, indices: Result<[i64; 3], Error>, bypass: bool) -> Result<J, Error> {
+pub fn utilization_viewer(
+    client: &dyn Client,
+    session: &str,
+    indices: Result<[i64; 3], Error>,
+    bypass: bool,
+) -> Result<J, Error> {
     let mut params = vec![("tqx", "out:csv".to_string())];
     params.push(super::bypass(bypass));
-    let raw = client
-        .fetch_text("utilization_viewer.json", session, &params)
-        .map_err(|error| rethrow(error, |error| format!("Error fetching utilization_viewer.json for session {session}: {}", error.repr())))?;
+    let raw = client.fetch_text("utilization_viewer.json", session, &params).map_err(|error| {
+        rethrow(error, |error| {
+            format!(
+                "Error fetching utilization_viewer.json for session {session}: {}",
+                error.repr()
+            )
+        })
+    })?;
     Ok(match raw {
-        None => obj! {"status" => "NO_DATA", "message" => format!("No data returned for session {session}")},
+        None => {
+            obj! {"status" => "NO_DATA", "message" => format!("No data returned for session {session}")}
+        }
         Some(raw) => {
-            let [host, device, node] = indices.map_err(|error| rethrow(error, |error| format!("Error formatting utilization viewer output for session {session}: {}", error.repr())))?;
+            let [host, device, node] = indices.map_err(|error| {
+                rethrow(error, |error| {
+                    format!(
+                        "Error formatting utilization viewer output for session {session}: {}",
+                        error.repr()
+                    )
+                })
+            })?;
             utilization(&raw, host, device, node)
         }
     })
 }
 
 pub fn get_utilization_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    let index = |name: &str| match args.raw(name) {
+    let index = |name: &str| {
+        match args.raw(name) {
         None => Ok(0),
         Some(value) => value.int().map(|number| number as i64).ok_or_else(|| match value {
             J::Str(_) => Error::new(Kind::Value, format!("invalid literal for int() with base 10: {}", value.repr())),
             _ => Error::new(Kind::Type, format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", super::kind(value))),
         }),
+    }
     };
     let indices = (|| Ok([index("host")?, index("device")?, index("node")?]))();
-    Ok(utilization_viewer(client, &args.session(), indices, args.flag("bypass_cache", false))?.into())
+    Ok(utilization_viewer(client, &args.session(), indices, args.flag("bypass_cache", false))?
+        .into())
 }

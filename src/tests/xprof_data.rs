@@ -28,11 +28,20 @@ fn categories(result: &J) -> Vec<String> {
 }
 
 fn fraction_total(result: &J) -> f64 {
-    result.at("category_summary").items().iter().map(|entry| entry.at("fraction_of_total_time").float().unwrap()).sum()
+    result
+        .at("category_summary")
+        .items()
+        .iter()
+        .map(|entry| entry.at("fraction_of_total_time").float().unwrap())
+        .sum()
 }
 
 fn flat_names(data: &str) -> Vec<String> {
-    profile(data, &[("view", J::from("flat"))]).items().iter().map(|op| op.at("name").text()).collect()
+    profile(data, &[("view", J::from("flat"))])
+        .items()
+        .iter()
+        .map(|op| op.at("name").text())
+        .collect()
 }
 
 fn failure(data: &str, pairs: &[(&str, J)]) -> Kind {
@@ -41,7 +50,10 @@ fn failure(data: &str, pairs: &[(&str, J)]) -> Kind {
 
 fn summary_params(bypass: bool) -> Vec<(String, String)> {
     let fake = Fake::fixed(SUMMARY_PROFILE);
-    let result = text(get_profile_summary(&fake, &args("session_summary", &[("bypass_cache", J::Bool(bypass))])));
+    let result = text(get_profile_summary(
+        &fake,
+        &args("session_summary", &[("bypass_cache", J::Bool(bypass))]),
+    ));
     assert!(result.contains("Profile Summary"));
     assert!(result.contains("Total Time:"));
     let calls = fake.calls.borrow();
@@ -52,9 +64,16 @@ fn summary_params(bypass: bool) -> Vec<(String, String)> {
 #[test]
 fn test_get_hlo_op_profile_grouped_default() {
     let result = profile(PROFILE, &[]);
-    assert!(result.has("category_summary") && result.has("grouped_operations") && result.has("navigation_hints"));
+    assert!(
+        result.has("category_summary")
+            && result.has("grouped_operations")
+            && result.has("navigation_hints")
+    );
     let names = categories(&result);
-    assert!(names.contains(&"Category: MatMul".to_string()) && names.contains(&"FusionCategory".to_string()));
+    assert!(
+        names.contains(&"Category: MatMul".to_string())
+            && names.contains(&"FusionCategory".to_string())
+    );
     assert_eq!(result.at("total_profile_time_ms"), &J::Float(100.0));
     let hints = result.at("navigation_hints");
     assert!(hints.has("drill_down_category") && hints.has("available_categories"));
@@ -74,9 +93,15 @@ fn test_get_hlo_op_profile_category_view() {
 
 #[test]
 fn test_get_hlo_op_profile_nested_fusions_category_rollup_unity() {
-    assert!((fraction_total(&profile(NESTED, &[("view", J::from("category"))])) - 1.0).abs() < 5e-5);
+    assert!(
+        (fraction_total(&profile(NESTED, &[("view", J::from("category"))])) - 1.0).abs() < 5e-5
+    );
     let names = flat_names(NESTED);
-    for expected in ["by_category/MatMul", "by_category/FusionParent/child_add", "by_category/FusionParent/child_mul"] {
+    for expected in [
+        "by_category/MatMul",
+        "by_category/FusionParent/child_add",
+        "by_category/FusionParent/child_mul",
+    ] {
         assert!(names.contains(&expected.to_string()), "{expected}");
     }
     assert!(!names.contains(&"by_category/FusionParent".to_string()));
@@ -85,11 +110,20 @@ fn test_get_hlo_op_profile_nested_fusions_category_rollup_unity() {
 #[test]
 fn test_get_hlo_op_profile_fusion_with_zero_time_children_preserved() {
     let result = profile(FUSION, &[("view", J::from("category"))]);
-    let fusion = result.at("category_summary").items().iter().find(|entry| entry.at("category").str() == Some("convolution fusion")).unwrap().clone();
+    let fusion = result
+        .at("category_summary")
+        .items()
+        .iter()
+        .find(|entry| entry.at("category").str() == Some("convolution fusion"))
+        .unwrap()
+        .clone();
     assert_eq!(fusion.at("total_self_time_ms"), &J::Float(40.0));
     assert!((fraction_total(&result) - 1.0).abs() < 5e-5);
     let names = flat_names(FUSION);
-    assert!(names.contains(&"by_category/MatMul".to_string()) && names.contains(&"by_category/fusion.668".to_string()));
+    assert!(
+        names.contains(&"by_category/MatMul".to_string())
+            && names.contains(&"by_category/fusion.668".to_string())
+    );
     assert!(!names.iter().any(|name| name.starts_with("by_category/fusion.668/")));
 }
 
@@ -130,7 +164,10 @@ fn test_get_hlo_op_profile_tree_view() {
 
 #[test]
 fn test_get_hlo_op_profile_tree_path_not_found() {
-    assert_eq!(failure(PROFILE, &[("view", J::from("tree")), ("path", J::from("invalid/path"))]), Kind::FileNotFound);
+    assert_eq!(
+        failure(PROFILE, &[("view", J::from("tree")), ("path", J::from("invalid/path"))]),
+        Kind::FileNotFound
+    );
 }
 
 #[test]
@@ -145,19 +182,24 @@ fn test_get_hlo_op_profile_invalid_sort_by() {
 
 #[test]
 fn test_get_profile_summary_success() {
-    let expected: Vec<(String, String)> = vec![("format".into(), "json".into()), ("bypass_cache".into(), "False".into())];
+    let expected: Vec<(String, String)> =
+        vec![("format".into(), "json".into()), ("bypass_cache".into(), "False".into())];
     assert_eq!(summary_params(false), expected);
 }
 
 #[test]
 fn test_get_profile_summary_bypass_cache() {
-    let expected: Vec<(String, String)> = vec![("format".into(), "json".into()), ("bypass_cache".into(), "True".into())];
+    let expected: Vec<(String, String)> =
+        vec![("format".into(), "json".into()), ("bypass_cache".into(), "True".into())];
     assert_eq!(summary_params(true), expected);
 }
 
 #[test]
 fn test_get_hosts() {
-    let result = json(get_hosts(&Fake::fixed("").with_hosts(&["host1", "host2"]), &args("session_hosts", &[])));
+    let result = json(get_hosts(
+        &Fake::fixed("").with_hosts(&["host1", "host2"]),
+        &args("session_hosts", &[]),
+    ));
     assert_eq!(result, parse(r#"{"hosts": [{"hostname": "host1"}, {"hostname": "host2"}]}"#));
 }
 
@@ -169,7 +211,10 @@ fn test_get_hosts_error() {
 
 #[test]
 fn test_get_hosts_empty() {
-    assert_eq!(get_hosts(&Fake::fixed("").with_hosts(&[]), &args("session_hosts", &[])).unwrap_err().kind, Kind::FileNotFound);
+    assert_eq!(
+        get_hosts(&Fake::fixed("").with_hosts(&[]), &args("session_hosts", &[])).unwrap_err().kind,
+        Kind::FileNotFound
+    );
 }
 
 #[test]
@@ -182,26 +227,45 @@ fn test_get_device_information_success() {
     assert_eq!(result.at("peak_vmem_bw_gibs"), &J::Float(910.0));
     assert!(!result.has("peak_hbm_bw") && !result.has("peak_vmem_bw"));
     assert_eq!(result.at("ridge_point").str(), Some("not_a_number"));
-    assert_eq!(result.at("units"), &parse(r#"{"peak_hbm_bw_gibs": "GiB/s", "peak_vmem_bw_gibs": "GiB/s"}"#));
+    assert_eq!(
+        result.at("units"),
+        &parse(r#"{"peak_hbm_bw_gibs": "GiB/s", "peak_vmem_bw_gibs": "GiB/s"}"#)
+    );
 }
 
 #[test]
 fn test_get_device_information_error() {
     let fake = Fake::new(|_, _| Err(Error::new(Kind::Runtime, "RPC Fail")));
-    assert_eq!(get_device_information(&fake, &args("session_device", &[])).unwrap_err().kind, Kind::Runtime);
+    assert_eq!(
+        get_device_information(&fake, &args("session_device", &[])).unwrap_err().kind,
+        Kind::Runtime
+    );
 }
 
 #[test]
 fn test_get_device_information_empty() {
-    assert_eq!(get_device_information(&Fake::fixed(""), &args("session_device", &[])).unwrap_err().kind, Kind::FileNotFound);
+    assert_eq!(
+        get_device_information(&Fake::fixed(""), &args("session_device", &[])).unwrap_err().kind,
+        Kind::FileNotFound
+    );
 }
 
 #[test]
 fn test_get_profile_summary_missing_data() {
-    assert_eq!(get_profile_summary(&Fake::new(|_, _| Ok(None)), &args("session_missing", &[])).unwrap_err().kind, Kind::FileNotFound);
+    assert_eq!(
+        get_profile_summary(&Fake::new(|_, _| Ok(None)), &args("session_missing", &[]))
+            .unwrap_err()
+            .kind,
+        Kind::FileNotFound
+    );
 }
 
 #[test]
 fn test_get_hlo_op_profile_missing_data() {
-    assert_eq!(get_hlo_op_profile(&Fake::new(|_, _| Ok(None)), &args("session_missing", &[])).unwrap_err().kind, Kind::FileNotFound);
+    assert_eq!(
+        get_hlo_op_profile(&Fake::new(|_, _| Ok(None)), &args("session_missing", &[]))
+            .unwrap_err()
+            .kind,
+        Kind::FileNotFound
+    );
 }

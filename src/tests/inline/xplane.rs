@@ -25,7 +25,8 @@ fn a_varint_is_the_varint_of_the_byte_loop() {
     for _ in 0..200_000 {
         let length = (next() % 14) as usize;
         // Most bytes have the high bit, so that the varints have all lengths.
-        let buf: Vec<u8> = (0..length).map(|_| next() as u8 | if next() % 5 == 0 { 0 } else { 0x80 }).collect();
+        let buf: Vec<u8> =
+            (0..length).map(|_| next() as u8 | if next() % 5 == 0 { 0 } else { 0x80 }).collect();
         for start in 0..=length {
             let (mut fast, mut slow) = (start, start);
             let value = varint(&buf, &mut fast);

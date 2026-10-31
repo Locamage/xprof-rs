@@ -12,11 +12,23 @@ fn visibility(resolution_ps: u64) -> Visibility {
 }
 
 fn complete(begin_ps: u64, duration_ps: u64) -> Event {
-    Event { ts: begin_ps, dur: duration_ps, track: RESOURCE_ID, flow: NONE_FLOW, ..Default::default() }
+    Event {
+        ts: begin_ps,
+        dur: duration_ps,
+        track: RESOURCE_ID,
+        flow: NONE_FLOW,
+        ..Default::default()
+    }
 }
 
 fn flow(begin_ps: u64, duration_ps: u64, flow_id: u32, resource_id: u32) -> Event {
-    Event { ts: begin_ps, dur: duration_ps, track: resource_id, flow: flow_id, ..Default::default() }
+    Event {
+        ts: begin_ps,
+        dur: duration_ps,
+        track: resource_id,
+        flow: flow_id,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -55,20 +67,37 @@ fn flow_events_downsampling() {
     assert!(!v.visible_at_resolution(&flow(1752, 10, 6, RESOURCE_ID)));
 }
 
-fn visible(planes: &[(&str, &[TimedEvent])], start_ps: u64, end_ps: u64, full_dma: bool) -> Vec<String> {
+fn visible(
+    planes: &[(&str, &[TimedEvent])],
+    start_ps: u64,
+    end_ps: u64,
+    full_dma: bool,
+) -> Vec<String> {
     let mut space = super::xspace::XSpace::default();
     for (plane, events) in planes {
         let plane = space.plane(plane);
         plane.named_line(1, "XLA Ops");
         for &(name, begin, duration, flow) in *events {
-            let stats: Vec<(&str, super::xspace::V)> = flow.map(|flow| ("flow", super::xspace::V::Uint(flow << 2 | FLOW_MID_DIRECTION))).into_iter().collect();
+            let stats: Vec<(&str, super::xspace::V)> = flow
+                .map(|flow| ("flow", super::xspace::V::Uint(flow << 2 | FLOW_MID_DIRECTION)))
+                .into_iter()
+                .collect();
             plane.event(1, name, begin, duration, &stats);
         }
     }
     let (map, mut planes) = space.parsed();
     let trace = crate::trace::Trace::build(&mut planes, "localhost", &map);
-    let options = crate::trace::Options { start_ms: start_ps as f64 / 1e9, end_ms: end_ps as f64 / 1e9, resolution: 0.0, full_dma };
-    let mut names: Vec<String> = trace.load(&options).iter().map(|&index| trace.names[trace.events[index as usize].name as usize].to_string()).collect();
+    let options = crate::trace::Options {
+        start_ms: start_ps as f64 / 1e9,
+        end_ms: end_ps as f64 / 1e9,
+        resolution: 0.0,
+        full_dma,
+    };
+    let mut names: Vec<String> = trace
+        .load(&options)
+        .iter()
+        .map(|&index| trace.names[trace.events[index as usize].name as usize].to_string())
+        .collect();
     names.sort();
     names
 }
@@ -87,16 +116,38 @@ fn visibility_no_downsampling() {
         ("c2000_50", 2000, 50, None),
         ("c2001_50", 2001, 50, None),
     ];
-    assert_eq!(visible(&[("/host:CPU", events)], 1000, 2000, false), ["c1450_100", "c2000_50", "c900_100", "i1000", "i1500", "i2000"]);
+    assert_eq!(
+        visible(&[("/host:CPU", events)], 1000, 2000, false),
+        ["c1450_100", "c2000_50", "c900_100", "i1000", "i1500", "i2000"]
+    );
 }
 
 #[test]
 fn test_trace_visibility_filter() {
-    let events: &[TimedEvent] = &[("event", 1000, 100, None), ("event2", 2000, 100, None), ("event3", 900, 50, None), ("event4", 1000, 100, Some(1))];
+    let events: &[TimedEvent] = &[
+        ("event", 1000, 100, None),
+        ("event2", 2000, 100, None),
+        ("event3", 900, 50, None),
+        ("event4", 1000, 100, Some(1)),
+    ];
     assert_eq!(visible(&[("/device:TPU:0", events)], 1000, 2000, false), ["event", "event2"]);
-    assert_eq!(visible(&[("/device:TPU:0", events)], 1000, 2000, true), ["event", "event2", "event4"]);
-    assert_eq!(visible(&[("/device:GPU:0", events)], 1000, 2000, true), ["event", "event2", "event4"]);
+    assert_eq!(
+        visible(&[("/device:TPU:0", events)], 1000, 2000, true),
+        ["event", "event2", "event4"]
+    );
+    assert_eq!(
+        visible(&[("/device:GPU:0", events)], 1000, 2000, true),
+        ["event", "event2", "event4"]
+    );
     let non_core: &[TimedEvent] = &[("event4", 1000, 100, Some(1))];
     let core: &[TimedEvent] = &[("event", 1000, 100, None)];
-    assert_eq!(visible(&[("/device:TPU:0", core), ("/device:CUSTOM:#Chip TPU Non-Core HBM", non_core)], 1000, 2000, false), ["event"]);
+    assert_eq!(
+        visible(
+            &[("/device:TPU:0", core), ("/device:CUSTOM:#Chip TPU Non-Core HBM", non_core)],
+            1000,
+            2000,
+            false
+        ),
+        ["event"]
+    );
 }
