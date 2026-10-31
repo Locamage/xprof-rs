@@ -69,10 +69,7 @@ pub fn create_op_stats() -> Extra {
         }],
         cores: BTreeMap::from([(
             CORE_ID,
-            Core {
-                hostname: HOSTNAME.into(),
-                ..Default::default()
-            },
+            Core { hostname: HOSTNAME.into(), ..Default::default() },
         )]),
         ..Default::default()
     }
@@ -89,21 +86,12 @@ pub fn check_record(record: &Value) {
     assert_eq!(record["hostName"], HOSTNAME);
     near(&record["totalDurationUs"], STEP_TIME_PS);
     let breakdown = &record["stepBreakdownUs"];
-    near(
-        &breakdown[DEVICE_COMPUTE],
-        DEVICE_COMPUTE_32_PS + DEVICE_COMPUTE_16_PS,
-    );
-    near(
-        &breakdown[DEVICE_TO_DEVICE_EVENT],
-        DEVICE_TO_DEVICE_PS + DEVICE_WAIT_DEVICE_PS,
-    );
+    near(&breakdown[DEVICE_COMPUTE], DEVICE_COMPUTE_32_PS + DEVICE_COMPUTE_16_PS);
+    near(&breakdown[DEVICE_TO_DEVICE_EVENT], DEVICE_TO_DEVICE_PS + DEVICE_WAIT_DEVICE_PS);
     near(&breakdown[DEVICE_COLLECTIVES_EVENT], DEVICE_COLLECTIVE_PS);
     near(&breakdown[HOST_COMPUTE_EVENT], HOST_COMPUTE_PS);
     near(&breakdown[HOST_PREPARE_EVENT], HOST_PREPARE_PS);
-    near(
-        &breakdown[INPUT],
-        HOST_WAIT_INPUT_PS + HOST_TO_DEVICE_PS + DEVICE_WAIT_HOST_PS,
-    );
+    near(&breakdown[INPUT], HOST_WAIT_INPUT_PS + HOST_TO_DEVICE_PS + DEVICE_WAIT_HOST_PS);
     near(&breakdown[OUTPUT], DEVICE_TO_HOST_PS);
     near(&breakdown[COMPILE], HOST_COMPILE_PS);
     near(&breakdown[ALL_OTHERS], UNKNOWN_TIME_PS);
@@ -113,9 +101,7 @@ pub fn check_record(record: &Value) {
 #[test]
 fn gpu_pod_viewer() {
     let pod_viewer_db: Value = serde_json::from_str(&render(&create_op_stats())).unwrap();
-    let pod_stats_map = pod_viewer_db["podStatsSequence"]["podStatsMap"]
-        .as_array()
-        .unwrap();
+    let pod_stats_map = pod_viewer_db["podStatsSequence"]["podStatsMap"].as_array().unwrap();
     assert_eq!(pod_stats_map.len(), 1);
     assert_eq!(pod_stats_map[0]["stepNum"], STEP_NUM);
     check_record(&pod_stats_map[0]["podStatsPerCore"][CORE_ID.to_string()]);
@@ -123,10 +109,8 @@ fn gpu_pod_viewer() {
 
 #[test]
 fn device_type() {
-    let pod_viewer_db: Value = serde_json::from_str(&render(&Extra {
-        device_type: "GPU".into(),
-        ..Default::default()
-    }))
-    .unwrap();
+    let pod_viewer_db: Value =
+        serde_json::from_str(&render(&Extra { device_type: "GPU".into(), ..Default::default() }))
+            .unwrap();
     assert_eq!(pod_viewer_db["deviceType"], "GPU");
 }

@@ -34,11 +34,7 @@ static LONGEST_NAME: LazyLock<usize> =
 /// If the event name is internal, and its roles in the connections. The length check skips the long names of the HLO operations.
 fn known(name: &[u8]) -> (bool, [u8; ROLES]) {
     (name.len() <= *LONGEST_NAME)
-        .then(|| {
-            std::str::from_utf8(name)
-                .ok()
-                .and_then(|name| NAMES.get(name))
-        })
+        .then(|| std::str::from_utf8(name).ok().and_then(|name| NAMES.get(name)))
         .flatten()
         .copied()
         .unwrap_or_default()
@@ -48,16 +44,8 @@ pub const NONE_GROUP: i64 = i64::MIN;
 const EPOCH_NS: i64 = 1_000_000_000_000_000;
 const INTERNAL_EVENTS: &str = "MemoryAllocation MemoryDeallocation PrefetchProduce PrefetchConsume ParallelInterleaveProduce ParallelInterleaveConsume ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce MapAndBatchConsume ParseExampleProduce ParseExampleConsume";
 const QUEUE_CONSUMERS: &str = "RunProgramRequest HostCallbackRequest TransferH2DRequest TransferPreprocessedH2DRequest TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti OnDeviceRecvRequestMulti PjrtAsyncWait";
-const INTERNAL_STATS: [&str; 8] = [
-    "_pt",
-    "_p",
-    "_ct",
-    "_c",
-    "_r",
-    "flops",
-    "program_id",
-    "symbol_id",
-];
+const INTERNAL_STATS: [&str; 8] =
+    ["_pt", "_p", "_ct", "_c", "_r", "flops", "program_id", "symbol_id"];
 macro_rules! kinds {
     ($($kind:ident: $text:literal),*) => {
         const STATS: [&str; [$($text),*].len()] = [$($text),*];
@@ -235,11 +223,7 @@ pub struct Ev {
 impl Ev {
     /// The bytes of the event for a reader of its stats. An event without stats gives no bytes.
     pub fn stats_raw<'a>(&self, map: &'a [u8]) -> &'a [u8] {
-        if self.has_stats {
-            slice(map, self.raw)
-        } else {
-            &[]
-        }
+        if self.has_stats { slice(map, self.raw) } else { &[] }
     }
 }
 
@@ -302,11 +286,7 @@ impl Meta {
     }
 
     pub fn full_name<'a>(&'a self, map: &'a [u8]) -> Cow<'a, str> {
-        if self.display.is_empty() {
-            Cow::Borrowed(&self.name)
-        } else {
-            self.long_name(map)
-        }
+        if self.display.is_empty() { Cow::Borrowed(&self.name) } else { self.long_name(map) }
     }
 }
 
@@ -352,11 +332,7 @@ impl Value<'_> {
     }
 
     pub fn signed(&self) -> i64 {
-        if let Value::Int(value) = self {
-            *value
-        } else {
-            0
-        }
+        if let Value::Int(value) = self { *value } else { 0 }
     }
 }
 
@@ -406,19 +382,13 @@ pub fn stats(
 
 pub fn nested(data: &[u8], wanted: u32) -> impl Iterator<Item = &[u8]> {
     fields(data).filter_map(move |(tag, field)| {
-        if let (true, Field::Bytes(_, body)) = (tag == wanted, field) {
-            Some(body)
-        } else {
-            None
-        }
+        if let (true, Field::Bytes(_, body)) = (tag == wanted, field) { Some(body) } else { None }
     })
 }
 
 pub fn event_stat(raw: &[u8], id: Option<usize>) -> Option<Value<'_>> {
     let id = id?;
-    stats(raw, 4, |stat| stat == id)
-        .next()
-        .map(|stat| stat.value)
+    stats(raw, 4, |stat| stat == id).next().map(|stat| stat.value)
 }
 
 /// For each id, the same value as `event_stat`, from one pass over the stats.
@@ -444,11 +414,7 @@ pub fn event_stats<const N: usize>(raw: &[u8], ids: [Option<usize>; N]) -> [Opti
 }
 
 pub fn event_group(raw: &[u8], group: i64, id: Option<usize>) -> Option<i64> {
-    if group == NONE_GROUP {
-        event_stat(raw, id).map(|value| value.signed())
-    } else {
-        Some(group)
-    }
+    if group == NONE_GROUP { event_stat(raw, id).map(|value| value.signed()) } else { Some(group) }
 }
 
 fn table<T: Default>(entries: Vec<Vec<(u64, T)>>) -> Option<Vec<T>> {
@@ -457,12 +423,7 @@ fn table<T: Default>(entries: Vec<Vec<(u64, T)>>) -> Option<Vec<T>> {
     if entries.iter().flatten().any(|(id, _)| *id >= bound) {
         return None;
     }
-    let size = entries
-        .iter()
-        .flatten()
-        .map(|(id, _)| id + 1)
-        .max()
-        .unwrap_or(0);
+    let size = entries.iter().flatten().map(|(id, _)| id + 1).max().unwrap_or(0);
     let mut table = Vec::new();
     table.resize_with(size as usize, T::default);
     for (id, value) in entries.into_iter().flatten() {
@@ -562,10 +523,7 @@ pub fn parse_checking(
     checked: Option<&AtomicBool>,
     bare: bool,
 ) -> anyhow::Result<Vec<Plane>> {
-    anyhow::ensure!(
-        u32::try_from(buf.len()).is_ok(),
-        "The profile is larger than 4 GiB"
-    );
+    anyhow::ensure!(u32::try_from(buf.len()).is_ok(), "The profile is larger than 4 GiB");
     let mut entries = fields(buf);
     let (mut spans, mut host) = (Vec::new(), None);
     for (tag, field) in &mut entries {
@@ -583,27 +541,18 @@ pub fn parse_checking(
         .collect::<anyhow::Result<_>>()?;
     let origin = origin_ns(&planes);
     let host = host.map_or(0, |name| {
-        hash(
-            name.len() as u64,
-            &name.iter().map(|&byte| byte as u64).collect::<Vec<_>>(),
-        )
+        hash(name.len() as u64, &name.iter().map(|&byte| byte as u64).collect::<Vec<_>>())
     });
     for plane in &mut planes {
         (plane.origin_ns, plane.host) = (origin, host);
     }
-    planes
-        .par_iter_mut()
-        .flat_map(|plane| plane.lines.par_iter_mut())
-        .for_each(|line| {
-            let base = line.base_ps(origin);
-            line.events
-                .par_iter_mut()
-                .with_min_len(1 << 14)
-                .for_each(|event| {
-                    event.ts = event.ts.saturating_add(base);
-                    event.dur = event.dur.min(u64::MAX - event.ts);
-                });
+    planes.par_iter_mut().flat_map(|plane| plane.lines.par_iter_mut()).for_each(|line| {
+        let base = line.base_ps(origin);
+        line.events.par_iter_mut().with_min_len(1 << 14).for_each(|event| {
+            event.ts = event.ts.saturating_add(base);
+            event.dur = event.dur.min(u64::MAX - event.ts);
         });
+    });
     Ok(planes)
 }
 
@@ -631,9 +580,7 @@ impl Plane {
         }
         let names = entries[1]
             .par_iter()
-            .try_fold(Vec::new, |out, &(start, entry)| {
-                plane.entry(start, entry, buf, false, out)
-            })
+            .try_fold(Vec::new, |out, &(start, entry)| plane.entry(start, entry, buf, false, out))
             .collect::<anyhow::Result<Vec<_>>>()?;
         let names: Option<Vec<Box<str>>> =
             table(names).map(|names| names.into_iter().map(|meta| meta.name).collect());
@@ -642,10 +589,7 @@ impl Plane {
             .stat_names
             .iter()
             .map(|name| {
-                STATS
-                    .iter()
-                    .position(|stat| stat == &&**name)
-                    .map_or(NO_KIND, |kind| kind as u8)
+                STATS.iter().position(|stat| stat == &&**name).map_or(NO_KIND, |kind| kind as u8)
             })
             .collect();
         for &kind in plane.kind.iter().filter(|&&kind| kind != NO_KIND) {
@@ -653,9 +597,7 @@ impl Plane {
         }
         let metas = entries[0]
             .par_iter()
-            .try_fold(Vec::new, |out, &(start, entry)| {
-                plane.entry(start, entry, buf, true, out)
-            })
+            .try_fold(Vec::new, |out, &(start, entry)| plane.entry(start, entry, buf, true, out))
             .collect::<anyhow::Result<Vec<_>>>()?;
         anyhow::ensure!(parts.complete(), "The XPlane is not valid");
         plane.meta = table(metas).context("An event metadata ID is out of range")?;
@@ -672,10 +614,7 @@ impl Plane {
             .lines
             .par_iter_mut()
             .filter(|line| {
-                !line
-                    .events
-                    .par_windows(2)
-                    .all(|pair| order(&pair[0]) <= order(&pair[1]))
+                !line.events.par_windows(2).all(|pair| order(&pair[0]) <= order(&pair[1]))
             })
             .for_each(|line| line.events.par_sort_by_key(order));
         if plane
@@ -686,10 +625,7 @@ impl Plane {
         {
             plane.meta.push(Meta::default());
         }
-        plane.correlation = plane
-            .kind
-            .iter()
-            .position(|&kind| kind == CORRELATION as u8);
+        plane.correlation = plane.kind.iter().position(|&kind| kind == CORRELATION as u8);
         plane.own = own
             .into_iter()
             .filter_map(|body| stat(body, |_| true))
@@ -700,10 +636,7 @@ impl Plane {
                     Value::Double(value) => Own::Double(value),
                     value => Own::Text(plane.text(&value)),
                 };
-                (
-                    plane.stat_names.get(stat.id).cloned().unwrap_or_default(),
-                    value,
-                )
+                (plane.stat_names.get(stat.id).cloned().unwrap_or_default(), value)
             })
             .collect();
         plane.pid = match plane.own.iter().find(|(name, _)| &**name == "process_id") {
@@ -713,10 +646,7 @@ impl Plane {
         let ready: Vec<bool> = CONNECTIONS
             .iter()
             .map(|connection| {
-                connection
-                    .stats
-                    .iter()
-                    .all(|&kind| plane.present[kind] || kind == CORE_TYPE)
+                connection.stats.iter().all(|&kind| plane.present[kind] || kind == CORE_TYPE)
             })
             .collect();
         for meta in &mut plane.meta {
@@ -745,29 +675,19 @@ impl Plane {
                 _ => continue,
             };
             let (id, long, display) = named(value).context("The metadata is not valid")?;
-            let name = if display.is_empty() {
-                lossy(long).into()
-            } else {
-                Box::default()
-            };
+            let name = if display.is_empty() { lossy(long).into() } else { Box::default() };
             let meta = if event {
                 let (internal, role) = known(long);
                 let root = ROOTS
                     .iter()
                     .find(|root| root.0.as_bytes() == long)
                     .map(|root| (root.1, root.2));
-                let (base, step) = if self.present.contains(&true) {
-                    self.base(value)
-                } else {
-                    (None, None)
-                };
+                let (base, step) =
+                    if self.present.contains(&true) { self.base(value) } else { (None, None) };
                 let long = if long.is_empty() {
                     (0, 0)
                 } else {
-                    (
-                        (long.as_ptr() as usize - buf.as_ptr() as usize) as u32,
-                        long.len() as u32,
-                    )
+                    ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32)
                 };
                 Meta {
                     internal,
@@ -782,10 +702,7 @@ impl Plane {
                     ..Default::default()
                 }
             } else {
-                Meta {
-                    name,
-                    ..Default::default()
-                }
+                Meta { name, ..Default::default() }
             };
             out.push((key.unwrap_or(id), meta));
         }
@@ -796,9 +713,7 @@ impl Plane {
     /// The link stats and the step name of an event metadata, from one pass over its stats.
     fn base(&self, raw: &[u8]) -> (Option<Box<Stats>>, Option<String>) {
         let (mut base, mut step) = (Stats::default(), None);
-        for stat in stats(raw, 5, |id| {
-            self.kind.get(id).is_some_and(|&kind| kind != NO_KIND)
-        }) {
+        for stat in stats(raw, 5, |id| self.kind.get(id).is_some_and(|&kind| kind != NO_KIND)) {
             let kind = self.kind[stat.id] as usize;
             if let Some(value) = number(kind, &stat.value) {
                 base[kind] = Some(value as u64);
@@ -815,9 +730,7 @@ impl Plane {
 
     fn apply(&self, out: &mut Stats, raw: &[u8], field: u32, keep: impl Fn(usize) -> bool) {
         for stat in stats(raw, field, |id| {
-            self.kind
-                .get(id)
-                .is_some_and(|&kind| kind != NO_KIND && keep(kind as usize))
+            self.kind.get(id).is_some_and(|&kind| kind != NO_KIND && keep(kind as usize))
         }) {
             let kind = self.kind[stat.id] as usize;
             if let Some(value) = number(kind, &stat.value) {
@@ -827,11 +740,7 @@ impl Plane {
     }
 
     pub fn links(&self, meta: u32, raw: &[u8], ordinal: Option<u64>) -> Links {
-        let mut out = self.meta[meta as usize]
-            .base
-            .as_deref()
-            .copied()
-            .unwrap_or_default();
+        let mut out = self.meta[meta as usize].base.as_deref().copied().unwrap_or_default();
         let (mut correlation, mut step, mut first_correlation) = (None, None, None);
         for body in nested(raw, 4) {
             let only_correlation = std::cell::Cell::new(true);
@@ -890,10 +799,8 @@ impl Plane {
             }
         }
         if let (Some(ordinal), Some(queue), Some(run)) = (ordinal, get(QUEUE_ID), get(RUN_ID)) {
-            consumer = Some((
-                hash(LAUNCH, &[ordinal, queue, run, get(CORE_TYPE).unwrap_or(0)]),
-                LAUNCH,
-            ));
+            consumer =
+                Some((hash(LAUNCH, &[ordinal, queue, run, get(CORE_TYPE).unwrap_or(0)]), LAUNCH));
         }
         let mut pid = get(PID).map(|pid| pid as i32);
         if producer.is_some() || (consumer.is_some() && pid.is_none()) {
@@ -908,27 +815,12 @@ impl Plane {
         };
         let correlated = correlation.map_or_else(
             || get(FLOW),
-            |id| {
-                synthesize(
-                    id,
-                    u64::MAX,
-                    if self.name.starts_with("/device:") {
-                        1
-                    } else {
-                        2
-                    },
-                    9,
-                )
-            },
+            |id| synthesize(id, u64::MAX, if self.name.starts_with("/device:") { 1 } else { 2 }, 9),
         );
         let stated = get(ROOT).map(|level| level as i64);
         Links {
             flow: consumer.map_or_else(
-                || {
-                    producer.map_or(correlated, |(id, kind)| {
-                        synthesize(id, kind, 2, kind.min(63))
-                    })
-                },
+                || producer.map_or(correlated, |(id, kind)| synthesize(id, kind, 2, kind.min(63))),
                 |(id, kind)| synthesize(id, kind, 1, kind.min(63)),
             ),
             group: get(GROUP).map(|group| group as i64),
@@ -936,34 +828,25 @@ impl Plane {
             producer,
             consumer,
             pid: pid.filter(|_| {
-                ![producer, consumer]
-                    .iter()
-                    .flatten()
-                    .any(|&(_, kind)| kind == LAUNCH)
+                ![producer, consumer].iter().flatten().any(|&(_, kind)| kind == LAUNCH)
             }),
             root: match meta.root {
                 Some((level, true)) => Some(level),
                 Some((level, false)) => stated.or(Some(level)),
                 None => stated,
             },
-            step: step
-                .map(|value| self.text(&value))
-                .or_else(|| meta.step.clone()),
+            step: step.map(|value| self.text(&value)).or_else(|| meta.step.clone()),
             correlation: first_correlation,
         }
     }
 
     pub fn own_double(&self, name: &str) -> f64 {
-        self.own
-            .iter()
-            .find_map(|(key, value)| (&**key == name).then_some(value))
-            .map_or(0.0, |value| {
-                if let Own::Double(value) = value {
-                    *value
-                } else {
-                    0.0
-                }
-            })
+        self.own.iter().find_map(|(key, value)| (&**key == name).then_some(value)).map_or(
+            0.0,
+            |value| {
+                if let Own::Double(value) = value { *value } else { 0.0 }
+            },
+        )
     }
 
     pub fn own_text(&self, name: &str) -> Option<&str> {
@@ -986,9 +869,7 @@ impl Plane {
     ) -> Option<Value<'a>> {
         let id = id?;
         let find = |raw: (u32, u32), field: u32| {
-            stats(slice(map, raw), field, |stat| stat == id)
-                .next()
-                .map(|stat| stat.value)
+            stats(slice(map, raw), field, |stat| stat == id).next().map(|stat| stat.value)
         };
         find(raw, 4).or_else(|| find(self.meta[meta as usize].raw, 5))
     }
@@ -1009,19 +890,17 @@ impl Plane {
         meta: u32,
         raw: (u32, u32),
     ) -> impl Iterator<Item = (u32, &'a Box<str>, Stat<'a>)> {
-        [(self.meta[meta as usize].raw, 5), (raw, 4)]
-            .into_iter()
-            .flat_map(move |(raw, field)| {
-                stats(slice(map, raw), field, |_| true).filter_map(move |stat| {
-                    Some((
-                        field,
-                        self.stat_names
-                            .get(stat.id)
-                            .filter(|name| !INTERNAL_STATS.contains(&&***name))?,
-                        stat,
-                    ))
-                })
+        [(self.meta[meta as usize].raw, 5), (raw, 4)].into_iter().flat_map(move |(raw, field)| {
+            stats(slice(map, raw), field, |_| true).filter_map(move |stat| {
+                Some((
+                    field,
+                    self.stat_names
+                        .get(stat.id)
+                        .filter(|name| !INTERNAL_STATS.contains(&&***name))?,
+                    stat,
+                ))
             })
+        })
     }
 
     pub fn text(&self, value: &Value) -> String {
@@ -1045,11 +924,8 @@ impl Plane {
     pub fn add_threadpool_regions(&mut self, map: &[u8]) {
         let mut found = [None; REGION.len()];
         for (index, meta) in self.meta.iter().enumerate() {
-            let name = if meta.display.is_empty() {
-                meta.name.as_bytes()
-            } else {
-                slice(map, meta.long)
-            };
+            let name =
+                if meta.display.is_empty() { meta.name.as_bytes() } else { slice(map, meta.long) };
             if let Some(position) = REGION.iter().position(|region| region.as_bytes() == name) {
                 found[position].get_or_insert(index);
             }
@@ -1059,10 +935,7 @@ impl Plane {
         };
         let consumer = self.kind.iter().position(|&kind| kind as usize == C);
         let region = found[2].unwrap_or_else(|| {
-            self.meta.push(Meta {
-                name: REGION[2].into(),
-                ..Default::default()
-            });
+            self.meta.push(Meta { name: REGION[2].into(), ..Default::default() });
             self.meta.len() - 1
         });
         let origin = self.origin_ns;
@@ -1070,10 +943,7 @@ impl Plane {
             let (mut started, mut regions) = (None, Vec::new());
             for event in &line.events {
                 if event.meta as usize == start {
-                    if stats(slice(map, event.raw), 4, |id| Some(id) == consumer)
-                        .next()
-                        .is_some()
-                    {
+                    if stats(slice(map, event.raw), 4, |id| Some(id) == consumer).next().is_some() {
                         started = Some(event.ts).filter(|&ts| line.absolute_ps(ts, origin) != 0);
                     }
                 } else if let Some(started) = started.filter(|_| event.meta as usize == stop) {
@@ -1091,8 +961,7 @@ impl Plane {
             }
             if !regions.is_empty() {
                 line.events.extend(regions);
-                line.events
-                    .sort_by_key(|event| (event.ts, Reverse(event.dur)));
+                line.events.sort_by_key(|event| (event.ts, Reverse(event.dur)));
             }
         }
     }
@@ -1100,25 +969,17 @@ impl Plane {
 
 impl Line {
     pub fn base_ps(&self, origin_ns: i64) -> u64 {
-        u64::try_from(self.timestamp_ns.saturating_sub(origin_ns))
-            .unwrap_or(0)
-            .saturating_mul(1000)
+        u64::try_from(self.timestamp_ns.saturating_sub(origin_ns)).unwrap_or(0).saturating_mul(1000)
     }
 
     pub fn absolute_ps(&self, ts: u64, origin_ns: i64) -> u64 {
         ts.wrapping_add(
-            (self.timestamp_ns as u64)
-                .wrapping_mul(1000)
-                .wrapping_sub(self.base_ps(origin_ns)),
+            (self.timestamp_ns as u64).wrapping_mul(1000).wrapping_sub(self.base_ps(origin_ns)),
         )
     }
 
     pub fn resource_id(&self) -> u32 {
-        (if self.display_id != 0 {
-            self.display_id
-        } else {
-            self.id
-        }) as u32
+        (if self.display_id != 0 { self.display_id } else { self.id }) as u32
     }
 }
 

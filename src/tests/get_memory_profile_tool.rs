@@ -38,10 +38,7 @@ fn test_get_memory_profile() {
 #[test]
 fn test_get_memory_profile_no_data() {
     let fake = Fake::tools(|_| None).with_hosts(&[]);
-    assert_eq!(
-        json(get_memory_profile(&fake, &args("test_session", &[]))),
-        parse(UNSET)
-    );
+    assert_eq!(json(get_memory_profile(&fake, &args("test_session", &[]))), parse(UNSET));
 }
 
 #[test]
@@ -65,14 +62,8 @@ fn test_get_memory_profile_fallback() {
     let host = |name: &str| ("host".to_string(), name.to_string());
     let expected = vec![
         ("memory_profile.json".to_string(), vec![format.clone()]),
-        (
-            "memory_profile.json".to_string(),
-            vec![format.clone(), host("host-primary")],
-        ),
-        (
-            "memory_profile.json".to_string(),
-            vec![format, host("host-secondary")],
-        ),
+        ("memory_profile.json".to_string(), vec![format.clone(), host("host-primary")]),
+        ("memory_profile.json".to_string(), vec![format, host("host-secondary")]),
     ];
     assert_eq!(*fake.calls.borrow(), expected);
 }

@@ -24,10 +24,7 @@ fn inference_latency_test() {
     let stats = InferenceStats {
         inference_stats_per_model: [(
             0,
-            PerModelInferenceStats {
-                request_details,
-                ..Default::default()
-            },
+            PerModelInferenceStats { request_details, ..Default::default() },
         )]
         .into(),
         ..Default::default()

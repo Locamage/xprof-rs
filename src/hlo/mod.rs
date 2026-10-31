@@ -31,10 +31,7 @@ pub mod profiler {
     include!(concat!(env!("OUT_DIR"), "/tensorflow.profiler.rs"));
 
     pub mod op_profile {
-        include!(concat!(
-            env!("OUT_DIR"),
-            "/tensorflow.profiler.op_profile.rs"
-        ));
+        include!(concat!(env!("OUT_DIR"), "/tensorflow.profiler.op_profile.rs"));
     }
 }
 
@@ -63,16 +60,11 @@ type Cached = (PathBuf, SystemTime, Arc<Module<'static>>);
 static CACHE: LazyLock<Mutex<Vec<Cached>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 pub fn type_name(kind: i32) -> &'static str {
-    TYPES
-        .get(kind as usize)
-        .copied()
-        .unwrap_or("primitive_type_invalid")
+    TYPES.get(kind as usize).copied().unwrap_or("primitive_type_invalid")
 }
 
 pub fn msg<T: Default + Clone>(value: &Option<T>) -> Cow<'_, T> {
-    value
-        .as_ref()
-        .map_or_else(|| Cow::Owned(T::default()), Cow::Borrowed)
+    value.as_ref().map_or_else(|| Cow::Owned(T::default()), Cow::Borrowed)
 }
 
 pub fn last_bytes(buf: &[u8], number: u32) -> &[u8] {
@@ -96,12 +88,7 @@ pub fn split(buf: &[u8], number: u32) -> (Vec<u8>, Vec<&[u8]>) {
 /// Writes `%.*g` as glibc does. The C library of macOS does not write the sign of a NaN as glibc does.
 pub fn general(value: f64, precision: usize) -> String {
     if value.is_nan() {
-        return if value.is_sign_negative() {
-            "-nan"
-        } else {
-            "nan"
-        }
-        .into();
+        return if value.is_sign_negative() { "-nan" } else { "nan" }.into();
     }
     let mut buffer = [0u8; 64];
     let length = unsafe {
@@ -134,15 +121,9 @@ pub fn round_trip(out: &mut String, value: f64) {
         cursor.len()
     };
     let text = &text[..32 - free];
-    let split = text
-        .iter()
-        .position(|&byte| byte == b'e')
-        .expect("formatted number has an exponent");
-    let digits: Vec<u8> = text[..split]
-        .iter()
-        .copied()
-        .filter(|&byte| byte != b'.')
-        .collect();
+    let split =
+        text.iter().position(|&byte| byte == b'e').expect("formatted number has an exponent");
+    let digits: Vec<u8> = text[..split].iter().copied().filter(|&byte| byte != b'.').collect();
     if digits.len() > 15 {
         return out.push_str(&general(value, 17));
     }
@@ -223,8 +204,7 @@ impl Shape {
     pub fn normalize(&mut self) {
         if self.is_array() {
             self.tuple_shapes.clear();
-            self.is_dynamic_dimension
-                .resize(self.dimensions.len(), false);
+            self.is_dynamic_dimension.resize(self.dimensions.len(), false);
         } else {
             self.dimensions.clear();
             self.is_dynamic_dimension.clear();
@@ -255,21 +235,14 @@ impl Shape {
             out.push(')');
             return;
         }
-        let dimensions: &[i64] = if self.is_array() {
-            &self.dimensions
-        } else {
-            &[]
-        };
+        let dimensions: &[i64] = if self.is_array() { &self.dimensions } else { &[] };
         out.push_str(type_name(self.element_type));
         out.push('[');
         for (index, &dimension) in dimensions.iter().enumerate() {
             if index > 0 {
                 out.push(',');
             }
-            match (
-                self.is_dynamic_dimension.get(index) == Some(&true),
-                dimension,
-            ) {
+            match (self.is_dynamic_dimension.get(index) == Some(&true), dimension) {
                 (true, i64::MIN) => out.push('?'),
                 (true, dimension) => {
                     out.push_str("<=");
@@ -320,12 +293,8 @@ impl Shape {
             }
         }
         if !matches!(shape_layout.tail_padding_alignment_in_elements, 0 | 1) {
-            write!(
-                out,
-                "L({})",
-                shape_layout.tail_padding_alignment_in_elements
-            )
-            .expect("writing to a string cannot fail");
+            write!(out, "L({})", shape_layout.tail_padding_alignment_in_elements)
+                .expect("writing to a string cannot fail");
         }
         primitive(out, shape_layout.index_primitive_type, '#');
         primitive(out, shape_layout.pointer_primitive_type, '*');
@@ -356,12 +325,8 @@ impl Shape {
             out.push(')');
         }
         if shape_layout.dynamic_shape_metadata_prefix_bytes > 0 {
-            write!(
-                out,
-                "M({})",
-                shape_layout.dynamic_shape_metadata_prefix_bytes
-            )
-            .expect("writing to a string cannot fail");
+            write!(out, "M({})", shape_layout.dynamic_shape_metadata_prefix_bytes)
+                .expect("writing to a string cannot fail");
         }
         if out.len() == colon + 1 {
             out.truncate(colon);
@@ -383,14 +348,14 @@ impl Shape {
             TUPLE => 8 * self.tuple_shapes.len() as i64,
             BUFFER => self.tuple_shapes.first().map_or(0, Self::unpadded_bytes),
             OPAQUE => 8,
-            _ if self.is_array() => match self
-                .layout
-                .as_ref()
-                .map_or(0, |layout| layout.element_size_in_bits)
-            {
-                0 => self.elements() * ((crate::hlo::cost::bit_width(self.element_type) + 7) / 8),
-                bits => (self.elements() * bits + 7).div_euclid(8),
-            },
+            _ if self.is_array() => {
+                match self.layout.as_ref().map_or(0, |layout| layout.element_size_in_bits) {
+                    0 => {
+                        self.elements() * ((crate::hlo::cost::bit_width(self.element_type) + 7) / 8)
+                    }
+                    bits => (self.elements() * bits + 7).div_euclid(8),
+                }
+            }
             _ => 0,
         }
     }
@@ -465,10 +430,7 @@ impl<'a> Module<'a> {
         let mut state = vec![0u8; nodes.len()];
         let mut order = Vec::with_capacity(nodes.len());
         let mut stack = Vec::new();
-        for &start in nodes
-            .iter()
-            .filter(|&&start| self.nodes[start].users.is_empty())
-        {
+        for &start in nodes.iter().filter(|&&start| self.nodes[start].users.is_empty()) {
             stack.clear();
             if state[start - first] != 2 {
                 stack.push(start);
@@ -559,11 +521,7 @@ impl<'a> Module<'a> {
                 (
                     node,
                     sound,
-                    [
-                        inst.operand_ids,
-                        inst.control_predecessor_ids,
-                        inst.called_computation_ids,
-                    ],
+                    [inst.operand_ids, inst.control_predecessor_ids, inst.called_computation_ids],
                 )
             })
             .collect();
@@ -593,10 +551,8 @@ impl<'a> Module<'a> {
                             None => valid = false,
                         }
                     }
-                    let called: Vec<usize> = called_ids
-                        .iter()
-                        .filter_map(|id| ids.get(id).copied())
-                        .collect();
+                    let called: Vec<usize> =
+                        called_ids.iter().filter_map(|id| ids.get(id).copied()).collect();
                     let earlier =
                         |targets: &[usize]| targets.iter().all(|&target| target < first + position);
                     valid &= chunk[position].1 && earlier(&operands) && earlier(&predecessors);
@@ -646,9 +602,7 @@ impl<'a> Module<'a> {
                 thread: computation.execution_thread,
             });
         }
-        let entry = graphs
-            .iter()
-            .rposition(|graph| graph.id == proto.entry_computation_id);
+        let entry = graphs.iter().rposition(|graph| graph.id == proto.entry_computation_id);
         Module {
             proto,
             nodes,
@@ -696,11 +650,7 @@ impl<'a> Module<'a> {
                 if inst.shape.is_none() {
                     return failure("hlo_instruction.cc:342", "proto.has_shape()", String::new());
                 }
-                if !inst
-                    .operand_ids
-                    .iter()
-                    .all(|id| defined.contains(&(*id as i32)))
-                {
+                if !inst.operand_ids.iter().all(|id| defined.contains(&(*id as i32))) {
                     let condition = "absl::c_all_of(proto.operand_ids(), [&](int64_t id) { return instruction_map.contains( CalculateLocalId(id)); })";
                     return failure(
                         "hlo_instruction.cc:385",
@@ -709,18 +659,13 @@ impl<'a> Module<'a> {
                     );
                 }
                 if !inst.called_computation_ids.iter().all(|id| {
-                    self.graphs[..index]
-                        .iter()
-                        .any(|earlier| earlier.id == i64::from(*id as i32))
+                    self.graphs[..index].iter().any(|earlier| earlier.id == i64::from(*id as i32))
                 }) {
                     let condition = "absl::c_all_of(proto.called_computation_ids(), [&](int64_t id) { return computation_map.contains( CalculateLocalId(id)); })";
                     return failure(
                         "hlo_instruction.cc:391",
                         condition,
-                        format!(
-                            "{} instruction references invalid computation id(s)",
-                            inst.name
-                        ),
+                        format!("{} instruction references invalid computation id(s)", inst.name),
                     );
                 }
                 if let Some(leaf) = inst
@@ -732,10 +677,8 @@ impl<'a> Module<'a> {
                 {
                     return format!("Is called on unsupported shape: {}", leaf.text(true));
                 }
-                if let Some(id) = inst
-                    .control_predecessor_ids
-                    .iter()
-                    .find(|id| !defined.contains(&(**id as i32)))
+                if let Some(id) =
+                    inst.control_predecessor_ids.iter().find(|id| !defined.contains(&(**id as i32)))
                 {
                     let message = format!(
                         "No instruction with id {id} (local id: {}) in computation {}",
@@ -758,11 +701,7 @@ impl<'a> Module<'a> {
             }
             let root = graph.root_id;
             if root == -1 {
-                return failure(
-                    "hlo_computation.cc:1371",
-                    "proto.root_id() != -1",
-                    String::new(),
-                );
+                return failure("hlo_computation.cc:1371", "proto.root_id() != -1", String::new());
             }
             if !defined.contains(&(root as i32)) {
                 return failure(
@@ -795,12 +734,9 @@ impl<'a> Module<'a> {
                     &mut buf,
                     prost::encoding::DecodeContext::default(),
                 ),
-                _ => inst.merge_field(
-                    tag,
-                    wire,
-                    &mut buf,
-                    prost::encoding::DecodeContext::default(),
-                ),
+                _ => {
+                    inst.merge_field(tag, wire, &mut buf, prost::encoding::DecodeContext::default())
+                }
             });
             if field.is_err() {
                 return Inst::default();
@@ -810,18 +746,15 @@ impl<'a> Module<'a> {
     }
 
     pub fn backend_config<'b>(&'b self, inst: &'b Inst) -> Option<Cow<'b, [u8]>> {
-        let raw: &[u8] = match inst
-            .backend_config_payload
-            .as_ref()
-            .map(|payload| &payload.payload_source)
-        {
-            None => &inst.backend_config,
-            Some(Some(xla::payload::PayloadSource::Id(id))) => usize::try_from(*id)
-                .ok()
-                .and_then(|id| self.proto.payloads.get(id))?,
-            Some(Some(xla::payload::PayloadSource::Value(value))) => value,
-            Some(None) => &[],
-        };
+        let raw: &[u8] =
+            match inst.backend_config_payload.as_ref().map(|payload| &payload.payload_source) {
+                None => &inst.backend_config,
+                Some(Some(xla::payload::PayloadSource::Id(id))) => {
+                    usize::try_from(*id).ok().and_then(|id| self.proto.payloads.get(id))?
+                }
+                Some(Some(xla::payload::PayloadSource::Value(value))) => value,
+                Some(None) => &[],
+            };
         let mut out = Cow::Borrowed(raw);
         let mut from = 0;
         while let Some(at) = out[from..]
@@ -831,10 +764,7 @@ impl<'a> Module<'a> {
         {
             let mut end = at + LEGACY_QUEUES.len();
             let matched = b":[],".iter().all(|&expected| {
-                end += out[end..]
-                    .iter()
-                    .take_while(|byte| b" \t\n\r\x0c".contains(byte))
-                    .count();
+                end += out[end..].iter().take_while(|byte| b" \t\n\r\x0c".contains(byte)).count();
                 let found = out.get(end) == Some(&expected);
                 end += 1;
                 found
@@ -851,15 +781,11 @@ impl<'a> Module<'a> {
 
     pub fn find(&self, name: &str) -> Option<usize> {
         let name = name.strip_prefix('%').unwrap_or(name);
-        self.nodes
-            .iter()
-            .position(|node| node.name.eq_ignore_ascii_case(name))
+        self.nodes.iter().position(|node| node.name.eq_ignore_ascii_case(name))
     }
 
     pub fn find_graph(&self, name: &str) -> Option<usize> {
-        self.graphs
-            .iter()
-            .position(|graph| graph.name.eq_ignore_ascii_case(name))
+        self.graphs.iter().position(|graph| graph.name.eq_ignore_ascii_case(name))
     }
 
     pub fn category(&self, node: usize) -> String {
@@ -867,18 +793,12 @@ impl<'a> Module<'a> {
             "fusion" => fusion_category(&self.inst(node).fusion_kind).to_string(),
             "convolution" => {
                 let dimensions = self.inst(node).window.unwrap_or_default().dimensions;
-                let base = if dimensions
-                    .iter()
-                    .any(|dimension| dimension.base_dilation != 1)
-                {
+                let base = if dimensions.iter().any(|dimension| dimension.base_dilation != 1) {
                     " base-dilated"
                 } else {
                     ""
                 };
-                let window = if dimensions
-                    .iter()
-                    .any(|dimension| dimension.window_dilation != 1)
-                {
+                let window = if dimensions.iter().any(|dimension| dimension.window_dilation != 1) {
                     " window-dilated"
                 } else {
                     ""
@@ -935,12 +855,7 @@ pub fn modules(dir: &Path) -> Vec<String> {
     };
     entries
         .filter_map(|entry| {
-            entry
-                .ok()?
-                .file_name()
-                .to_str()?
-                .strip_suffix(SUFFIX)
-                .map(str::to_string)
+            entry.ok()?.file_name().to_str()?.strip_suffix(SUFFIX).map(str::to_string)
         })
         .collect()
 }
@@ -979,12 +894,9 @@ pub fn by_options(dir: &Path, params: &HashMap<String, String>) -> Option<Arc<Mo
         params.get("program_id").filter(|id| !id.is_empty()),
     ) {
         (Some(module), _) => load(dir, module),
-        (None, Some(program)) => load(
-            dir,
-            modules(dir)
-                .iter()
-                .find(|module| module.contains(program.as_str()))?,
-        ),
+        (None, Some(program)) => {
+            load(dir, modules(dir).iter().find(|module| module.contains(program.as_str()))?)
+        }
         (None, None) => None,
     }
 }
@@ -992,9 +904,7 @@ pub fn by_options(dir: &Path, params: &HashMap<String, String>) -> Option<Arc<Mo
 /// Lists the modules of a session. When there are none, it extracts them first. Two requests do not extract at the same time.
 pub fn extracted(dir: &Path, xspaces: &[PathBuf]) -> Option<Vec<String>> {
     static EXTRACTING: Mutex<()> = Mutex::new(());
-    let _held = EXTRACTING
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _held = EXTRACTING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let existing = modules(dir);
     if !existing.is_empty() {
         return Some(existing);
@@ -1058,9 +968,8 @@ pub fn protos<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, &'a [u8])> {
         let program = plane.id("program_id");
         for (index, meta) in plane.meta.iter().enumerate() {
             let raw = slice(map, meta.raw);
-            let Some(Value::Bytes(body)) = stats(raw, 5, |stat| stat == proto)
-                .next()
-                .map(|stat| stat.value)
+            let Some(Value::Bytes(body)) =
+                stats(raw, 5, |stat| stat == proto).next().map(|stat| stat.value)
             else {
                 continue;
             };
@@ -1080,9 +989,7 @@ pub fn protos<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, &'a [u8])> {
                 .filter(|digits| {
                     !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
                 });
-            let fixed = named
-                .and_then(|digits| digits.parse::<u64>().ok())
-                .unwrap_or(index as u64);
+            let fixed = named.and_then(|digits| digits.parse::<u64>().ok()).unwrap_or(index as u64);
             let id = program
                 .and_then(|program| stats(raw, 5, |stat| stat == program).next())
                 .map_or(fixed, |stat| stat.value.int().unwrap_or(0) as u64);
@@ -1122,10 +1029,7 @@ fn fused_children(
         };
         *budget = left;
         let mut long_name = String::new();
-        let metadata = printer
-            .instruction(child, &mut long_name)
-            .metadata
-            .unwrap_or_default();
+        let metadata = printer.instruction(child, &mut long_name).metadata.unwrap_or_default();
         if long_name.len() > MAX_EXPRESSION {
             long_name.truncate(long_name.floor_char_boundary(MAX_EXPRESSION));
         }
@@ -1146,19 +1050,13 @@ fn fused_children(
 }
 
 pub fn parse_modules(protos: Vec<(u64, &[u8])>) -> Vec<(u64, Module<'_>)> {
-    protos
-        .into_par_iter()
-        .map(|(id, proto)| (id, Module::parse(Cow::Borrowed(proto))))
-        .collect()
+    protos.into_par_iter().map(|(id, proto)| (id, Module::parse(Cow::Borrowed(proto)))).collect()
 }
 
 pub fn attach_fused(modules: &[(u64, Module)], db: &mut Db) {
     let mut wanted = FxHashMap::<u64, FxHashSet<&str>>::default();
     for metrics in &db.metrics {
-        wanted
-            .entry(metrics.module)
-            .or_default()
-            .insert(metrics.name.as_str());
+        wanted.entry(metrics.module).or_default().insert(metrics.name.as_str());
     }
     let printers: HashMap<u64, (Printer, FxHashMap<&str, usize>)> = modules
         .iter()

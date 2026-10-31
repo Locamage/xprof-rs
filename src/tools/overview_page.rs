@@ -18,11 +18,7 @@ const TOP_COLUMNS: [(&str, &str, &str); 5] = [
     ("cumulativeTimePercent", "number", "Cumulative time (%)"),
     ("category", "string", "Category"),
     ("operation", "string", "Operation"),
-    (
-        "flopRate",
-        "number",
-        "Bf16 Normalized Flop Rate(GFLOPs/Sec)",
-    ),
+    ("flopRate", "number", "Bf16 Normalized Flop Rate(GFLOPs/Sec)"),
 ];
 const GENERIC_TOP_COLUMNS: [(&str, &str, &str); 7] = [
     ("selfTimePercent", "number", "Time (%)"),
@@ -40,11 +36,7 @@ const LATENCY_COLUMNS: [(&str, &str, &str); 5] = [
     ("percentile", "string", "percentile"),
     ("hostTimeMs", "number", "Host time (in ms)"),
     ("deviceTimeMs", "number", "Device time (in ms)"),
-    (
-        "communicationTimeMs",
-        "number",
-        "Host-device communication time (in ms)",
-    ),
+    ("communicationTimeMs", "number", "Host-device communication time (in ms)"),
     ("totalTimeMs", "number", "Total latency (in ms)"),
 ];
 
@@ -65,11 +57,10 @@ pub fn inference_latency(stats: &InferenceStats) -> Vec<LatencyBreakdown> {
             let total_latency_us =
                 request.end_time_ps.wrapping_sub(request.start_time_ps) as f64 / 1e6;
             let device_latency_us = request.device_time_ps as f64 / 1e6;
-            let communication_latency_us = request
-                .read_from_device_time_ps
-                .wrapping_add(request.write_to_device_time_ps)
-                as f64
-                / 1e6;
+            let communication_latency_us =
+                request.read_from_device_time_ps.wrapping_add(request.write_to_device_time_ps)
+                    as f64
+                    / 1e6;
             LatencyBreakdown {
                 total_latency_us,
                 host_latency_us: total_latency_us - device_latency_us - communication_latency_us,
@@ -82,14 +73,8 @@ pub fn inference_latency(stats: &InferenceStats) -> Vec<LatencyBreakdown> {
         return Vec::new();
     }
     let mean = |value: fn(&LatencyBreakdown) -> f64| {
-        let sum = sessions
-            .iter()
-            .fold(0.0, |sum, session| sum + value(session));
-        if sum.abs() < LATENCY_EPSILON {
-            0.0
-        } else {
-            sum / sessions.len() as f64
-        }
+        let sum = sessions.iter().fold(0.0, |sum, session| sum + value(session));
+        if sum.abs() < LATENCY_EPSILON { 0.0 } else { sum / sessions.len() as f64 }
     };
     let average = LatencyBreakdown {
         total_latency_us: mean(|session| session.total_latency_us),
@@ -98,9 +83,7 @@ pub fn inference_latency(stats: &InferenceStats) -> Vec<LatencyBreakdown> {
         communication_latency_us: mean(|session| session.communication_latency_us),
     };
     let mut order: Vec<usize> = (0..sessions.len()).collect();
-    std_sort(&mut order, &|a, b| {
-        sessions[a].total_latency_us < sessions[b].total_latency_us
-    });
+    std_sort(&mut order, &|a, b| sessions[a].total_latency_us < sessions[b].total_latency_us);
     let percentiles = LATENCY_PERCENTILES
         .iter()
         .map(|percentile| sessions[order[(percentile / 100.0 * sessions.len() as f64) as usize]]);
@@ -108,30 +91,17 @@ pub fn inference_latency(stats: &InferenceStats) -> Vec<LatencyBreakdown> {
 }
 
 fn percentage(value: f64) -> String {
-    if value >= 0.0 {
-        format!("{}%", fixed(value, 1))
-    } else {
-        "unknown".into()
-    }
+    if value >= 0.0 { format!("{}%", fixed(value, 1)) } else { "unknown".into() }
 }
 
 fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
     let extra = &*stats.extra;
     let ops = device_tf_db(&stats.db);
     let generic = device_hardware == GPU;
-    let mut analysis_table = Table::new(if generic {
-        &GENERIC_TOP_COLUMNS
-    } else {
-        &TOP_COLUMNS
-    });
+    let mut analysis_table = Table::new(if generic { &GENERIC_TOP_COLUMNS } else { &TOP_COLUMNS });
     let kernels = by_op_name(&stats.kernels);
     let mut cumulative = 0.0;
-    for op in ops
-        .sorted()
-        .into_iter()
-        .filter(|op| op.category != IDLE)
-        .take(TOP_OPS)
-    {
+    for op in ops.sorted().into_iter().filter(|op| op.category != IDLE).take(TOP_OPS) {
         let fraction = safe_divide(op.self_time_ps as f64, stats.db.total_op_time_ps as f64);
         cumulative += fraction;
         let mut row = vec![
@@ -160,14 +130,7 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
                 .map(|metrics| metrics.self_time_ps)
                 .sum::<u64>()
         };
-        (
-            db.metrics
-                .iter()
-                .map(|metrics| metrics.occurrences)
-                .sum::<u64>(),
-            busy(false),
-            busy(true),
-        )
+        (db.metrics.iter().map(|metrics| metrics.occurrences).sum::<u64>(), busy(false), busy(true))
     };
     let ((host_ops, host_busy, host_eager), (device_ops, device_busy, device_eager)) =
         (counts(host), counts(&ops));
@@ -186,10 +149,7 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
     };
     let common = [
         ("host_trace_level", "0".to_string()),
-        (
-            "host_tf_op_percent",
-            percentage(100.0 * safe_divide(host_ops as f64, all_ops as f64)),
-        ),
+        ("host_tf_op_percent", percentage(100.0 * safe_divide(host_ops as f64, all_ops as f64))),
         (
             "device_tf_op_percent",
             percentage(100.0 * safe_divide(device_ops as f64, all_ops as f64)),
@@ -209,25 +169,13 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
     ];
     let specific = if generic {
         vec![
-            (
-                "device_compute_16bit_percent",
-                precision_percent(compute_16),
-            ),
-            (
-                "device_compute_32bit_percent",
-                precision_percent(compute_32),
-            ),
+            ("device_compute_16bit_percent", precision_percent(compute_16)),
+            ("device_compute_32bit_percent", precision_percent(compute_32)),
         ]
     } else {
         vec![
-            (
-                "flop_rate_utilization_relative_to_roofline",
-                percentage(0.0),
-            ),
-            (
-                "memory_bw_utilization_relative_to_hw_limit",
-                percentage(0.0),
-            ),
+            ("flop_rate_utilization_relative_to_roofline", percentage(0.0)),
+            ("memory_bw_utilization_relative_to_hw_limit", percentage(0.0)),
             ("device_idle_time_percent", idle(&stats.db)),
             ("device_duty_cycle_percent", duty(0)),
             ("device_duty_cycle_high_confidence_percent", duty(1)),
@@ -238,10 +186,7 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
         analysis_table.prop(key, value);
     }
     if !generic && device_hardware == TPU && extra.idle_ps[1] > 0 {
-        analysis_table.prop(
-            "idle_time_high_confidence_ps",
-            general(extra.idle_ps[1] as f64, 6),
-        );
+        analysis_table.prop("idle_time_high_confidence_ps", general(extra.idle_ps[1] as f64, 6));
     }
     analysis_table
 }
@@ -255,11 +200,7 @@ fn environment_table(extra: &Extra) -> Table {
     environment.prop(
         "task_count",
         if extra.tasks > 0 && hosts > 0 {
-            format!(
-                "{} (num tasks per host = {})",
-                extra.tasks,
-                extra.tasks / hosts
-            )
+            format!("{} (num tasks per host = {})", extra.tasks, extra.tasks / hosts)
         } else {
             extra.tasks.to_string()
         },
@@ -293,11 +234,7 @@ fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8)
     recommendation.rows = tips
         .into_iter()
         .map(|(kind, link, description)| {
-            vec![
-                Cell::Text(kind.into()),
-                Cell::Text(link),
-                Cell::Text(description.into()),
-            ]
+            vec![Cell::Text(kind.into()), Cell::Text(link), Cell::Text(description.into())]
         })
         .collect();
     for ((kind, statement), prefix) in bottleneck.iter().zip(BOTTLENECK_PREFIXES) {
@@ -334,11 +271,8 @@ fn latency_json(extra: &Extra, paths: &[PathBuf]) -> String {
     } else {
         inference_latency(&crate::tools::inference_profile::load(paths).unwrap_or_default())
     };
-    let labels = std::iter::once("Avg".to_string()).chain(
-        LATENCY_PERCENTILES
-            .iter()
-            .map(|percentile| format!("{}%", fixed(*percentile, 1))),
-    );
+    let labels = std::iter::once("Avg".to_string())
+        .chain(LATENCY_PERCENTILES.iter().map(|percentile| format!("{}%", fixed(*percentile, 1))));
     for (label, breakdown) in labels.zip(breakdowns) {
         let times = [
             breakdown.host_latency_us,
@@ -362,12 +296,7 @@ pub fn json(stats: &OpStats, paths: &[PathBuf]) -> String {
     if errors.is_empty() && extra.device_type != "CPU" && extra.core_count <= 0 {
         errors.push(NO_DEVICE_TRACE.into());
     }
-    let warnings: Vec<String> = extra
-        .warnings
-        .iter()
-        .chain(&analysis.warnings)
-        .cloned()
-        .collect();
+    let warnings: Vec<String> = extra.warnings.iter().chain(&analysis.warnings).cloned().collect();
     format!(
         "[{},{},{},{},{}, {{}},{}]",
         top_ops_table(stats, device_hardware).json(),

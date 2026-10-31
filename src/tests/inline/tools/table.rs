@@ -22,11 +22,7 @@ fn numbers_at_the_limits_read_back_the_same() {
         123456789012345680.0,
         9007199254740992.0,
     ];
-    for value in limits
-        .into_iter()
-        .chain(random)
-        .filter(|value| value.is_finite())
-    {
+    for value in limits.into_iter().chain(random).filter(|value| value.is_finite()) {
         let mut out = String::new();
         number(&mut out, value);
         assert_eq!(out.parse::<f64>().ok(), Some(value), "{out}");

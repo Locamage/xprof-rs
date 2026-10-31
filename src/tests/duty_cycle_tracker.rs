@@ -21,10 +21,7 @@ pub fn add_tracker(space: &mut XSpace, chip: Option<u32>, intervals: &[Interval]
             &format!("op.{index}"),
             begin,
             end - begin,
-            &[(
-                "hlo_category",
-                if active { "call" } else { "infeed" }.into(),
-            )],
+            &[("hlo_category", if active { "call" } else { "infeed" }.into())],
         );
     }
 }

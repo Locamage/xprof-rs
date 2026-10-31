@@ -28,10 +28,7 @@ pub trait Client {
         if found.is_empty() {
             return fail(
                 Kind::FileNotFound,
-                format!(
-                    "No .xplane.pb or .xspace.pb files found in {}",
-                    dir.display()
-                ),
+                format!("No .xplane.pb or .xspace.pb files found in {}", dir.display()),
             );
         }
         Ok(found)
@@ -46,21 +43,11 @@ pub trait Client {
     }
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
-        let mut params = vec![(
-            "trace_filter_config",
-            r#"{"device_regexes": ["TPU:0", "GPU:0"]}"#.to_string(),
-        )];
-        params.extend(
-            self.hosts(session)
-                .ok()?
-                .first()
-                .map(|host| ("hosts", host.clone())),
-        );
+        let mut params =
+            vec![("trace_filter_config", r#"{"device_regexes": ["TPU:0", "GPU:0"]}"#.to_string())];
+        params.extend(self.hosts(session).ok()?.first().map(|host| ("hosts", host.clone())));
         let trace = serde_json::from_slice::<serde_json::Value>(
-            &self
-                .fetch("trace_viewer.json", session, &params)
-                .ok()
-                .flatten()?,
+            &self.fetch("trace_viewer.json", session, &params).ok().flatten()?,
         )
         .ok()?;
         let events = trace.get("traceEvents")?.as_array()?;
@@ -70,12 +57,7 @@ pub trait Client {
                 .filter(|event| {
                     event.get("name").and_then(|name| name.as_str()) == Some("barrier-cores")
                 })
-                .map(|event| {
-                    event
-                        .get("dur")
-                        .and_then(serde_json::Value::as_f64)
-                        .unwrap_or(0.0)
-                })
+                .map(|event| event.get("dur").and_then(serde_json::Value::as_f64).unwrap_or(0.0))
                 .collect(),
         )
     }
@@ -114,13 +96,10 @@ pub trait Client {
         session: &str,
         params: &Params,
     ) -> Result<Option<String>, Error> {
-        Ok(self
-            .fetch(tool, session, params)?
-            .filter(|data| !data.is_empty())
-            .map(|data| {
-                String::from_utf8(data)
-                    .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
-            }))
+        Ok(self.fetch(tool, session, params)?.filter(|data| !data.is_empty()).map(|data| {
+            String::from_utf8(data)
+                .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
+        }))
     }
 
     /// The op profile of a session, as the JSON reader gives it.
@@ -166,17 +145,13 @@ pub fn host(path: &Path) -> String {
 pub fn find(dir: &Path, suffixes: &[&str], recursive: bool) -> Vec<PathBuf> {
     let (mut found, mut pending) = (Vec::new(), vec![dir.to_path_buf()]);
     while let Some(next) = pending.pop() {
-        for path in std::fs::read_dir(&next)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path())
+        for path in
+            std::fs::read_dir(&next).into_iter().flatten().flatten().map(|entry| entry.path())
         {
             if path.is_dir() {
                 pending.extend(recursive.then_some(path));
             } else if suffixes.iter().any(|suffix| {
-                path.file_name()
-                    .is_some_and(|name| name.to_string_lossy().ends_with(suffix))
+                path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(suffix))
             }) {
                 found.push(path);
             }
@@ -188,10 +163,7 @@ pub fn find(dir: &Path, suffixes: &[&str], recursive: bool) -> Vec<PathBuf> {
 
 pub fn traces(dir: &Path) -> Vec<PathBuf> {
     if dir.is_file() {
-        return if TRACE_SUFFIXES
-            .iter()
-            .any(|suffix| dir.to_string_lossy().ends_with(suffix))
-        {
+        return if TRACE_SUFFIXES.iter().any(|suffix| dir.to_string_lossy().ends_with(suffix)) {
             vec![dir.to_path_buf()]
         } else {
             Vec::new()
@@ -205,18 +177,13 @@ pub fn kernel_utilization<'a>(
     option: impl Fn(&str) -> Option<&'a str>,
 ) -> Option<String> {
     let filter = crate::tools::counters::Filter {
-        kernel: option("kernel")
-            .or(option("kernel_name"))
-            .unwrap_or_default()
-            .to_string(),
+        kernel: option("kernel").or(option("kernel_name")).unwrap_or_default().to_string(),
         duration_us: option("duration_us")
             .and_then(|value| value.trim().parse().ok())
             .unwrap_or(0.0),
         force: option("force_duration")
             .is_some_and(|value| matches!(value, "True" | "true" | "1" | "yes" | "t" | "y")),
-        device: option("device_id")
-            .and_then(|value| value.trim().parse().ok())
-            .unwrap_or(-1),
+        device: option("device_id").and_then(|value| value.trim().parse().ok()).unwrap_or(-1),
     };
     crate::tools::counters::checked(map, |map| {
         crate::tools::counters::kernel_utilization(map, &filter)
@@ -255,10 +222,8 @@ pub struct Local {
 impl Local {
     /// The op statistics of all the hosts. The process loads each file one time and extends it when a tool needs more.
     fn stats(&self, paths: &[PathBuf], fused: bool, part: Part) -> Option<Arc<OpStats>> {
-        let (mut loaded, mut kept) = (
-            self.loaded.lock().expect("lock poisoned"),
-            self.kept.write().expect("lock poisoned"),
-        );
+        let (mut loaded, mut kept) =
+            (self.loaded.lock().expect("lock poisoned"), self.kept.write().expect("lock poisoned"));
         let all: Vec<_> = paths
             .iter()
             .map(|path| {
@@ -285,18 +250,9 @@ impl Local {
 
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
     fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> Option<T> {
-        if let Some(kept) = self
-            .kept
-            .write()
-            .expect("lock poisoned")
-            .get_mut(path)
-            .filter(|kept| {
-                !kept
-                    .planes
-                    .iter()
-                    .any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))
-            })
-        {
+        if let Some(kept) = self.kept.write().expect("lock poisoned").get_mut(path).filter(|kept| {
+            !kept.planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))
+        }) {
             kept.finish(true);
             return Some(read(&kept.planes, kept.map()));
         }
@@ -326,13 +282,9 @@ impl Client for Local {
     }
 
     fn roofline_total(&self, session: &str) -> Option<String> {
-        self.fetch_text(
-            "roofline_model.json",
-            session,
-            &[(TOTAL_ONLY, String::new())],
-        )
-        .ok()?
-        .or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
+        self.fetch_text("roofline_model.json", session, &[(TOTAL_ONLY, String::new())])
+            .ok()?
+            .or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
     }
 
     fn roofline_properties(&self, session: &str, _: &Params) -> Result<Option<String>, Error> {
@@ -343,15 +295,9 @@ impl Client for Local {
     }
 
     fn category_times(&self, session: &str, _: &Params) -> Option<[f64; 3]> {
-        let stats = self.stats(
-            &self.xspace_paths(&self.run_dir(session).ok()?).ok()?,
-            true,
-            Part::Device,
-        )?;
-        Some(crate::tools::op_profile::category_times(
-            &stats,
-            super::steps::time_class,
-        ))
+        let stats =
+            self.stats(&self.xspace_paths(&self.run_dir(session).ok()?).ok()?, true, Part::Device)?;
+        Some(crate::tools::op_profile::category_times(&stats, super::steps::time_class))
     }
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
@@ -379,10 +325,7 @@ impl Client for Local {
         }
         let Some(logdir) = &self.logdir else {
             return if session.is_empty() {
-                fail(
-                    Kind::Value,
-                    "Logdir not set. Please configure logdir first.",
-                )
+                fail(Kind::Value, "Logdir not set. Please configure logdir first.")
             } else {
                 fail(Kind::FileNotFound, format!("Path not found: {session}"))
             };
@@ -425,119 +368,98 @@ impl Client for Local {
 
     fn fetch(&self, tool: &str, session: &str, params: &Params) -> Result<Option<Vec<u8>>, Error> {
         let name = tool.strip_suffix(".json").unwrap_or(tool);
-        let name = if name == "hlo_op_profile" {
-            "op_profile"
-        } else {
-            name
-        };
+        let name = if name == "hlo_op_profile" { "op_profile" } else { name };
         if !crate::XPLANE_TOOLS.contains(&name) {
-            return fail(
-                Kind::Value,
-                format!("Unknown XProf tool name: {}", py_repr(tool)),
-            );
+            return fail(Kind::Value, format!("Unknown XProf tool name: {}", py_repr(tool)));
         }
         let paths = self.xspace_paths(&self.run_dir(session)?)?;
         let flag = |key: &str, value: &str| {
             if matches!(key, "show_metadata" | "merge_fusion") {
-                value
-                    .trim()
-                    .parse::<i64>()
-                    .is_ok_and(|number| number != 0)
-                    .to_string()
+                value.trim().parse::<i64>().is_ok_and(|number| number != 0).to_string()
             } else {
                 value.to_string()
             }
         };
-        let options: HashMap<String, String> = params
-            .iter()
-            .map(|(key, value)| (key.to_string(), flag(key, value)))
-            .collect();
+        let options: HashMap<String, String> =
+            params.iter().map(|(key, value)| (key.to_string(), flag(key, value))).collect();
         let option = |key: &str| options.get(key).map(String::as_str);
         let dir = paths[0].parent().map(Path::to_path_buf).unwrap_or_default();
         let stats = |fused: bool, part: Part| self.stats(&paths, fused, part);
-        let rendered =
-            match name {
-                "memory_profile" if paths.len() != 1 && option("host").is_none() => {
+        let rendered = match name {
+            "memory_profile" if paths.len() != 1 && option("host").is_none() => {
+                return fail(Kind::Assertion, "");
+            }
+            "memory_profile" => {
+                let path =
+                    paths.iter().find(|path| option("host").is_none_or(|name| host(path) == name));
+                let Some(path) = path else {
                     return fail(Kind::Assertion, "");
-                }
-                "memory_profile" => {
-                    let path = paths
-                        .iter()
-                        .find(|path| option("host").is_none_or(|name| host(path) == name));
-                    let Some(path) = path else {
-                        return fail(Kind::Assertion, "");
-                    };
-                    match self.kept.write().expect("lock poisoned").get_mut(path) {
-                        Some(kept) => {
-                            kept.finish(false);
-                            Some(crate::tools::memory_profile::json(&kept.planes, kept.map()))
-                        }
-                        None => crate::tools::memory_profile::load(path).ok().flatten(),
+                };
+                match self.kept.write().expect("lock poisoned").get_mut(path) {
+                    Some(kept) => {
+                        kept.finish(false);
+                        Some(crate::tools::memory_profile::json(&kept.planes, kept.map()))
                     }
+                    None => crate::tools::memory_profile::load(path).ok().flatten(),
                 }
-                "overview_page" => stats(false, Part::All)
-                    .map(|stats| crate::tools::overview_page::json(&stats, &paths)),
-                "input_pipeline_analyzer" => stats(false, Part::All)
-                    .map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
-                "framework_op_stats" => stats(false, Part::All)
-                    .map(|stats| crate::tools::framework_op_stats::json(&stats)),
-                "kernel_stats" => stats(false, Part::Device)
-                    .map(|stats| crate::xplane::gpu::kernel_stats_json(&stats)),
-                "pod_viewer" => {
-                    stats(false, Part::All).map(|stats| crate::tools::pod_viewer::json(&stats))
-                }
-                "op_profile" => stats(true, Part::Device).map(|stats| {
-                    crate::tools::op_profile::json_trees(
-                        &stats,
-                        Some(option("group_by").unwrap_or("program")),
-                        false,
-                    )
-                }),
-                "hlo_stats" => {
-                    stats(false, Part::Device).map(|stats| crate::tools::hlo_stats::json(&stats))
-                }
-                "roofline_model" => stats(false, Part::Programs).map(|stats| {
-                    crate::tools::roofline::json_rows(
-                        &stats,
-                        if option(TOTAL_ONLY).is_some() {
-                            Rows::Total
-                        } else {
-                            Rows::All
-                        },
-                    )
-                }),
-                "memory_viewer" => crate::hlo::memory::serve(&dir, &options).map(|(body, _)| body),
-                "graph_viewer" => {
-                    return crate::hlo::graph::serve(&dir, &options)
-                        .map(|(body, _)| Some(body))
-                        .map_err(|message| Error::new(Kind::Value, message));
-                }
-                "utilization_viewer" | "perf_counters" => {
-                    // The process does not read or check a trace again after it read the trace one time.
-                    let known =
-                        (name == "utilization_viewer" && paths.len() == 1)
-                            .then(|| {
-                                self.kept.read().expect("lock poisoned").get(&paths[0]).map(
-                                    |kept| crate::tools::counters::utilization_viewer(kept.map()),
-                                )
-                            })
-                            .flatten();
-                    known.or_else(|| crate::tools::counters::serve(name, &paths))
-                }
-                "kernel_utilization" => {
-                    <[PathBuf; 1]>::try_from(paths.clone())
-                        .ok()
-                        .and_then(|[path]| {
-                            crate::read_file(&path)
-                                .ok()
-                                .and_then(|map| kernel_utilization(&map, option))
-                        })
-                }
-                "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone())
-                    .ok()
-                    .and_then(|[path]| self.prepared(&path, crate::trace::legacy::render)),
-                _ => None,
-            };
+            }
+            "overview_page" => stats(false, Part::All)
+                .map(|stats| crate::tools::overview_page::json(&stats, &paths)),
+            "input_pipeline_analyzer" => stats(false, Part::All)
+                .map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
+            "framework_op_stats" => {
+                stats(false, Part::All).map(|stats| crate::tools::framework_op_stats::json(&stats))
+            }
+            "kernel_stats" => stats(false, Part::Device)
+                .map(|stats| crate::xplane::gpu::kernel_stats_json(&stats)),
+            "pod_viewer" => {
+                stats(false, Part::All).map(|stats| crate::tools::pod_viewer::json(&stats))
+            }
+            "op_profile" => stats(true, Part::Device).map(|stats| {
+                crate::tools::op_profile::json_trees(
+                    &stats,
+                    Some(option("group_by").unwrap_or("program")),
+                    false,
+                )
+            }),
+            "hlo_stats" => {
+                stats(false, Part::Device).map(|stats| crate::tools::hlo_stats::json(&stats))
+            }
+            "roofline_model" => stats(false, Part::Programs).map(|stats| {
+                crate::tools::roofline::json_rows(
+                    &stats,
+                    if option(TOTAL_ONLY).is_some() { Rows::Total } else { Rows::All },
+                )
+            }),
+            "memory_viewer" => crate::hlo::memory::serve(&dir, &options).map(|(body, _)| body),
+            "graph_viewer" => {
+                return crate::hlo::graph::serve(&dir, &options)
+                    .map(|(body, _)| Some(body))
+                    .map_err(|message| Error::new(Kind::Value, message));
+            }
+            "utilization_viewer" | "perf_counters" => {
+                // The process does not read or check a trace again after it read the trace one time.
+                let known = (name == "utilization_viewer" && paths.len() == 1)
+                    .then(|| {
+                        self.kept
+                            .read()
+                            .expect("lock poisoned")
+                            .get(&paths[0])
+                            .map(|kept| crate::tools::counters::utilization_viewer(kept.map()))
+                    })
+                    .flatten();
+                known.or_else(|| crate::tools::counters::serve(name, &paths))
+            }
+            "kernel_utilization" => {
+                <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| {
+                    crate::read_file(&path).ok().and_then(|map| kernel_utilization(&map, option))
+                })
+            }
+            "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone())
+                .ok()
+                .and_then(|[path]| self.prepared(&path, crate::trace::legacy::render)),
+            _ => None,
+        };
         Ok(rendered.map(String::into_bytes))
     }
 }

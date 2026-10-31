@@ -20,19 +20,11 @@ fn test_sort() {
 
     let by_latency = &sample("Latency", "Latency", &stats)[&1];
     assert_eq!(
-        by_latency
-            .sampled_requests
-            .iter()
-            .map(|request| request.request_id)
-            .collect::<Vec<_>>(),
+        by_latency.sampled_requests.iter().map(|request| request.request_id).collect::<Vec<_>>(),
         [0, 1, 2]
     );
     assert_eq!(
-        by_latency
-            .sampled_batches
-            .iter()
-            .map(|batch| batch.batch_id)
-            .collect::<Vec<_>>(),
+        by_latency.sampled_batches.iter().map(|batch| batch.batch_id).collect::<Vec<_>>(),
         [3, 4, 5]
     );
 
@@ -46,11 +38,7 @@ fn test_sort() {
         [100, 200, 300]
     );
     assert_eq!(
-        by_size
-            .sampled_batches
-            .iter()
-            .map(|batch| batch.padding_amount)
-            .collect::<Vec<_>>(),
+        by_size.sampled_batches.iter().map(|batch| batch.padding_amount).collect::<Vec<_>>(),
         [10, 20, 30]
     );
 
@@ -64,11 +52,7 @@ fn test_sort() {
         [1000, 2000, 3000]
     );
     assert_eq!(
-        by_delay
-            .sampled_batches
-            .iter()
-            .map(|batch| batch.batch_delay_ps)
-            .collect::<Vec<_>>(),
+        by_delay.sampled_batches.iter().map(|batch| batch.batch_delay_ps).collect::<Vec<_>>(),
         [1000, 2000, 3000]
     );
 }

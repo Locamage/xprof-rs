@@ -54,10 +54,8 @@ const COUNTER_VALUE: &str = "counter_value";
 pub fn tools(map: &[u8]) -> Option<Vec<&'static str>> {
     checked(map, |map| -> Vec<&'static str> {
         let planes = planes(map, |_| true);
-        let counters = planes
-            .par_iter()
-            .filter(|plane| plane.name.starts_with(TPU_PREFIX))
-            .any(|plane| {
+        let counters =
+            planes.par_iter().filter(|plane| plane.name.starts_with(TPU_PREFIX)).any(|plane| {
                 let id = plane.stat_id(COUNTER_VALUE);
                 id.is_some()
                     && plane.lines.par_iter().any(|line| {
@@ -65,12 +63,7 @@ pub fn tools(map: &[u8]) -> Option<Vec<&'static str>> {
                     })
             });
         let found: [(bool, &[&str]); 4] = [
-            (
-                planes
-                    .iter()
-                    .any(|plane| plane.name.starts_with(GPU_PREFIX)),
-                &["kernel_stats"],
-            ),
+            (planes.iter().any(|plane| plane.name.starts_with(GPU_PREFIX)), &["kernel_stats"]),
             (
                 planes.iter().any(|plane| {
                     plane.name == METADATA_PLANE && plane.stat_id(HLO_PROTO).is_some()
@@ -78,21 +71,12 @@ pub fn tools(map: &[u8]) -> Option<Vec<&'static str>> {
                 &["memory_viewer", "graph_viewer"],
             ),
             (
-                planes
-                    .iter()
-                    .find(|plane| plane.name == HOST_PLANE)
-                    .is_some_and(|plane| {
-                        plane
-                            .metadata
-                            .values()
-                            .any(|(name, _)| name.starts_with(MEGASCALE_PREFIX))
-                    }),
+                planes.iter().find(|plane| plane.name == HOST_PLANE).is_some_and(|plane| {
+                    plane.metadata.values().any(|(name, _)| name.starts_with(MEGASCALE_PREFIX))
+                }),
                 &["megascale_stats"],
             ),
-            (
-                counters,
-                &["perf_counters", "utilization_viewer", "kernel_utilization"],
-            ),
+            (counters, &["perf_counters", "utilization_viewer", "kernel_utilization"]),
         ];
         BASE_TOOLS
             .into_iter()
@@ -116,11 +100,7 @@ pub fn sorted<'a>(tools: impl IntoIterator<Item = &'a str>) -> Vec<String> {
         .filter(|tool| set.contains(*tool))
         .map(std::string::ToString::to_string)
         .collect();
-    out.extend(
-        set.into_iter()
-            .filter(|tool| !SORT_ORDER.contains(tool))
-            .map(String::from),
-    );
+    out.extend(set.into_iter().filter(|tool| !SORT_ORDER.contains(tool)).map(String::from));
     out
 }
 
@@ -148,12 +128,10 @@ fn file_states(dir: &Path) -> Option<BTreeMap<String, String>> {
 
 pub fn cache_path(dir: &Path) -> PathBuf {
     let text = dir.to_string_lossy();
-    let demo = text
-        .match_indices("demo/plugins/profile")
-        .any(|(at, matched)| {
-            (at == 0 || text.as_bytes()[at - 1] == b'/')
-                && matches!(text.as_bytes().get(at + matched.len()), None | Some(b'/'))
-        });
+    let demo = text.match_indices("demo/plugins/profile").any(|(at, matched)| {
+        (at == 0 || text.as_bytes()[at - 1] == b'/')
+            && matches!(text.as_bytes().get(at + matched.len()), None | Some(b'/'))
+    });
     if !demo {
         return dir.join(CACHE_FILE);
     }
@@ -212,14 +190,9 @@ pub(crate) fn python_string_into(out: &mut String, text: &str) {
 pub(crate) fn python_value(value: &Value) -> String {
     match value {
         Value::String(text) => python_string(text),
-        Value::Array(items) => format!(
-            "[{}]",
-            items
-                .iter()
-                .map(python_value)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        Value::Array(items) => {
+            format!("[{}]", items.iter().map(python_value).collect::<Vec<_>>().join(", "))
+        }
         Value::Object(entries) => format!(
             "{{{}}}",
             entries
@@ -244,34 +217,27 @@ fn load(cache: &Path, dir: &Path) -> Option<Vec<Value>> {
         _ => false,
     };
     let current = file_states(dir);
-    let files_match = current
-        .as_ref()
-        .is_some_and(|current| match data.get("files") {
-            Some(Value::Object(files)) => {
-                files.len() == current.len()
-                    && current.iter().all(|(name, state)| {
-                        files.get(name).and_then(Value::as_str) == Some(state.as_str())
-                    })
-            }
-            _ => false,
-        });
+    let files_match = current.as_ref().is_some_and(|current| match data.get("files") {
+        Some(Value::Object(files)) => {
+            files.len() == current.len()
+                && current.iter().all(|(name, state)| {
+                    files.get(name).and_then(Value::as_str) == Some(state.as_str())
+                })
+        }
+        _ => false,
+    });
     if !version_matches || !files_match {
         _ = std::fs::remove_file(cache);
         return None;
     }
     match data.get("tools")? {
         Value::Array(items) => Some(items.clone()),
-        Value::String(text) => Some(
-            text.chars()
-                .map(|character| Value::String(character.to_string()))
-                .collect(),
-        ),
-        Value::Object(entries) => Some(
-            entries
-                .keys()
-                .map(|key| Value::String(key.clone()))
-                .collect(),
-        ),
+        Value::String(text) => {
+            Some(text.chars().map(|character| Value::String(character.to_string())).collect())
+        }
+        Value::Object(entries) => {
+            Some(entries.keys().map(|key| Value::String(key.clone())).collect())
+        }
         _ => None,
     }
 }
@@ -294,9 +260,7 @@ fn generate(dir: &Path) -> Option<Vec<String>> {
     let files: Vec<String> = std::fs::read_dir(dir)
         .ok()?
         .filter_map(|entry| {
-            entry
-                .ok()
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            entry.ok().map(|entry| entry.file_name().to_string_lossy().into_owned())
         })
         .collect();
     if files.is_empty() {
@@ -305,9 +269,7 @@ fn generate(dir: &Path) -> Option<Vec<String>> {
     let extension = |name: &str| {
         TOOL_EXTENSIONS.into_iter().find(|extension| {
             name == *extension
-                || name
-                    .strip_suffix(extension)
-                    .is_some_and(|host| host.ends_with('.'))
+                || name.strip_suffix(extension).is_some_and(|host| host.ends_with('.'))
         })
     };
     let xspaces: Vec<PathBuf> = files
@@ -322,16 +284,12 @@ fn generate(dir: &Path) -> Option<Vec<String>> {
     }
     let extracted = files.iter().any(|name| name.ends_with(HLO_SUFFIX));
     let scan = |path: &PathBuf| {
-        let map = crate::read_file(path)
-            .ok()
-            .filter(|_| path.to_string_lossy().ends_with(".pb"))?;
+        let map =
+            crate::read_file(path).ok().filter(|_| path.to_string_lossy().ends_with(".pb"))?;
         tools(&map)
     };
-    let found: Option<Vec<Vec<&str>>> = xspaces
-        .iter()
-        .take(if extracted { 1 } else { xspaces.len() })
-        .map(scan)
-        .collect();
+    let found: Option<Vec<Vec<&str>>> =
+        xspaces.iter().take(if extracted { 1 } else { xspaces.len() }).map(scan).collect();
     let found = found.filter(|_| extracted || crate::hlo::extracted(dir, &xspaces).is_some());
     Some(found.map_or_else(Vec::new, |found| sorted(found[0].iter().copied())))
 }
@@ -343,11 +301,7 @@ pub fn json(dir: &Path) -> String {
         if let Some(tools) = &generated {
             save(&cache, dir, tools);
         }
-        generated
-            .unwrap_or_default()
-            .into_iter()
-            .map(Value::String)
-            .collect()
+        generated.unwrap_or_default().into_iter().map(Value::String).collect()
     });
     python_value(&Value::Array(tools))
 }

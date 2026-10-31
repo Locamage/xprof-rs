@@ -63,23 +63,12 @@ const XLU_INSTRUCTIONS: [&str; 4] = [
     "TRANSPOSE_XLU",
 ];
 const V6E_PRECISIONS: [(&str, &[(u64, &str)]); 3] = [
-    (
-        "MXU BF16",
-        &[
-            (4, "LMR_BF16"),
-            (8, "VREG_F8"),
-            (8, "VREG_BF16"),
-            (4, "VREG_F32"),
-        ],
-    ),
+    ("MXU BF16", &[(4, "LMR_BF16"), (8, "VREG_F8"), (8, "VREG_BF16"), (4, "VREG_F32")]),
     ("MXU I8", &[(2, "LMR_I8"), (8, "VREG_I8")]),
     ("MXU I4", &[(2, "LMR_I4"), (8, "VREG_I4")]),
 ];
 const V7X_PRECISIONS: [(&str, &[(u64, &str)]); 2] = [
-    (
-        "MXU BF16",
-        &[(4, "LMR_BF16"), (8, "VREG_BF16"), (4, "VREG_F32")],
-    ),
+    ("MXU BF16", &[(4, "LMR_BF16"), (8, "VREG_BF16"), (4, "VREG_F32")]),
     ("MXU E4M3 + E5M2", &[(8, "VREG_F8")]),
 ];
 
@@ -114,11 +103,7 @@ impl Device {
     }
 
     fn id(self, name: &str) -> u64 {
-        if self == Self::V6e {
-            V6E_IDS[name]
-        } else {
-            V7X_IDS[name]
-        }
+        if self == Self::V6e { V6E_IDS[name] } else { V7X_IDS[name] }
     }
 
     fn tensor_counter(self, core: usize, name: &str) -> u64 {
@@ -135,9 +120,7 @@ impl Device {
     pub fn cycle_counters(self) -> Vec<u64> {
         match self {
             Self::V6e => vec![self.tensor_counter(0, "CYCLES")],
-            Self::V7x => (0..2)
-                .map(|core| self.power_counter(core, "CYCLE_COUNT"))
-                .collect(),
+            Self::V7x => (0..2).map(|core| self.power_counter(core, "CYCLE_COUNT")).collect(),
         }
     }
 }
@@ -147,8 +130,7 @@ pub(crate) fn count(counters: &Counters, id: u64) -> u64 {
 }
 
 fn total(counters: &Counters, ids: impl IntoIterator<Item = u64>) -> u64 {
-    ids.into_iter()
-        .fold(0u64, |sum, id| sum.wrapping_add(count(counters, id)))
+    ids.into_iter().fold(0u64, |sum, id| sum.wrapping_add(count(counters, id)))
 }
 
 fn die(core: usize) -> usize {
@@ -163,13 +145,7 @@ fn add(
     peak: f64,
     unit: &'static str,
 ) {
-    metrics.push(Metric {
-        node: node as u64,
-        name: name.to_string(),
-        achieved,
-        peak,
-        unit,
-    });
+    metrics.push(Metric { node: node as u64, name: name.to_string(), achieved, peak, unit });
 }
 
 pub fn compute(counters: &Counters, device: Device) -> Vec<Metric> {
@@ -189,37 +165,21 @@ pub fn compute(counters: &Counters, device: Device) -> Vec<Metric> {
 
 fn tensor_core(counters: &Counters, device: Device, core: usize, metrics: &mut Vec<Metric>) {
     let counter = |name: &str| count(counters, device.tensor_counter(core, name));
-    let total = |names: &[String]| {
-        names
-            .iter()
-            .fold(0u64, |sum, name| sum.wrapping_add(counter(name)))
-    };
+    let total =
+        |names: &[String]| names.iter().fold(0u64, |sum, name| sum.wrapping_add(counter(name)));
     let power = |name: &str| count(counters, device.power_counter(core, name));
-    let cycles = if device == Device::V6e {
-        counter("CYCLES")
-    } else {
-        power("CYCLE_COUNT")
-    };
+    let cycles = if device == Device::V6e { counter("CYCLES") } else { power("CYCLE_COUNT") };
     if cycles == 0 {
         return;
     }
     let cycles_f = cycles as f64;
     if device == Device::V7x {
         for (name, counter_name) in SKIPPED_CLOCKS {
-            add(
-                metrics,
-                core,
-                name,
-                power(counter_name) as f64,
-                cycles_f,
-                CYCLES,
-            );
+            add(metrics, core, name, power(counter_name) as f64, cycles_f, CYCLES);
         }
     }
     let indexed = |prefix: &str, count: usize| {
-        (0..count)
-            .map(|index| format!("{prefix}_{index}"))
-            .collect::<Vec<_>>()
+        (0..count).map(|index| format!("{prefix}_{index}")).collect::<Vec<_>>()
     };
     add(
         metrics,
@@ -238,26 +198,10 @@ fn tensor_core(counters: &Counters, device: Device, core: usize, metrics: &mut V
         vector_peak,
         INSTRUCTIONS,
     );
-    let vpu_ops: Vec<String> = VPU_OPS
-        .iter()
-        .flat_map(|op| indexed(&format!("VPU_VALU_{op}_OPS"), 4))
-        .collect();
-    add(
-        metrics,
-        core,
-        "VPU Utilization",
-        total(&vpu_ops) as f64,
-        vector_peak,
-        INSTRUCTIONS,
-    );
-    add(
-        metrics,
-        core,
-        "Vmem Stores",
-        counter("VST_INSTRUCTION") as f64,
-        cycles_f,
-        INSTRUCTIONS,
-    );
+    let vpu_ops: Vec<String> =
+        VPU_OPS.iter().flat_map(|op| indexed(&format!("VPU_VALU_{op}_OPS"), 4)).collect();
+    add(metrics, core, "VPU Utilization", total(&vpu_ops) as f64, vector_peak, INSTRUCTIONS);
+    add(metrics, core, "Vmem Stores", counter("VST_INSTRUCTION") as f64, cycles_f, INSTRUCTIONS);
     add(
         metrics,
         core,
@@ -270,14 +214,7 @@ fn tensor_core(counters: &Counters, device: Device, core: usize, metrics: &mut V
         for (name, value) in names.into_iter().zip(values) {
             add(metrics, core, name, value as f64, cycles_f, CYCLES);
         }
-        add(
-            metrics,
-            core,
-            names[3],
-            0.5 * values[1] as f64 + values[2] as f64,
-            cycles_f,
-            CYCLES,
-        );
+        add(metrics, core, names[3], 0.5 * values[1] as f64 + values[2] as f64, cycles_f, CYCLES);
     };
     busy(
         metrics,
@@ -285,11 +222,8 @@ fn tensor_core(counters: &Counters, device: Device, core: usize, metrics: &mut V
         ["No MXU Busy", "1 MXU Busy", "2 MXU Busy", "Avg MXU Busy"],
     );
     let mxu_peak = cycles.wrapping_mul(MXUS_PER_TENSOR_CORE) as f64;
-    let precisions: &[(&str, &[(u64, &str)])] = if device == Device::V6e {
-        &V6E_PRECISIONS
-    } else {
-        &V7X_PRECISIONS
-    };
+    let precisions: &[(&str, &[(u64, &str)])] =
+        if device == Device::V6e { &V6E_PRECISIONS } else { &V7X_PRECISIONS };
     let weighted = |unit: usize, terms: &[(u64, &str)]| {
         terms.iter().fold(0u64, |sum, &(weight, name)| {
             sum.wrapping_add(weight.wrapping_mul(counter(&format!("MATMUL_{name}_MXU_{unit}"))))
@@ -300,9 +234,8 @@ fn tensor_core(counters: &Counters, device: Device, core: usize, metrics: &mut V
             metrics,
             core,
             &format!("MXU{unit}"),
-            precisions.iter().fold(0u64, |sum, (_, terms)| {
-                sum.wrapping_add(weighted(unit, terms))
-            }) as f64,
+            precisions.iter().fold(0u64, |sum, (_, terms)| sum.wrapping_add(weighted(unit, terms)))
+                as f64,
             cycles_f,
             CYCLES,
         );
@@ -350,14 +283,8 @@ fn sparse_core(
     core: usize,
     metrics: &mut Vec<Metric>,
 ) {
-    let (sc, node) = (
-        die(core),
-        if device == Device::V6e {
-            core
-        } else {
-            (die_index << 1) + core
-        },
-    );
+    let (sc, node) =
+        (die(core), if device == Device::V6e { core } else { (die_index << 1) + core });
     let prefix = if device == Device::V6e {
         format!("VF_CHIP_SC_{sc}")
     } else {
@@ -375,65 +302,29 @@ fn sparse_core(
     } else {
         ("SCTD", "SCTC", &V7X_VECTOR_SLOTS)
     };
-    let cycle_peak = count(
-        counters,
-        device.id(&format!("{prefix}_{scalar}_0{SC_SUFFIX}CYCLES")),
-    )
-    .wrapping_mul(SC_TILES as u64) as f64;
+    let cycle_peak = count(counters, device.id(&format!("{prefix}_{scalar}_0{SC_SUFFIX}CYCLES")))
+        .wrapping_mul(SC_TILES as u64) as f64;
     for (metric, name) in TEC_SLOTS {
-        add(
-            metrics,
-            node,
-            metric,
-            tiles(scalar, name) as f64,
-            cycle_peak,
-            INSTRUCTIONS,
-        );
+        add(metrics, node, metric, tiles(scalar, name) as f64, cycle_peak, INSTRUCTIONS);
     }
     for (metric, name) in slots {
-        add(
-            metrics,
-            node,
-            metric,
-            tiles(vector, name) as f64,
-            cycle_peak,
-            INSTRUCTIONS,
-        );
+        add(metrics, node, metric, tiles(vector, name) as f64, cycle_peak, INSTRUCTIONS);
     }
-    let sequencer = |name: &str| {
-        count(
-            counters,
-            device.id(&format!("{prefix}_SCS{SC_SUFFIX}{name}")),
-        ) as f64
-    };
+    let sequencer =
+        |name: &str| count(counters, device.id(&format!("{prefix}_SCS{SC_SUFFIX}{name}"))) as f64;
     for (metric, name) in SCS_SLOTS {
-        add(
-            metrics,
-            node,
-            metric,
-            sequencer(name),
-            sequencer("CYCLES"),
-            INSTRUCTIONS,
-        );
+        add(metrics, node, metric, sequencer(name), sequencer("CYCLES"), INSTRUCTIONS);
     }
 }
 
 fn hbm_counters(device: Device, core: usize, read: bool) -> Vec<u64> {
-    let kinds: &[&str] = if read {
-        &["RD_RESP"]
-    } else {
-        &["WR_REQ", "PARTIAL_WRITE_REQ"]
-    };
+    let kinds: &[&str] = if read { &["RD_RESP"] } else { &["WR_REQ", "PARTIAL_WRITE_REQ"] };
     let (stacks, prefix) = if device == Device::V6e {
         (2, "VF_CHIP_HBM".to_string())
     } else {
         (4, format!("VF_CHIP_DIE{}_HBM", die(core)))
     };
-    let controller = if device == Device::V6e {
-        "HBMC"
-    } else {
-        "SS_HBMC"
-    };
+    let controller = if device == Device::V6e { "HBMC" } else { "SS_HBMC" };
     let mut ids = Vec::new();
     for stack in 0..stacks {
         for index in 0..16 {
@@ -457,11 +348,7 @@ fn bandwidth(counters: &Counters, device: Device, core: usize, metrics: &mut Vec
     if cycles == 0 {
         return;
     }
-    let peak_bandwidth = if device == Device::V6e {
-        1525.5 * GIB
-    } else {
-        3433.0 * GIB
-    };
+    let peak_bandwidth = if device == Device::V6e { 1525.5 * GIB } else { 3433.0 * GIB };
     let total = read.wrapping_add(written) as f64;
     add(
         metrics,
@@ -473,14 +360,7 @@ fn bandwidth(counters: &Counters, device: Device, core: usize, metrics: &mut Vec
     );
     if total > 0.0 {
         add(metrics, core, "HBM Read Ratio", read as f64, total, PERCENT);
-        add(
-            metrics,
-            core,
-            "HBM Write Ratio",
-            written as f64,
-            total,
-            PERCENT,
-        );
+        add(metrics, core, "HBM Write Ratio", written as f64, total, PERCENT);
     }
 }
 

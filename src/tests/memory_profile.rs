@@ -29,10 +29,7 @@ fn one_allocator_multi_activities_test() {
     let named = |counters: [(&'static str, V); 9],
                  names: &[(&'static str, &str)]|
      -> Vec<(&'static str, V)> {
-        counters
-            .into_iter()
-            .chain(names.iter().map(|&(key, text)| (key, V::from(text))))
-            .collect()
+        counters.into_iter().chain(names.iter().map(|&(key, text)| (key, V::from(text)))).collect()
     };
     let first = named(
         counters(2000, 3000, 5000, 8500, 200, 256, 222333, -93746, 1),
@@ -46,11 +43,7 @@ fn one_allocator_multi_activities_test() {
     host.event(0, "MemoryAllocation", 40000, 1000, &first);
     let second = named(
         counters(2000, 2744, 5256, 8500, 200, 256, 222333, 0, 0),
-        &[
-            ("allocator_name", "GPU_0_bfc"),
-            ("region_type", ""),
-            ("shape", ""),
-        ],
+        &[("allocator_name", "GPU_0_bfc"), ("region_type", ""), ("shape", "")],
     );
     host.event(0, "MemoryDeallocation", 50000, 1000, &second);
     let third = named(
@@ -69,11 +62,7 @@ fn one_allocator_multi_activities_test() {
     let allocators = profile["memoryProfilePerAllocator"].as_object().unwrap();
     assert_eq!(allocators.len(), 1);
     assert_eq!(
-        (
-            &profile["numHosts"],
-            profile["memoryIds"].as_array().unwrap().len(),
-            &profile["version"]
-        ),
+        (&profile["numHosts"], profile["memoryIds"].as_array().unwrap().len(), &profile["version"]),
         (&Value::from(1), 1, &Value::from(1))
     );
     let (name, allocator) = allocators.iter().next().unwrap();
@@ -85,11 +74,7 @@ fn one_allocator_multi_activities_test() {
             &summary["peakStats"]["peakBytesInUse"],
             &summary["peakStatsTimePs"]
         ),
-        (
-            &Value::from("9500"),
-            &Value::from("7000"),
-            &Value::from("70000")
-        )
+        (&Value::from("9500"), &Value::from("7000"), &Value::from("70000"))
     );
     let count = |key: &str| allocator[key].as_array().unwrap().len();
     assert_eq!(

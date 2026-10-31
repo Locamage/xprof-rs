@@ -53,10 +53,7 @@ async fn get_trace_view_option_valid() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let events = trace_events(&body);
     assert_eq!(events.iter().filter(|event| event["ph"] == "X").count(), 1);
-    assert_eq!(
-        named(&events, "SessionRun").unwrap()["args"]["group_id"],
-        456
-    );
+    assert_eq!(named(&events, "SessionRun").unwrap()["args"]["group_id"], 456);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -81,10 +78,7 @@ async fn get_trace_view_option_search_metadata() {
     .await;
     assert_eq!(status, StatusCode::OK);
     let events = trace_events(&body);
-    assert_eq!(
-        named(&events, "SessionRun").unwrap()["args"]["group_id"],
-        456
-    );
+    assert_eq!(named(&events, "SessionRun").unwrap()["args"]["group_id"], 456);
     assert!(named(&events, "TraceContext").is_none());
 }
 
@@ -110,13 +104,9 @@ async fn get_trace_view_option_float_formatted() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_trace_view_option_invalid_number() {
     assert_eq!(
-        single_host(
-            "view-option-invalid",
-            &create_test_x_space(2),
-            "resolution=not_a_number"
-        )
-        .await
-        .0,
+        single_host("view-option-invalid", &create_test_x_space(2), "resolution=not_a_number")
+            .await
+            .0,
         StatusCode::NOT_FOUND
     );
 }
@@ -130,9 +120,7 @@ async fn reduce_single_host() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let ts = named(&trace_events(&body), "SessionRun").unwrap()["ts"]
-        .as_f64()
-        .unwrap();
+    let ts = named(&trace_events(&body), "SessionRun").unwrap()["ts"].as_f64().unwrap();
     assert!((ts - 1200.0).abs() <= 1.0, "{ts}");
 }
 
@@ -158,19 +146,13 @@ async fn reduce_multi_host_stress_test() {
     let hosts: Vec<(&str, Vec<u8>)> = names
         .iter()
         .map(|name| {
-            (
-                name.as_str(),
-                single_event_x_space(&format!("EventFrom{name}")).encode_to_vec(),
-            )
+            (name.as_str(), single_event_x_space(&format!("EventFrom{name}")).encode_to_vec())
         })
         .collect();
     let (status, _, body) = served(
         "reduce-stress",
         &hosts,
-        &format!(
-            "tag=trace_viewer@&hosts={}&end_time_ms=5000.0&resolution=1",
-            names.join(",")
-        ),
+        &format!("tag=trace_viewer@&hosts={}&end_time_ms=5000.0&resolution=1", names.join(",")),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -192,29 +174,15 @@ async fn reduce_with_search_metadata() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&body)
-            .unwrap()
-            .get("traceEvents")
-            .is_some()
-    );
+    assert!(serde_json::from_str::<serde_json::Value>(&body).unwrap().get("traceEvents").is_some());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reduce_with_search_prefix() {
-    let (status, body) = single_host(
-        "reduce-search-prefix",
-        &create_test_x_space(2),
-        "search_prefix=Sess",
-    )
-    .await;
+    let (status, body) =
+        single_host("reduce-search-prefix", &create_test_x_space(2), "search_prefix=Sess").await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&body)
-            .unwrap()
-            .get("traceEvents")
-            .is_some()
-    );
+    assert!(serde_json::from_str::<serde_json::Value>(&body).unwrap().get("traceEvents").is_some());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -255,22 +223,16 @@ async fn reduce_with_event_name() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let complete: Vec<serde_json::Value> = trace_events(&body)
-        .into_iter()
-        .filter(|event| event["ph"] == "X")
-        .collect();
+    let complete: Vec<serde_json::Value> =
+        trace_events(&body).into_iter().filter(|event| event["ph"] == "X").collect();
     assert_eq!(complete.len(), 1);
     assert_eq!(complete[0]["name"], "SessionRun");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn process_session_with_search_prefix() {
-    let (status, body) = single_host(
-        "process-session-search",
-        &create_test_x_space(2),
-        "search_prefix=Sess",
-    )
-    .await;
+    let (status, body) =
+        single_host("process-session-search", &create_test_x_space(2), "search_prefix=Sess").await;
     assert_eq!(status, StatusCode::OK);
     assert!(
         !body.is_empty()
@@ -285,12 +247,7 @@ async fn process_session_with_search_prefix() {
 async fn map_with_empty_x_space() {
     let (status, body) = single_host("map-empty", &create_test_x_space(0), "").await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&body)
-            .unwrap()
-            .get("traceEvents")
-            .is_some()
-    );
+    assert!(serde_json::from_str::<serde_json::Value>(&body).unwrap().get("traceEvents").is_some());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -42,102 +42,87 @@ fn stat_text(plane: &Plane, value: &Value) -> String {
 
 /// The events up to the time `last`.
 fn convert(device: i64, plane: &Plane, map: &[u8], last: u64) -> Vec<Event> {
-    let lines = plane
-        .lines
-        .par_iter()
-        .filter(|line| line.name != ASYNC_OPS_LINE);
+    let lines = plane.lines.par_iter().filter(|line| line.name != ASYNC_OPS_LINE);
     lines
         .flat_map(|line| {
             let derived = !line.labels.is_empty();
             let ordinal = crate::xplane::group::ordinal(plane, line);
-            line.events
-                .par_iter()
-                .enumerate()
-                .filter_map(move |(index, event)| {
-                    let meta = (!derived).then(|| &plane.meta[event.meta as usize]);
-                    if meta.is_some_and(|meta| meta.internal) || time(plane, event) > last {
-                        return None;
+            line.events.par_iter().enumerate().filter_map(move |(index, event)| {
+                let meta = (!derived).then(|| &plane.meta[event.meta as usize]);
+                if meta.is_some_and(|meta| meta.internal) || time(plane, event) > last {
+                    return None;
+                }
+                let mut name = label(plane, line, event).to_string();
+                let mut args = Vec::new();
+                if let Some(meta) = meta {
+                    if !meta.display.is_empty() {
+                        set(&mut args, "long_name".into(), meta.long_name(map).into_owned());
                     }
-                    let mut name = label(plane, line, event).to_string();
-                    let mut args = Vec::new();
-                    if let Some(meta) = meta {
-                        if !meta.display.is_empty() {
-                            set(
-                                &mut args,
-                                "long_name".into(),
-                                meta.long_name(map).into_owned(),
-                            );
+                    for (_, stat_name, stat) in plane.named_stats(map, event.meta, event.raw) {
+                        let text = stat_text(plane, &stat.value);
+                        if &**stat_name == "step_name" {
+                            name.clone_from(&text);
                         }
-                        for (_, stat_name, stat) in plane.named_stats(map, event.meta, event.raw) {
-                            let text = stat_text(plane, &stat.value);
-                            if &**stat_name == "step_name" {
-                                name.clone_from(&text);
-                            }
-                            set(&mut args, stat_name.to_string(), text);
-                        }
-                        let links = plane.links(event.meta, slice(map, event.raw), ordinal);
-                        if let Some(group) = Some(event.group)
-                            .filter(|&group| group != NONE_GROUP)
-                            .or(links.group)
+                        set(&mut args, stat_name.to_string(), text);
+                    }
+                    let links = plane.links(event.meta, slice(map, event.raw), ordinal);
+                    if let Some(group) =
+                        Some(event.group).filter(|&group| group != NONE_GROUP).or(links.group)
+                    {
+                        set(&mut args, "group_id".into(), group.to_string());
+                    }
+                    if let Some(flow) = links.flow {
+                        set(&mut args, "flow".into(), flow.to_string());
+                    }
+                    if let Some(eager) = event.eager {
+                        set(&mut args, "is_eager".into(), u8::from(eager).to_string());
+                    }
+                } else {
+                    if let Some(long) =
+                        line.longs.get(event.meta as usize).filter(|long| !long.is_empty())
+                    {
+                        set(&mut args, "long_name".into(), long.to_string());
+                    }
+                    for fragment in line.args.get(&index).into_iter().flatten() {
+                        if let Ok(serde_json::Value::Object(object)) =
+                            serde_json::from_str::<serde_json::Value>(&format!("{{{fragment}}}"))
                         {
-                            set(&mut args, "group_id".into(), group.to_string());
-                        }
-                        if let Some(flow) = links.flow {
-                            set(&mut args, "flow".into(), flow.to_string());
-                        }
-                        if let Some(eager) = event.eager {
-                            set(&mut args, "is_eager".into(), u8::from(eager).to_string());
-                        }
-                    } else {
-                        if let Some(long) = line
-                            .longs
-                            .get(event.meta as usize)
-                            .filter(|long| !long.is_empty())
-                        {
-                            set(&mut args, "long_name".into(), long.to_string());
-                        }
-                        for fragment in line.args.get(&index).into_iter().flatten() {
-                            if let Ok(serde_json::Value::Object(object)) =
-                                serde_json::from_str::<serde_json::Value>(&format!(
-                                    "{{{fragment}}}"
-                                ))
-                            {
-                                for (key, value) in object {
-                                    set(
-                                        &mut args,
-                                        key,
-                                        if let Some(text) = value.as_str() {
-                                            text.to_string()
-                                        } else if value.is_f64() {
-                                            general(value.as_f64().unwrap_or(0.0), 6)
-                                        } else {
-                                            value.to_string()
-                                        },
-                                    );
-                                }
+                            for (key, value) in object {
+                                set(
+                                    &mut args,
+                                    key,
+                                    if let Some(text) = value.as_str() {
+                                        text.to_string()
+                                    } else if value.is_f64() {
+                                        general(value.as_f64().unwrap_or(0.0), 6)
+                                    } else {
+                                        value.to_string()
+                                    },
+                                );
                             }
                         }
                     }
-                    if derived && event.group != NONE_GROUP {
-                        set(&mut args, "group_id".into(), event.group.to_string());
+                }
+                if derived && event.group != NONE_GROUP {
+                    set(&mut args, "group_id".into(), event.group.to_string());
+                }
+                if let Some(step) = line.steps.get(&index) {
+                    name.clone_from(&step.name);
+                    set(&mut args, "step_name".into(), step.name.clone());
+                    for (key, value) in &step.stats {
+                        set(&mut args, (*key).into(), value.to_string());
                     }
-                    if let Some(step) = line.steps.get(&index) {
-                        name.clone_from(&step.name);
-                        set(&mut args, "step_name".into(), step.name.clone());
-                        for (key, value) in &step.stats {
-                            set(&mut args, (*key).into(), value.to_string());
-                        }
-                    }
-                    args.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-                    Some(Event {
-                        device,
-                        resource: line.resource_id(),
-                        name,
-                        ts: time(plane, event),
-                        dur: event.dur,
-                        args,
-                    })
+                }
+                args.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+                Some(Event {
+                    device,
+                    resource: line.resource_id(),
+                    name,
+                    ts: time(plane, event),
+                    dur: event.dur,
+                    args,
                 })
+            })
         })
         .collect()
 }
@@ -155,11 +140,7 @@ fn label<'a>(plane: &'a Plane, line: &'a Line, event: &Ev) -> &'a str {
         return &line.labels[event.meta as usize];
     }
     let meta = &plane.meta[event.meta as usize];
-    if meta.display.is_empty() {
-        &meta.name
-    } else {
-        &meta.display
-    }
+    if meta.display.is_empty() { &meta.name } else { &meta.display }
 }
 
 fn time(plane: &Plane, event: &Ev) -> u64 {
@@ -213,13 +194,9 @@ fn cut(lines: &[(&Plane, &Line)], limit: usize) -> Option<(u64, usize)> {
     }
     sample.sort_unstable();
     let place = limit / step;
-    let low = place
-        .checked_sub(SAMPLE_MARGIN)
-        .and_then(|index| sample.get(index))
-        .map_or(0, |&low| low);
-    let high = sample
-        .get(place + SAMPLE_MARGIN)
-        .map_or(u64::MAX, |&high| high);
+    let low =
+        place.checked_sub(SAMPLE_MARGIN).and_then(|index| sample.get(index)).map_or(0, |&low| low);
+    let high = sample.get(place + SAMPLE_MARGIN).map_or(u64::MAX, |&high| high);
     let (below, mut inside, above) = values()
         .fold(
             || (0, Vec::new(), 0),
@@ -255,23 +232,16 @@ fn cut(lines: &[(&Plane, &Line)], limit: usize) -> Option<(u64, usize)> {
 }
 
 fn jobs(planes: &[Plane]) -> Vec<(i64, &Plane)> {
-    let host = planes
-        .iter()
-        .find(|plane| plane.name == HOST_THREADS)
-        .map(|host| (HOST_DEVICE_ID, host));
+    let host =
+        planes.iter().find(|plane| plane.name == HOST_THREADS).map(|host| (HOST_DEVICE_ID, host));
     let prefixed = PLANE_PREFIXES
         .iter()
         .map(|prefix| {
-            planes
-                .iter()
-                .filter(|plane| plane.name.starts_with(prefix))
-                .collect::<Vec<_>>()
+            planes.iter().filter(|plane| plane.name.starts_with(prefix)).collect::<Vec<_>>()
         })
         .find(|found| !found.is_empty())
         .unwrap_or_default();
-    host.into_iter()
-        .chain(prefixed.into_iter().map(|plane| (1 + plane.id, plane)))
-        .collect()
+    host.into_iter().chain(prefixed.into_iter().map(|plane| (1 + plane.id, plane))).collect()
 }
 
 fn collect(planes: &[Plane], map: &[u8], limit: usize) -> (Devices, Vec<Event>) {
@@ -280,10 +250,8 @@ fn collect(planes: &[Plane], map: &[u8], limit: usize) -> (Devices, Vec<Event>) 
     for &(device, plane) in &jobs {
         let resources = devices.entry(device).or_default();
         resources.0.clone_from(&plane.name);
-        for line in plane
-            .lines
-            .iter()
-            .filter(|line| plane.name == HOST_THREADS || !line.events.is_empty())
+        for line in
+            plane.lines.iter().filter(|line| plane.name == HOST_THREADS || !line.events.is_empty())
         {
             resources.1.insert(
                 line.resource_id(),
@@ -362,11 +330,8 @@ pub fn barriers_within(planes: &[Plane], map: &[u8], limit: usize) -> Vec<f64> {
         .map(|&(plane, line)| {
             let named = plane.stat_names.iter().any(|name| &**name == "step_name");
             let (mut barriers, mut ties) = (Vec::new(), 0);
-            for (index, event) in line
-                .events
-                .iter()
-                .enumerate()
-                .filter(|(_, event)| kept(plane, line, event))
+            for (index, event) in
+                line.events.iter().enumerate().filter(|(_, event)| kept(plane, line, event))
             {
                 let mut name = Cow::Borrowed(label(plane, line, event));
                 if named && line.labels.is_empty() {

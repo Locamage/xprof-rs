@@ -16,10 +16,7 @@ fn tpu_space(plane_name: &str, op_name: &str, step_duration_ps: i64, ops: &[Op])
             op_name,
             offset_ps,
             duration_ps,
-            &[
-                ("group_id", 1.into()),
-                ("device_duration_ps", device_duration_ps.into()),
-            ],
+            &[("group_id", 1.into()), ("device_duration_ps", device_duration_ps.into())],
         );
     }
     xspace
@@ -31,21 +28,13 @@ fn convert(xspace: &XSpace, hostname: &str, target: &str) -> Fractions {
 }
 
 fn near(actual: f32, expected: f64) {
-    assert!(
-        (f64::from(actual) - expected).abs() <= 1e-6,
-        "{actual} != {expected}"
-    );
+    assert!((f64::from(actual) - expected).abs() <= 1e-6, "{actual} != {expected}");
 }
 
 #[test]
 fn basic_test() {
     let result = convert(
-        &tpu_space(
-            "/device:TPU:0",
-            "matmul",
-            1000,
-            &[(100, 200, 200), (400, 100, 100)],
-        ),
+        &tpu_space("/device:TPU:0", "matmul", 1000, &[(100, 200, 200), (400, 100, 100)]),
         "",
         "matmul",
     );

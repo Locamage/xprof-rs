@@ -6,10 +6,7 @@ use crate::xplane::group::{is_sparse_core, ordinal};
 fn get_tensor_core_x_planes_from_x_space() {
     let names = ["/device:TPU:0", "/device:TPU:1", "/device:TPU:2Postfix"];
     assert_eq!(
-        names
-            .into_iter()
-            .filter(|name| is_tensor_core(name))
-            .collect::<Vec<_>>(),
+        names.into_iter().filter(|name| is_tensor_core(name)).collect::<Vec<_>>(),
         ["/device:TPU:0", "/device:TPU:1"]
     );
 }
@@ -60,10 +57,7 @@ fn get_sparse_core_planes_from_x_space() {
         "/device:TPU:0 SparseCore Test 0",
     ];
     assert_eq!(
-        names
-            .into_iter()
-            .filter(|name| is_tensor_core(name))
-            .collect::<Vec<_>>(),
+        names.into_iter().filter(|name| is_tensor_core(name)).collect::<Vec<_>>(),
         ["/device:TPU:0", "/device:TPU:1"]
     );
     assert_eq!(names.map(is_sparse_core), [false, false, true, true, true]);

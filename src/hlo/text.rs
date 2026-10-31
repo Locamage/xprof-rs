@@ -62,11 +62,7 @@ const SCATTER: [&str; 5] = [
 ];
 const WINDOW_FIELDS: [WindowField; 6] = [
     ("size", |_| true, |dimension| dimension.size.to_string()),
-    (
-        "stride",
-        |dimension| dimension.stride != 1,
-        |dimension| dimension.stride.to_string(),
-    ),
+    ("stride", |dimension| dimension.stride != 1, |dimension| dimension.stride.to_string()),
     (
         "pad",
         |dimension| dimension.padding_low != 0 || dimension.padding_high != 0,
@@ -88,24 +84,13 @@ const WINDOW_FIELDS: [WindowField; 6] = [
         |dimension| i64::from(dimension.window_reversal).to_string(),
     ),
 ];
-const SUBGROUPS: [&str; 7] = [
-    "replicated",
-    "maximal",
-    "error_type.",
-    "error_type.",
-    "manual",
-    "error_type.",
-    "unreduced",
-];
+const SUBGROUPS: [&str; 7] =
+    ["replicated", "maximal", "error_type.", "error_type.", "manual", "error_type.", "unreduced"];
 
 /// The instructions that one task prints, when a computation has more of them.
 const LINES_PER_TASK: usize = 2048;
 
-type WindowField = (
-    &'static str,
-    fn(&WindowDimension) -> bool,
-    fn(&WindowDimension) -> String,
-);
+type WindowField = (&'static str, fn(&WindowDimension) -> bool, fn(&WindowDimension) -> String);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Style {
@@ -148,10 +133,7 @@ fn intern<K: Hash + Eq>(set: &mut IndexSet<K>, key: K) -> i64 {
 impl Frames {
     fn new(module: &Module) -> Self {
         let stack = msg(&module.proto.stack_frame_index);
-        let mut frames = Self {
-            of: vec![0; module.nodes.len()],
-            ..Self::default()
-        };
+        let mut frames = Self { of: vec![0; module.nodes.len()], ..Self::default() };
         let mut mapping: HashMap<i64, i64> = HashMap::new();
         for node in 0..module.nodes.len() {
             let (mut current, mut path, mut seen) =
@@ -290,17 +272,13 @@ fn metadata_text(metadata: &OpMetadata, frame: i64, payloads: &[Vec<u8>]) -> Str
         .and_then(|payload| payload.payload_source.as_ref())
     {
         Some(xla::payload::PayloadSource::Value(value)) => Some(value.as_slice()),
-        Some(xla::payload::PayloadSource::Id(id)) => usize::try_from(*id)
-            .ok()
-            .and_then(|id| payloads.get(id))
-            .map(Vec::as_slice),
+        Some(xla::payload::PayloadSource::Id(id)) => {
+            usize::try_from(*id).ok().and_then(|id| payloads.get(id)).map(Vec::as_slice)
+        }
         None => None,
     };
     let payload = payload.map(|value| {
-        format!(
-            "metadata_payload=\"{}\"",
-            escaped(std::str::from_utf8(value).unwrap_or(""))
-        )
+        format!("metadata_payload=\"{}\"", escaped(std::str::from_utf8(value).unwrap_or("")))
     });
     let parts = [
         quoted("op_type", &metadata.op_type),
@@ -310,12 +288,8 @@ fn metadata_text(metadata: &OpMetadata, frame: i64, payloads: &[Vec<u8>]) -> Str
         number("source_end_line", metadata.source_end_line.into()),
         number("source_column", metadata.source_column.into()),
         number("source_end_column", metadata.source_end_column.into()),
-        (!metadata.profile_type.is_empty()).then(|| {
-            format!(
-                "profile_type={{{}}}",
-                metadata.profile_type.iter().join(",")
-            )
-        }),
+        (!metadata.profile_type.is_empty())
+            .then(|| format!("profile_type={{{}}}", metadata.profile_type.iter().join(","))),
         quoted("deduplicated_name", &metadata.deduplicated_name),
         (!metadata.scheduling_name.is_empty())
             .then(|| format!("scheduling_name=\"{}\"", metadata.scheduling_name)),
@@ -336,11 +310,7 @@ fn canonicalize_iota(dims: &mut Vec<i64>, perm: &mut Vec<i64>) {
         let kept: Vec<usize> = (0..dims.len()).filter(|&index| dims[index] != 1).collect();
         *perm = perm
             .iter()
-            .filter_map(|&dim| {
-                kept.iter()
-                    .position(|&old| old as i64 == dim)
-                    .map(|new| new as i64)
-            })
+            .filter_map(|&dim| kept.iter().position(|&old| old as i64 == dim).map(|new| new as i64))
             .collect();
         *dims = kept.iter().map(|&index| dims[index]).collect();
         let (mut base, mut changed) = (0, false);
@@ -367,13 +337,10 @@ pub fn sparsity_config_text(config: &xla::SparsityConfig) -> String {
             side.num_non_zero, side.block_size, side.dimension, side.stride, side.idx
         )
     };
-    [
-        config.lhs.map(|lhs| side("lhs", &lhs)),
-        config.rhs.map(|rhs| side("rhs", &rhs)),
-    ]
-    .into_iter()
-    .flatten()
-    .join(" ")
+    [config.lhs.map(|lhs| side("lhs", &lhs)), config.rhs.map(|rhs| side("rhs", &rhs))]
+        .into_iter()
+        .flatten()
+        .join(" ")
 }
 
 pub fn block_scaling_config_text(config: &xla::BlockScalingConfig) -> String {
@@ -402,20 +369,13 @@ pub fn block_scaling_config_text(config: &xla::BlockScalingConfig) -> String {
 }
 
 pub fn iota_text<T: Copy + Into<i64>>(dims: &[i64], reshape: &[i64], perm: &[T]) -> String {
-    let (mut reshape, mut perm) = (
-        reshape.to_vec(),
-        perm.iter().map(|&dim| dim.into()).collect(),
-    );
+    let (mut reshape, mut perm) = (reshape.to_vec(), perm.iter().map(|&dim| dim.into()).collect());
     canonicalize_iota(&mut reshape, &mut perm);
     if reshape.is_empty() {
         reshape = vec![1];
         perm = vec![0];
     }
-    let mut out = format!(
-        "[{}]<=[{}]",
-        dims.iter().join(","),
-        reshape.iter().join(",")
-    );
+    let mut out = format!("[{}]<=[{}]", dims.iter().join(","), reshape.iter().join(","));
     if reshape.len() > 1 {
         write!(out, "T({})", perm.iter().join(",")).expect("writing to a string cannot fail");
     }
@@ -423,11 +383,7 @@ pub fn iota_text<T: Copy + Into<i64>>(dims: &[i64], reshape: &[i64], perm: &[T])
 }
 
 fn leaf_count(shape: &Shape) -> usize {
-    if shape.is_tuple() {
-        shape.tuple_shapes.iter().map(leaf_count).sum()
-    } else {
-        1
-    }
+    if shape.is_tuple() { shape.tuple_shapes.iter().map(leaf_count).sum() } else { 1 }
 }
 
 pub(crate) fn separate(out: &mut String, index: usize, interval: usize) {
@@ -448,21 +404,16 @@ fn dim_labels(numbers: &xla::ConvolutionDimensionNumbers) -> String {
             .wrapping_add(1)
             .clamp(0, MAX_RANK as i64);
         let mut out = vec!["?".to_string(); length as usize];
-        let labels = [
-            (batch, letters[0].to_string()),
-            (feature, letters[1].to_string()),
-        ]
-        .into_iter()
-        .chain(
-            spatial
-                .iter()
-                .enumerate()
-                .map(|(index, &dimension)| (dimension, index.to_string())),
-        );
+        let labels =
+            [(batch, letters[0].to_string()), (feature, letters[1].to_string())].into_iter().chain(
+                spatial
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &dimension)| (dimension, index.to_string())),
+            );
         for (dimension, label) in labels {
-            if let Some(slot) = usize::try_from(dimension)
-                .ok()
-                .and_then(|dimension| out.get_mut(dimension))
+            if let Some(slot) =
+                usize::try_from(dimension).ok().and_then(|dimension| out.get_mut(dimension))
             {
                 *slot = label;
             }
@@ -495,24 +446,13 @@ fn dim_labels(numbers: &xla::ConvolutionDimensionNumbers) -> String {
 fn dot_numbers(numbers: &xla::DotDimensionNumbers) -> String {
     let mut parts = Vec::new();
     for (side, batch, contracting) in [
-        (
-            "lhs",
-            &numbers.lhs_batch_dimensions,
-            &numbers.lhs_contracting_dimensions,
-        ),
-        (
-            "rhs",
-            &numbers.rhs_batch_dimensions,
-            &numbers.rhs_contracting_dimensions,
-        ),
+        ("lhs", &numbers.lhs_batch_dimensions, &numbers.lhs_contracting_dimensions),
+        ("rhs", &numbers.rhs_batch_dimensions, &numbers.rhs_contracting_dimensions),
     ] {
         if !batch.is_empty() {
             parts.push(format!("{side}_batch_dims={{{}}}", batch.iter().join(",")));
         }
-        parts.push(format!(
-            "{side}_contracting_dims={{{}}}",
-            contracting.iter().join(",")
-        ));
+        parts.push(format!("{side}_contracting_dims={{{}}}", contracting.iter().join(",")));
     }
     parts.join(", ")
 }
@@ -536,11 +476,7 @@ fn flag(attributes: &mut Vec<String>, field: &str, value: bool) {
 }
 
 fn precision(config: &PrecisionConfig, attributes: &mut Vec<String>) {
-    if config
-        .operand_precision
-        .iter()
-        .any(|precision| *precision != 0)
-    {
+    if config.operand_precision.iter().any(|precision| *precision != 0) {
         let names = config
             .operand_precision
             .iter()
@@ -590,11 +526,8 @@ fn group_counts(inst: &Inst, attributes: &mut Vec<String>) {
 }
 
 fn window(inst: &Inst) -> String {
-    let dimensions: Vec<&WindowDimension> = inst
-        .window
-        .iter()
-        .flat_map(|window| &window.dimensions)
-        .collect();
+    let dimensions: Vec<&WindowDimension> =
+        inst.window.iter().flat_map(|window| &window.dimensions).collect();
     let fields = WINDOW_FIELDS
         .iter()
         .filter(|(_, shown, _)| dimensions.iter().any(|dimension| shown(dimension)));
@@ -620,11 +553,7 @@ fn mesh_text(mesh: &xla::MeshProto) -> String {
         }
         (None, true) => None,
     };
-    let names = mesh
-        .axes
-        .iter()
-        .map(|axis| format!("'{}'={}", axis.name, axis.size))
-        .join(",");
+    let names = mesh.axes.iter().map(|axis| format!("'{}'={}", axis.name, axis.size)).join(",");
     format!(
         "mesh[{names}]{}",
         devices.map_or_else(String::new, |devices| format!(", device_ids=({devices})"))
@@ -634,10 +563,7 @@ fn mesh_text(mesh: &xla::MeshProto) -> String {
 fn mesh_groups(list: &MeshAxesReplicaGroupListProto) -> String {
     let mesh = msg(&list.mesh);
     let declared = if mesh.axes.is_empty() {
-        format!(
-            "maximal_mesh[device_id={}]",
-            mesh.device_ids.first().copied().unwrap_or(0)
-        )
+        format!("maximal_mesh[device_id={}]", mesh.device_ids.first().copied().unwrap_or(0))
     } else {
         mesh_text(&mesh)
     };
@@ -653,10 +579,7 @@ fn mesh_groups(list: &MeshAxesReplicaGroupListProto) -> String {
         }
         text
     };
-    format!(
-        "{declared} {{{}}}",
-        list.axes.iter().map(axis_text).join(",")
-    )
+    format!("{declared} {{{}}}", list.axes.iter().map(axis_text).join(","))
 }
 
 #[allow(deprecated)]
@@ -700,26 +623,15 @@ fn collective(
         "all-reduce" | "all-reduce-start" | "reduce-scatter" | "collective-reduce"
     );
     let gather = matches!(opcode, "all-gather" | "all-gather-start");
-    let channel = if reduce && inst.all_reduce_id > 0 {
-        Some(inst.all_reduce_id)
-    } else {
-        channel_id
-    };
+    let channel =
+        if reduce && inst.all_reduce_id > 0 { Some(inst.all_reduce_id) } else { channel_id };
     attributes.extend(channel.map(|channel| format!("channel_id={channel}")));
     attributes.push(format!("replica_groups={}", replica_groups(inst)));
-    flag(
-        attributes,
-        "constrain_layout",
-        inst.constrain_layout && opcode != "collective-broadcast",
-    );
+    flag(attributes, "constrain_layout", inst.constrain_layout && opcode != "collective-broadcast");
     if gather {
         attributes.push(first_dimension.clone());
     }
-    flag(
-        attributes,
-        "use_global_device_ids",
-        (reduce || gather) && inst.use_global_device_ids,
-    );
+    flag(attributes, "use_global_device_ids", (reduce || gather) && inst.use_global_device_ids);
     match opcode {
         "reduce-scatter" => attributes.push(first_dimension),
         "collective-reduce" | "collective-broadcast" => {
@@ -741,10 +653,7 @@ impl<'a> Printer<'a> {
         let frames = if metadata {
             Frames::new(module)
         } else {
-            Frames {
-                of: vec![0; module.nodes.len()],
-                ..Frames::default()
-            }
+            Frames { of: vec![0; module.nodes.len()], ..Frames::default() }
         };
         Printer {
             module,
@@ -759,10 +668,7 @@ impl<'a> Printer<'a> {
     }
 
     pub fn fail(&self, reason: &str) {
-        self.failed
-            .lock()
-            .expect("lock poisoned")
-            .get_or_insert_with(|| reason.to_string());
+        self.failed.lock().expect("lock poisoned").get_or_insert_with(|| reason.to_string());
     }
 
     pub fn unsupported(&self) -> bool {
@@ -774,11 +680,7 @@ impl<'a> Printer<'a> {
     }
 
     fn name(&self, name: &str) -> String {
-        if self.style == Style::Short {
-            name.to_string()
-        } else {
-            format!("%{name}")
-        }
+        if self.style == Style::Short { name.to_string() } else { format!("%{name}") }
     }
 
     fn graph_name(&self, graph: usize) -> String {
@@ -802,10 +704,7 @@ impl<'a> Printer<'a> {
                 return Some(graph);
             }
             let &operand = entry.operands.first()?;
-            if !matches!(
-                module.nodes[operand].opcode.as_str(),
-                "async-start" | "async-update"
-            ) {
+            if !matches!(module.nodes[operand].opcode.as_str(), "async-start" | "async-update") {
                 return None;
             }
             current = operand;
@@ -848,9 +747,10 @@ impl<'a> Printer<'a> {
                 .ok()
                 .and_then(|index| mesh.axes.get(index))
                 .map_or("", |axis| axis.name.as_str());
-            let sub = axis.sub_axis_info.as_ref().map_or_else(String::new, |sub| {
-                format!(":({}){}", sub.pre_size, sub.size)
-            });
+            let sub = axis
+                .sub_axis_info
+                .as_ref()
+                .map_or_else(String::new, |sub| format!(":({}){}", sub.pre_size, sub.size));
             format!("'{name}'{sub}")
         };
         let axes = |list: &[xla::AxisRefProto]| list.iter().map(axis).join(", ");
@@ -894,10 +794,8 @@ impl<'a> Printer<'a> {
             format!("{{{}", mesh_text(&mesh))
         };
         let no_dimensions = sharding.dim_shardings.is_empty();
-        let reduction = ["", "max", "min"]
-            .get(sharding.reduction_op as usize)
-            .copied()
-            .unwrap_or("");
+        let reduction =
+            ["", "max", "min"].get(sharding.reduction_op as usize).copied().unwrap_or("");
         if maximal {
             return text + &metadata + "}";
         }
@@ -940,12 +838,8 @@ impl<'a> Printer<'a> {
                     .expect("writing to a string cannot fail");
             }
             if !sharding.unreduced_axes.is_empty() {
-                write!(
-                    text,
-                    ", unreduced={reduction}{{{}}}",
-                    axes(&sharding.unreduced_axes)
-                )
-                .expect("writing to a string cannot fail");
+                write!(text, ", unreduced={reduction}{{{}}}", axes(&sharding.unreduced_axes))
+                    .expect("writing to a string cannot fail");
             }
             if !sharding.manual_axes.is_empty() {
                 write!(text, ", manual={{{}}}", axes(&sharding.manual_axes))
@@ -960,21 +854,13 @@ impl<'a> Printer<'a> {
             out.push_str(&self.named_sharding(named));
             return;
         }
-        if sharding
-            .metadata
-            .iter()
-            .any(|entry| entry.op_type == "sdy::reduction_op")
-        {
+        if sharding.metadata.iter().any(|entry| entry.op_type == "sdy::reduction_op") {
             self.fail("sharding reduction metadata");
             return;
         }
         let mut suffix = String::new();
         if sharding.is_shard_group {
-            let kind = if sharding.shard_group_type == 0 {
-                "shard_as"
-            } else {
-                "shard_like"
-            };
+            let kind = if sharding.shard_group_type == 0 { "shard_as" } else { "shard_like" };
             write!(suffix, " {kind} {}", sharding.shard_group_id)
                 .expect("writing to a string cannot fail");
         }
@@ -1007,10 +893,7 @@ impl<'a> Printer<'a> {
             || (reshape.is_empty() && devices.len() == 1);
         let subgroup = !subgroups.is_empty()
             && subgroups.iter().all(|&kind| kind == subgroups[0])
-            && dims[..dims.len().saturating_sub(subgroups.len())]
-                .iter()
-                .product::<i64>()
-                == 1
+            && dims[..dims.len().saturating_sub(subgroups.len())].iter().product::<i64>() == 1
             && matches!(subgroups[0], 0 | 4 | 6);
         match sharding.r#type {
             2 => {
@@ -1021,12 +904,10 @@ impl<'a> Printer<'a> {
                 }
                 out.push('}');
             }
-            1 => write!(
-                out,
-                "{{maximal device={}{suffix}}}",
-                devices.first().copied().unwrap_or(0)
-            )
-            .expect("writing to a string cannot fail"),
+            1 => {
+                write!(out, "{{maximal device={}{suffix}}}", devices.first().copied().unwrap_or(0))
+                    .expect("writing to a string cannot fail");
+            }
             kind @ (0 | 4 | 5 | 6) => write!(
                 out,
                 "{{{}{suffix}}}",
@@ -1043,13 +924,8 @@ impl<'a> Printer<'a> {
             _ => {
                 out.push_str("{devices=");
                 if reshape.is_empty() {
-                    write!(
-                        out,
-                        "[{}]{}",
-                        dims.iter().join(","),
-                        devices.iter().join(",")
-                    )
-                    .expect("writing to a string cannot fail");
+                    write!(out, "[{}]{}", dims.iter().join(","), devices.iter().join(","))
+                        .expect("writing to a string cannot fail");
                 } else {
                     out.push_str(&iota_text(dims, reshape, &sharding.iota_transpose_perm));
                 }
@@ -1059,12 +935,7 @@ impl<'a> Printer<'a> {
                 if !subgroups.is_empty() {
                     let names = subgroups
                         .iter()
-                        .map(|&kind| {
-                            SUBGROUPS
-                                .get(kind as usize)
-                                .copied()
-                                .unwrap_or("error_type.")
-                        })
+                        .map(|&kind| SUBGROUPS.get(kind as usize).copied().unwrap_or("error_type."))
                         .join(", ");
                     write!(out, " last_tile_dims={{{names}}}")
                         .expect("writing to a string cannot fail");
@@ -1137,29 +1008,16 @@ impl<'a> Printer<'a> {
             strides[dimension as usize] = stride;
             stride *= shape.dimensions[dimension as usize];
         }
-        print_array(
-            out,
-            &shape.dimensions,
-            oneline,
-            &mut Vec::new(),
-            &|indices: &[i64]| {
-                let linear: i64 = indices
-                    .iter()
-                    .zip(&strides)
-                    .map(|(index, stride)| index * stride)
-                    .sum();
-                let value = &values[linear as usize];
-                if shape.element_type == 1 && rank > 0 {
-                    if value == "true" {
-                        "1".to_string()
-                    } else {
-                        "0".to_string()
-                    }
-                } else {
-                    value.clone()
-                }
-            },
-        );
+        print_array(out, &shape.dimensions, oneline, &mut Vec::new(), &|indices: &[i64]| {
+            let linear: i64 =
+                indices.iter().zip(&strides).map(|(index, stride)| index * stride).sum();
+            let value = &values[linear as usize];
+            if shape.element_type == 1 && rank > 0 {
+                if value == "true" { "1".to_string() } else { "0".to_string() }
+            } else {
+                value.clone()
+            }
+        });
     }
 
     fn literal_with_shapes(&self, literal: &LiteralProto) -> String {
@@ -1201,11 +1059,7 @@ impl<'a> Printer<'a> {
                     separate(
                         out,
                         index,
-                        if self.style == Style::Short {
-                            0
-                        } else {
-                            INDEX_INTERVAL
-                        },
+                        if self.style == Style::Short { 0 } else { INDEX_INTERVAL },
                     );
                     if self.operand_shapes {
                         module.nodes[operand].shape.print(out, true);
@@ -1224,14 +1078,9 @@ impl<'a> Printer<'a> {
         let opcode = entry.opcode.as_str();
         let channel_id = (inst.channel_id > 0).then_some(inst.channel_id);
         let dimensions = &inst.dimensions;
-        let first_dimension = format!(
-            "dimensions={{{}}}",
-            dimensions.first().copied().unwrap_or(0)
-        );
-        let has_window = inst
-            .window
-            .as_ref()
-            .is_some_and(|window| !window.dimensions.is_empty());
+        let first_dimension =
+            format!("dimensions={{{}}}", dimensions.first().copied().unwrap_or(0));
+        let has_window = inst.window.as_ref().is_some_and(|window| !window.dimensions.is_empty());
         match opcode {
             "fft" => attributes.extend([format!("fft_type={}", enum_name("xla.FftType", inst.fft_type)), format!("fft_length={{{}}}", inst.fft_length.iter().join(","))]),
             "async-start" => {
@@ -1382,10 +1231,8 @@ impl<'a> Printer<'a> {
         if has_window {
             attributes.push(window(inst));
         }
-        attributes.push(format!(
-            "dim_labels={}",
-            dim_labels(&msg(&inst.convolution_dimension_numbers))
-        ));
+        attributes
+            .push(format!("dim_labels={}", dim_labels(&msg(&inst.convolution_dimension_numbers))));
         group_counts(inst, attributes);
         match inst.conv_kind {
             0 => {}
@@ -1401,20 +1248,15 @@ impl<'a> Printer<'a> {
             .as_ref()
             .filter(|config| config.lhs.is_some() || config.rhs.is_some())
         {
-            attributes.push(format!(
-                "sparsity_config={{{}}}",
-                sparsity_config_text(config)
-            ));
+            attributes.push(format!("sparsity_config={{{}}}", sparsity_config_text(config)));
         }
         if let Some(config) = inst
             .block_scaling_config
             .as_ref()
             .filter(|config| config.lhs.is_some() || config.rhs.is_some())
         {
-            attributes.push(format!(
-                "block_scaling_config={{{}}}",
-                block_scaling_config_text(config)
-            ));
+            attributes
+                .push(format!("block_scaling_config={{{}}}", block_scaling_config_text(config)));
         }
     }
 
@@ -1428,29 +1270,17 @@ impl<'a> Printer<'a> {
         group_counts(inst, attributes);
         precision(&msg(&inst.precision_config), attributes);
         if inst.padding_type != 0 {
-            attributes.push(format!(
-                "padding_type={}",
-                enum_name("xla.PaddingType", inst.padding_type)
-            ));
+            attributes
+                .push(format!("padding_type={}", enum_name("xla.PaddingType", inst.padding_type)));
         }
-        attributes.push(format!(
-            "custom_call_target=\"{}\"",
-            escaped(&inst.custom_call_target)
-        ));
+        attributes.push(format!("custom_call_target=\"{}\"", escaped(&inst.custom_call_target)));
         if inst.constrain_layout {
             attributes.push(format!(
                 "operand_layout_constraints={{{}}}",
-                inst.operand_shapes_with_layout
-                    .iter()
-                    .map(|shape| shape.text(true))
-                    .join(", ")
+                inst.operand_shapes_with_layout.iter().map(|shape| shape.text(true)).join(", ")
             ));
         }
-        flag(
-            attributes,
-            "custom_call_has_side_effect",
-            inst.custom_call_has_side_effect,
-        );
+        flag(attributes, "custom_call_has_side_effect", inst.custom_call_has_side_effect);
         if let Some(literal) = &inst.literal {
             attributes.push(format!("literal={}", self.literal_with_shapes(literal)));
         }
@@ -1482,9 +1312,8 @@ impl<'a> Printer<'a> {
             (node, Cow::Borrowed(inst), print_frontend, Vec::new());
         loop {
             self.implementation(node, &inst, attributes);
-            let Some(graph) = self
-                .sugar(node)
-                .filter(|_| module.nodes[node].opcode == "async-start")
+            let Some(graph) =
+                self.sugar(node).filter(|_| module.nodes[node].opcode == "async-start")
             else {
                 break;
             };
@@ -1507,17 +1336,9 @@ impl<'a> Printer<'a> {
     fn calls(&self, node: usize, inst: &Inst, print_frontend: bool, attributes: &mut Vec<String>) {
         let module = self.module;
         let entry = &module.nodes[node];
-        let names = |graphs: &[usize]| {
-            graphs
-                .iter()
-                .map(|&graph| self.graph_name(graph))
-                .join(", ")
-        };
-        let called: &[usize] = if self.style == Style::Graph {
-            &[]
-        } else {
-            &entry.called
-        };
+        let names =
+            |graphs: &[usize]| graphs.iter().map(|&graph| self.graph_name(graph)).join(", ");
+        let called: &[usize] = if self.style == Style::Graph { &[] } else { &entry.called };
         match entry.opcode.as_str() {
             "while" if called.len() == 2 => attributes.extend([
                 format!("condition={}", self.graph_name(called[1])),
@@ -1528,10 +1349,7 @@ impl<'a> Printer<'a> {
                 format!("scatter={}", self.graph_name(called[1])),
             ]),
             "conditional" if self.style != Style::Graph => {
-                if entry
-                    .operands
-                    .first()
-                    .map(|&operand| module.nodes[operand].shape.element_type)
+                if entry.operands.first().map(|&operand| module.nodes[operand].shape.element_type)
                     == Some(1)
                     && called.len() == 2
                 {
@@ -1579,10 +1397,7 @@ impl<'a> Printer<'a> {
         }
         let frontend = &msg(&inst.frontend_attributes).map;
         if print_frontend && !frontend.is_empty() {
-            attributes.push(format!(
-                "frontend_attributes={}",
-                frontend_attributes(frontend)
-            ));
+            attributes.push(format!("frontend_attributes={}", frontend_attributes(frontend)));
         }
         if self.style != Style::Short && !entry.predecessors.is_empty() {
             let items = entry
@@ -1592,11 +1407,7 @@ impl<'a> Printer<'a> {
                 .join(", ");
             attributes.push(format!("control-predecessors={{{items}}}"));
         }
-        if let Some(viz) = inst
-            .statistics_viz
-            .as_ref()
-            .filter(|viz| !viz.statistics.is_empty())
-        {
+        if let Some(viz) = inst.statistics_viz.as_ref().filter(|viz| !viz.statistics.is_empty()) {
             let statistics = viz
                 .statistics
                 .iter()
@@ -1647,12 +1458,8 @@ impl<'a> Printer<'a> {
             write!(out, ", {attribute}").expect("writing to a string cannot fail");
         }
         if let Some(original) = &inst.original_value {
-            write!(
-                out,
-                ", origin={{{}}}",
-                original_value(original, &entry.shape, &mut Vec::new())
-            )
-            .expect("writing to a string cannot fail");
+            write!(out, ", origin={{{}}}", original_value(original, &entry.shape, &mut Vec::new()))
+                .expect("writing to a string cannot fail");
         }
         let metadata = msg(&inst.metadata);
         let frame = self.frames.of[node];
@@ -1704,18 +1511,11 @@ impl<'a> Printer<'a> {
         }
         write!(out, "{} ", self.graph_name(graph)).expect("writing to a string cannot fail");
         if self.style != Style::Short {
-            let parameters = entry
-                .parameters
-                .iter()
-                .map(|&parameter| &module.nodes[parameter]);
+            let parameters = entry.parameters.iter().map(|&parameter| &module.nodes[parameter]);
             let parameters = parameters.map(|node| {
                 format!(
                     "{}: {}",
-                    if node.name.is_empty() {
-                        "(unknown)"
-                    } else {
-                        &node.name
-                    },
+                    if node.name.is_empty() { "(unknown)" } else { &node.name },
                     node.shape.text(false)
                 )
             });
@@ -1767,9 +1567,7 @@ impl<'a> Printer<'a> {
         for &graph in called_graphs {
             visited[graph] = true;
         }
-        let roots: Vec<usize> = (0..module.graphs.len())
-            .filter(|&graph| !visited[graph])
-            .collect();
+        let roots: Vec<usize> = (0..module.graphs.len()).filter(|&graph| !visited[graph]).collect();
         visited.fill(false);
         let (mut order, mut stack) = (Vec::new(), Vec::new());
         let mut visit = |stack: &mut Vec<(usize, usize)>, node: usize| {
@@ -1834,11 +1632,7 @@ impl<'a> Printer<'a> {
         }
         let mut aliases: IndexMap<Vec<i64>, String> = IndexMap::new();
         for alias in &msg(&proto.input_output_alias).entries {
-            let kind = if alias.kind == 1 {
-                "may-alias"
-            } else {
-                "must-alias"
-            };
+            let kind = if alias.kind == 1 { "may-alias" } else { "must-alias" };
             let text = format!(
                 "{{{}}}: ({}, {{{}}}, {kind})",
                 alias.output_shape_index.iter().join(","),
@@ -1849,19 +1643,13 @@ impl<'a> Printer<'a> {
         }
         if !aliases.is_empty() {
             let indices = all_subshapes(&module.nodes[module.graphs[module.entry].root].shape);
-            let pieces: Vec<&String> = indices
-                .iter()
-                .filter_map(|(index, _)| aliases.get(index))
-                .collect();
+            let pieces: Vec<&String> =
+                indices.iter().filter_map(|(index, _)| aliases.get(index)).collect();
             if pieces.len() != aliases.len() {
                 return None;
             }
-            write!(
-                out,
-                ", input_output_alias={{ {} }}",
-                pieces.iter().join(", ")
-            )
-            .expect("writing to a string cannot fail");
+            write!(out, ", input_output_alias={{ {} }}", pieces.iter().join(", "))
+                .expect("writing to a string cannot fail");
         }
         let donors = proto
             .buffer_donor
@@ -1886,17 +1674,11 @@ impl<'a> Printer<'a> {
             .expect("writing to a string cannot fail");
         let attributes = &msg(&proto.frontend_attributes).map;
         if !attributes.is_empty() {
-            write!(
-                out,
-                ", frontend_attributes={}",
-                frontend_attributes(attributes)
-            )
-            .expect("writing to a string cannot fail");
+            write!(out, ", frontend_attributes={}", frontend_attributes(attributes))
+                .expect("writing to a string cannot fail");
         }
-        if let Some(table) = proto
-            .original_value_recovery_table
-            .as_ref()
-            .filter(|table| !table.entries.is_empty())
+        if let Some(table) =
+            proto.original_value_recovery_table.as_ref().filter(|table| !table.entries.is_empty())
         {
             out.push_str(", origin_recovery_table={\n");
             let mut entries: Vec<_> = table.entries.iter().collect();
@@ -1911,28 +1693,21 @@ impl<'a> Printer<'a> {
                 .expect("writing to a string cannot fail");
                 if let Some(recovery) = &entry.recovery_module {
                     let recovery = Module::parse(Cow::Owned(
-                        xla::HloProto {
-                            hlo_module: Some(recovery.clone()),
-                            ..Default::default()
-                        }
-                        .encode_to_vec(),
+                        xla::HloProto { hlo_module: Some(recovery.clone()), ..Default::default() }
+                            .encode_to_vec(),
                     ));
                     if !recovery.valid {
                         return None;
                     }
                     let text = Printer::new(&recovery, Style::Long, false).module_text()?;
-                    let text = text
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                        .lines()
-                        .map(|line| {
-                            if line.is_empty() {
-                                String::new()
-                            } else {
-                                format!("    {line}")
-                            }
-                        })
-                        .join("\n");
+                    let text =
+                        text.replace('\\', "\\\\")
+                            .replace('"', "\\\"")
+                            .lines()
+                            .map(|line| {
+                                if line.is_empty() { String::new() } else { format!("    {line}") }
+                            })
+                            .join("\n");
                     write!(out, ",\n  \"\n{text}\n\n  \"")
                         .expect("writing to a string cannot fail");
                 }
@@ -1953,19 +1728,12 @@ impl<'a> Printer<'a> {
                         .get(attribute.log_mode as usize)
                         .copied()
                         .unwrap_or(Some(""));
-                    let parts = mode
-                        .map(|mode| format!("log_mode={mode}"))
-                        .into_iter()
-                        .chain(
-                            (attribute.callback_id != 0)
-                                .then(|| format!("callback_id={}", attribute.callback_id)),
-                        );
+                    let parts = mode.map(|mode| format!("log_mode={mode}")).into_iter().chain(
+                        (attribute.callback_id != 0)
+                            .then(|| format!("callback_id={}", attribute.callback_id)),
+                    );
                     let mut parts = parts
-                        .chain(
-                            attribute
-                                .partitioned
-                                .then(|| "partitioned=true".to_string()),
-                        )
+                        .chain(attribute.partitioned.then(|| "partitioned=true".to_string()))
                         .chain(
                             (attribute.op_id != 0).then(|| format!("op_id={}", attribute.op_id)),
                         );
@@ -1982,10 +1750,9 @@ impl<'a> Printer<'a> {
         }
         let frames = &self.frames;
         if self.metadata && !frames.frames.is_empty() {
-            for (title, names) in [
-                ("\n\nFileNames\n", &frames.files),
-                ("\nFunctionNames\n", &frames.functions),
-            ] {
+            for (title, names) in
+                [("\n\nFileNames\n", &frames.files), ("\nFunctionNames\n", &frames.functions)]
+            {
                 out.push_str(title);
                 for (position, name) in names.iter().enumerate() {
                     writeln!(out, "{} \"{}\"", position + 1, escaped(name))
@@ -2080,10 +1847,8 @@ fn array_key(array: &Option<xla::OriginalArrayProto>) -> (String, Vec<i64>) {
 }
 
 fn slice_size_groups(module: &Module, operands: &[usize], sizes: &[i64]) -> Option<Vec<Vec<i64>>> {
-    let (input, starts) = (
-        &module.nodes[*operands.first()?].shape,
-        &module.nodes[*operands.get(2)?].shape,
-    );
+    let (input, starts) =
+        (&module.nodes[*operands.first()?].shape, &module.nodes[*operands.get(2)?].shape);
     let mut remaining = sizes;
     let mut take = |rank: usize| -> Option<Vec<i64>> {
         let (head, tail) = remaining.split_at_checked(rank)?;
@@ -2092,27 +1857,17 @@ fn slice_size_groups(module: &Module, operands: &[usize], sizes: &[i64]) -> Opti
     };
     let mut groups = Vec::new();
     if input.is_tuple() {
-        let nested = starts
-            .tuple_shapes
-            .first()?
-            .tuple_shapes
-            .first()?
-            .is_array();
+        let nested = starts.tuple_shapes.first()?.tuple_shapes.first()?.is_array();
         for (index, element) in input.tuple_shapes.iter().enumerate() {
-            for _ in 0..if nested {
-                1
-            } else {
-                starts.tuple_shapes.get(index)?.tuple_shapes.len()
-            } {
+            for _ in 0..if nested { 1 } else { starts.tuple_shapes.get(index)?.tuple_shapes.len() }
+            {
                 groups.push(take(element.dimensions.len())?);
             }
         }
     } else {
-        for _ in 0..if starts.tuple_shapes.first()?.is_tuple() {
-            starts.tuple_shapes.len()
-        } else {
-            1
-        } {
+        for _ in
+            0..if starts.tuple_shapes.first()?.is_tuple() { starts.tuple_shapes.len() } else { 1 }
+        {
             groups.push(take(input.dimensions.len())?);
         }
     }
@@ -2142,26 +1897,15 @@ fn original_value(
             .iter()
             .find(|element| element.shape_index == *index)
             .and_then(|element| element.original_array.as_ref());
-        return leaf.map_or_else(
-            || "{}".into(),
-            |array| format!("{{{}}}", original_array(array)),
-        );
+        return leaf.map_or_else(|| "{}".into(), |array| format!("{{{}}}", original_array(array)));
     }
-    let mut children = shape
-        .tuple_shapes
-        .iter()
-        .enumerate()
-        .map(|(position, element)| {
-            index.push(position as i64);
-            let text = original_value(original, element, index);
-            index.pop();
-            text
-        });
-    if shape.tuple_shapes.is_empty() {
-        "()".into()
-    } else {
-        format!("({})", children.join(", "))
-    }
+    let mut children = shape.tuple_shapes.iter().enumerate().map(|(position, element)| {
+        index.push(position as i64);
+        let text = original_value(original, element, index);
+        index.pop();
+        text
+    });
+    if shape.tuple_shapes.is_empty() { "()".into() } else { format!("({})", children.join(", ")) }
 }
 
 fn float_text(value: f64, digits: usize, payload: Option<(u64, u32)>) -> String {
@@ -2176,21 +1920,13 @@ fn float_text(value: f64, digits: usize, payload: Option<(u64, u32)>) -> String 
 }
 
 fn small_float(bits: u32, exponent_bits: u32, mantissa_bits: u32, bias: i32, kind: u8) -> f64 {
-    let sign = if bits >> (exponent_bits + mantissa_bits) & 1 == 1 {
-        -1.0
-    } else {
-        1.0
-    };
+    let sign = if bits >> (exponent_bits + mantissa_bits) & 1 == 1 { -1.0 } else { 1.0 };
     let exponent = (bits >> mantissa_bits) & ((1 << exponent_bits) - 1);
     let mantissa = bits & ((1 << mantissa_bits) - 1);
     let all = (1 << exponent_bits) - 1;
     match kind {
         0 if exponent == all => {
-            return if mantissa == 0 {
-                sign * f64::INFINITY
-            } else {
-                f64::NAN.copysign(sign)
-            };
+            return if mantissa == 0 { sign * f64::INFINITY } else { f64::NAN.copysign(sign) };
         }
         1 if exponent == all && mantissa == (1 << mantissa_bits) - 1 => {
             return f64::NAN.copysign(sign);
@@ -2242,12 +1978,7 @@ fn literal_values(literal: &LiteralProto, element_type: i32) -> Option<Vec<Strin
             .collect()
     };
     let halves = |bytes: &[u8]| {
-        bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|&pair| u16::from_le_bytes(pair))
-            .collect::<Vec<u16>>()
+        bytes.as_chunks::<2>().0.iter().map(|&pair| u16::from_le_bytes(pair)).collect::<Vec<u16>>()
     };
     Some(match element_type {
         1 => literal.preds.iter().map(bool::to_string).collect(),
@@ -2257,20 +1988,10 @@ fn literal_values(literal: &LiteralProto, element_type: i32) -> Option<Vec<Strin
         31 => narrow(&literal.u1s, 1, false),
         27 => narrow(&literal.u2s, 2, false),
         22 => narrow(&literal.u4s, 4, false),
-        2 => literal
-            .s8s
-            .iter()
-            .map(|&byte| (byte as i8).to_string())
-            .collect(),
+        2 => literal.s8s.iter().map(|&byte| (byte as i8).to_string()).collect(),
         6 => literal.u8s.iter().map(u8::to_string).collect(),
-        3 => halves(&literal.s16s)
-            .into_iter()
-            .map(|half| (half as i16).to_string())
-            .collect(),
-        7 => halves(&literal.u16s)
-            .into_iter()
-            .map(|half| half.to_string())
-            .collect(),
+        3 => halves(&literal.s16s).into_iter().map(|half| (half as i16).to_string()).collect(),
+        7 => halves(&literal.u16s).into_iter().map(|half| half.to_string()).collect(),
         4 => literal.s32s.iter().map(i32::to_string).collect(),
         5 => literal.s64s.iter().map(i64::to_string).collect(),
         8 => literal.u32s.iter().map(u32::to_string).collect(),
@@ -2281,11 +2002,7 @@ fn literal_values(literal: &LiteralProto, element_type: i32) -> Option<Vec<Strin
             .map(|&value| {
                 float_text(
                     f64::from(value),
-                    if general(f64::from(value), 6).parse::<f32>() == Ok(value) {
-                        6
-                    } else {
-                        9
-                    },
+                    if general(f64::from(value), 6).parse::<f32>() == Ok(value) { 6 } else { 9 },
                     Some((u64::from(value.to_bits()), 23)),
                 )
             })
@@ -2309,11 +2026,7 @@ fn literal_values(literal: &LiteralProto, element_type: i32) -> Option<Vec<Strin
             .0
             .iter()
             .map(|pair| {
-                format!(
-                    "({}, {})",
-                    float_text(pair[0], 15, None),
-                    float_text(pair[1], 15, None)
-                )
+                format!("({}, {})", float_text(pair[0], 15, None), float_text(pair[1], 15, None))
             })
             .collect(),
         12 => literal
@@ -2322,11 +2035,7 @@ fn literal_values(literal: &LiteralProto, element_type: i32) -> Option<Vec<Strin
             .map(|&value| {
                 float_text(
                     value,
-                    if general(value, 15).parse::<f64>() == Ok(value) {
-                        15
-                    } else {
-                        17
-                    },
+                    if general(value, 15).parse::<f64>() == Ok(value) { 15 } else { 17 },
                     Some((value.to_bits(), 52)),
                 )
             })
@@ -2366,11 +2075,7 @@ fn literal_values(literal: &LiteralProto, element_type: i32) -> Option<Vec<Strin
             .iter()
             .map(|&byte| {
                 float_text(
-                    if byte == u8::MAX {
-                        f64::NAN
-                    } else {
-                        2f64.powi(i32::from(byte) - 127)
-                    },
+                    if byte == u8::MAX { f64::NAN } else { 2f64.powi(i32::from(byte) - 127) },
                     2,
                     None,
                 )

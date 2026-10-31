@@ -23,10 +23,7 @@ fn sample() -> Vec<u8> {
             name,
             0,
             0,
-            &[
-                ("performance_counter_id", id.into()),
-                ("counter_value", V::Double(value)),
-            ],
+            &[("performance_counter_id", id.into()), ("counter_value", V::Double(value))],
         );
     }
     space.encode_to_vec()
@@ -58,10 +55,7 @@ fn test_get_kernel_utilization_from_raw_bytes() {
     let kernel = kernel(&parsed);
     assert_eq!(kernel.at("kernel_name").str(), Some("matmul"));
     assert!(kernel.at("mxu_utilization").float().unwrap() > 0.0);
-    assert_eq!(
-        kernel.at("mxu_cycles_breakdown").at("BF16").float(),
-        Some(100.0)
-    );
+    assert_eq!(kernel.at("mxu_cycles_breakdown").at("BF16").float(), Some(100.0));
     assert_eq!(kernel.at("mxu_is_anomaly"), &J::Bool(false));
 }
 
@@ -69,10 +63,7 @@ fn test_get_kernel_utilization_from_raw_bytes() {
 fn test_get_kernel_utilization_from_local_file() {
     let result = json(get_kernel_utilization(
         &Fake::fixed(""),
-        &args(
-            &trace_file("ku-file"),
-            &[("output_format", J::from("dict"))],
-        ),
+        &args(&trace_file("ku-file"), &[("output_format", J::from("dict"))]),
     ));
     assert_eq!(result.at("status").str(), Some("SUCCESS"));
     assert_eq!(kernel(&result).at("kernel_name").str(), Some("matmul"));
@@ -84,10 +75,7 @@ fn test_get_kernel_utilization_from_local_directory() {
     std::fs::write(dir.join("test.xplane.pb"), sample()).unwrap();
     let result = json(get_kernel_utilization(
         &Fake::fixed(""),
-        &args(
-            &dir.to_string_lossy(),
-            &[("output_format", J::from("dict"))],
-        ),
+        &args(&dir.to_string_lossy(), &[("output_format", J::from("dict"))]),
     ));
     assert_eq!(result.at("status").str(), Some("SUCCESS"));
     assert_eq!(kernel(&result).at("kernel_name").str(), Some("matmul"));
@@ -131,10 +119,7 @@ fn test_get_kernel_utilization_session_ignores_host_filename() {
     let mut space = XSpace::decode(&sample()[..]).unwrap();
     space.hostnames = vec!["worker-0".into()];
     std::fs::write(run.join("host.xplane.pb"), space.encode_to_vec()).unwrap();
-    let client = crate::cli::client::Local {
-        logdir: Some(logdir),
-        ..Default::default()
-    };
+    let client = crate::cli::client::Local { logdir: Some(logdir), ..Default::default() };
     let result = json(get_kernel_utilization(&client, &args("s2", &[])));
     assert_eq!(result.at("status").str(), Some("SUCCESS"));
     assert_eq!(kernel(&result).at("kernel_name").str(), Some("matmul"));
@@ -148,10 +133,7 @@ fn test_get_kernel_utilization_dangling_trace_link_raises_path_error() {
     let error =
         get_kernel_utilization(&Fake::fixed(""), &args(&dir.to_string_lossy(), &[])).unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
-    assert_eq!(
-        error.message,
-        format!("[Errno 2] No such file or directory: '{}'", link.display())
-    );
+    assert_eq!(error.message, format!("[Errno 2] No such file or directory: '{}'", link.display()));
 }
 
 #[test]
@@ -191,10 +173,8 @@ fn test_get_kernel_utilization_duration_override() {
         ("force_duration", J::Bool(true)),
         ("output_format", J::from("dict")),
     ];
-    let result = json(get_kernel_utilization(
-        &Fake::fixed(""),
-        &args(&trace_file("ku-duration"), &flags),
-    ));
+    let result =
+        json(get_kernel_utilization(&Fake::fixed(""), &args(&trace_file("ku-duration"), &flags)));
     assert_eq!(result.at("status").str(), Some("SUCCESS"));
     assert!((kernel(&result).at("duration_us").float().unwrap() - 20.0).abs() < 1e-3);
 }
@@ -207,11 +187,9 @@ fn test_get_kernel_utilization_empty_session_and_raw_bytes_raises_value_error() 
 
 #[test]
 fn test_get_kernel_utilization_client_no_data_raises_file_not_found_error() {
-    let error = get_kernel_utilization(
-        &Fake::new(|_, _| Ok(None)),
-        &args("non_existent_session", &[]),
-    )
-    .unwrap_err();
+    let error =
+        get_kernel_utilization(&Fake::new(|_, _| Ok(None)), &args("non_existent_session", &[]))
+            .unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
 }
 

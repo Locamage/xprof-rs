@@ -138,10 +138,9 @@ impl Remote {
     }
 
     fn local(&self, key: &Key) -> Option<PathBuf> {
-        key.prefix_match(&self.root)?
-            .try_fold(self.mirror.clone(), |dir, part| {
-                (!matches!(part.as_ref(), "" | "." | "..")).then(|| dir.join(part.as_ref()))
-            })
+        key.prefix_match(&self.root)?.try_fold(self.mirror.clone(), |dir, part| {
+            (!matches!(part.as_ref(), "" | "." | "..")).then(|| dir.join(part.as_ref()))
+        })
     }
 
     pub async fn sync(&self, dir: &Path, touch: bool) -> Result<(), String> {
@@ -149,10 +148,7 @@ impl Remote {
             return Ok(());
         };
         if touch {
-            self.used
-                .lock()
-                .expect("lock poisoned")
-                .insert(dir.to_path_buf(), Instant::now());
+            self.used.lock().expect("lock poisoned").insert(dir.to_path_buf(), Instant::now());
         }
         let unlock = Unlock {
             locks: &self.locks,
@@ -177,11 +173,7 @@ impl Remote {
         }
         let unreadable = |error: String| format!("Cannot read {}: {error}", self.url);
         let unwritable = |error: std::io::Error| {
-            format!(
-                "Cannot write the mirror of {} in {}: {error}",
-                self.url,
-                self.mirror.display()
-            )
+            format!("Cannot write the mirror of {} in {}: {error}", self.url, self.mirror.display())
         };
         let listing = async |prefix: &Key| match tokio::time::timeout(
             LIST_TIMEOUT,
@@ -198,9 +190,7 @@ impl Remote {
             while !pending.is_empty() {
                 let listed: Vec<_> = stream::iter(std::mem::take(&mut pending))
                     .map(|(prefix, profile)| async move {
-                        listing(&prefix)
-                            .await
-                            .map(|listed| (listed.common_prefixes, profile))
+                        listing(&prefix).await.map(|listed| (listed.common_prefixes, profile))
                     })
                     .buffer_unordered(PARALLEL_LISTS)
                     .try_collect()
@@ -306,19 +296,12 @@ impl Remote {
                     (used.get(&session).copied(), session, files)
                 })
                 .collect();
-            let mut total: u64 = held
-                .iter()
-                .flat_map(|(_, _, files)| files)
-                .map(|(len, _)| len)
-                .sum();
+            let mut total: u64 =
+                held.iter().flat_map(|(_, _, files)| files).map(|(len, _)| len).sum();
             held.sort_by_key(|(at, _, _)| *at);
             // A session with a lock has a sync that can still write its files.
-            let busy = |session: &PathBuf| {
-                self.locks
-                    .lock()
-                    .expect("lock poisoned")
-                    .contains_key(session)
-            };
+            let busy =
+                |session: &PathBuf| self.locks.lock().expect("lock poisoned").contains_key(session);
             for (_, session, files) in held.into_iter().filter(|(at, session, _)| {
                 session != dir && at.is_none_or(|at| at.elapsed() >= IN_USE) && !busy(session)
             }) {
@@ -326,11 +309,7 @@ impl Remote {
                     break;
                 }
                 for (len, file) in files {
-                    total -= if std::fs::remove_file(file).is_ok() {
-                        len
-                    } else {
-                        0
-                    };
+                    total -= if std::fs::remove_file(file).is_ok() { len } else { 0 };
                 }
                 self.checked.lock().expect("lock poisoned").remove(&session);
                 self.used.lock().expect("lock poisoned").remove(&session);
@@ -346,9 +325,7 @@ impl Remote {
         let Some(key) = self.key(dir) else {
             return Ok(());
         };
-        for file in list(dir, |entry| {
-            entry.file_type().is_ok_and(|kind| kind.is_file())
-        }) {
+        for file in list(dir, |entry| entry.file_type().is_ok_and(|kind| kind.is_file())) {
             let failed = |error: String| {
                 format!("Cannot upload {} to {}: {error}", file.display(), self.url)
             };
@@ -356,19 +333,15 @@ impl Remote {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| failed("The file name is not UTF-8".into()))?;
-            let location = key
-                .clone()
-                .join(PathPart::parse(name).map_err(|error| failed(error.to_string()))?);
+            let location =
+                key.clone().join(PathPart::parse(name).map_err(|error| failed(error.to_string()))?);
             let bytes = std::fs::read(&file).map_err(|error| failed(error.to_string()))?;
             self.store
                 .put(&location, PutPayload::from(bytes))
                 .await
                 .map_err(|error| failed(error.to_string()))?;
-            let stored = self
-                .store
-                .head(&location)
-                .await
-                .map_err(|error| failed(error.to_string()))?;
+            let stored =
+                self.store.head(&location).await.map_err(|error| failed(error.to_string()))?;
             std::fs::File::open(&file)
                 .and_then(|opened| opened.set_modified(SystemTime::from(stored.last_modified)))
                 .map_err(|error| failed(error.to_string()))?;
@@ -397,10 +370,7 @@ pub async fn mirror(State(state): State<Shared>, request: Request, next: Next) -
             (None, Some(path), None) => list(&state.logdir.join(path), |entry| {
                 entry.file_type().is_ok_and(|kind| kind.is_dir())
             }),
-            (None, None, run) => run
-                .and_then(|run| run_dir(&state, run))
-                .into_iter()
-                .collect(),
+            (None, None, run) => run.and_then(|run| run_dir(&state, run)).into_iter().collect(),
         }
     };
     // The list of all sessions walks the whole store, so a request for a session that the mirror has does not wait for it.

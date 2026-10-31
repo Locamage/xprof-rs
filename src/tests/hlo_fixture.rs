@@ -9,8 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
     let mut pool = DescriptorPool::global();
-    pool.decode_file_descriptor_set(&include_bytes!("../data/hlo_descriptors.pb")[..])
-        .unwrap();
+    pool.decode_file_descriptor_set(&include_bytes!("../data/hlo_descriptors.pb")[..]).unwrap();
     pool
 });
 static DIRS: AtomicUsize = AtomicUsize::new(0);
@@ -37,9 +36,5 @@ pub fn session_dir(name: &str) -> PathBuf {
 }
 
 pub fn write_module(dir: &std::path::Path, name: &str, proto: &HloProto) {
-    std::fs::write(
-        dir.join(format!("{name}.hlo_proto.pb")),
-        proto.encode_to_vec(),
-    )
-    .unwrap();
+    std::fs::write(dir.join(format!("{name}.hlo_proto.pb")), proto.encode_to_vec()).unwrap();
 }

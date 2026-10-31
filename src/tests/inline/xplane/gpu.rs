@@ -17,28 +17,13 @@ pub mod fixture {
                 bytes(4, &[number(1, *id), value].concat())
             })
             .collect();
-        bytes(
-            4,
-            &[
-                number(1, meta),
-                number(2, offset),
-                number(3, duration),
-                stats,
-            ]
-            .concat(),
-        )
+        bytes(4, &[number(1, meta), number(2, offset), number(3, duration), stats].concat())
     }
 
     pub fn line(id: u64, name: &str, events: &[Vec<u8>]) -> Vec<u8> {
         bytes(
             3,
-            &[
-                number(1, id),
-                bytes(2, name.as_bytes()),
-                number(3, 1000),
-                events.concat(),
-            ]
-            .concat(),
+            &[number(1, id), bytes(2, name.as_bytes()), number(3, 1000), events.concat()].concat(),
         )
     }
 
@@ -47,18 +32,10 @@ pub mod fixture {
             .iter()
             .enumerate()
             .map(|(id, name)| entry(4, id as u64 + 1, name))
-            .chain(
-                stats
-                    .iter()
-                    .enumerate()
-                    .map(|(id, name)| entry(5, id as u64 + 1, name)),
-            )
+            .chain(stats.iter().enumerate().map(|(id, name)| entry(5, id as u64 + 1, name)))
             .flatten()
             .collect();
-        bytes(
-            1,
-            &[bytes(2, name.as_bytes()), lines.concat(), metadata].concat(),
-        )
+        bytes(1, &[bytes(2, name.as_bytes()), lines.concat(), metadata].concat())
     }
 }
 
@@ -68,10 +45,7 @@ use fixture::{Stat, event, line, plane as encode};
 fn plane(stats: Vec<(&str, Own)>) -> Plane {
     Plane {
         name: format!("{PREFIX}0"),
-        own: stats
-            .into_iter()
-            .map(|(name, value)| (name.into(), value))
-            .collect(),
+        own: stats.into_iter().map(|(name, value)| (name.into(), value)).collect(),
         ..Default::default()
     }
 }
@@ -113,10 +87,7 @@ fn perf_env_from_device_caps() {
         ])),
         "AMD GPU - gfx-11XX series"
     );
-    assert_eq!(
-        model_name(&plane(vec![("device_vendor", Own::Text("Intel".into()))])),
-        ""
-    );
+    assert_eq!(model_name(&plane(vec![("device_vendor", Own::Text("Intel".into()))])), "");
 }
 
 fn info(category: &str, cost: Option<Cost>) -> Info {
@@ -125,10 +96,7 @@ fn info(category: &str, cost: Option<Cost>) -> Info {
         provenance: "jit(f)/dot:".into(),
         deduplicated: "".into(),
         expression: "%x = f32[] add()".into(),
-        source: Source {
-            line: -1,
-            ..Default::default()
-        },
+        source: Source { line: -1, ..Default::default() },
         cost,
     }
 }
@@ -141,12 +109,7 @@ fn device_db_merges_consecutive_kernels_of_one_hlo_op_per_group() {
             1,
             offset,
             10,
-            &[
-                (1, Stat::Text(op)),
-                (2, Stat::Int(7)),
-                (3, Stat::Int(flops)),
-                (4, Stat::Int(group)),
-            ],
+            &[(1, Stat::Text(op)), (2, Stat::Int(7)), (3, Stat::Int(flops)), (4, Stat::Int(group))],
         )
     };
     let lines = [line(
@@ -209,13 +172,7 @@ fn device_db_merges_consecutive_kernels_of_one_hlo_op_per_group() {
 
 #[test]
 fn kernels_take_the_hlo_op_name_and_skip_empty_or_non_kernel_events() {
-    let stats = [
-        "kernel_details",
-        "tf_op",
-        "hlo_op",
-        "program_id",
-        "equation",
-    ];
+    let stats = ["kernel_details", "tf_op", "hlo_op", "program_id", "equation"];
     let details = Stat::Text("regs:32 grid:2,1,1 block:64,1,1 occ_pct:50");
     let lines = [line(
         1,
@@ -249,14 +206,10 @@ fn kernels_take_the_hlo_op_name_and_skip_empty_or_non_kernel_events() {
     )];
     let map = encode("/device:GPU:0", &lines, &["volta_h884gemm", "copy"], &stats);
     let planes = crate::xplane::parse(&map).unwrap();
-    let infos: Infos = [(
-        7,
-        [("fusion".to_string(), info("loop fusion", None))]
+    let infos: Infos =
+        [(7, [("fusion".to_string(), info("loop fusion", None))].into_iter().collect())]
             .into_iter()
-            .collect(),
-    )]
-    .into_iter()
-    .collect();
+            .collect();
     let top = top_kernels(device_plane(&planes[0], &map, &infos, 0).1);
     let summary: Vec<(&str, &str, bool, bool, u64, f64)> = top
         .iter()
@@ -284,23 +237,12 @@ fn kernels_take_the_hlo_op_name_and_skip_empty_or_non_kernel_events() {
 #[test]
 fn ungrouped_events_take_the_group_of_the_previous_event_in_time() {
     let lines = [
-        line(
-            1,
-            "Stream #1",
-            &[event(1, 0, 10, &[]), event(1, 30, 10, &[])],
-        ),
-        line(
-            2,
-            "Stream #2",
-            &[event(1, 20, 5, &[(1, Stat::Int(4))]), event(1, 50, 5, &[])],
-        ),
+        line(1, "Stream #1", &[event(1, 0, 10, &[]), event(1, 30, 10, &[])]),
+        line(2, "Stream #2", &[event(1, 20, 5, &[(1, Stat::Int(4))]), event(1, 50, 5, &[])]),
     ];
     let map = encode("/device:GPU:0", &lines, &["kernel"], &["group_id"]);
     let planes = crate::xplane::parse(&map).unwrap();
-    assert_eq!(
-        groups(&planes[0], &map),
-        vec![vec![None, Some(4)], vec![Some(4), Some(4)]]
-    );
+    assert_eq!(groups(&planes[0], &map), vec![vec![None, Some(4)], vec![Some(4), Some(4)]]);
 }
 
 #[test]
@@ -330,32 +272,17 @@ fn source_info_prefers_the_file_and_falls_back_to_the_first_stack_frame() {
             },
         ],
         stack_frames: vec![
-            StackFrame {
-                file_location_id: 2,
-                parent_frame_id: 0,
-            },
-            StackFrame {
-                file_location_id: 1,
-                parent_frame_id: 1,
-            },
+            StackFrame { file_location_id: 2, parent_frame_id: 0 },
+            StackFrame { file_location_id: 1, parent_frame_id: 1 },
         ],
     };
     let proto = HloProto {
-        hlo_module: Some(HloModuleProto {
-            stack_frame_index: Some(index),
-            ..Default::default()
-        }),
+        hlo_module: Some(HloModuleProto { stack_frame_index: Some(index), ..Default::default() }),
         ..Default::default()
     }
     .encode_to_vec();
     let module = Module::parse(Cow::Owned(proto));
-    let from_stack = source(
-        &module,
-        &OpMetadata {
-            stack_frame_id: 2,
-            ..Default::default()
-        },
-    );
+    let from_stack = source(&module, &OpMetadata { stack_frame_id: 2, ..Default::default() });
     assert_eq!(
         (&*from_stack.file, from_stack.line, &*from_stack.stack),
         ("a.py", 3, "a.py:3:4\nb.py:9:1\n")
@@ -369,15 +296,9 @@ fn source_info_prefers_the_file_and_falls_back_to_the_first_stack_frame() {
             ..Default::default()
         },
     );
-    assert_eq!(
-        (&*from_file.file, from_file.line, &*from_file.stack),
-        ("c.py", 5, "b.py:9:1\n")
-    );
+    assert_eq!((&*from_file.file, from_file.line, &*from_file.stack), ("c.py", 5, "b.py:9:1\n"));
     let missing = source(&module, &OpMetadata::default());
-    assert_eq!(
-        (&*missing.file, missing.line, &*missing.stack),
-        ("", -1, "")
-    );
+    assert_eq!((&*missing.file, missing.line, &*missing.stack), ("", -1, ""));
 }
 
 #[test]
@@ -389,14 +310,7 @@ fn launch_params_and_tensor_core_rules() {
         &mut occupancy,
     );
     assert_eq!(
-        (
-            key.registers,
-            key.static_shmem,
-            key.dynamic_shmem,
-            key.grid,
-            key.block,
-            occupancy
-        ),
+        (key.registers, key.static_shmem, key.dynamic_shmem, key.grid, key.block, occupancy),
         (96, 21520, 82240, [32, 1, 1], [640, 1, 1], 12.5)
     );
     assert!(
@@ -413,10 +327,7 @@ fn launch_params_and_tensor_core_rules() {
 #[test]
 fn kernel_reports_merge_and_sort() {
     let report = |name: &str, total: u64| KernelReport {
-        key: KernelKey {
-            name: name.into(),
-            ..Default::default()
-        },
+        key: KernelKey { name: name.into(), ..Default::default() },
         total_ns: total,
         min_ns: total,
         max_ns: total,
@@ -438,10 +349,7 @@ fn kernel_reports_merge_and_sort() {
             )
         })
         .collect();
-    assert_eq!(
-        summary,
-        vec![("b", 12, 5, 7, 2), ("a", 5, 5, 5, 1), ("c", 1, 1, 1, 1)]
-    );
+    assert_eq!(summary, vec![("b", 12, 5, 7, 2), ("a", 5, 5, 5, 1), ("c", 1, 1, 1, 1)]);
 }
 
 fn module_with_source(stack_frames: bool) -> (Module<'static>, crate::hlo::xla::OpMetadata) {
@@ -470,14 +378,8 @@ fn module_with_source(stack_frames: bool) -> (Module<'static>, crate::hlo::xla::
             },
         ],
         stack_frames: vec![
-            StackFrame {
-                file_location_id: 1,
-                parent_frame_id: 0,
-            },
-            StackFrame {
-                file_location_id: 2,
-                parent_frame_id: 1,
-            },
+            StackFrame { file_location_id: 1, parent_frame_id: 0 },
+            StackFrame { file_location_id: 2, parent_frame_id: 1 },
         ],
     };
     let metadata = OpMetadata {
@@ -486,17 +388,11 @@ fn module_with_source(stack_frames: bool) -> (Module<'static>, crate::hlo::xla::
         source_line: 20,
         ..Default::default()
     };
-    let module = HloModuleProto {
-        stack_frame_index: stack_frames.then_some(index),
-        ..Default::default()
-    };
+    let module =
+        HloModuleProto { stack_frame_index: stack_frames.then_some(index), ..Default::default() };
     (
         Module::parse(Cow::Owned(
-            HloProto {
-                hlo_module: Some(module),
-                ..Default::default()
-            }
-            .encode_to_vec(),
+            HloProto { hlo_module: Some(module), ..Default::default() }.encode_to_vec(),
         )),
         metadata,
     )
@@ -505,10 +401,7 @@ fn module_with_source(stack_frames: bool) -> (Module<'static>, crate::hlo::xla::
 #[test]
 fn test_get_location_stack() {
     let (module_with_stack_frames, _) = module_with_source(true);
-    assert_eq!(
-        stack(&module_with_stack_frames, 2),
-        "main.py:20:1\nmain.py:10:5\n"
-    );
+    assert_eq!(stack(&module_with_stack_frames, 2), "main.py:20:1\nmain.py:10:5\n");
 }
 
 #[test]
@@ -525,10 +418,7 @@ fn test_get_source_info() {
 fn test_get_source_info_fallback() {
     let (module_with_source_location, root_metadata) = module_with_source(false);
     let source_info = source(&module_with_source_location, &root_metadata);
-    assert_eq!(
-        (&*source_info.file, source_info.line, &*source_info.stack),
-        ("main.py", 20, "")
-    );
+    assert_eq!((&*source_info.file, source_info.line, &*source_info.stack), ("main.py", 20, ""));
 }
 
 fn op_info(
@@ -583,22 +473,12 @@ fn enter_op_accumulates_basic_metrics() {
             &*metrics.deduplicated_name,
             &*metrics.long_name
         ),
-        (
-            "test_op",
-            "test_cat",
-            "test_prov",
-            "test_dedup",
-            "long_test_op"
-        )
+        ("test_op", "test_cat", "test_prov", "test_dedup", "long_test_op")
     );
     assert!(!metrics.is_eager);
     assert_eq!((metrics.occurrences, metrics.time_ps), (2, 1000));
     assert_eq!(
-        (
-            metrics.flops_v2,
-            metrics.model_flops_v2,
-            metrics.bytes_accessed
-        ),
+        (metrics.flops_v2, metrics.model_flops_v2, metrics.bytes_accessed),
         (20.0, 20.0, 40)
     );
 }
@@ -608,10 +488,7 @@ fn enter_op_accumulates_multiple_occurrences() {
     let mut builder = Builder::default();
     let info = op_info("", "", "", "", None);
     builder.enter(&op(&info, "test_op", 2, 1000, 10, 20));
-    builder.enter(&Tracker {
-        eager: true,
-        ..op(&info, "test_op", 1, 500, 5, 10)
-    });
+    builder.enter(&Tracker { eager: true, ..op(&info, "test_op", 1, 500, 5, 10) });
     assert_eq!(builder.db.metrics.len(), 1);
     let metrics = &builder.db.metrics[0];
     assert!(!metrics.is_eager);
@@ -623,10 +500,7 @@ fn enter_op_accumulates_multiple_occurrences() {
 fn enter_op_preserves_eager_from_first_occurrence() {
     let mut builder = Builder::default();
     let info = op_info("", "", "", "", None);
-    builder.enter(&Tracker {
-        eager: true,
-        ..op(&info, "test_op", 1, 0, 0, 0)
-    });
+    builder.enter(&Tracker { eager: true, ..op(&info, "test_op", 1, 0, 0, 0) });
     builder.enter(&op(&info, "test_op", 1, 0, 0, 0));
     assert_eq!(builder.db.metrics.len(), 1);
     assert!(builder.db.metrics[0].is_eager);
@@ -640,19 +514,12 @@ fn enter_op_handles_model_flops() {
         "",
         "",
         "",
-        Some(Cost {
-            model_flops: 15,
-            device_flops: 10,
-            ..Default::default()
-        }),
+        Some(Cost { model_flops: 15, device_flops: 10, ..Default::default() }),
     );
     builder.enter(&op(&info, "test_op", 1, 0, 10, 0));
     assert_eq!(builder.db.metrics.len(), 1);
     assert_eq!(
-        (
-            builder.db.metrics[0].flops_v2,
-            builder.db.metrics[0].model_flops_v2
-        ),
+        (builder.db.metrics[0].flops_v2, builder.db.metrics[0].model_flops_v2),
         (10.0, 15.0)
     );
 }
@@ -661,35 +528,20 @@ fn enter_op_handles_model_flops() {
 fn enter_op_handles_source_info() {
     let mut builder = Builder::default();
     let info = Info {
-        source: Source {
-            file: "file.py".into(),
-            line: 42,
-            stack: "stack_frame_info".into(),
-        },
+        source: Source { file: "file.py".into(), line: 42, stack: "stack_frame_info".into() },
         ..op_info("", "", "", "", None)
     };
     builder.enter(&op(&info, "test_op", 0, 0, 0, 0));
     assert_eq!(builder.db.metrics.len(), 1);
     let source = builder.db.metrics[0].source.clone().unwrap();
-    assert_eq!(
-        (&*source.file, source.line, &*source.stack),
-        ("file.py", 42, "stack_frame_info")
-    );
+    assert_eq!((&*source.file, source.line, &*source.stack), ("file.py", 42, "stack_frame_info"));
 }
 
 #[test]
 fn enter_op_accumulates_memory_accessed_breakdown() {
     let mut builder = Builder::default();
-    let first = op_info(
-        "",
-        "",
-        "",
-        "",
-        Some(Cost {
-            memory: vec![(true, 1, 100)],
-            ..Default::default()
-        }),
-    );
+    let first =
+        op_info("", "", "", "", Some(Cost { memory: vec![(true, 1, 100)], ..Default::default() }));
     builder.enter(&op(&first, "test_op", 1, 0, 0, 0));
     assert_eq!(builder.db.metrics.len(), 1);
     assert_eq!(builder.db.metrics[0].memory, [(READ, 1, 100)]);
@@ -698,16 +550,10 @@ fn enter_op_accumulates_memory_accessed_breakdown() {
         "",
         "",
         "",
-        Some(Cost {
-            memory: vec![(true, 1, 50), (false, 2, 200)],
-            ..Default::default()
-        }),
+        Some(Cost { memory: vec![(true, 1, 50), (false, 2, 200)], ..Default::default() }),
     );
     builder.enter(&op(&second, "test_op", 1, 0, 0, 0));
-    assert_eq!(
-        builder.db.metrics[0].memory,
-        [(READ, 1, 150), (WRITE, 2, 200)]
-    );
+    assert_eq!(builder.db.metrics[0].memory, [(READ, 1, 150), (WRITE, 2, 200)]);
 }
 
 #[test]
@@ -729,11 +575,7 @@ fn enter_op_handles_gpu_fields() {
     assert_eq!(builder.db.metrics.len(), 1);
     let metrics = &builder.db.metrics[0];
     assert_eq!(
-        (
-            metrics.flops_v2,
-            metrics.bytes_accessed,
-            metrics.model_flops_v2
-        ),
+        (metrics.flops_v2, metrics.bytes_accessed, metrics.model_flops_v2),
         (200.0, 400, 200.0)
     );
     assert_eq!(metrics.memory, [(READ, 1, 100)]);
@@ -742,16 +584,8 @@ fn enter_op_handles_gpu_fields() {
 #[test]
 fn enter_op_handles_gpu_negative_bytes_fallback() {
     let mut builder = Builder::default();
-    let info = op_info(
-        "",
-        "",
-        "",
-        "",
-        Some(Cost {
-            memory: vec![(true, 1, -50)],
-            ..Default::default()
-        }),
-    );
+    let info =
+        op_info("", "", "", "", Some(Cost { memory: vec![(true, 1, -50)], ..Default::default() }));
     builder.enter(&op(&info, "gpu_op", 2, 0, 0, 0));
     assert_eq!(builder.db.metrics.len(), 1);
     assert_eq!(builder.db.metrics[0].memory, [(READ, 1, 0)]);
@@ -761,17 +595,10 @@ fn enter_op_handles_gpu_negative_bytes_fallback() {
 fn enter_op_metadata_populates_metadata() {
     let mut builder = Builder::default();
     let info = Info {
-        source: Source {
-            file: "file.py".into(),
-            line: 42,
-            stack: "stack_frame_info".into(),
-        },
+        source: Source { file: "file.py".into(), line: 42, stack: "stack_frame_info".into() },
         ..op_info("test_cat", "test_prov", "test_dedup", "long_test_op", None)
     };
-    builder.enter(&Tracker {
-        eager: true,
-        ..op(&info, "test_op", 0, 0, 0, 0)
-    });
+    builder.enter(&Tracker { eager: true, ..op(&info, "test_op", 0, 0, 0, 0) });
     assert_eq!(builder.db.metrics.len(), 1);
     let metrics = &builder.db.metrics[0];
     assert_eq!(
@@ -782,20 +609,11 @@ fn enter_op_metadata_populates_metadata() {
             &*metrics.deduplicated_name,
             &*metrics.long_name
         ),
-        (
-            "test_op",
-            "test_cat",
-            "test_prov",
-            "test_dedup",
-            "long_test_op"
-        )
+        ("test_op", "test_cat", "test_prov", "test_dedup", "long_test_op")
     );
     assert!(metrics.is_eager);
     let source = metrics.source.clone().unwrap();
-    assert_eq!(
-        (&*source.file, source.line, &*source.stack),
-        ("file.py", 42, "stack_frame_info")
-    );
+    assert_eq!((&*source.file, source.line, &*source.stack), ("file.py", 42, "stack_frame_info"));
 }
 
 #[test]
@@ -804,16 +622,10 @@ fn enter_op_metadata_does_not_overwrite_if_occurrences_exist() {
     let initial = op_info("initial_cat", "initial_prov", "", "", None);
     builder.enter(&op(&initial, "test_op", 1, 0, 0, 0));
     let new = op_info("new_cat", "new_prov", "", "", None);
-    builder.enter(&Tracker {
-        eager: true,
-        ..op(&new, "test_op", 0, 0, 0, 0)
-    });
+    builder.enter(&Tracker { eager: true, ..op(&new, "test_op", 0, 0, 0, 0) });
     assert_eq!(builder.db.metrics.len(), 1);
     assert_eq!(
-        (
-            &*builder.db.metrics[0].category,
-            &*builder.db.metrics[0].provenance
-        ),
+        (&*builder.db.metrics[0].category, &*builder.db.metrics[0].provenance),
         ("initial_cat", "initial_prov")
     );
 }
@@ -822,30 +634,18 @@ fn enter_op_metadata_does_not_overwrite_if_occurrences_exist() {
 fn enter_op_accumulates_vdd_energy() {
     let mut builder = Builder::default();
     let info = op_info("test_cat", "test_prov", "test_dedup", "", None);
-    builder.enter(&Tracker {
-        vdd: 1.5,
-        ..op(&info, "test_op", 2, 1000, 10, 20)
-    });
+    builder.enter(&Tracker { vdd: 1.5, ..op(&info, "test_op", 2, 1000, 10, 20) });
     assert_eq!(builder.db.metrics.len(), 1);
     assert_eq!(
-        (
-            &*builder.db.metrics[0].name,
-            builder.db.metrics[0].vdd_energy
-        ),
+        (&*builder.db.metrics[0].name, builder.db.metrics[0].vdd_energy),
         ("test_op", Some(1.5))
     );
-    builder.enter(&Tracker {
-        vdd: 2.2,
-        ..op(&info, "test_op", 1, 500, 5, 10)
-    });
+    builder.enter(&Tracker { vdd: 2.2, ..op(&info, "test_op", 1, 500, 5, 10) });
     assert_eq!(builder.db.metrics[0].vdd_energy, Some(3.7));
     builder.enter(&op(&info, "other_op", 1, 500, 5, 10));
     assert_eq!(builder.db.metrics.len(), 2);
     assert_eq!(
-        (
-            &*builder.db.metrics[1].name,
-            builder.db.metrics[1].vdd_energy
-        ),
+        (&*builder.db.metrics[1].name, builder.db.metrics[1].vdd_energy),
         ("other_op", None)
     );
 }

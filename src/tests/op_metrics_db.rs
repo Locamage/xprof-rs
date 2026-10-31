@@ -13,9 +13,7 @@ fn tensor_flow_op_event(
     kernel: Option<&str>,
 ) {
     let name = kernel.unwrap_or(tf_op_fullname);
-    let stats = kernel
-        .map(|_| vec![("tf_op", V::Ref(tf_op_fullname.into()))])
-        .unwrap_or_default();
+    let stats = kernel.map(|_| vec![("tf_op", V::Ref(tf_op_fullname.into()))]).unwrap_or_default();
     plane.event(line, name, start_ns * NS, duration_ns * NS, &stats);
 }
 
@@ -44,15 +42,9 @@ fn host_op_metrics_db() {
     let db = host_db(&planes, &map).0;
     assert_eq!(db.metrics.len(), 3);
     assert_eq!(db.total_op_time_ps, ((8000 * 2 + 10000) * NS) as u64);
-    assert_eq!(
-        db.total_time_ps,
-        ((110000 - 100000 + 10000 + 8000) * NS) as u64
-    );
-    let expected = [
-        ("TfOp1", "TfOp1", 2, 8000 * 2),
-        (IDLE, IDLE, 0, 2000),
-        ("TfOp2", "TfOp2", 1, 10000),
-    ];
+    assert_eq!(db.total_time_ps, ((110000 - 100000 + 10000 + 8000) * NS) as u64);
+    let expected =
+        [("TfOp1", "TfOp1", 2, 8000 * 2), (IDLE, IDLE, 0, 2000), ("TfOp2", "TfOp2", 1, 10000)];
     assert_eq!(
         summary(&db),
         expected.map(|(name, category, occurrences, ns)| (
@@ -81,10 +73,7 @@ fn device_op_metrics_db() {
     assert_eq!(db.metrics.len(), 4);
     let total_op = ((8000 * 2 + 10000 * 2 + 10000) * NS) as u64;
     assert_eq!(db.total_op_time_ps, total_op);
-    assert_eq!(
-        db.total_time_ps,
-        total_op.max(((120000 + 10000 - 100000) * NS) as u64)
-    );
+    assert_eq!(db.total_time_ps, total_op.max(((120000 + 10000 - 100000) * NS) as u64));
     let expected = [
         ("TfOp1/kernel1", "TfOp1", 2, 8000 * 2),
         ("TfOp1/kernel2", "TfOp1", 2, 10000 * 2),
@@ -123,13 +112,7 @@ fn tensor_core_device_op_metrics_db() {
         ],
     );
     plane
-        .event(
-            10,
-            "MatMul",
-            0,
-            10 * NS,
-            &[("Time Scale Multiplier", 2.0.into())],
-        )
+        .event(10, "MatMul", 0, 10 * NS, &[("Time Scale Multiplier", 2.0.into())])
         .set_num_occurrences(2);
     let (map, planes) = space.parsed();
     assert_db(
@@ -172,9 +155,7 @@ fn tensor_core_device_op_metrics_db_extracts_vdd_energy() {
             ("flops", 0u64.into()),
         ],
     );
-    plane
-        .event(10, "MatMul", 0, 10 * NS, &[("vdd_energy_j", 42.0.into())])
-        .set_num_occurrences(1);
+    plane.event(10, "MatMul", 0, 10 * NS, &[("vdd_energy_j", 42.0.into())]).set_num_occurrences(1);
     let (map, planes) = space.parsed();
     let db = convert_tensor_core(&planes[0], &map, &templates(&planes[0], &map), None, false).0;
     assert!(!db.metrics.is_empty());
@@ -185,20 +166,8 @@ fn tensor_core_device_op_metrics_db_extracts_vdd_energy() {
 fn host_x_plane_with_xla_ops() {
     let mut space = XSpace::default();
     let host = space.host();
-    host.event(
-        10,
-        "xla_op",
-        100000 * NS,
-        8000 * NS,
-        &[("tf_op", "tf_op".into())],
-    );
-    host.event(
-        10,
-        "xla_op2",
-        110000 * NS,
-        10000 * NS,
-        &[("tf_op", "tf_op2".into())],
-    );
+    host.event(10, "xla_op", 100000 * NS, 8000 * NS, &[("tf_op", "tf_op".into())]);
+    host.event(10, "xla_op2", 110000 * NS, 10000 * NS, &[("tf_op", "tf_op2".into())]);
     let (map, planes) = space.parsed();
     assert_db(
         &host_db(&planes, &map).0,
@@ -226,16 +195,12 @@ fn host_x_plane_with_input_pipeline_traceme_ops() {
             name,
             offset,
             duration,
-            &[
-                ("_ipl_stage_id", stage.into()),
-                ("_ipl_stage_cat", "preprocessing".into()),
-            ],
+            &[("_ipl_stage_id", stage.into()), ("_ipl_stage_cat", "preprocessing".into())],
         );
     }
     let (map, planes) = space.parsed();
     let mut db = host_db(&planes, &map).0;
-    db.metrics
-        .sort_by_key(|metrics| (metrics.name == IDLE, metrics.module));
+    db.metrics.sort_by_key(|metrics| (metrics.name == IDLE, metrics.module));
     assert_db(
         &db,
         r#"metrics_db { self_time_ps: 2000000 occurrences: 1 name: "ShuffleMapDataset" category: "preprocessing" hlo_module_id: 1 time_ps: 10000000 }

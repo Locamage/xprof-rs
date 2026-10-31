@@ -115,9 +115,7 @@ fn json(code: StatusCode, key: &str, message: &str) -> Response {
 }
 
 fn unix_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_nanos() as u64)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos() as u64)
 }
 
 fn timestamp() -> String {
@@ -168,10 +166,7 @@ async fn call<
     let mut request = Request::new(message);
     request.set_timeout(deadline);
     let mut client = Grpc::new(channel).max_decoding_message_size(i32::MAX as usize);
-    client
-        .ready()
-        .await
-        .map_err(|error| Status::unavailable(error.to_string()))?;
+    client.ready().await.map_err(|error| Status::unavailable(error.to_string()))?;
     let reply = client
         .unary(
             request,
@@ -193,11 +188,7 @@ fn save(root: &Path, session: &str, address: &str, reply: &ProfileResponse) -> s
         if tool.name.ends_with("_helper") {
             continue;
         }
-        let prefix = if host.is_empty() {
-            String::new()
-        } else {
-            format!("{host}.")
-        };
+        let prefix = if host.is_empty() { String::new() } else { format!("{host}.") };
         std::fs::write(dir.join(format!("{prefix}{}", tool.name)), &tool.data)?;
     }
     Ok(())
@@ -232,10 +223,7 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
         );
     };
     let worker_list = params.get("worker_list").filter(|list| !list.is_empty());
-    if params
-        .get("is_tpu_name")
-        .is_some_and(|value| value == "true")
-    {
+    if params.get("is_tpu_name").is_some_and(|value| value == "true") {
         return json(StatusCode::INTERNAL_SERVER_ERROR, "error", TF_MISSING);
     }
     if logdir.as_os_str().is_empty() {
@@ -253,18 +241,11 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
         );
     };
     let service = service.strip_prefix("grpc://").unwrap_or(service);
-    let addresses: Vec<String> = worker_list
-        .map_or(service, |list| list)
-        .split(',')
-        .map(String::from)
-        .collect();
+    let addresses: Vec<String> =
+        worker_list.map_or(service, |list| list).split(',').map(String::from).collect();
     let created = unix_ns();
     let duration_ms = duration.max(0) as u64;
-    let delay_ms = if addresses.len() > 1 {
-        MULTI_HOST_DELAY_MS
-    } else {
-        delay.max(0) as u64
-    };
+    let delay_ms = if addresses.len() > 1 { MULTI_HOST_DELAY_MS } else { delay.max(0) as u64 };
     let attempts = retries.saturating_add(1);
     let invalid = if duration_ms == 0 {
         Some("duration_ms must be greater than zero.".to_string())
@@ -381,15 +362,7 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
         }
     };
     match status {
-        Ok(()) => json(
-            StatusCode::OK,
-            "result",
-            "Capture profile successfully. Please refresh.",
-        ),
-        Err(status) => json(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "error",
-            &status_text(&status),
-        ),
+        Ok(()) => json(StatusCode::OK, "result", "Capture profile successfully. Please refresh."),
+        Err(status) => json(StatusCode::INTERNAL_SERVER_ERROR, "error", &status_text(&status)),
     }
 }

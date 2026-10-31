@@ -117,31 +117,24 @@ fn hlo_unescape(text: &str) -> Option<String> {
 }
 
 fn kernel_metadata(expression: &str) -> String {
-    let Some(start) = expression
-        .find("kernel_metadata=")
-        .filter(|_| expression.contains("xprof_metadata"))
+    let Some(start) =
+        expression.find("kernel_metadata=").filter(|_| expression.contains("xprof_metadata"))
     else {
         return String::new();
     };
     let rest = &expression[start + "kernel_metadata=".len()..];
     let metadata: Option<serde_json::Value> = match rest.chars().next() {
         Some('"') => hlo_unescape(&rest[1..]).and_then(|value| serde_json::from_str(&value).ok()),
-        Some('{') => serde_json::Deserializer::from_str(rest)
-            .into_iter()
-            .next()
-            .and_then(Result::ok),
+        Some('{') => {
+            serde_json::Deserializer::from_str(rest).into_iter().next().and_then(Result::ok)
+        }
         _ => None,
     };
-    let xprof = match metadata
-        .as_ref()
-        .and_then(|metadata| metadata.get("xprof_metadata"))
-    {
+    let xprof = match metadata.as_ref().and_then(|metadata| metadata.get("xprof_metadata")) {
         Some(serde_json::Value::String(text)) => serde_json::from_str(text).ok(),
         other => other.cloned(),
     };
-    xprof
-        .map(|xprof: serde_json::Value| xprof.to_string())
-        .unwrap_or_default()
+    xprof.map(|xprof: serde_json::Value| xprof.to_string()).unwrap_or_default()
 }
 
 fn symbol(metrics: &Metrics) -> Xla<'_> {
@@ -209,10 +202,7 @@ pub fn partial_sort(items: &mut [usize], k: usize, less: impl Fn(usize, usize) -
 
 impl<'a> Builder<'a> {
     fn add_child(&mut self, parent: usize, name: Cow<'a, str>) -> usize {
-        self.nodes.push(Node {
-            name,
-            ..Default::default()
-        });
+        self.nodes.push(Node { name, ..Default::default() });
         let index = self.nodes.len() - 1;
         self.nodes[parent].children.push(index);
         index
@@ -243,11 +233,7 @@ impl<'a> Builder<'a> {
             program = Some(node);
         }
         if children_time(metrics) > 0
-            && !metrics
-                .children
-                .metrics
-                .iter()
-                .any(|child| child.core_type == SPARSE_CORE)
+            && !metrics.children.metrics.iter().any(|child| child.core_type == SPARSE_CORE)
         {
             return;
         }
@@ -256,11 +242,8 @@ impl<'a> Builder<'a> {
         } else {
             let mut parent = program.unwrap_or(ROOT);
             if self.grouping == PROVENANCE && !metrics.provenance.is_empty() {
-                let parts: Vec<&str> = metrics
-                    .provenance
-                    .split('/')
-                    .filter(|part| !part.is_empty())
-                    .collect();
+                let parts: Vec<&str> =
+                    metrics.provenance.split('/').filter(|part| !part.is_empty()).collect();
                 for (position, part) in parts.iter().enumerate() {
                     parent = self.child(
                         PROVENANCE_NODE,
@@ -305,21 +288,13 @@ impl<'a> Builder<'a> {
         let mut pending = vec![(root, level)];
         while let Some((node, level)) = pending.pop() {
             self.prune(k, level, node);
-            pending.extend(
-                self.nodes[node]
-                    .children
-                    .iter()
-                    .rev()
-                    .map(|&child| (child, level - 1)),
-            );
+            pending.extend(self.nodes[node].children.iter().rev().map(|&child| (child, level - 1)));
         }
     }
 
     fn prune(&mut self, k: usize, level: i32, node: usize) {
-        for child in self.nodes[node]
-            .fused
-            .take()
-            .map_or(&[][..], |metrics| &metrics.children.metrics)
+        for child in
+            self.nodes[node].fused.take().map_or(&[][..], |metrics| &metrics.children.metrics)
         {
             let index = self.add_child(node, Cow::Borrowed(&child.name));
             self.nodes[index].xla = Some(symbol(child));
@@ -328,18 +303,10 @@ impl<'a> Builder<'a> {
         }
         self.nodes[node].num_children = self.nodes[node].children.len() as i32;
         let mut children = std::mem::take(&mut self.nodes[node].children);
-        let kept = if level > 0 {
-            children.len()
-        } else {
-            k.min(children.len())
-        };
+        let kept = if level > 0 { children.len() } else { k.min(children.len()) };
         if children.len() > 1 {
             let nodes = &self.nodes;
-            if self.nodes[node]
-                .xla
-                .as_ref()
-                .is_some_and(|xla| is_fusion(xla.category))
-            {
+            if self.nodes[node].xla.as_ref().is_some_and(|xla| is_fusion(xla.category)) {
                 partial_sort(&mut children, kept, |a, b| {
                     nodes[a].metrics.model_flops_v2 > nodes[b].metrics.model_flops_v2
                 });
@@ -359,9 +326,7 @@ impl<'a> Builder<'a> {
             let children = &self.nodes[node].children;
             if children.is_empty()
                 || self.nodes[node].xla.is_some()
-                || children
-                    .iter()
-                    .any(|&child| self.nodes[child].xla.is_none())
+                || children.iter().any(|&child| self.nodes[child].xla.is_none())
             {
                 pending.extend(children.iter().rev());
             } else if let [only] = children[..] {
@@ -469,11 +434,7 @@ impl<'a> Builder<'a> {
             ("avgTimePs", one(average), 1),
             ("bf16Flops", one(metrics.flops_v2), 1),
             ("uncappedFlops", one(uncapped * fraction), 1),
-            (
-                "normalizedTimePs",
-                one(metrics.normalized_time_ps as f64),
-                1,
-            ),
+            ("normalizedTimePs", one(metrics.normalized_time_ps as f64), 1),
         ]
     }
 
@@ -513,9 +474,9 @@ impl<'a> Builder<'a> {
                 out.push_str(",\"layout\":{\"dimensions\":[]}");
             }
             write!(out, ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\"sourceInfo\":{{\"fileName\":", xla.program_id).expect("writing to a string cannot fail");
-            let (file, line, stack) = xla.source.map_or(("", 0, ""), |source| {
-                (&*source.file, source.line, &*source.stack)
-            });
+            let (file, line, stack) = xla
+                .source
+                .map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
             json_string(out, file);
             write!(out, ",\"lineNumber\":{line},\"stackFrame\":")
                 .expect("writing to a string cannot fail");
@@ -535,30 +496,15 @@ impl<'a> Builder<'a> {
             let value = if count == 1 {
                 proto_value(values[0])
             } else {
-                J::List(
-                    values[..count]
-                        .iter()
-                        .map(|&value| proto_value(value))
-                        .collect(),
-                )
+                J::List(values[..count].iter().map(|&value| proto_value(value)).collect())
             };
             (key.to_string(), value)
         });
-        let next = if node.children.len() == 1 {
-            parallel
-        } else {
-            parallel.saturating_sub(1)
-        };
+        let next = if node.children.len() == 1 { parallel } else { parallel.saturating_sub(1) };
         let children = if parallel > 0 && node.children.len() > 1 {
-            node.children
-                .par_iter()
-                .map(|&child| self.value(child, next))
-                .collect()
+            node.children.par_iter().map(|&child| self.value(child, next)).collect()
         } else {
-            node.children
-                .iter()
-                .map(|&child| self.value(child, next))
-                .collect()
+            node.children.iter().map(|&child| self.value(child, next)).collect()
         };
         let mut entries = vec![
             ("name".to_string(), J::from(&*node.name)),
@@ -572,13 +518,11 @@ impl<'a> Builder<'a> {
                 ("provenance", xla.provenance.into()),
                 ("category", xla.category.into()),
             ];
-            fields.extend(
-                xla.layout
-                    .then(|| ("layout", obj! {"dimensions" => J::List(Vec::new())})),
-            );
-            let (file, line, stack) = xla.source.map_or(("", 0, ""), |source| {
-                (&*source.file, source.line, &*source.stack)
-            });
+            fields
+                .extend(xla.layout.then(|| ("layout", obj! {"dimensions" => J::List(Vec::new())})));
+            let (file, line, stack) = xla
+                .source
+                .map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
             fields.extend([
                 ("computationPrimitiveSize", J::Int(0)),
                 ("fingerprint", "0".into()),
@@ -587,19 +531,11 @@ impl<'a> Builder<'a> {
                     "sourceInfo",
                     obj! {"fileName" => file, "lineNumber" => line, "stackFrame" => stack},
                 ),
-                (
-                    "xprofKernelMetadata",
-                    kernel_metadata(xla.expression).into(),
-                ),
+                ("xprofKernelMetadata", kernel_metadata(xla.expression).into()),
             ]);
             entries.push((
                 "xla".into(),
-                J::Map(
-                    fields
-                        .into_iter()
-                        .map(|(key, value)| (key.to_string(), value))
-                        .collect(),
-                ),
+                J::Map(fields.into_iter().map(|(key, value)| (key.to_string(), value)).collect()),
             ));
         }
         entries.push(("numChildren".into(), node.num_children.into()));
@@ -622,8 +558,7 @@ fn proto_value(value: f64) -> J {
     }
     let mut text = String::new();
     crate::hlo::round_trip(&mut text, value);
-    text.parse()
-        .map_or_else(|_| J::Float(text.parse().unwrap_or(value)), J::Int)
+    text.parse().map_or_else(|_| J::Float(text.parse().unwrap_or(value)), J::Int)
 }
 
 pub fn proto_double(out: &mut String, value: f64) {
@@ -635,11 +570,7 @@ pub fn proto_double(out: &mut String, value: f64) {
     } else if value.is_nan() {
         out.push_str("\"NaN\"");
     } else if value.is_infinite() {
-        out.push_str(if value > 0.0 {
-            "\"Infinity\""
-        } else {
-            "\"-Infinity\""
-        });
+        out.push_str(if value > 0.0 { "\"Infinity\"" } else { "\"-Infinity\"" });
     } else {
         crate::hlo::round_trip(out, value);
     }
@@ -690,16 +621,9 @@ fn build(stats: &OpStats, grouping: usize, exclude_idle: bool) -> Option<Builder
             .iter()
             .map(|&bandwidth| giga_to_gibi(bandwidth))
             .collect(),
-        total_time_ps: if exclude_idle {
-            db.total_op_time_ps
-        } else {
-            db.total_time_ps
-        },
+        total_time_ps: if exclude_idle { db.total_op_time_ps } else { db.total_time_ps },
     };
-    builder.nodes.push(Node {
-        name: Cow::Borrowed(GROUPINGS[grouping].0),
-        ..Default::default()
-    });
+    builder.nodes.push(Node { name: Cow::Borrowed(GROUPINGS[grouping].0), ..Default::default() });
     for metrics in db.metrics.iter().filter(|metrics| {
         !(metrics.name.starts_with("region") || exclude_idle && metrics.category == IDLE)
     }) {
@@ -732,11 +656,7 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
     let (all, busy) = rayon::join(
         || tree(stats, grouping, false),
         || {
-            if with_busy {
-                tree(stats, grouping, true)
-            } else {
-                Vec::new()
-            }
+            if with_busy { tree(stats, grouping, true) } else { Vec::new() }
         },
     );
     let mut pieces = vec![if grouping == PROVENANCE {
@@ -758,17 +678,12 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
     out.push_str(",\"aggDvfsTimeScaleMultiplier\":");
     proto_double(
         &mut out,
-        safe_divide(
-            stats.db.normalized_total_op_time_ps as f64,
-            stats.db.total_op_time_ps as f64,
-        ),
+        safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64),
     );
     out.push('}');
     pieces.push(out);
-    String::from_utf8(crate::concat(
-        &pieces.iter().map(String::as_bytes).collect::<Vec<_>>(),
-    ))
-    .expect("The pieces are text")
+    String::from_utf8(crate::concat(&pieces.iter().map(String::as_bytes).collect::<Vec<_>>()))
+        .expect("The pieces are text")
 }
 
 /// The value that the JSON reader gives for `json_trees` without the tree for the busy time.
@@ -778,10 +693,8 @@ pub fn value_trees(stats: &OpStats, group_by: Option<&str>) -> J {
         || obj! {"name" => "", "children" => J::List(Vec::new()), "numChildren" => 0},
         |builder| builder.value(ROOT, PARALLEL_LEVELS),
     );
-    let device = (
-        "deviceType".to_string(),
-        J::from(HARDWARE[hardware(&stats.extra.device_type) as usize]),
-    );
+    let device =
+        ("deviceType".to_string(), J::from(HARDWARE[hardware(&stats.extra.device_type) as usize]));
     let mut entries = vec![(GROUPINGS[grouping].1.to_string(), tree)];
     entries.insert(usize::from(grouping != PROVENANCE), device);
     entries.push((

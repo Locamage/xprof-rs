@@ -70,10 +70,7 @@ pub fn apply(name: &str, provider: &MockToolDataProvider) -> Data<Option<SmartSu
     if !(rule.meets)(provider) {
         return Ok(None);
     }
-    Ok(Some(SmartSuggestion {
-        rule_name: rule.name,
-        suggestion_text: (rule.generate)(provider)?,
-    }))
+    Ok(Some(SmartSuggestion { rule_name: rule.name, suggestion_text: (rule.generate)(provider)? }))
 }
 
 pub fn overview_page(
@@ -91,12 +88,7 @@ pub fn input_pipeline_analysis(
     enqueue_us: f64,
     demanded_file_read_us: f64,
 ) -> Option<InputPipeline> {
-    Some(InputPipeline {
-        input_percent,
-        enqueue_us,
-        demanded_file_read_us,
-        ..Default::default()
-    })
+    Some(InputPipeline { input_percent, enqueue_us, demanded_file_read_us, ..Default::default() })
 }
 
 pub fn tpu_step_time_breakdown(
@@ -112,11 +104,7 @@ pub fn tpu_step_time_breakdown(
 }
 
 pub fn generic_step_time_breakdown(step_time_average: f64) -> Option<InputPipeline> {
-    Some(InputPipeline {
-        step_time_ms: step_time_average,
-        tpu: None,
-        ..Default::default()
-    })
+    Some(InputPipeline { step_time_ms: step_time_average, tpu: None, ..Default::default() })
 }
 
 pub fn step_sequence(steps: &[StepInfo]) -> Option<Vec<Step>> {
@@ -144,29 +132,15 @@ pub fn event_time_fractions(
             .map(|(name, fractions)| (name.to_string(), fractions.to_vec()))
             .collect::<BTreeMap<_, _>>()
     };
-    Some(Fractions {
-        chips: map(chips),
-        hosts: map(hosts),
-    })
+    Some(Fractions { chips: map(chips), hosts: map(hosts) })
 }
 
 pub fn op_profile_with_async_done(root_raw_time: f64, name: &str, raw_time: f64) -> Option<Node> {
-    let leaf = Node {
-        name: name.into(),
-        raw_time,
-        ..Default::default()
-    };
-    let async_done = Node {
-        name: "async-done".into(),
-        children: vec![leaf],
-        ..Default::default()
-    };
+    let leaf = Node { name: name.into(), raw_time, ..Default::default() };
+    let async_done = Node { name: "async-done".into(), children: vec![leaf], ..Default::default() };
     Some(Node {
         raw_time: root_raw_time,
-        children: vec![Node {
-            children: vec![async_done],
-            ..Default::default()
-        }],
+        children: vec![Node { children: vec![async_done], ..Default::default() }],
         ..Default::default()
     })
 }

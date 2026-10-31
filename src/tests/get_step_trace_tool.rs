@@ -9,13 +9,8 @@ const TWO_STEPS: &str = r#"{"podStatsSequence": {"podStatsMap": [{"stepNum": 221
 const ONE_CORE: &str = r#"{"podStatsSequence": {"podStatsMap": [{"stepNum": 1, "podStatsPerCore": {"0": {"totalDurationUs": 100000.0, "highFlopsComputeUs": 90000.0}}}]}}"#;
 
 fn near(value: &J, expected: f64, places: i32) {
-    let actual = value
-        .float()
-        .unwrap_or_else(|| panic!("not a number: {value:?}"));
-    assert!(
-        (actual - expected).abs() < 0.5 * 10f64.powi(-places),
-        "{actual} != {expected}"
-    );
+    let actual = value.float().unwrap_or_else(|| panic!("not a number: {value:?}"));
+    assert!((actual - expected).abs() < 0.5 * 10f64.powi(-places), "{actual} != {expected}");
 }
 
 fn input_pipeline_fallback(tool: &str) -> Option<String> {
@@ -71,10 +66,7 @@ fn test_get_step_trace_step_num_filter() {
 #[test]
 fn test_get_step_trace_limit() {
     let entries: Vec<String> = (0..5).map(|step| format!(r#"{{"stepNum": {step}, "podStatsPerCore": {{"0": {{"totalDurationUs": 100000.0, "highFlopsComputeUs": 80000.0}}}}}}"#)).collect();
-    let data = format!(
-        r#"{{"podStatsSequence": {{"podStatsMap": [{}]}}}}"#,
-        entries.join(", ")
-    );
+    let data = format!(r#"{{"podStatsSequence": {{"podStatsMap": [{}]}}}}"#, entries.join(", "));
     let result = step_trace(&Fake::fixed(&data), &[("limit", J::Int(2))]);
     assert_eq!(result.at("summary").at("total_steps"), &J::Int(5));
     assert_eq!(result.at("step_breakdown").items().len(), 2);
@@ -84,11 +76,7 @@ fn test_get_step_trace_limit() {
 fn test_get_step_trace_device_core_filter() {
     let data = r#"{"podStatsSequence": {"podStatsMap": [{"stepNum": 1, "podStatsPerCore": {"0": {"totalDurationUs": 100000.0, "highFlopsComputeUs": 90000.0}, "1": {"totalDurationUs": 200000.0, "highFlopsComputeUs": 180000.0}}}]}}"#;
     let result = step_trace(&Fake::fixed(data), &[("device_core", J::Int(1))]);
-    near(
-        result.at("step_breakdown").items()[0].at("step_time_ms"),
-        200.0,
-        2,
-    );
+    near(result.at("step_breakdown").items()[0].at("step_time_ms"), 200.0, 2);
 }
 
 #[test]
@@ -109,18 +97,12 @@ fn test_get_step_trace_device_core_not_found_fallback() {
     let result = step_trace(&fake, &[("device_core", J::Int(999))]);
     assert!(!result.has("status"));
     assert!(result.has("summary") && result.has("step_breakdown"));
-    assert_eq!(
-        result.at("summary").at("primary_bottleneck").str(),
-        Some("Input / Infeed")
-    );
+    assert_eq!(result.at("summary").at("primary_bottleneck").str(), Some("Input / Infeed"));
 }
 
 #[test]
 fn test_get_step_trace_include_summary_false() {
-    let result = step_trace(
-        &Fake::fixed(ONE_CORE),
-        &[("include_summary", J::Bool(false))],
-    );
+    let result = step_trace(&Fake::fixed(ONE_CORE), &[("include_summary", J::Bool(false))]);
     assert!(!result.has("summary"));
     assert!(result.has("step_breakdown"));
 }
@@ -131,14 +113,8 @@ fn test_get_step_trace_from_input_pipeline_fallback() {
     assert!(!result.has("error"));
     let summary = result.at("summary");
     assert_eq!(summary.at("is_aggregate"), &J::Bool(false));
-    assert_eq!(
-        summary.at("primary_bottleneck").str(),
-        Some("Input / Infeed")
-    );
-    assert_eq!(
-        summary.at("conclusion").str(),
-        Some("Program is input-bound")
-    );
+    assert_eq!(summary.at("primary_bottleneck").str(), Some("Input / Infeed"));
+    assert_eq!(summary.at("conclusion").str(), Some("Program is input-bound"));
     let steps = result.at("step_breakdown").items();
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].at("step_num"), &J::Int(1));
@@ -153,12 +129,7 @@ fn test_get_step_trace_from_overview_page_fallback() {
     let summary = result.at("summary");
     assert_eq!(summary.get("total_steps"), Some(&J::Null));
     assert_eq!(summary.at("is_aggregate"), &J::Bool(true));
-    assert!(
-        summary
-            .at("note")
-            .text()
-            .contains("step count not available")
-    );
+    assert!(summary.at("note").text().contains("step count not available"));
     near(summary.at("step_time_ms_average"), 50.0, 2);
     near(summary.at("compute_time_ms_average"), 40.0, 2);
 }
@@ -174,12 +145,7 @@ fn test_get_step_trace_from_overview_page_fallback_with_step_rows() {
     let summary = result.at("summary");
     assert_eq!(summary.at("total_steps"), &J::Int(3));
     assert_eq!(summary.at("is_aggregate"), &J::Bool(true));
-    assert!(
-        !summary
-            .at("note")
-            .text()
-            .contains("step count not available")
-    );
+    assert!(!summary.at("note").text().contains("step count not available"));
 }
 
 #[test]
@@ -202,10 +168,8 @@ fn test_get_step_trace_no_data() {
 
 #[test]
 fn test_get_step_trace_exception_handled() {
-    let result = step_trace(
-        &Fake::new(|_, _| Err(Error::new(Kind::Runtime, "Backend unavailable"))),
-        &[],
-    );
+    let result =
+        step_trace(&Fake::new(|_, _| Err(Error::new(Kind::Runtime, "Backend unavailable"))), &[]);
     assert_eq!(result.at("status").str(), Some("NO_DATA"));
     assert!(result.at("message").text().contains("No step trace data"));
 }
@@ -260,10 +224,7 @@ fn test_get_step_trace_pod_viewer_empty_breakdown_falls_back() {
     let summary = result.at("summary").clone();
     let step = &result.at("step_breakdown").items()[0];
     assert!(
-        step.at("communication_time_ms")
-            .float()
-            .unwrap()
-            .is_sign_positive(),
+        step.at("communication_time_ms").float().unwrap().is_sign_positive(),
         "an empty sum must be 0.0, not -0.0"
     );
     near(summary.at("step_time_ms_average"), 234.5234, 2);
@@ -276,10 +237,9 @@ fn test_get_step_trace_pod_viewer_empty_breakdown_falls_back() {
 fn test_get_step_trace_input_pipeline_unknown_tool_name_falls_back() {
     let fake = Fake::new(|tool, _| match tool {
         "pod_viewer.json" | "pod_viewer" => Ok(None),
-        "input_pipeline_analyzer" => Err(Error::new(
-            Kind::Value,
-            format!("Unknown XProf tool name: '{tool}'"),
-        )),
+        "input_pipeline_analyzer" => {
+            Err(Error::new(Kind::Value, format!("Unknown XProf tool name: '{tool}'")))
+        }
         _ => Ok(overview_fallback(tool).map(String::into_bytes)),
     });
     let result = step_trace(&fake, &[]);
@@ -307,11 +267,7 @@ fn test_get_step_trace_pod_viewer_reports_unattributed_time_as_idle() {
     .iter()
     .map(|key| step.at(key).float().unwrap())
     .sum();
-    near(
-        &J::Float(covered),
-        step.at("step_time_ms").float().unwrap(),
-        2,
-    );
+    near(&J::Float(covered), step.at("step_time_ms").float().unwrap(), 2);
     near(result.at("summary").at("idle_time_ms_average"), 10.0, 2);
     near(result.at("summary").at("idle_percent"), 10.0, 2);
 }

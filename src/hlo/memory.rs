@@ -70,11 +70,7 @@ fn category(allocation: &Allocation) -> &'static str {
 
 pub fn std_sort(items: &mut [usize], less: &impl Fn(usize, usize) -> bool) {
     if items.len() > 1 {
-        introsort(
-            items,
-            2 * (usize::BITS - 1 - items.len().leading_zeros()) as usize,
-            less,
-        );
+        introsort(items, 2 * (usize::BITS - 1 - items.len().leading_zeros()) as usize, less);
     }
     let sorted = items.len().min(16);
     for index in 1..items.len() {
@@ -175,11 +171,7 @@ impl Buffer<'_> {
         if self.logical.shape_index.is_empty() {
             self.logical.name.clone()
         } else {
-            format!(
-                "{}{{{}}}",
-                self.logical.name,
-                self.logical.shape_index.iter().join(",")
-            )
+            format!("{}{{{}}}", self.logical.name, self.logical.shape_index.iter().join(","))
         }
     }
 }
@@ -199,15 +191,11 @@ impl<'a> Model<'a> {
         assignment: &'a BufferAssignmentProto,
         logicals: &'a [Logical],
     ) -> Self {
-        let logicals: HashMap<i64, &Logical> = logicals
-            .iter()
-            .map(|logical| (logical.id, logical))
-            .collect();
+        let logicals: HashMap<i64, &Logical> =
+            logicals.iter().map(|logical| (logical.id, logical)).collect();
         let stack = msg(&module.proto.stack_frame_index);
-        let (allocations, traces) = (
-            &assignment.buffer_allocations[..],
-            &assignment.heap_simulator_traces[..],
-        );
+        let (allocations, traces) =
+            (&assignment.buffer_allocations[..], &assignment.heap_simulator_traces[..]);
         let mut model = Model {
             module,
             stack,
@@ -243,9 +231,8 @@ impl<'a> Model<'a> {
             else {
                 continue;
             };
-            if let Some(entry) = model
-                .by_index
-                .get_mut(&allocations[model.buffers[index].allocation].index)
+            if let Some(entry) =
+                model.by_index.get_mut(&allocations[model.buffers[index].allocation].index)
             {
                 entry.1 = Some(trace);
             }
@@ -334,10 +321,7 @@ struct Simulation {
 
 impl Simulation {
     fn increase(&mut self, buffer: &mut Buffer, init: bool) {
-        self.alive
-            .entry(buffer.logical.id)
-            .or_default()
-            .push(self.live.len());
+        self.alive.entry(buffer.logical.id).or_default().push(self.live.len());
         self.live.push((buffer.logical.id, usize::MAX));
         self.heap += buffer.logical.size;
         self.unpadded += buffer.logical.unpadded;
@@ -362,11 +346,7 @@ impl Simulation {
     fn peak_live(&self) -> (Vec<i64>, HashMap<i64, i64>) {
         let [live, removed, display] = self.peak_marks;
         (
-            self.live[..live]
-                .iter()
-                .filter(|(_, at)| *at > removed)
-                .map(|(id, _)| *id)
-                .collect(),
+            self.live[..live].iter().filter(|(_, at)| *at > removed).map(|(id, _)| *id).collect(),
             self.display[..display].iter().copied().collect(),
         )
     }
@@ -374,10 +354,7 @@ impl Simulation {
 
 fn simulate(model: &mut Model, color: i64) -> Option<Simulation> {
     let mut stats = Simulation::default();
-    let Some(trace) = model
-        .trace_id(color)
-        .filter(|trace| *trace < model.traces.len())
-    else {
+    let Some(trace) = model.trace_id(color).filter(|trace| *trace < model.traces.len()) else {
         return Some(stats);
     };
     let events = &model.traces[trace].events;
@@ -393,9 +370,7 @@ fn simulate(model: &mut Model, color: i64) -> Option<Simulation> {
         if seen.insert(index) {
             stats.seen.push(index);
         }
-        stats
-            .seen_allocations
-            .insert(model.allocations[model.buffers[index].allocation].index);
+        stats.seen_allocations.insert(model.allocations[model.buffers[index].allocation].index);
         match event.kind {
             0 => {
                 let root = model.root(index);
@@ -441,10 +416,9 @@ fn simulate(model: &mut Model, color: i64) -> Option<Simulation> {
                 let root = model.root(canonical);
                 model.buffers[root].refs += 1;
                 if model.buffers[root].refs == 1 {
-                    stats.display.push((
-                        model.buffers[root].logical.id,
-                        model.buffers[index].logical.id,
-                    ));
+                    stats
+                        .display
+                        .push((model.buffers[root].logical.id, model.buffers[index].logical.id));
                     model.buffers[index].span =
                         Some((stats.timeline.len() as i64 - 1, stats.events - 1));
                     stats.increase(&mut model.buffers[root], false);
@@ -500,22 +474,15 @@ fn fitting_label(label: &str, width: f64, height: f64, fontsize: f64) -> String 
         return label.to_string();
     }
     if max_chars >= 4 {
-        format!(
-            "{}...",
-            String::from_utf8_lossy(&label.as_bytes()[..max_chars as usize - 3])
-        )
+        format!("{}...", String::from_utf8_lossy(&label.as_bytes()[..max_chars as usize - 3]))
     } else {
         String::new()
     }
 }
 
 fn logical_buffers(module: &Module, bodies: &[&[u8]]) -> Option<Vec<Logical>> {
-    let nodes: HashMap<i64, usize> = module
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(index, node)| (node.id, index))
-        .collect();
+    let nodes: HashMap<i64, usize> =
+        module.nodes.iter().enumerate().map(|(index, node)| (node.id, index)).collect();
     bodies
         .par_iter()
         .map(|body| {
@@ -567,9 +534,7 @@ impl Model<'_> {
                 objects.push(self.heap_object(buffer, numbered));
             }
         };
-        for (allocation, _) in self
-            .colored(color)
-            .filter(|(allocation, _)| indefinite(allocation))
+        for (allocation, _) in self.colored(color).filter(|(allocation, _)| indefinite(allocation))
         {
             let buffers = allocation
                 .assigned
@@ -623,9 +588,8 @@ impl Model<'_> {
             .collect();
         let mut offsets = Vec::new();
         let (mut total_y, mut total_x) = (0i64, 0usize);
-        for (allocation, trace) in self
-            .colored(color)
-            .filter(|(allocation, _)| !indefinite(allocation))
+        for (allocation, trace) in
+            self.colored(color).filter(|(allocation, _)| !indefinite(allocation))
         {
             let Some(trace) = trace else { continue };
             offsets.push(total_y);
@@ -646,10 +610,8 @@ impl Model<'_> {
                         color: &str,
                         label: &str,
                         node: &mut usize| {
-            let (center_x, center_y) = (
-                x as f64 + width as f64 / 2.0,
-                y as f64 + height as f64 / 2.0,
-            );
+            let (center_x, center_y) =
+                (x as f64 + width as f64 / 2.0, y as f64 + height as f64 / 2.0);
             let (rect_width, rect_height) = (width as f64 * scale_x, height as f64 * scale_y);
             if rect_width < 1.0 || rect_height < 1.0 {
                 return;
@@ -766,15 +728,9 @@ impl Model<'_> {
             .filter(|(allocation, _)| indefinite(allocation))
             .map(|(allocation, _)| {
                 let flags = [
-                    (
-                        allocation.is_entry_computation_parameter,
-                        "entry computation parameter",
-                    ),
+                    (allocation.is_entry_computation_parameter, "entry computation parameter"),
                     (allocation.maybe_live_out, "may-be live out"),
-                    (
-                        !allocation.is_thread_local && !allocation.is_tuple,
-                        "reusable",
-                    ),
+                    (!allocation.is_thread_local && !allocation.is_tuple, "reusable"),
                 ];
                 let shapes: Vec<String> = allocation
                     .assigned
@@ -869,20 +825,13 @@ pub fn render(
     };
     let (scoped, scoped_name) = scoped_vmem(module, color);
     let result = PreprocessResult {
-        heap_sizes: stats
-            .timeline
-            .iter()
-            .map(|bytes| mib(*bytes) + add_mib)
-            .collect(),
+        heap_sizes: stats.timeline.iter().map(|bytes| mib(*bytes) + add_mib).collect(),
         unpadded_heap_sizes: stats
             .unpadded_timeline
             .iter()
             .map(|bytes| mib(*bytes) + add_mib)
             .collect(),
-        max_heap_by_size: by_size
-            .iter()
-            .map(|&index| objects[index].clone())
-            .collect(),
+        max_heap_by_size: by_size.iter().map(|&index| objects[index].clone()).collect(),
         max_heap: objects,
         logical_buffer_spans: stats
             .seen
@@ -891,10 +840,7 @@ pub fn render(
                 model.buffers[index].span.map(|(start, limit)| {
                     (
                         model.buffers[index].logical.id as i32,
-                        BufferSpan {
-                            start: start as i32,
-                            limit: limit as i32,
-                        },
+                        BufferSpan { start: start as i32, limit: limit as i32 },
                     )
                 })
             })
@@ -941,8 +887,6 @@ pub fn serve(
         &module,
         i64::from(color),
         SMALL_BUFFER,
-        params
-            .get("view_memory_allocation_timeline")
-            .is_some_and(|value| !value.is_empty()),
+        params.get("view_memory_allocation_timeline").is_some_and(|value| !value.is_empty()),
     )
 }

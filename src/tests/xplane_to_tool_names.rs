@@ -50,13 +50,7 @@ fn tools_for_tpu_without_hlo_module() {
 
 #[test]
 fn tools_for_tpu_with_hlo_module() {
-    tools_list(
-        "/device:TPU:",
-        true,
-        false,
-        false,
-        &["graph_viewer", "memory_viewer"],
-    );
+    tools_list("/device:TPU:", true, false, false, &["graph_viewer", "memory_viewer"]);
 }
 
 #[test]

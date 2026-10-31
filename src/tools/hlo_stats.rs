@@ -19,11 +19,7 @@ const COLUMNS: [(&str, &str, &str); 29] = [
     ("total_self_time", "number", "Total self time (us)"),
     ("avg_self_time", "number", "Avg. self time (us)"),
     ("total_self_time_percent", "number", "Total self time (%)"),
-    (
-        "cumulative_total_self_time_percent",
-        "number",
-        "Cumulative total self time (%)",
-    ),
+    ("cumulative_total_self_time_percent", "number", "Cumulative total self time (%)"),
     ("dma_stall_percent", "number", "%time stalled by DMA"),
     ("model_flop_rate", "number", "Model GFLOP/s"),
     ("normalized_flop_rate", "number", "Normalized GFLOP/s"),
@@ -31,11 +27,7 @@ const COLUMNS: [(&str, &str, &str); 29] = [
     ("hbm_bw", "number", "HBM BW (GiB/s)"),
     ("cmem_read_bw", "number", "CMEM Read BW (GiB/s)"),
     ("cmem_write_bw", "number", "CMEM Write BW (GiB/s)"),
-    (
-        "operational_intensity",
-        "number",
-        "Operational intensity (FLOPS/Byte)",
-    ),
+    ("operational_intensity", "number", "Operational intensity (FLOPS/Byte)"),
     ("bound_by", "string", "Bound by"),
     ("hlo_rematerialization", "string", "Rematerialization"),
     ("outside_compilation", "string", "Outside Compilation"),
@@ -46,13 +38,8 @@ const COLUMNS: [(&str, &str, &str); 29] = [
     ("vdd_energy", "number", "VDD Energy (J)"),
 ];
 
-const MEMORIES: [(&str, usize); 5] = [
-    ("HBM", 0),
-    ("CMEM Read", 3),
-    ("CMEM Write", 4),
-    ("VMEM Read", 5),
-    ("VMEM Write", 6),
-];
+const MEMORIES: [(&str, usize); 5] =
+    [("HBM", 0), ("CMEM Read", 3), ("CMEM Write", 4), ("VMEM Read", 5), ("VMEM Write", 6)];
 
 #[derive(Default)]
 pub struct Roofline {
@@ -72,11 +59,8 @@ pub struct Roofline {
 
 pub fn roofline(metrics: &Metrics, stats: &OpStats, scale_time: bool) -> Roofline {
     let (perf, time_ns) = (&stats.perf, pico_to_nano(metrics.time_ps));
-    let device_ns = pico_to_nano(if scale_time {
-        metrics.normalized_time_ps
-    } else {
-        metrics.time_ps
-    });
+    let device_ns =
+        pico_to_nano(if scale_time { metrics.normalized_time_ps } else { metrics.time_ps });
     let mut bytes = [0u64; MEMORIES.len()];
     for &(operation, space, amount) in &metrics.memory {
         let slot = match (space, operation) {
@@ -93,10 +77,7 @@ pub fn roofline(metrics: &Metrics, stats: &OpStats, scale_time: bool) -> Rooflin
         bytes[0] = metrics.bytes_accessed;
     }
     let bandwidths: [f64; MEMORIES.len()] = std::array::from_fn(|slot| {
-        giga_to_gibi(safe_divide(
-            bytes[slot] as f64,
-            if slot == 0 { time_ns } else { device_ns },
-        ))
+        giga_to_gibi(safe_divide(bytes[slot] as f64, if slot == 0 { time_ns } else { device_ns }))
     });
     let peak = |index: usize| perf.bandwidths.get(index).copied().unwrap_or(0.0);
     let out = Roofline {
@@ -123,22 +104,14 @@ pub fn roofline(metrics: &Metrics, stats: &OpStats, scale_time: bool) -> Rooflin
         if (slot == 0 || (stats.tpu && bytes[slot] != 0 && peak(index) != 0.0))
             && bound.1 < candidate
         {
-            bound = (
-                name,
-                candidate,
-                safe_divide(metrics.flops_v2, bytes[slot] as f64),
-            );
+            bound = (name, candidate, safe_divide(metrics.flops_v2, bytes[slot] as f64));
         }
     }
     let shared = safe_divide(out.hbm_bw, giga_to_gibi(peak(2)));
     if stats.extra.hardware == GPU && peak(2) != 0.0 && bound.1 < shared {
         bound = ("Shm/L1", shared, out.hbm_operational_intensity);
     }
-    Roofline {
-        bound_by: bound.0,
-        bottleneck_operational_intensity: bound.2,
-        ..out
-    }
+    Roofline { bound_by: bound.0, bottleneck_operational_intensity: bound.2, ..out }
 }
 
 fn escape_html(text: &str) -> String {
@@ -182,13 +155,7 @@ fn collect<'a>(
         return;
     }
     if parent.is_empty() || metrics.core_type == SPARSE_CORE {
-        let mut record = Record {
-            metrics,
-            parent,
-            rank: 0,
-            self_fraction: 0.0,
-            cumulative: 0.0,
-        };
+        let mut record = Record { metrics, parent, rank: 0, self_fraction: 0.0, cumulative: 0.0 };
         if let Some((rank, cumulative)) = *previous {
             record.rank = rank + 1;
             record.self_fraction = safe_divide(pico_to_micro(metrics.self_time_ps), total_us);
@@ -207,10 +174,7 @@ fn collect<'a>(
 }
 
 fn hlo_op_name(expression: &str) -> &str {
-    let name = expression
-        .split(" = ")
-        .next()
-        .expect("iterator is non-empty");
+    let name = expression.split(" = ").next().expect("iterator is non-empty");
     name.strip_prefix('%').unwrap_or(name)
 }
 
@@ -238,11 +202,8 @@ pub fn json(stats: &OpStats) -> String {
         .map(|record| {
             let metrics = record.metrics;
             let roof = roofline(metrics, stats, false);
-            let long = if metrics.long_name.is_empty() {
-                &metrics.name
-            } else {
-                &metrics.long_name
-            };
+            let long =
+                if metrics.long_name.is_empty() { &metrics.name } else { &metrics.long_name };
             let text = |text: &str| Cell::Text(text.to_string());
             let yes_no = |flag: bool| text(if flag { "Yes" } else { "No" });
             let (total_time, self_time, occurrences) = (

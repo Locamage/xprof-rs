@@ -15,13 +15,7 @@ fn add_tensor_flow_op_event(
 ) {
     let mut stats = vec![("tf_op", tf_op_fullname.into())];
     stats.extend(kernel_details.map(|details| ("kernel_details", details.into())));
-    plane.event(
-        line,
-        kernel_name,
-        start_timestamp_ns * 1000,
-        duration_ns * 1000,
-        &stats,
-    );
+    plane.event(line, kernel_name, start_timestamp_ns * 1000, duration_ns * 1000, &stats);
 }
 
 fn nano_to_micro(ns: i64) -> f64 {
@@ -115,24 +109,13 @@ fn gpu_tf_stats() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|row| {
-            row["c"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|cell| cell["v"].clone())
-                .collect()
-        })
+        .map(|row| row["c"].as_array().unwrap().iter().map(|cell| cell["v"].clone()).collect())
         .collect();
     assert_eq!(records.len(), 4);
     let (op_type, op_name, occurrences, total_self_time, gpu_tensorcore_utilization) =
         (2, 3, 4, 7, 17);
     assert_eq!(
-        (
-            &records[0][op_name],
-            &records[0][op_type],
-            &records[0][occurrences]
-        ),
+        (&records[0][op_name], &records[0][op_type], &records[0][occurrences]),
         (&tf_op1.into(), &tf_op1.into(), &2.0.into())
     );
     assert_eq!(
@@ -140,11 +123,7 @@ fn gpu_tf_stats() {
         nano_to_micro(kernel1_duration_ns) * 2.0 + nano_to_micro(kernel2_duration_ns) * 2.0
     );
     assert_eq!(
-        (
-            &records[1][op_name],
-            &records[1][op_type],
-            &records[1][occurrences]
-        ),
+        (&records[1][op_name], &records[1][op_type], &records[1][occurrences]),
         (&tf_op3.into(), &tf_op3.into(), &1.0.into())
     );
     assert_eq!(
@@ -153,15 +132,8 @@ fn gpu_tf_stats() {
     );
     assert_eq!(records[1][gpu_tensorcore_utilization], 0.5);
     assert_eq!(
-        (
-            &records[2][op_name],
-            &records[2][op_type],
-            &records[2][occurrences]
-        ),
+        (&records[2][op_name], &records[2][op_type], &records[2][occurrences]),
         (&tf_op2.into(), &tf_op2.into(), &1.0.into())
     );
-    assert_eq!(
-        records[2][total_self_time],
-        nano_to_micro(kernel3_duration_ns)
-    );
+    assert_eq!(records[2][total_self_time], nano_to_micro(kernel3_duration_ns));
 }

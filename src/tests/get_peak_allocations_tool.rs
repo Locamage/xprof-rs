@@ -17,9 +17,7 @@ fn sequence(responses: &[&'static str]) -> Fake {
     Fake::new(move |_, _| {
         let index = next.get();
         next.set(index + 1);
-        Ok(responses
-            .get(index)
-            .map(|response| response.as_bytes().to_vec()))
+        Ok(responses.get(index).map(|response| response.as_bytes().to_vec()))
     })
 }
 
@@ -29,10 +27,7 @@ fn calls(modules: &[&str]) -> Calls {
         .chain(modules.iter().map(|module| {
             (
                 "memory_viewer.json".to_string(),
-                vec![
-                    format.clone(),
-                    ("module_name".to_string(), module.to_string()),
-                ],
+                vec![format.clone(), ("module_name".to_string(), module.to_string())],
             )
         }))
         .collect()
@@ -62,10 +57,7 @@ fn test_get_peak_allocations_success_variants() {
     for (responses, expected, modules) in cases {
         let fake = sequence(responses);
         assert_eq!(
-            json(get_peak_allocations(
-                &fake,
-                &args("session_123", &[no_summary()])
-            )),
+            json(get_peak_allocations(&fake, &args("session_123", &[no_summary()]))),
             parse(expected)
         );
         assert_eq!(*fake.calls.borrow(), calls(modules));
@@ -99,10 +91,7 @@ fn test_get_peak_allocations_aggregation() {
     ]);
     let expected = r#"[{"module_name": "module1", "total_hbm_mib": 300.0, "top_buffers": [{"instruction": "param.* (2 occurrences of size 64 MiB)", "size_mib": 128.0}, {"instruction": "op1", "size_mib": 1.0}]}]"#;
     assert_eq!(
-        json(get_peak_allocations(
-            &fake,
-            &args("session_123", &[no_summary()])
-        )),
+        json(get_peak_allocations(&fake, &args("session_123", &[no_summary()]))),
         parse(expected)
     );
     assert_eq!(*fake.calls.borrow(), calls(&["module1"]));
@@ -121,16 +110,10 @@ fn test_get_peak_allocations_limit_variants() {
             &fake,
             &args("session_123", &[("limit", J::Int(limit)), no_summary()]),
         ));
-        let names: Vec<String> = result
-            .items()
-            .iter()
-            .map(|module| module.at("module_name").text())
-            .collect();
+        let names: Vec<String> =
+            result.items().iter().map(|module| module.at("module_name").text()).collect();
         assert_eq!(names, ["module2", "module3", "module1"][..expected_len]);
-        assert_eq!(
-            *fake.calls.borrow(),
-            calls(&["module1", "module2", "module3"])
-        );
+        assert_eq!(*fake.calls.borrow(), calls(&["module1", "module2", "module3"]));
     }
 }
 
@@ -144,10 +127,7 @@ fn test_get_peak_allocations_size_threshold() {
     assert_eq!(
         json(get_peak_allocations(
             &fake,
-            &args(
-                "session_123",
-                &[("min_size_mib", J::Float(1.0)), no_summary()]
-            )
+            &args("session_123", &[("min_size_mib", J::Float(1.0)), no_summary()])
         )),
         parse(expected)
     );
@@ -159,10 +139,7 @@ fn test_get_peak_allocations_markdown() {
     let fake = sequence(&["module1", OP1_2MIB]);
     let result = text(get_peak_allocations(
         &fake,
-        &args(
-            "session_123",
-            &[("output_format", J::from("markdown")), no_summary()],
-        ),
+        &args("session_123", &[("output_format", J::from("markdown")), no_summary()]),
     ));
     assert_eq!(result, format!("{NOTE}{MODULE_ONE}"));
     assert_eq!(*fake.calls.borrow(), calls(&["module1"]));
@@ -178,10 +155,7 @@ fn test_get_peak_allocations_no_aggregation() {
     assert_eq!(
         json(get_peak_allocations(
             &fake,
-            &args(
-                "session_123",
-                &[("aggregate_instructions", J::Bool(false)), no_summary()]
-            )
+            &args("session_123", &[("aggregate_instructions", J::Bool(false)), no_summary()])
         )),
         parse(expected)
     );
@@ -208,10 +182,7 @@ fn test_get_peak_allocations_summary_markdown() {
         &fake,
         &args(
             "session_123",
-            &[
-                ("output_format", J::from("markdown")),
-                ("include_summary", J::Bool(true)),
-            ],
+            &[("output_format", J::from("markdown")), ("include_summary", J::Bool(true))],
         ),
     ));
     let summary = "## Session Summary\n- Total Modules: 1\n\n| Module | Total HBM (MiB) |\n| :--- | ---: |\n| `module1` | 100.00 |\n\n";
@@ -230,20 +201,16 @@ fn test_missing_memory_returns_clean_diagnostic() {
 #[test]
 fn test_get_module_names_success() {
     let fake = sequence(&["module1,module2", OP1_1MIB, OP2_2MIB]);
-    let result = json(get_peak_allocations(
-        &fake,
-        &args("session_123", &[no_summary()]),
-    ));
+    let result = json(get_peak_allocations(&fake, &args("session_123", &[no_summary()])));
     assert_eq!(result.items().len(), 2);
     assert_eq!(*fake.calls.borrow(), calls(&["module1", "module2"]));
 }
 
 #[test]
 fn test_get_module_names_failure_variants() {
-    for (response, expected) in [
-        ("", "No memory viewer data returned"),
-        (",", "No HLO modules found"),
-    ] {
+    for (response, expected) in
+        [("", "No memory viewer data returned"), (",", "No HLO modules found")]
+    {
         let error =
             get_peak_allocations(&Fake::fixed(response), &args("session_123", &[])).unwrap_err();
         assert_eq!(error.kind, Kind::Value);
@@ -278,10 +245,7 @@ fn test_parse_and_aggregate_buffers_no_aggregation() {
     let module = r#"{"bufferAssignment": {"logicalBuffers": [{"size": "1048576", "definedAt": {"instructionName": "param.1"}}, {"size": "1048576", "definedAt": {"instructionName": "param.2"}}, {"size": "2097152", "definedAt": {"instructionName": "op1"}}, {"size": "524288", "definedAt": {"instructionName": "small_op"}}]}}"#;
     let result = json(get_peak_allocations(
         &sequence(&["module1", module]),
-        &args(
-            "session_123",
-            &[("aggregate_instructions", J::Bool(false)), no_summary()],
-        ),
+        &args("session_123", &[("aggregate_instructions", J::Bool(false)), no_summary()]),
     ));
     let expected = r#"[{"instruction": "op1", "size_mib": 2.0}, {"instruction": "param.1", "size_mib": 1.0}, {"instruction": "param.2", "size_mib": 1.0}, {"instruction": "small_op", "size_mib": 0.5}]"#;
     assert_eq!(result.items()[0].at("top_buffers"), &parse(expected));
@@ -290,10 +254,7 @@ fn test_parse_and_aggregate_buffers_no_aggregation() {
 #[test]
 fn test_fetch_modules_data() {
     let fake = sequence(&["module1,module2", OP1_1MIB, OP2_2MIB]);
-    let result = json(get_peak_allocations(
-        &fake,
-        &args("session_123", &[no_summary()]),
-    ));
+    let result = json(get_peak_allocations(&fake, &args("session_123", &[no_summary()])));
     let modules: Vec<(String, J, J)> = result
         .items()
         .iter()
@@ -320,8 +281,5 @@ fn test_fetch_modules_data() {
             ),
         ]
     );
-    assert_eq!(
-        fake.calls.borrow()[1..],
-        calls(&["module1", "module2"])[1..]
-    );
+    assert_eq!(fake.calls.borrow()[1..], calls(&["module1", "module2"])[1..]);
 }

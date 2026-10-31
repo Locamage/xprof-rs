@@ -27,10 +27,7 @@ fn send_to_recv_done_measures_slack_minus_overlapped_ops() {
     tracker.visit(&send(Opcode::SendDone, None), &visit(10_000, 500_000));
     tracker.visit(&send(Opcode::RecvDone, None), &visit(20_000, 3_000_000));
     let summary = &averaged(tracker.summaries)[0];
-    assert_eq!(
-        (summary.occurrences, summary.bytes_transmitted_over_network),
-        (1, 1500)
-    );
+    assert_eq!((summary.occurrences, summary.bytes_transmitted_over_network), (1, 1500));
     assert_eq!(
         [
             summary.times_us[SLACK],
@@ -43,10 +40,7 @@ fn send_to_recv_done_measures_slack_minus_overlapped_ops() {
     );
     let json = table(std::slice::from_ref(summary));
     assert!(json.contains(r#"{"v":"r"},{"v":"op"},{"v":"op"},{"v":"ALL_REDUCE"},{"v":0.015},{"v":"-"},{"v":0.022}"#), "{json}");
-    assert!(
-        json.contains(r#"{"f":"1.5K","v":1500.0},{"v":0.8}"#),
-        "{json}"
-    );
+    assert!(json.contains(r#"{"f":"1.5K","v":1500.0},{"v":0.8}"#), "{json}");
 }
 
 #[test]
@@ -58,10 +52,7 @@ fn ops_without_a_known_channel_are_ignored() {
 
 #[test]
 fn line_time_far_from_the_origin() {
-    let line = Line {
-        timestamp_ns: i64::MIN,
-        ..Default::default()
-    };
+    let line = Line { timestamp_ns: i64::MIN, ..Default::default() };
     let event = Ev {
         ts: 5,
         dur: 0,
@@ -78,15 +69,8 @@ fn line_time_far_from_the_origin() {
 #[test]
 fn transfer_types_scale_the_receive_buffer() {
     assert_eq!(
-        [
-            "ONE_TO_ONE",
-            "ALL_GATHER",
-            "ALL_REDUCE",
-            "ALL_TO_ALL",
-            "REDUCE_SCATTER",
-            "OTHER"
-        ]
-        .map(|kind| transmitted_bytes(100, 4, kind)),
+        ["ONE_TO_ONE", "ALL_GATHER", "ALL_REDUCE", "ALL_TO_ALL", "REDUCE_SCATTER", "OTHER"]
+            .map(|kind| transmitted_bytes(100, 4, kind)),
         [400, 75, 150, 75, 300, 0]
     );
     assert_eq!(transmitted_bytes(100, 0, "ONE_TO_ONE"), 0);
@@ -101,10 +85,7 @@ fn hosts_combine_weighted_by_occurrences() {
         occurrences,
         ..Default::default()
     };
-    assert_eq!(
-        combine(&[vec![host(10, 1)], vec![host(40, 3)]])[0].times_us[SLACK],
-        32
-    );
+    assert_eq!(combine(&[vec![host(10, 1)], vec![host(40, 3)]])[0].times_us[SLACK], 32);
     assert_eq!(human_bytes(512), "512B");
     assert_eq!(human_bytes(3 << 20), "3.00M");
     assert_eq!(human_bytes(1280), "1.2K");
@@ -121,14 +102,8 @@ fn overlap_counts_only_ops_after_the_send_for_many_rendezvous() {
         size: 0,
     };
     let mut tracker = Tracker::default();
-    tracker.visit(
-        &op(Opcode::Send, 7, Some("a".into())),
-        &visit(10_000, 4_000_000),
-    );
-    tracker.visit(
-        &op(Opcode::Send, 8, Some("b".into())),
-        &visit(20_000, 6_000_000),
-    );
+    tracker.visit(&op(Opcode::Send, 7, Some("a".into())), &visit(10_000, 4_000_000));
+    tracker.visit(&op(Opcode::Send, 8, Some("b".into())), &visit(20_000, 6_000_000));
     tracker.visit(&op(Opcode::RecvDone, 8, None), &visit(50_000, 0));
     tracker.visit(&op(Opcode::RecvDone, 7, None), &visit(60_000, 0));
     let count = 50_000;
@@ -139,16 +114,9 @@ fn overlap_counts_only_ops_after_the_send_for_many_rendezvous() {
         );
     }
     for channel in 0..count {
-        tracker.visit(
-            &op(Opcode::RecvDone, 100 + channel, None),
-            &visit(200_000, 1000),
-        );
+        tracker.visit(&op(Opcode::RecvDone, 100 + channel, None), &visit(200_000, 1000));
     }
-    let slack: Vec<u64> = tracker
-        .summaries
-        .iter()
-        .map(|summary| summary.times_us[SLACK])
-        .collect();
+    let slack: Vec<u64> = tracker.summaries.iter().map(|summary| summary.times_us[SLACK]).collect();
     assert_eq!(slack.len(), 2 + count as usize);
     assert_eq!(slack[..4], [24, 40, 50, 50]);
     assert_eq!(slack[slack.len() - 1], 50);

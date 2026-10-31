@@ -32,27 +32,12 @@ fn convert() {
     let device = space.gpu(0);
     device.id = 0;
     device.named_line(30, "gpu stream 1");
-    device.event(
-        30,
-        "kernel1",
-        180_000_000,
-        10_000_000,
-        &[("correlation id", 55.into())],
-    );
+    device.event(30, "kernel1", 180_000_000, 10_000_000, &[("correlation id", 55.into())]);
     let events = converted(&space);
     let threads = |pid: u64| {
-        events
-            .iter()
-            .filter(|event| event["name"] == "thread_name" && event["pid"] == pid)
-            .count()
+        events.iter().filter(|event| event["name"] == "thread_name" && event["pid"] == pid).count()
     };
-    assert_eq!(
-        events
-            .iter()
-            .filter(|event| event["name"] == "process_name")
-            .count(),
-        2
-    );
+    assert_eq!(events.iter().filter(|event| event["name"] == "process_name").count(), 2);
     assert_eq!((threads(701), threads(1)), (2, 1));
     assert_eq!(events.iter().filter(|event| event["ph"] == "X").count(), 3);
 }

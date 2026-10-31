@@ -15,10 +15,7 @@ const GENERIC_EVENTS: [(&str, &[u32]); 9] = [
     ("Device collective communication", &[DEVICE_COLLECTIVES]),
     ("Host compute", &[HOST_COMPUTE]),
     ("Kernel launch", &[HOST_PREPARE]),
-    (
-        "Input",
-        &[HOST_WAIT_INPUT, HOST_TO_DEVICE, DEVICE_WAIT_HOST],
-    ),
+    ("Input", &[HOST_WAIT_INPUT, HOST_TO_DEVICE, DEVICE_WAIT_HOST]),
     ("Output", &[DEVICE_TO_HOST]),
     ("Compilation", &[HOST_COMPILE]),
     ("All others", &[UNKNOWN_TIME]),
@@ -28,10 +25,9 @@ const EMPTY_RECORD: &str = "{\"hostName\":\"\",\"chipId\":0,\"nodeId\":0,\"stepN
 
 fn record(host_name: &str, step_num: u32, info: &StepInfo) -> String {
     let breakdown_ps = GENERIC_EVENTS.map(|(_, kinds)| match &info.breakdown {
-        Breakdown::Types(types) => kinds
-            .iter()
-            .map(|kind| types.get(kind).copied().unwrap_or(0))
-            .sum(),
+        Breakdown::Types(types) => {
+            kinds.iter().map(|kind| types.get(kind).copied().unwrap_or(0)).sum()
+        }
         Breakdown::Categories(_) => 0,
     });
     let bottleneck = breakdown_ps
@@ -45,20 +41,11 @@ fn record(host_name: &str, step_num: u32, info: &StepInfo) -> String {
         quoted(host_name)
     );
     proto_double(&mut out, pico_to_micro(info.duration));
-    write!(
-        out,
-        ",\"bottleneck\":{},\"stepBreakdownUs\":{{",
-        quoted(bottleneck)
-    )
-    .expect("writing to a string cannot fail");
-    for (index, ps) in breakdown_ps.iter().enumerate() {
-        write!(
-            out,
-            "{}\"{}\":",
-            if index > 0 { "," } else { "" },
-            index + 1
-        )
+    write!(out, ",\"bottleneck\":{},\"stepBreakdownUs\":{{", quoted(bottleneck))
         .expect("writing to a string cannot fail");
+    for (index, ps) in breakdown_ps.iter().enumerate() {
+        write!(out, "{}\"{}\":", if index > 0 { "," } else { "" }, index + 1)
+            .expect("writing to a string cannot fail");
         proto_double(&mut out, pico_to_micro(*ps));
     }
     out.push_str("}}");
@@ -71,10 +58,7 @@ pub fn render(extra: &Extra) -> String {
         .iter()
         .flat_map(|step| {
             step.cores.iter().filter_map(move |(core, info)| {
-                extra
-                    .cores
-                    .get(core)
-                    .map(|details| record(&details.hostname, step.num, info))
+                extra.cores.get(core).map(|details| record(&details.hostname, step.num, info))
             })
         })
         .collect();

@@ -49,11 +49,7 @@ pub fn slice_end(value: &J, len: usize) -> Result<usize, Error> {
         J::Int(number) => *number,
         _ => return fail(Kind::Type, SLICE),
     };
-    Ok(if end < 0 {
-        (len as i128 + end).max(0) as usize
-    } else {
-        end.min(len as i128) as usize
-    })
+    Ok(if end < 0 { (len as i128 + end).max(0) as usize } else { end.min(len as i128) as usize })
 }
 
 /// The error of `heapq.nlargest(n, items)` for a float `n` above 0. A float 1 takes the path of `max`.
@@ -125,11 +121,7 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
         "session_id! path module_name op_name bypass_cache | logdir",
         hlo::get_hlo_text,
     ),
-    (
-        "get_hosts",
-        "session_id! bypass_cache | logdir",
-        overview::get_hosts,
-    ),
+    ("get_hosts", "session_id! bypass_cache | logdir", overview::get_hosts),
     (
         "get_kernel_stats",
         "source session_id | kernel_name limit output_format include_summary device_to_use trace_matchers bypass_cache logdir",
@@ -140,41 +132,21 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
         "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes bypass_cache logdir",
         xplane::get_kernel_utilization,
     ),
-    (
-        "get_kpi_metrics",
-        "session_id! | bypass_cache logdir",
-        overview::get_kpi_metrics,
-    ),
-    (
-        "get_llo_analysis",
-        "session_id! host kernel bypass_cache | logdir",
-        xplane::get_llo_analysis,
-    ),
+    ("get_kpi_metrics", "session_id! | bypass_cache logdir", overview::get_kpi_metrics),
+    ("get_llo_analysis", "session_id! host kernel bypass_cache | logdir", xplane::get_llo_analysis),
     (
         "get_llo_debug_string",
         "session_id! host bypass_cache | logdir",
         xplane::get_llo_debug_string,
     ),
-    (
-        "get_memory_profile",
-        "session_id! | bypass_cache logdir",
-        overview::get_memory_profile,
-    ),
-    (
-        "get_overview",
-        "session_id! include_command bypass_cache | logdir",
-        overview::get_overview,
-    ),
+    ("get_memory_profile", "session_id! | bypass_cache logdir", overview::get_memory_profile),
+    ("get_overview", "session_id! include_command bypass_cache | logdir", overview::get_overview),
     (
         "get_peak_allocations",
         "session_id! | limit min_size_mib output_format include_summary aggregate_instructions bypass_cache logdir",
         hlo::get_peak_allocations,
     ),
-    (
-        "get_profile_summary",
-        "session_id! bypass_cache | logdir",
-        ops::get_profile_summary,
-    ),
+    ("get_profile_summary", "session_id! bypass_cache | logdir", ops::get_profile_summary),
     (
         "get_roofline_model",
         "session_id! | top_n group_by bypass_cache logdir",
@@ -185,11 +157,7 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
         "session_id! | step_num limit device_core include_summary bypass_cache logdir",
         steps::get_step_trace,
     ),
-    (
-        "get_tool_data",
-        "session_id! tool! | host output_path bypass_cache logdir",
-        get_tool_data,
-    ),
+    ("get_tool_data", "session_id! tool! | host output_path bypass_cache logdir", get_tool_data),
     (
         "get_top_hlo_ops",
         "session_id! | limit category_filter bypass_cache logdir",
@@ -205,21 +173,13 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
         "session_id! as_text output_path host bypass_cache | logdir **",
         xplane::get_xspace_proto,
     ),
-    (
-        "list_hlo_modules",
-        "session_id! | bypass_cache logdir",
-        hlo::list_hlo_modules,
-    ),
+    ("list_hlo_modules", "session_id! | bypass_cache logdir", hlo::list_hlo_modules),
     (
         "list_xplane_events",
         "session_id! | plane_regex event_regex start_time_ps end_time_ps max_events offset bypass_cache logdir",
         xplane::list_xplane_events,
     ),
-    (
-        "upload_trace",
-        "file_path! ttl tag run_name | logdir bypass_cache **",
-        xplane::upload_trace,
-    ),
+    ("upload_trace", "file_path! ttl tag run_name | logdir bypass_cache **", xplane::upload_trace),
     (
         "verify_numerical_parity",
         "kernel_ref! kernel_candidate! shapes! dtype_str tier max_allowed_ulp p99_9_allowed_ulp seed regimes kernel_oracle device_kind | logdir bypass_cache",
@@ -249,10 +209,7 @@ pub struct Error {
 
 impl Error {
     pub fn new(kind: Kind, message: impl Into<String>) -> Self {
-        Self {
-            kind,
-            message: message.into(),
-        }
+        Self { kind, message: message.into() }
     }
 
     pub fn name(&self) -> &'static str {
@@ -289,10 +246,7 @@ impl Error {
 }
 
 pub fn bypass(on: bool) -> (&'static str, String) {
-    (
-        "bypass_cache",
-        if on { "True" } else { "False" }.to_string(),
-    )
+    ("bypass_cache", if on { "True" } else { "False" }.to_string())
 }
 
 pub fn rethrow(error: Error, message: impl FnOnce(&Error) -> String) -> Error {
@@ -304,11 +258,7 @@ pub fn rethrow(error: Error, message: impl FnOnce(&Error) -> String) -> Error {
 }
 
 pub fn round(value: f64, digits: usize) -> f64 {
-    if value.is_finite() {
-        format!("{value:.digits$}").parse().unwrap_or(value)
-    } else {
-        value
-    }
+    if value.is_finite() { format!("{value:.digits$}").parse().unwrap_or(value) } else { value }
 }
 
 /// `numerator / denominator`, rounded one time, as Python divides two integers. The quotient gets at least 55 bits, and a last bit records a remainder.
@@ -339,11 +289,7 @@ pub fn fsum(values: impl IntoIterator<Item = f64>) -> f64 {
         };
         total = next;
     }
-    if compensation != 0.0 && compensation.is_finite() {
-        total + compensation
-    } else {
-        total
-    }
+    if compensation != 0.0 && compensation.is_finite() { total + compensation } else { total }
 }
 
 pub fn stdev(values: &[f64]) -> f64 {
@@ -359,23 +305,12 @@ pub fn stdev(values: &[f64]) -> f64 {
             };
             let zeros = mantissa.trailing_zeros().min(52);
             let (mantissa, exponent) = (mantissa >> zeros, exponent + zeros as i32);
-            (
-                if bits >> 63 == 1 {
-                    -(mantissa as i64)
-                } else {
-                    mantissa as i64
-                },
-                exponent,
-            )
+            (if bits >> 63 == 1 { -(mantissa as i64) } else { mantissa as i64 }, exponent)
         })
         .filter(|&(mantissa, _)| mantissa != 0)
         .collect();
     // The result does not change with the scale, so the scale comes from the values that are not zero.
-    let low = parts
-        .iter()
-        .map(|(_, exponent)| *exponent)
-        .min()
-        .unwrap_or(0);
+    let low = parts.iter().map(|(_, exponent)| *exponent).min().unwrap_or(0);
     let count = BigInt::from(values.len());
     let (sum, squares) = if parts.iter().all(|&(mantissa, exponent)| {
         64 - mantissa.unsigned_abs().leading_zeros() as i32 + exponent - low <= 62
@@ -396,10 +331,7 @@ pub fn stdev(values: &[f64]) -> f64 {
             .into_iter()
             .map(|(mantissa, exponent)| BigInt::from(mantissa) << (exponent - low) as usize)
             .collect();
-        (
-            scaled.iter().sum(),
-            scaled.iter().map(|value| value * value).sum(),
-        )
+        (scaled.iter().sum(), scaled.iter().map(|value| value * value).sum())
     };
     let (numerator, denominator) = (
         (&count * squares - &sum * &sum).magnitude().clone(),
@@ -412,11 +344,8 @@ pub fn stdev(values: &[f64]) -> f64 {
         (numerator << (-2 * shift) as usize, denominator)
     };
     let root = (&numerator / &denominator).sqrt();
-    let odd = if &root * &root * &denominator == numerator {
-        root
-    } else {
-        root | BigUint::from(1u32)
-    };
+    let odd =
+        if &root * &root * &denominator == numerator { root } else { root | BigUint::from(1u32) };
     odd.to_u64().unwrap_or(u64::MAX) as f64 * 2f64.powi(shift as i32 + low)
 }
 
@@ -453,10 +382,7 @@ impl Args {
 
     /// The value as the command line gave it, also when it is `None`.
     pub fn raw(&self, name: &str) -> Option<&J> {
-        self.values
-            .iter()
-            .find(|(key, _)| key == name)
-            .map(|(_, value)| value)
+        self.values.iter().find(|(key, _)| key == name).map(|(_, value)| value)
     }
 
     pub fn text(&self, name: &str) -> Option<String> {
@@ -498,10 +424,7 @@ impl Args {
     }
 
     pub fn flag(&self, name: &str, default: bool) -> bool {
-        self.values
-            .iter()
-            .find(|(key, _)| key == name)
-            .map_or(default, |(_, value)| value.truthy())
+        self.values.iter().find(|(key, _)| key == name).map_or(default, |(_, value)| value.truthy())
     }
 }
 
@@ -513,21 +436,14 @@ pub fn packed(key: &str, value: &J) -> Result<Option<String>, Error> {
         J::Int(_) | J::Str(_) => Ok(Some(value.text())),
         _ => fail(
             Kind::Type,
-            format!(
-                "Unsupported option type for key '{key}': <class '{}'>",
-                kind(value)
-            ),
+            format!("Unsupported option type for key '{key}': <class '{}'>", kind(value)),
         ),
     }
 }
 
 /// The error of an option that the native converter cannot get. First, the client finds the session and its traces, because the converter packs the options after this step.
 pub fn unpackable(client: &dyn Client, session: &str, error: Error) -> Error {
-    client
-        .run_dir(session)
-        .and_then(|dir| client.xspace_paths(&dir))
-        .err()
-        .unwrap_or(error)
+    client.run_dir(session).and_then(|dir| client.xspace_paths(&dir)).err().unwrap_or(error)
 }
 
 fn kind(value: &J) -> &'static str {
@@ -545,10 +461,7 @@ fn kind(value: &J) -> &'static str {
 }
 
 pub fn no_attribute(value: &J, attribute: &str) -> Error {
-    Error::new(
-        Kind::Attribute,
-        format!("'{}' object has no attribute '{attribute}'", kind(value)),
-    )
+    Error::new(Kind::Attribute, format!("'{}' object has no attribute '{attribute}'", kind(value)))
 }
 
 /// The kind of the first value in `value` that Python cannot hash.
@@ -598,11 +511,7 @@ pub fn literal(text: &str) -> J {
     }
     impl Parser<'_> {
         fn skip(&mut self) {
-            while self
-                .bytes
-                .get(self.at)
-                .is_some_and(|byte| *byte == b' ' || *byte == b'\t')
-            {
+            while self.bytes.get(self.at).is_some_and(|byte| *byte == b' ' || *byte == b'\t') {
                 self.at += 1;
             }
         }
@@ -790,11 +699,7 @@ pub fn literal(text: &str) -> J {
             }
         }
     }
-    let mut parser = Parser {
-        bytes: text.as_bytes(),
-        at: 0,
-        depth: 0,
-    };
+    let mut parser = Parser { bytes: text.as_bytes(), at: 0, depth: 0 };
     let parsed = (|| {
         let first = parser.value()?;
         if !parser.eat(b',') {
@@ -856,11 +761,7 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
                 Kind::Fire,
                 format!(
                     "The argument '{argument}' is ambiguous as it could refer to any of the following arguments: [{}]",
-                    shortcut
-                        .iter()
-                        .map(|name| json::py_repr(name))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    shortcut.iter().map(|name| json::py_repr(name)).collect::<Vec<_>>().join(", ")
                 ),
             );
         } else {
@@ -893,10 +794,7 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
         && spec.keyword.iter().any(|key| key == "logdir")
         && !keywords.iter().any(|(key, _)| key == "logdir")
         && (positional[0].contains("://")
-            || expand(&positional[0])
-                .join("plugins/profile")
-                .join(&positional[1])
-                .is_dir())
+            || expand(&positional[0]).join("plugins/profile").join(&positional[1]).is_dir())
     {
         keywords.push(("logdir".into(), positional.remove(0)));
     }
@@ -918,11 +816,7 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
             );
         }
     }
-    args.values.extend(
-        keywords
-            .into_iter()
-            .map(|(key, value)| (key, literal(&value))),
-    );
+    args.values.extend(keywords.into_iter().map(|(key, value)| (key, literal(&value))));
     Ok((args, unknown.into_iter().chain(remaining).collect()))
 }
 
@@ -937,10 +831,8 @@ fn usage(spec: &Spec) -> String {
 }
 
 fn help(command: &str, spec: &Spec) -> String {
-    let mut text = format!(
-        "NAME\n    xprof {command}\n\nSYNOPSIS\n    xprof {command} {}\n",
-        usage(spec)
-    );
+    let mut text =
+        format!("NAME\n    xprof {command}\n\nSYNOPSIS\n    xprof {command} {}\n", usage(spec));
     let (required, optional): (Vec<_>, Vec<_>) =
         spec.positional.iter().partition(|(_, required)| *required);
     if !required.is_empty() {
@@ -962,9 +854,7 @@ fn help(command: &str, spec: &Spec) -> String {
 
 fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Error> {
     let has = |name: &str| {
-        spec.positional
-            .iter()
-            .any(|(parameter, _)| parameter == name)
+        spec.positional.iter().any(|(parameter, _)| parameter == name)
             || spec.keyword.iter().any(|parameter| parameter == name)
     };
     let logdir = args
@@ -977,10 +867,7 @@ fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Erro
         return fail(Kind::Fire, "The --logdir flag requires a value.");
     }
     let first = spec.positional.first().map(|(name, _)| {
-        args.values
-            .iter()
-            .find(|(key, _)| key == name)
-            .map_or(J::Null, |(_, value)| value.clone())
+        args.values.iter().find(|(key, _)| key == name).map_or(J::Null, |(_, value)| value.clone())
     });
     if first.as_ref().is_some_and(|value| !value.truthy()) {
         return fail(Kind::Value, "session_id cannot be an empty string.");
@@ -998,14 +885,9 @@ fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Erro
         if target.contains("://") {
             local = mirror(&target, logdir.is_some(), &spec.positional[0].0, args)?;
         }
-        let path = local
-            .clone()
-            .unwrap_or_else(|| expand(&args.string(&spec.positional[0].0, "")));
+        let path = local.clone().unwrap_or_else(|| expand(&args.string(&spec.positional[0].0, "")));
         if !path.exists() {
-            return fail(
-                Kind::FileNotFound,
-                format!("Trace path '{target}' does not exist."),
-            );
+            return fail(Kind::FileNotFound, format!("Trace path '{target}' does not exist."));
         }
         if path.is_dir() && client::traces(&path).is_empty() {
             return fail(
@@ -1064,10 +946,7 @@ fn mirror(
     let url = url.trim_end_matches('/');
     let (url, file) = match url.rsplit_once('/') {
         Some((dir, name))
-            if !logdir
-                && client::TRACE_SUFFIXES
-                    .iter()
-                    .any(|suffix| name.ends_with(suffix)) =>
+            if !logdir && client::TRACE_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) =>
         {
             (dir, name)
         }
@@ -1115,12 +994,9 @@ fn mirror(
             if found.is_none() {
                 remote.sync(&remote.mirror, false).await?;
                 let session = if logdir { &session } else { name };
-                let run = Local {
-                    logdir: Some(remote.mirror.clone()),
-                    ..Local::default()
-                }
-                .run_dir(session)
-                .map_err(|error| error.message)?;
+                let run = Local { logdir: Some(remote.mirror.clone()), ..Local::default() }
+                    .run_dir(session)
+                    .map_err(|error| error.message)?;
                 remote.sync(&run, true).await?;
                 Ok(Some(run))
             } else {
@@ -1138,14 +1014,10 @@ fn mirror(
 }
 
 pub fn expand(path: &str) -> std::path::PathBuf {
-    match path
-        .strip_prefix('~')
-        .filter(|rest| rest.is_empty() || rest.starts_with('/'))
-    {
-        Some(rest) => std::path::PathBuf::from(format!(
-            "{}{rest}",
-            std::env::var("HOME").unwrap_or_default()
-        )),
+    match path.strip_prefix('~').filter(|rest| rest.is_empty() || rest.starts_with('/')) {
+        Some(rest) => {
+            std::path::PathBuf::from(format!("{}{rest}", std::env::var("HOME").unwrap_or_default()))
+        }
         None => std::path::PathBuf::from(path),
     }
 }
@@ -1155,10 +1027,7 @@ pub fn preprocess(argv: &[String]) -> Vec<String> {
     while index < argv.len() {
         let argument = &argv[index];
         index += 1;
-        let (flag, value) = match argument
-            .split_once('=')
-            .filter(|_| argument.starts_with('-'))
-        {
+        let (flag, value) = match argument.split_once('=').filter(|_| argument.starts_with('-')) {
             Some((flag, value)) => (flag, Some(value.to_string())),
             None => (argument.as_str(), None),
         };
@@ -1186,15 +1055,9 @@ fn spill(command: &str, bytes: &[u8]) -> Option<String> {
     if bytes.len() <= SPILL_BYTES {
         return None;
     }
-    let name = COMMANDS
-        .iter()
-        .find(|(name, _, _)| *name == command)
-        .map_or(command, |(name, _, _)| {
-            if *name == "compute_utilization" {
-                "get_kernel_utilization"
-            } else {
-                name
-            }
+    let name =
+        COMMANDS.iter().find(|(name, _, _)| *name == command).map_or(command, |(name, _, _)| {
+            if *name == "compute_utilization" { "get_kernel_utilization" } else { name }
         });
     let unique = format!(
         "{:08x}",
@@ -1219,20 +1082,12 @@ fn spill(command: &str, bytes: &[u8]) -> Option<String> {
 
 fn render(out: Out) -> Vec<u8> {
     let display = |value: &J| {
-        if let J::Str(text) = value {
-            text.replace('\n', " ")
-        } else {
-            value.compact()
-        }
+        if let J::Str(text) = value { text.replace('\n', " ") } else { value.compact() }
     };
     let mut bytes = match out {
         Out::Text(text) => text.into_bytes(),
         Out::Bytes(data) => {
-            let quote = if data.contains(&b'\'') && !data.contains(&b'"') {
-                b'"'
-            } else {
-                b'\''
-            };
+            let quote = if data.contains(&b'\'') && !data.contains(&b'"') { b'"' } else { b'\'' };
             let mut text = format!("b{}", quote as char);
             for byte in data {
                 match byte {
@@ -1249,32 +1104,18 @@ fn render(out: Out) -> Vec<u8> {
             text.into_bytes()
         }
         Out::Value(J::List(items)) if items.is_empty() => return Vec::new(),
-        Out::Value(J::List(items)) => items
-            .iter()
-            .map(display)
-            .collect::<Vec<_>>()
-            .join("\n")
-            .into_bytes(),
+        Out::Value(J::List(items)) => {
+            items.iter().map(display).collect::<Vec<_>>().join("\n").into_bytes()
+        }
         Out::Value(J::Map(entries)) => {
-            let visible: Vec<&(String, J)> = entries
-                .iter()
-                .filter(|(key, _)| !key.starts_with('_'))
-                .collect();
-            let width = visible
-                .iter()
-                .map(|(key, _)| key.chars().count())
-                .max()
-                .unwrap_or(0)
-                + 1;
+            let visible: Vec<&(String, J)> =
+                entries.iter().filter(|(key, _)| !key.starts_with('_')).collect();
+            let width = visible.iter().map(|(key, _)| key.chars().count()).max().unwrap_or(0) + 1;
             let lines: Vec<String> = visible
                 .iter()
                 .map(|(key, value)| format!("{:width$} {}", format!("{key}:"), display(value)))
                 .collect();
-            if lines.is_empty() {
-                "{}".into()
-            } else {
-                lines.join("\n").into_bytes()
-            }
+            if lines.is_empty() { "{}".into() } else { lines.join("\n").into_bytes() }
         }
         Out::Value(value) => value.compact().into_bytes(),
     };
@@ -1293,24 +1134,13 @@ fn emit(error: &Error) -> (i32, Vec<u8>, String) {
         error.message.clone()
     };
     let mut payload = obj! {"status" => "ERROR", "reason" => reason, "error" => message.clone()};
-    let traceback = format!(
-        "Traceback (most recent call last):\n{}: {}",
-        error.name(),
-        error.message
-    );
+    let traceback =
+        format!("Traceback (most recent call last):\n{}: {}", error.name(), error.message);
     if code == 1 {
         payload.set("traceback", traceback.clone());
     }
-    let detail = if code == 1 {
-        format!("\n{traceback}\n")
-    } else {
-        String::new()
-    };
-    (
-        code,
-        format!("{}\n", payload.dumps()).into_bytes(),
-        format!("{reason}: {message}\n{detail}"),
-    )
+    let detail = if code == 1 { format!("\n{traceback}\n") } else { String::new() };
+    (code, format!("{}\n", payload.dumps()).into_bytes(), format!("{reason}: {message}\n{detail}"))
 }
 
 /// Runs both at the same time when the client can do this.
@@ -1322,10 +1152,7 @@ pub fn both<A: Send, B: Send>(
     match client.shared() {
         Some(shared) => std::thread::scope(|scope| {
             let second = scope.spawn(move || second(shared));
-            (
-                first(shared),
-                second.join().expect("worker thread did not panic"),
-            )
+            (first(shared), second.join().expect("worker thread did not panic"))
         }),
         None => (first(client), second(client)),
     }
@@ -1341,11 +1168,7 @@ pub fn invoke(
             Kind::Fire,
             format!(
                 "Could not consume arg: {command}\nUsage: xprof <command> | <flags> [ARGS]...\n  available commands:    {} | server",
-                COMMANDS
-                    .iter()
-                    .map(|(name, _, _)| *name)
-                    .collect::<Vec<_>>()
-                    .join(" | ")
+                COMMANDS.iter().map(|(name, _, _)| *name).collect::<Vec<_>>().join(" | ")
             ),
         );
     };
@@ -1358,27 +1181,14 @@ pub fn invoke(
 fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let tool = args.text("tool").unwrap_or_default();
     let name = tool.strip_suffix(".json").unwrap_or(&tool);
-    let name = if name == "hlo_op_profile" {
-        "op_profile"
-    } else {
-        name
-    };
+    let name = if name == "hlo_op_profile" { "op_profile" } else { name };
     if !crate::XPLANE_TOOLS.contains(&name) {
-        return fail(
-            Kind::Value,
-            format!("Unknown XProf tool name: {}", json::py_repr(&tool)),
-        );
+        return fail(Kind::Value, format!("Unknown XProf tool name: {}", json::py_repr(&tool)));
     }
     let dir = client.run_dir(&args.session())?;
     let mut params = HashMap::from([
         ("tag".to_string(), tool),
-        (
-            "run".to_string(),
-            dir.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned(),
-        ),
+        ("run".to_string(), dir.file_name().unwrap_or_default().to_string_lossy().into_owned()),
     ]);
     if let Some(host) = args.text("host") {
         params.insert("host".into(), host);
@@ -1388,10 +1198,7 @@ fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         .build()
         .map_err(|error| Error::new(Kind::Runtime, error.to_string()))?;
     let logdir = dir.parent().unwrap_or(Path::new(".")).to_path_buf();
-    let state = crate::state(&crate::Settings {
-        logdir,
-        ..Default::default()
-    });
+    let state = crate::state(&crate::Settings { logdir, ..Default::default() });
     let response = runtime.block_on(crate::serve(state, dir, params));
     let status = response.status();
     let reply = runtime
@@ -1424,11 +1231,7 @@ pub fn execute(argv: &[String]) -> Option<(i32, Vec<u8>, String)> {
     if let Some((_, text, _)) = COMMANDS
         .iter()
         .find(|(name, _, _)| name == command)
-        .filter(|_| {
-            argv.iter()
-                .skip(1)
-                .any(|argument| argument == "--help" || argument == "-h")
-        })
+        .filter(|_| argv.iter().skip(1).any(|argument| argument == "--help" || argument == "-h"))
     {
         return Some((0, help(command, &spec(text)).into_bytes(), String::new()));
     }
@@ -1442,10 +1245,9 @@ pub fn execute(argv: &[String]) -> Option<(i32, Vec<u8>, String)> {
             command,
             &argv[1..],
         ) {
-            Ok((_, leftover)) if !leftover.is_empty() => emit(&Error::new(
-                Kind::Fire,
-                format!("Could not consume arg: {}", leftover[0]),
-            )),
+            Ok((_, leftover)) if !leftover.is_empty() => {
+                emit(&Error::new(Kind::Fire, format!("Could not consume arg: {}", leftover[0])))
+            }
             Ok((out, _)) => {
                 let spilled = match &out {
                     Out::Text(text) => spill(command, text.as_bytes()),
@@ -1468,12 +1270,8 @@ pub fn run(argv: &[String]) -> Option<i32> {
 
 pub fn read(path: &Path) -> Result<crate::input::Input, Error> {
     let big = std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() > (16 << 20));
-    (if big {
-        crate::read_file(path)
-    } else {
-        std::fs::read(path).map(Into::into)
-    })
-    .map_err(|error| os_error(path, &error))
+    (if big { crate::read_file(path) } else { std::fs::read(path).map(Into::into) })
+        .map_err(|error| os_error(path, &error))
 }
 
 pub fn openable(path: &Path) -> Result<(), Error> {
@@ -1486,19 +1284,11 @@ pub fn openable(path: &Path) -> Result<(), Error> {
 
 fn os_error(path: &Path, error: &std::io::Error) -> Error {
     Error::new(
-        if error.kind() == std::io::ErrorKind::NotFound {
-            Kind::FileNotFound
-        } else {
-            Kind::Os
-        },
+        if error.kind() == std::io::ErrorKind::NotFound { Kind::FileNotFound } else { Kind::Os },
         format!(
             "[Errno {}] {}: {}",
             error.raw_os_error().unwrap_or(0),
-            error
-                .to_string()
-                .split(" (os error")
-                .next()
-                .unwrap_or_default(),
+            error.to_string().split(" (os error").next().unwrap_or_default(),
             json::py_repr(&path.to_string_lossy())
         ),
     )

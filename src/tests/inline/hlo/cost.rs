@@ -36,10 +36,7 @@ pub fn inst(id: i64, opcode: &str, shape: ShapeProto, operands: &[i64]) -> HloIn
 }
 
 pub fn parameter(id: i64, number: i64, shape: ShapeProto) -> HloInstructionProto {
-    HloInstructionProto {
-        parameter_number: number,
-        ..inst(id, "parameter", shape, &[])
-    }
+    HloInstructionProto { parameter_number: number, ..inst(id, "parameter", shape, &[]) }
 }
 
 pub fn computation(id: i64, instructions: Vec<HloInstructionProto>) -> HloComputationProto {
@@ -83,10 +80,7 @@ fn adder(id: i64) -> HloComputationProto {
 fn elementwise_flops_follow_the_sm86_profile() {
     let result = analyze(vec![computation(
         1,
-        vec![
-            parameter(1, 0, shape(F32, &[4])),
-            inst(2, "cosine", shape(F32, &[4]), &[1]),
-        ],
+        vec![parameter(1, 0, shape(F32, &[4])), inst(2, "cosine", shape(F32, &[4]), &[1])],
     )])
     .unwrap();
     assert_eq!(
@@ -104,11 +98,7 @@ fn elementwise_flops_follow_the_sm86_profile() {
 #[test]
 fn fusion_reads_only_the_sliced_part_of_its_parameter() {
     let slice = HloInstructionProto {
-        slice_dimensions: vec![SliceDimensions {
-            start: 0,
-            limit: 2,
-            stride: 1,
-        }],
+        slice_dimensions: vec![SliceDimensions { start: 0, limit: 2, stride: 1 }],
         ..inst(11, "slice", shape(F32, &[2]), &[10])
     };
     let fused = computation(
@@ -124,11 +114,9 @@ fn fusion_reads_only_the_sliced_part_of_its_parameter() {
         called_computation_ids: vec![1],
         ..inst(21, "fusion", shape(F32, &[2]), &[20])
     };
-    let result = analyze(vec![
-        fused,
-        computation(2, vec![parameter(20, 0, shape(F32, &[8])), fusion]),
-    ])
-    .unwrap();
+    let result =
+        analyze(vec![fused, computation(2, vec![parameter(20, 0, shape(F32, &[8])), fusion])])
+            .unwrap();
     assert_eq!(
         result[4],
         Cost {
@@ -143,18 +131,11 @@ fn fusion_reads_only_the_sliced_part_of_its_parameter() {
 #[test]
 fn slice_counts_output_bytes_twice() {
     let slice = HloInstructionProto {
-        slice_dimensions: vec![SliceDimensions {
-            start: 2,
-            limit: 4,
-            stride: 1,
-        }],
+        slice_dimensions: vec![SliceDimensions { start: 2, limit: 4, stride: 1 }],
         ..inst(2, "slice", shape(F32, &[2]), &[1])
     };
-    let result = analyze(vec![computation(
-        1,
-        vec![parameter(1, 0, shape(F32, &[8])), slice],
-    )])
-    .unwrap();
+    let result =
+        analyze(vec![computation(1, vec![parameter(1, 0, shape(F32, &[8])), slice])]).unwrap();
     assert_eq!(
         result[1],
         Cost {
@@ -177,11 +158,7 @@ fn reduce_scales_the_reducer_and_reads_init_per_output() {
         adder(1),
         computation(
             2,
-            vec![
-                parameter(21, 0, shape(F32, &[4, 8])),
-                parameter(22, 1, shape(F32, &[])),
-                reduce,
-            ],
+            vec![parameter(21, 0, shape(F32, &[4, 8])), parameter(22, 1, shape(F32, &[])), reduce],
         ),
     ])
     .unwrap();
@@ -209,10 +186,7 @@ fn flattened_id_collective_without_groups_fails_the_module() {
     assert!(
         analyze(vec![
             adder(1),
-            computation(
-                2,
-                vec![parameter(21, 0, shape(F32, &[4])), all_reduce(Vec::new())]
-            )
+            computation(2, vec![parameter(21, 0, shape(F32, &[4])), all_reduce(Vec::new())])
         ])
         .is_none()
     );
@@ -222,9 +196,7 @@ fn flattened_id_collective_without_groups_fails_the_module() {
             2,
             vec![
                 parameter(21, 0, shape(F32, &[4])),
-                all_reduce(vec![ReplicaGroup {
-                    replica_ids: vec![0, 1],
-                }]),
+                all_reduce(vec![ReplicaGroup { replica_ids: vec![0, 1] }]),
             ],
         ),
     ])
@@ -264,11 +236,7 @@ fn cublas_lt_gemm_uses_the_backend_dot_dimensions() {
     };
     let result = analyze(vec![computation(
         1,
-        vec![
-            parameter(1, 0, shape(F32, &[2, 4])),
-            parameter(2, 1, shape(F32, &[4, 3])),
-            gemm,
-        ],
+        vec![parameter(1, 0, shape(F32, &[2, 4])), parameter(2, 1, shape(F32, &[4, 3])), gemm],
     )])
     .unwrap();
     assert_eq!(result[2].model_flops, 48);
@@ -282,11 +250,7 @@ fn cublas_lt_gemm_uses_the_backend_dot_dimensions() {
     };
     let result = analyze(vec![computation(
         1,
-        vec![
-            parameter(1, 0, shape(F32, &[2, 4])),
-            parameter(2, 1, shape(F32, &[4, 3])),
-            dot,
-        ],
+        vec![parameter(1, 0, shape(F32, &[2, 4])), parameter(2, 1, shape(F32, &[4, 3])), dot],
     )])
     .unwrap();
     assert_eq!(result[2].model_flops, 48);
@@ -300,22 +264,16 @@ fn legacy_cublas_gemm_has_no_cost() {
     };
     let result = analyze(vec![computation(
         1,
-        vec![
-            parameter(1, 0, shape(F32, &[2, 4])),
-            parameter(2, 1, shape(F32, &[4, 3])),
-            gemm,
-        ],
+        vec![parameter(1, 0, shape(F32, &[2, 4])), parameter(2, 1, shape(F32, &[4, 3])), gemm],
     )])
     .unwrap();
     assert_eq!(result[2], Cost::default());
 }
 
 fn fixture(name: &str) -> (Module<'static>, Vec<Cost>) {
-    let data = std::fs::read(format!(
-        "{}/tests/data/gpu_cost/{name}.pb",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .unwrap();
+    let data =
+        std::fs::read(format!("{}/tests/data/gpu_cost/{name}.pb", env!("CARGO_MANIFEST_DIR")))
+            .unwrap();
     let module = Module::parse(Cow::Owned(data));
     let analysis = costs(&module).unwrap();
     (module, analysis)
@@ -330,19 +288,13 @@ fn flops_and_adjustment(name: &str, instruction: &str) -> (i64, i64) {
 #[test]
 fn fp16_gemm_no_adjustment() {
     let gold_flops = 65536 * 32800 * 32 * 2;
-    assert_eq!(
-        flops_and_adjustment("fp16_gemm_no_adjustment", "gemm"),
-        (gold_flops, 0)
-    );
+    assert_eq!(flops_and_adjustment("fp16_gemm_no_adjustment", "gemm"), (gold_flops, 0));
 }
 
 #[test]
 fn s8_gemm_adjustment() {
     let gold_flops = 65536 * 32800 * 32 * 2;
-    assert_eq!(
-        flops_and_adjustment("s8_gemm_adjustment", "gemm"),
-        (gold_flops, gold_flops / 2)
-    );
+    assert_eq!(flops_and_adjustment("s8_gemm_adjustment", "gemm"), (gold_flops, gold_flops / 2));
 }
 
 #[test]
@@ -384,13 +336,7 @@ fn test4_bit_pricision() {
 
 #[test]
 fn instructions_with_missing_operands_give_no_costs() {
-    assert_eq!(
-        analyze(vec![computation(
-            1,
-            vec![inst(1, "dot", shape(F32, &[2]), &[])]
-        )]),
-        None
-    );
+    assert_eq!(analyze(vec![computation(1, vec![inst(1, "dot", shape(F32, &[2]), &[])])]), None);
     assert_eq!(
         analyze(vec![
             adder(1),
@@ -405,10 +351,7 @@ fn instructions_with_missing_operands_give_no_costs() {
         None
     );
     assert_eq!(
-        analyze(vec![computation(
-            1,
-            vec![inst(1, "dynamic-update-slice", shape(F32, &[2]), &[])]
-        )]),
+        analyze(vec![computation(1, vec![inst(1, "dynamic-update-slice", shape(F32, &[2]), &[])])]),
         None
     );
 }
@@ -459,10 +402,7 @@ pub fn chained(
 ) -> Vec<HloComputationProto> {
     let mut computations = vec![computation(
         1,
-        vec![
-            parameter(10, 0, shape(F32, &[4])),
-            inst(11, "cosine", shape(F32, &[4]), &[10]),
-        ],
+        vec![parameter(10, 0, shape(F32, &[4])), inst(11, "cosine", shape(F32, &[4]), &[10])],
     )];
     for id in 2..=depth {
         computations.push(computation(
@@ -501,20 +441,12 @@ fn a_large_graph_that_starts_a_shared_graph_two_times() {
         calling(2, 2, "async-start"),
     ];
     entry.extend((0..30_000).map(|index| {
-        inst(
-            100 + index,
-            "cosine",
-            shape(F32, &[4]),
-            &[if index == 0 { 20 } else { 99 + index }],
-        )
+        inst(100 + index, "cosine", shape(F32, &[4]), &[if index == 0 { 20 } else { 99 + index }])
     }));
     let result = analyze(vec![
         computation(
             1,
-            vec![
-                parameter(10, 0, shape(F32, &[4])),
-                inst(11, "cosine", shape(F32, &[4]), &[10]),
-            ],
+            vec![parameter(10, 0, shape(F32, &[4])), inst(11, "cosine", shape(F32, &[4]), &[10])],
         ),
         computation(2, entry),
     ])
@@ -524,9 +456,6 @@ fn a_large_graph_that_starts_a_shared_graph_two_times() {
 
 #[test]
 fn graphs_that_many_callers_share_are_analyzed_one_time() {
-    let result = chain(40, |id| {
-        vec![calling(id, 1, "call"), calling(id, 2, "call")]
-    })
-    .unwrap();
+    let result = chain(40, |id| vec![calling(id, 1, "call"), calling(id, 2, "call")]).unwrap();
     assert_eq!(result.last().unwrap().model_flops, 2648 << 38);
 }

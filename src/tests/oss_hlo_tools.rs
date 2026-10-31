@@ -21,25 +21,16 @@ fn session(name: &str, modules: &[&str]) -> std::path::PathBuf {
 #[test]
 fn test_list_hlo_modules_empty() {
     let dir = session("hlo-empty", &[]);
-    std::fs::write(
-        dir.join("host.xplane.pb"),
-        XSpace::default().encode_to_vec(),
-    )
-    .unwrap();
-    let result = text(list_hlo_modules(
-        &Fake::fixed("").in_dir(&dir),
-        &args("empty_session", &[]),
-    ));
+    std::fs::write(dir.join("host.xplane.pb"), XSpace::default().encode_to_vec()).unwrap();
+    let result = text(list_hlo_modules(&Fake::fixed("").in_dir(&dir), &args("empty_session", &[])));
     assert!(result.contains("No HLO modules found"), "{result}");
 }
 
 #[test]
 fn test_list_hlo_modules_success() {
     let dir = session("hlo-list", &[MODULE, "module_0002.jit_eval.hlo_proto.pb"]);
-    let result = text(list_hlo_modules(
-        &Fake::fixed("").in_dir(&dir),
-        &args(&dir.to_string_lossy(), &[]),
-    ));
+    let result =
+        text(list_hlo_modules(&Fake::fixed("").in_dir(&dir), &args(&dir.to_string_lossy(), &[])));
     assert!(result.contains("Found 2 HLO modules:"));
     assert!(result.contains("0. module_0001.jit_compute"));
     assert!(result.contains("1. module_0002.jit_eval"));
@@ -51,10 +42,7 @@ fn test_get_hlo_module_content_success() {
     let fake = Fake::fixed("HloModule jit_compute\n\n%entry (\n  %x = f32[10] parameter(0)\n  ROOT %neg = f32[10] negate(%x)\n)\n").in_dir(&dir);
     let content = text(get_hlo_module_content(
         &fake,
-        &args(
-            &dir.to_string_lossy(),
-            &[("module_name", J::from("module_0001.jit_compute"))],
-        ),
+        &args(&dir.to_string_lossy(), &[("module_name", J::from("module_0001.jit_compute"))]),
     ));
     assert!(content.contains("HloModule jit_compute"));
     assert!(content.contains("%neg = f32[10] negate(%x)"));
@@ -80,10 +68,7 @@ fn test_get_hlo_neighborhood_op_name_alias() {
     let dir = session("hlo-alias", &[MODULE]);
     let neighborhood = text(get_hlo_neighborhood(
         &Fake::fixed(GRAPH).in_dir(&dir),
-        &args(
-            &dir.to_string_lossy(),
-            &[("op_name", J::from("mul")), ("radius", J::Int(1))],
-        ),
+        &args(&dir.to_string_lossy(), &[("op_name", J::from("mul")), ("radius", J::Int(1))]),
     ));
     assert!(neighborhood.contains("%mul"));
     assert!(neighborhood.contains("%x"));
@@ -99,13 +84,7 @@ fn test_get_hlo_neighborhood_missing_name_raises_value_error() {
 fn test_get_hlo_neighborhood_conflicting_names_raises_value_error() {
     let error = get_hlo_neighborhood(
         &Fake::fixed(GRAPH),
-        &args(
-            "session",
-            &[
-                ("instruction_name", J::from("mul")),
-                ("op_name", J::from("add")),
-            ],
-        ),
+        &args("session", &[("instruction_name", J::from("mul")), ("op_name", J::from("add"))]),
     )
     .unwrap_err();
     assert_eq!(error.kind, Kind::Value);
@@ -118,16 +97,10 @@ fn test_get_hlo_text_file_export() {
     let out = dir.join("exported_hlo.txt");
     let content = text(get_hlo_text(
         &Fake::fixed("HloModule test_export\n").in_dir(&dir),
-        &args(
-            &dir.to_string_lossy(),
-            &[("path", J::from(out.to_string_lossy().as_ref()))],
-        ),
+        &args(&dir.to_string_lossy(), &[("path", J::from(out.to_string_lossy().as_ref()))]),
     ));
     assert_eq!(content, "HloModule test_export\n");
-    assert_eq!(
-        std::fs::read_to_string(&out).unwrap(),
-        "HloModule test_export\n"
-    );
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "HloModule test_export\n");
 }
 
 #[test]

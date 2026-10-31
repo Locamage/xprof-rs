@@ -137,15 +137,9 @@ pub fn temp_dir() -> std::path::PathBuf {
             _ = std::fs::remove_dir_all(path);
         }
         let base = std::env::temp_dir();
-        for entry in std::fs::read_dir(&base)
-            .into_iter()
-            .flatten()
-            .map_while(Result::ok)
-        {
-            if let Some(pid) = entry
-                .file_name()
-                .to_str()
-                .and_then(|name| name.strip_prefix("xprof-rs-tests-"))
+        for entry in std::fs::read_dir(&base).into_iter().flatten().map_while(Result::ok) {
+            if let Some(pid) =
+                entry.file_name().to_str().and_then(|name| name.strip_prefix("xprof-rs-tests-"))
                 && !std::path::Path::new("/proc").join(pid).exists()
             {
                 remove(&entry.path());

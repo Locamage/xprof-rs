@@ -31,29 +31,14 @@ fn levels(lines: &[(i64, &[FlowEvent])]) -> impl Fn(&str) -> u8 {
     let (map, mut planes) = space.parsed();
     let trace = Trace::build(&mut planes, "localhost", &map);
     move |name: &str| {
-        trace
-            .events
-            .iter()
-            .find(|event| &*trace.names[event.name as usize] == name)
-            .unwrap()
-            .level
+        trace.events.iter().find(|event| &*trace.names[event.name as usize] == name).unwrap().level
     }
 }
 
 async fn search(space: &XSpace, query: &str) -> Vec<serde_json::Value> {
-    let dir = logdir(&format!(
-        "search-{}",
-        SEARCHES.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::write(
-        dir.join("run/plugins/profile/s/h.xplane.pb"),
-        space.encode_to_vec(),
-    )
-    .unwrap();
-    let state = state(&Settings {
-        logdir: dir.clone(),
-        ..Default::default()
-    });
+    let dir = logdir(&format!("search-{}", SEARCHES.fetch_add(1, Ordering::Relaxed)));
+    std::fs::write(dir.join("run/plugins/profile/s/h.xplane.pb"), space.encode_to_vec()).unwrap();
+    let state = state(&Settings { logdir: dir.clone(), ..Default::default() });
     let (_, _, body) = fetch(
         &state,
         &format!("/data/plugin/profile/data?run=run/s&tag=trace_viewer@&host=h&{query}"),
@@ -64,17 +49,11 @@ async fn search(space: &XSpace, query: &str) -> Vec<serde_json::Value> {
         .as_array()
         .unwrap()
         .clone();
-    events
-        .into_iter()
-        .filter(|event| event["ph"] == "X")
-        .collect()
+    events.into_iter().filter(|event| event["ph"] == "X").collect()
 }
 
 fn names(events: &[serde_json::Value]) -> Vec<&str> {
-    events
-        .iter()
-        .map(|event| event["name"].as_str().unwrap())
-        .collect()
+    events.iter().map(|event| event["name"].as_str().unwrap()).collect()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -87,18 +66,9 @@ async fn search_metadata_keys_in_trie() {
         "ModelForward",
         100,
         100,
-        &[
-            ("request_id1", "target_req_123".into()),
-            ("bytes", V::Uint(1024)),
-        ],
+        &[("request_id1", "target_req_123".into()), ("bytes", V::Uint(1024))],
     );
-    plane.event(
-        2,
-        "OtherEvent",
-        300,
-        100,
-        &[("some_other_key", "req_ignored".into())],
-    );
+    plane.event(2, "OtherEvent", 300, 100, &[("some_other_key", "req_ignored".into())]);
     let found = search(&space, "search_prefix=Model").await;
     assert_eq!(names(&found), ["ModelForward"]);
     assert!(found[0]["args"].get("request_id1").is_none());
@@ -109,17 +79,8 @@ async fn search_metadata_keys_in_trie() {
     let mut deduplication = XSpace::default();
     let plane = deduplication.plane("/host:CPU");
     plane.named_line(2, "TestResource");
-    plane.event(
-        2,
-        "req_event",
-        500,
-        100,
-        &[("request_id1", "req_val".into())],
-    );
-    assert_eq!(
-        names(&search(&deduplication, "search_prefix=req").await),
-        ["req_event"]
-    );
+    plane.event(2, "req_event", 500, 100, &[("request_id1", "req_val".into())]);
+    assert_eq!(names(&search(&deduplication, "search_prefix=req").await), ["req_event"]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -132,27 +93,12 @@ async fn search_metadata_interned_and_edge_cases() {
         "ShortEventName",
         100,
         100,
-        &[(
-            "request_id1",
-            "SuperLongRequestIdValueThatWillBeInterned".into(),
-        )],
+        &[("request_id1", "SuperLongRequestIdValueThatWillBeInterned".into())],
     );
-    plane.event(
-        2,
-        "IntReqEvent",
-        300,
-        100,
-        &[("request_id1", V::Uint(99999))],
-    );
+    plane.event(2, "IntReqEvent", 300, 100, &[("request_id1", V::Uint(99999))]);
     plane.event(2, "NoRawDataEvent", 500, 100, &[]);
-    assert_eq!(
-        names(&search(&space, "search_prefix=ShortEventName").await),
-        ["ShortEventName"]
-    );
-    assert_eq!(
-        names(&search(&space, "search_prefix=NoRawDataEvent").await),
-        ["NoRawDataEvent"]
-    );
+    assert_eq!(names(&search(&space, "search_prefix=ShortEventName").await), ["ShortEventName"]);
+    assert_eq!(names(&search(&space, "search_prefix=NoRawDataEvent").await), ["NoRawDataEvent"]);
 }
 
 #[test]
@@ -183,13 +129,7 @@ fn safety_guard_for_fallback_flow_events() {
         (
             3,
             &[
-                (
-                    "Dummy2",
-                    3_500_000_000_000,
-                    3_500_000_000_100,
-                    98,
-                    FLOW_START,
-                ),
+                ("Dummy2", 3_500_000_000_000, 3_500_000_000_100, 98, FLOW_START),
                 ("EventC", 4_000_000_000_000, 4_000_000_000_100, 1, FLOW_END),
             ],
         ),

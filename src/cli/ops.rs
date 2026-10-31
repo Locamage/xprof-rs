@@ -43,11 +43,7 @@ pub fn field<'a>(node: &'a J, name: &str) -> &'a J {
                 after = true;
                 None
             } else {
-                Some(if std::mem::take(&mut after) {
-                    letter.to_ascii_uppercase()
-                } else {
-                    letter
-                })
+                Some(if std::mem::take(&mut after) { letter.to_ascii_uppercase() } else { letter })
             }
         }))
     };
@@ -80,9 +76,7 @@ fn total(values: impl Iterator<Item = J>) -> J {
     if values.iter().all(|value| matches!(value, J::Int(_))) {
         J::Int(values.iter().filter_map(J::int).sum())
     } else {
-        J::Float(fsum(
-            values.iter().map(|value| value.float().unwrap_or(0.0)),
-        ))
+        J::Float(fsum(values.iter().map(|value| value.float().unwrap_or(0.0))))
     }
 }
 
@@ -103,11 +97,7 @@ fn present(node: &J, name: &str) -> bool {
 }
 
 fn descending<T>(items: &mut [T], key: impl Fn(&T) -> f64) {
-    items.sort_by(|left, right| {
-        key(right)
-            .partial_cmp(&key(left))
-            .unwrap_or(Ordering::Equal)
-    });
+    items.sort_by(|left, right| key(right).partial_cmp(&key(left)).unwrap_or(Ordering::Equal));
 }
 
 /// Frees the profile on another thread, so the caller does not wait for it.
@@ -127,10 +117,7 @@ impl Drop for Parsed {
 }
 
 fn too_deep() -> Error {
-    Error::new(
-        Kind::Value,
-        format!("Failed to parse op_profile proto: ParseError('{TOO_DEEP}')"),
-    )
+    Error::new(Kind::Value, format!("Failed to parse op_profile proto: ParseError('{TOO_DEEP}')"))
 }
 
 fn profile(
@@ -144,23 +131,15 @@ fn profile(
         let parsed = client
             .op_profile(session, params)?
             .ok_or_else(|| Error::new(Kind::FileNotFound, missing))?;
-        if parsed.object_depth() > MAX_MESSAGE_DEPTH {
-            Err(too_deep())
-        } else {
-            Ok(parsed)
-        }
+        if parsed.object_depth() > MAX_MESSAGE_DEPTH { Err(too_deep()) } else { Ok(parsed) }
     })();
-    fetched
-        .map(Parsed)
-        .map_err(|error| rethrow(error, |error| format!("{wrap}{}", error.repr())))
+    fetched.map(Parsed).map_err(|error| rethrow(error, |error| format!("{wrap}{}", error.repr())))
 }
 
 pub fn get_profile_summary(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
-    let params: Vec<(&str, String)> = vec![
-        ("format", "json".to_string()),
-        bypass(args.flag("bypass_cache", false)),
-    ];
+    let params: Vec<(&str, String)> =
+        vec![("format", "json".to_string()), bypass(args.flag("bypass_cache", false))];
     let profile = profile(
         client,
         &session,
@@ -209,11 +188,7 @@ pub fn get_profile_summary(client: &dyn Client, args: &Args) -> Result<Out, Erro
 
 fn leaves(node: &J, prefix: &str, out: &mut Vec<J>) {
     let name = field(node, "name").str().unwrap_or_default();
-    let full = if prefix.is_empty() {
-        name.to_string()
-    } else {
-        format!("{prefix}/{name}")
-    };
+    let full = if prefix.is_empty() { name.to_string() } else { format!("{prefix}/{name}") };
     if !children(node).is_empty()
         && fsum(children(node).iter().map(|child| number(child, "raw_time"))) > 0.0
     {
@@ -232,10 +207,7 @@ fn leaves(node: &J, prefix: &str, out: &mut Vec<J>) {
         format!("Category: {name}")
     } else {
         let lower = name.to_lowercase();
-        match NAME_CATEGORIES
-            .iter()
-            .find(|category| lower.contains(*category))
-        {
+        match NAME_CATEGORIES.iter().find(|category| lower.contains(*category)) {
             Some(category) => category.to_string(),
             None if name.starts_with('%') => name
                 .trim_start_matches('%')
@@ -275,11 +247,7 @@ fn leaves(node: &J, prefix: &str, out: &mut Vec<J>) {
 
 fn tree(node: &J, depth: i64, limit: f64, prefix: &str) -> J {
     let name = label(node, "root");
-    let path = if prefix.is_empty() {
-        name.clone()
-    } else {
-        format!("{prefix}/{name}")
-    };
+    let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
     let mut sorted: Vec<&J> = children(node).iter().collect();
     descending(&mut sorted, |child| number(child, "raw_time"));
     let built: Vec<J> = if (depth as f64) < limit {
@@ -336,10 +304,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
             format!("Invalid sort_by '{sort}'. Must be one of: 'time', 'flops', 'bytes'."),
         );
     }
-    let params: Vec<(&str, String)> = vec![
-        ("format", "json".to_string()),
-        bypass(args.flag("bypass_cache", false)),
-    ];
+    let params: Vec<(&str, String)> =
+        vec![("format", "json".to_string()), bypass(args.flag("bypass_cache", false))];
     let wrap = format!("Error fetching HLO op profile for session {session}: ");
     let profile = profile(
         client,
@@ -381,23 +347,12 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
     };
     let mut groups: indexmap::IndexMap<String, Vec<J>> = indexmap::IndexMap::new();
     for op in &flat {
-        groups
-            .entry(op.at("category").text())
-            .or_default()
-            .push(op.clone());
+        groups.entry(op.at("category").text()).or_default().push(op.clone());
     }
-    let time_of = |ops: &[J]| {
-        fsum(
-            ops.iter()
-                .map(|op| op.at("total_self_time_ms").float().unwrap_or(0.0)),
-        )
-    };
+    let time_of =
+        |ops: &[J]| fsum(ops.iter().map(|op| op.at("total_self_time_ms").float().unwrap_or(0.0)));
     let fraction = |part: f64, whole: f64| {
-        if whole > 0.0 {
-            round(part / whole, 4)
-        } else {
-            0.0
-        }
+        if whole > 0.0 { round(part / whole, 4) } else { 0.0 }
     };
     let sorted = |ops: &[J]| {
         let mut ops = ops.to_vec();
@@ -406,12 +361,7 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
     };
     let top_name = |ops: &[J]| {
         ops.first().map_or(String::new(), |op| {
-            op.at("name")
-                .text()
-                .rsplit('/')
-                .next()
-                .unwrap_or_default()
-                .to_string()
+            op.at("name").text().rsplit('/').next().unwrap_or_default().to_string()
         })
     };
     let mut summary: Vec<J> = groups
@@ -433,13 +383,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         "bytes" => "bytes_accessed",
         _ => "total_self_time_ms",
     };
-    descending(&mut summary, |entry| {
-        entry.at(summary_key).float().unwrap_or(0.0)
-    });
-    let available: Vec<String> = summary
-        .iter()
-        .map(|entry| entry.at("category").text())
-        .collect();
+    descending(&mut summary, |entry| entry.at(summary_key).float().unwrap_or(0.0));
+    let available: Vec<String> = summary.iter().map(|entry| entry.at("category").text()).collect();
     let ops_of = |category: &str| groups.get(category).map_or(&[][..], Vec::as_slice);
     let with_fraction = |ops: Vec<J>, whole: f64| -> Vec<J> {
         ops.into_iter()
@@ -458,11 +403,7 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         let matched = available
             .iter()
             .find(|name| name.to_lowercase() == target)
-            .or_else(|| {
-                available
-                    .iter()
-                    .find(|name| name.to_lowercase().contains(&target))
-            });
+            .or_else(|| available.iter().find(|name| name.to_lowercase().contains(&target)));
         let Some(matched) = matched else {
             return fail(
                 Kind::FileNotFound,
@@ -479,11 +420,7 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         let ops = ops_of(matched);
         let matched_time = time_of(ops);
         let top_n = top_n(|top_n| top_n > 0.0)?;
-        let limit = if top_n > 0.0 {
-            top_n as usize
-        } else {
-            ops.len()
-        };
+        let limit = if top_n > 0.0 { top_n as usize } else { ops.len() };
         let selected: Vec<J> = sorted(ops).into_iter().take(limit).collect();
         let operations = with_fraction(selected, matched_time);
         let top = top_name(&operations);
@@ -503,11 +440,7 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
     match view_key.as_str() {
         "flat" => {
             let top_n = top_n(|top_n| top_n > 0.0)?;
-            let limit = if top_n > 0.0 {
-                top_n as usize
-            } else {
-                flat.len()
-            };
+            let limit = if top_n > 0.0 { top_n as usize } else { flat.len() };
             Ok(J::List(sorted(&flat).into_iter().take(limit).collect()).into())
         }
         "category" | "summary" => {
@@ -517,11 +450,10 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
                 "view_grouped_ops" => "xprof get_hlo_op_profile <trace> --view=grouped",
                 "available_categories" => available.clone(),
             };
-            if let Some(communication) = available.iter().find(|name| {
-                COLLECTIVES
-                    .iter()
-                    .any(|kind| name.to_lowercase().contains(kind))
-            }) {
+            if let Some(communication) = available
+                .iter()
+                .find(|name| COLLECTIVES.iter().any(|kind| name.to_lowercase().contains(kind)))
+            {
                 hints.set(
                     "drill_down_into_communication",
                     format!("xprof get_hlo_op_profile <trace> --category='{communication}'"),
@@ -532,17 +464,11 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         "tree" => tree_view(root, args, wrapped),
         _ => {
             let top_n = top_n(|top_n| top_n > 0.0 && top_n <= 5.0)?;
-            let per_category = if top_n <= 0.0 {
-                usize::MAX
-            } else {
-                top_n.min(5.0) as usize
-            };
+            let per_category = if top_n <= 0.0 { usize::MAX } else { top_n.min(5.0) as usize };
             let grouped = summary.iter().map(|entry| {
                 let category = entry.at("category").text();
-                let ops: Vec<J> = sorted(ops_of(&category))
-                    .into_iter()
-                    .take(per_category)
-                    .collect();
+                let ops: Vec<J> =
+                    sorted(ops_of(&category)).into_iter().take(per_category).collect();
                 (
                     category,
                     J::from(with_fraction(
@@ -575,19 +501,11 @@ fn tree_view(root: &J, args: &Args, wrapped: impl Fn(Error) -> Error) -> Result<
         let J::Str(path) = path else {
             return Err(wrapped(super::no_attribute(path, "strip")));
         };
-        let mut parts: Vec<&str> = path
-            .trim_matches('/')
-            .split('/')
-            .filter(|part| !part.is_empty())
-            .collect();
+        let mut parts: Vec<&str> =
+            path.trim_matches('/').split('/').filter(|part| !part.is_empty()).collect();
         if parts.first().is_some_and(|first| {
-            [
-                "root",
-                "by_category",
-                "by_program",
-                root_name.to_lowercase().as_str(),
-            ]
-            .contains(&first.to_lowercase().as_str())
+            ["root", "by_category", "by_program", root_name.to_lowercase().as_str()]
+                .contains(&first.to_lowercase().as_str())
         }) {
             parts.remove(0);
         }
@@ -595,10 +513,7 @@ fn tree_view(root: &J, args: &Args, wrapped: impl Fn(Error) -> Error) -> Result<
         for part in parts {
             let lower = part.to_lowercase();
             let found = children(target).iter().find(|child| {
-                let name = field(child, "name")
-                    .str()
-                    .unwrap_or_default()
-                    .to_lowercase();
+                let name = field(child, "name").str().unwrap_or_default().to_lowercase();
                 name == lower || name.contains(&lower)
             });
             let Some(found) = found else {
@@ -613,20 +528,12 @@ fn tree_view(root: &J, args: &Args, wrapped: impl Fn(Error) -> Error) -> Result<
         target_path = matched.join("/");
     }
     let depth = args.compared("depth", 2.0, ">").map_err(&wrapped)?;
-    let limit = if depth > 0.0 {
-        args.raw("depth").cloned().unwrap_or(J::Int(2))
-    } else {
-        J::Int(2)
-    };
+    let limit =
+        if depth > 0.0 { args.raw("depth").cloned().unwrap_or(J::Int(2)) } else { J::Int(2) };
     let child_paths: Vec<String> = children(target)
         .iter()
         .filter(|child| number(child, "raw_time") > 0.0)
-        .map(|child| {
-            format!(
-                "{target_path}/{}",
-                field(child, "name").str().unwrap_or_default()
-            )
-        })
+        .map(|child| format!("{target_path}/{}", field(child, "name").str().unwrap_or_default()))
         .collect();
     let hint = child_paths.first().map_or_else(
         || "No further child paths.".to_string(),
@@ -666,9 +573,7 @@ fn instructions(node: &J, prefix: &str, out: &mut Vec<J>) {
             }
         } else if !expression.is_empty()
             && custom
-            && let Some(target) = TARGET
-                .captures(expression)
-                .map(|found| found[1].to_string())
+            && let Some(target) = TARGET.captures(expression).map(|found| found[1].to_string())
             && name != target
         {
             label = format!("{name} [{target}]");
@@ -683,25 +588,16 @@ fn instructions(node: &J, prefix: &str, out: &mut Vec<J>) {
         };
         let source = field(xla, "source_info");
         if present(xla, "source_info") {
-            item.set(
-                "source_file",
-                field(source, "file_name").str().unwrap_or_default(),
-            );
-            item.set(
-                "source_line",
-                field(source, "line_number").int().unwrap_or(0),
-            );
+            item.set("source_file", field(source, "file_name").str().unwrap_or_default());
+            item.set("source_line", field(source, "line_number").int().unwrap_or(0));
             if field(source, "stack_frame").truthy() {
                 item.set("stack_frame", field(source, "stack_frame"));
             }
         }
         out.push(item);
     }
-    let child_prefix = if prefix.is_empty() {
-        name.to_string()
-    } else {
-        format!("{prefix}/{name}")
-    };
+    let child_prefix =
+        if prefix.is_empty() { name.to_string() } else { format!("{prefix}/{name}") };
     for child in children(node) {
         instructions(child, &child_prefix, out);
     }
@@ -752,11 +648,8 @@ pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         }
         ops.into_iter().cloned().collect::<Vec<J>>()
     };
-    let (by_time, by_flops, by_bytes) = (
-        top("total_self_time_ms"),
-        top("flops"),
-        top("bytes_accessed"),
-    );
+    let (by_time, by_flops, by_bytes) =
+        (top("total_self_time_ms"), top("flops"), top("bytes_accessed"));
     let custom = by_time.iter().chain(&by_flops).chain(&by_bytes).any(|op| {
         CUSTOM_CALLS.contains(&op.at("category").text().to_lowercase().as_str())
             || op.at("name").text().to_lowercase().contains("custom-call")
@@ -771,13 +664,9 @@ pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {
 fn safe_int(value: Option<&J>) -> i128 {
     match value {
         Some(J::Str(text)) if !text.contains('.') => super::json::py_int(text).unwrap_or(0),
-        Some(value) => value.float().map_or(0, |number| {
-            if number.is_finite() {
-                number.trunc() as i128
-            } else {
-                0
-            }
-        }),
+        Some(value) => value
+            .float()
+            .map_or(0, |number| if number.is_finite() { number.trunc() as i128 } else { 0 }),
         None => 0,
     }
 }
@@ -857,37 +746,24 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
 
 pub fn get_hlo_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
-    let mut params = vec![
-        ("format", "json".to_string()),
-        ("tqx", "out:pb".to_string()),
-    ];
+    let mut params = vec![("format", "json".to_string()), ("tqx", "out:pb".to_string())];
     params.extend(args.flag("bypass_cache", false).then(|| bypass(true)));
-    let data = client
-        .fetch("hlo_stats.json", &session, &params)
-        .map_err(|error| {
-            Error::new(
-                Kind::Runtime,
-                format!(
-                    "Error fetching HLO stats for session {session}: {}",
-                    error.repr()
-                ),
-            )
-        })?;
-    let data = data.ok_or_else(|| {
+    let data = client.fetch("hlo_stats.json", &session, &params).map_err(|error| {
         Error::new(
             Kind::Runtime,
-            "Unexpected data type returned: <class 'NoneType'>",
+            format!("Error fetching HLO stats for session {session}: {}", error.repr()),
         )
     })?;
+    let data = data.ok_or_else(|| {
+        Error::new(Kind::Runtime, "Unexpected data type returned: <class 'NoneType'>")
+    })?;
     let text = String::from_utf8_lossy(&data);
-    let table = J::parse(text.trim())
-        .filter(|table| table.has("cols"))
-        .ok_or_else(|| {
-            Error::new(
-                Kind::Value,
-                "Failed to parse HloStatsDatabase proto: ParseError('Failed to load JSON')",
-            )
-        })?;
+    let table = J::parse(text.trim()).filter(|table| table.has("cols")).ok_or_else(|| {
+        Error::new(
+            Kind::Value,
+            "Failed to parse HloStatsDatabase proto: ParseError('Failed to load JSON')",
+        )
+    })?;
     let filter = args.get("category_filter").filter(|filter| filter.truthy());
     if let Some(filter) =
         filter.filter(|filter| filter.str().is_none() && !table.at("rows").items().is_empty())
@@ -899,12 +775,7 @@ pub fn get_hlo_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     if records.is_empty() {
         return fail(Kind::FileNotFound, "No HLO stats records found");
     }
-    let key = match args
-        .stripped("sort_by", "self_time")?
-        .trim()
-        .to_lowercase()
-        .as_str()
-    {
+    let key = match args.stripped("sort_by", "self_time")?.trim().to_lowercase().as_str() {
         "total_time" => "total_time_us",
         "occurrences" => "occurrences",
         "flops" => "flops",

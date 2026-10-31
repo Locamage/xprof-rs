@@ -83,16 +83,10 @@ pub struct Tracker {
 
 fn replica_group_size(info: &[u8]) -> i64 {
     let mut groups = fields(info).filter_map(|(tag, field)| {
-        if let Field::Bytes(_, body) = field {
-            Some((tag, body))
-        } else {
-            None
-        }
+        if let Field::Bytes(_, body) = field { Some((tag, body)) } else { None }
     });
-    let (one_to_one, endpoints): (Vec<_>, Vec<_>) = groups
-        .by_ref()
-        .filter(|(tag, _)| *tag == 2 || *tag == 3)
-        .partition(|(tag, _)| *tag == 3);
+    let (one_to_one, endpoints): (Vec<_>, Vec<_>) =
+        groups.by_ref().filter(|(tag, _)| *tag == 2 || *tag == 3).partition(|(tag, _)| *tag == 3);
     if one_to_one.is_empty() {
         endpoints.first().map_or(0, |(_, group)| {
             fields(group)
@@ -150,10 +144,7 @@ impl Tracker {
         let state = self
             .states
             .entry(rendezvous.clone())
-            .or_insert_with(|| OpState {
-                overlap_base: overlap,
-                ..Default::default()
-            });
+            .or_insert_with(|| OpState { overlap_base: overlap, ..Default::default() });
         state.stall_duration_ns = (state.stall_duration_ns as f64 + duration_ns) as u64;
         match instruction.opcode {
             Opcode::Send => {
@@ -169,10 +160,8 @@ impl Tracker {
             Opcode::SendDone => state.send_done_ps = duration_ps,
             Opcode::RecvDone if state.start_time != 0 => {
                 let index = *self.positions.entry(rendezvous.clone()).or_insert_with(|| {
-                    self.summaries.push(Summary {
-                        rendezvous: rendezvous.clone(),
-                        ..Default::default()
-                    });
+                    self.summaries
+                        .push(Summary { rendezvous: rendezvous.clone(), ..Default::default() });
                     self.summaries.len() - 1
                 });
                 let summary = &mut self.summaries[index];
@@ -217,10 +206,8 @@ pub fn combine(analyses: &[Vec<Summary>]) -> Vec<Summary> {
             .iter()
             .position(|summary| summary.rendezvous == slack.rendezvous)
             .unwrap_or_else(|| {
-                combined.push(Summary {
-                    rendezvous: slack.rendezvous.clone(),
-                    ..Default::default()
-                });
+                combined
+                    .push(Summary { rendezvous: slack.rendezvous.clone(), ..Default::default() });
                 combined.len() - 1
             });
         let summary = &mut combined[index];
@@ -240,11 +227,7 @@ pub fn human_bytes(bytes: i64) -> String {
     if bytes == i64::MIN {
         return "-8E".into();
     }
-    let (sign, mut value) = if bytes < 0 {
-        ("-", -bytes)
-    } else {
-        ("", bytes)
-    };
+    let (sign, mut value) = if bytes < 0 { ("-", -bytes) } else { ("", bytes) };
     if value < 1024 {
         return format!("{sign}{value}B");
     }
@@ -299,10 +282,7 @@ pub fn table(summaries: &[Summary]) -> String {
         }
         cell(&mut out, summary.occurrences as f64);
         out.push_str(",{\"f\":");
-        string(
-            &mut out,
-            &human_bytes(summary.bytes_transmitted_over_network as i64),
-        );
+        string(&mut out, &human_bytes(summary.bytes_transmitted_over_network as i64));
         out.push_str(",\"v\":");
         number(&mut out, summary.bytes_transmitted_over_network as f64);
         out.push('}');
@@ -311,10 +291,8 @@ pub fn table(summaries: &[Summary]) -> String {
             if times[SLACK] == 0 {
                 f64::from(i32::MAX)
             } else {
-                safe_divide(
-                    summary.bytes_transmitted_over_network as f64,
-                    times[SLACK] as f64,
-                ) * BANDWIDTH_FACTOR
+                safe_divide(summary.bytes_transmitted_over_network as f64, times[SLACK] as f64)
+                    * BANDWIDTH_FACTOR
             },
         );
         out.push_str("]}");
@@ -329,10 +307,7 @@ fn instruction(module: &Module, name: &str) -> Option<Instruction> {
         .filter(|&node| module.nodes[node].name == wanted)
         .find(|&node| module.inst(node).name == name)?;
     let inst = module.inst(node);
-    let attributes = inst
-        .frontend_attributes
-        .as_deref()
-        .map(|attributes| &attributes.map);
+    let attributes = inst.frontend_attributes.as_deref().map(|attributes| &attributes.map);
     let attribute = |key: &str| attributes.and_then(|map| map.get(key)).cloned();
     let opcode = match inst.opcode.as_str() {
         "send" => Opcode::Send,
@@ -362,15 +337,11 @@ fn instruction(module: &Module, name: &str) -> Option<Instruction> {
 }
 
 fn absolute(line: &Line, event: &Ev, origin: i64) -> (i64, i64) {
-    let offset = event
-        .ts
-        .wrapping_sub((line.timestamp_ns.wrapping_sub(origin) as u64).wrapping_mul(1000))
-        as i64;
+    let offset =
+        event.ts.wrapping_sub((line.timestamp_ns.wrapping_sub(origin) as u64).wrapping_mul(1000))
+            as i64;
     let timestamp_ps = line.timestamp_ns.wrapping_mul(1000).wrapping_add(offset);
-    (
-        timestamp_ps,
-        (line.timestamp_ns as f64 + (offset as u64) as f64 / 1e3) as i64,
-    )
+    (timestamp_ps, (line.timestamp_ns as f64 + (offset as u64) as f64 / 1e3) as i64)
 }
 
 fn metadata_text<'a>(
@@ -380,11 +351,9 @@ fn metadata_text<'a>(
     id: Option<usize>,
 ) -> Option<Value<'a>> {
     let id = id?;
-    stats(slice(map, plane.meta.get(meta as usize)?.raw), 5, |stat| {
-        stat == id
-    })
-    .next()
-    .map(|stat| stat.value)
+    stats(slice(map, plane.meta.get(meta as usize)?.raw), 5, |stat| stat == id)
+        .next()
+        .map(|stat| stat.value)
 }
 
 pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
@@ -397,10 +366,7 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
                 .is_some_and(|id| id.bytes().all(|byte| byte.is_ascii_digit()))
         })
         .count();
-    let Some(plane) = planes
-        .iter()
-        .find(|plane| plane.name == FIRST_TPU)
-        .filter(|_| cores > 0)
+    let Some(plane) = planes.iter().find(|plane| plane.name == FIRST_TPU).filter(|_| cores > 0)
     else {
         return Vec::new();
     };
@@ -416,11 +382,8 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
     let Some(module_line) = plane.lines.iter().find(|line| line.name == "XLA Modules") else {
         return averaged(tracker.summaries);
     };
-    let (mut current, category_id, info_id) = (
-        None,
-        plane.id("hlo_category"),
-        plane.id("dcn_collective_info"),
-    );
+    let (mut current, category_id, info_id) =
+        (None, plane.id("hlo_category"), plane.id("dcn_collective_info"));
     for line in plane.lines.iter().filter(|line| line.name == "XLA Ops") {
         for event in &line.events {
             let category = metadata_text(plane, map, event.meta, category_id)
@@ -459,23 +422,16 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
             } else {
                 Cow::Borrowed("")
             };
-            let display = plane
-                .meta
-                .get(event.meta as usize)
-                .map_or("", |meta| &meta.display);
-            let found = instructions
-                .entry(format!("{module}_{display}"))
-                .or_insert_with(|| {
-                    let loaded = parsed.entry(module.to_string()).or_insert_with(|| {
-                        modules
-                            .get(module.as_ref())
-                            .map(|proto| Module::parse(Cow::Borrowed(proto)))
-                            .filter(|module| module.valid)
-                    });
-                    loaded
-                        .as_ref()
-                        .and_then(|module| instruction(module, display))
+            let display = plane.meta.get(event.meta as usize).map_or("", |meta| &meta.display);
+            let found = instructions.entry(format!("{module}_{display}")).or_insert_with(|| {
+                let loaded = parsed.entry(module.to_string()).or_insert_with(|| {
+                    modules
+                        .get(module.as_ref())
+                        .map(|proto| Module::parse(Cow::Borrowed(proto)))
+                        .filter(|module| module.valid)
                 });
+                loaded.as_ref().and_then(|module| instruction(module, display))
+            });
             let Some(found) = found else { continue };
             let info = match metadata_text(plane, map, event.meta, info_id) {
                 Some(Value::Bytes(bytes)) => bytes,
@@ -507,16 +463,10 @@ pub fn json(paths: &[PathBuf], host: &str) -> Option<String> {
     }
     if host == ALL_HOSTS {
         return Some(table(&combine(
-            &analyses
-                .into_iter()
-                .map(|(_, analysis)| analysis)
-                .collect::<Vec<_>>(),
+            &analyses.into_iter().map(|(_, analysis)| analysis).collect::<Vec<_>>(),
         )));
     }
-    analyses
-        .into_iter()
-        .find(|(name, _)| name == host)
-        .map(|(_, analysis)| table(&analysis))
+    analyses.into_iter().find(|(name, _)| name == host).map(|(_, analysis)| table(&analysis))
 }
 
 #[cfg(test)]

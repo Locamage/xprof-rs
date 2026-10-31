@@ -13,10 +13,8 @@ fn options(fake: &Fake) -> Vec<(String, String)> {
 }
 
 fn expected(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-    let mut pairs: Vec<(String, String)> = pairs
-        .iter()
-        .map(|(key, value)| (key.to_string(), value.to_string()))
-        .collect();
+    let mut pairs: Vec<(String, String)> =
+        pairs.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect();
     pairs.sort();
     pairs
 }
@@ -24,13 +22,7 @@ fn expected(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
 #[test]
 fn test_get_graph_viewer_missing_args() {
     let error = get_graph_viewer(&Fake::fixed("unused"), &args("", &[])).unwrap_err();
-    assert_eq!(
-        error,
-        Error::new(
-            Kind::Value,
-            "Either session_id or symbol_id must be provided"
-        )
-    );
+    assert_eq!(error, Error::new(Kind::Value, "Either session_id or symbol_id must be provided"));
 }
 
 #[test]
@@ -40,26 +32,16 @@ fn test_get_graph_viewer_both_args() {
         &args("session_123", &[("symbol_id", J::from("symbol_123"))]),
     )
     .unwrap_err();
-    assert_eq!(
-        error,
-        Error::new(Kind::Value, "Cannot set both session_id and symbol_id")
-    );
+    assert_eq!(error, Error::new(Kind::Value, "Cannot set both session_id and symbol_id"));
 }
 
 #[test]
 fn test_get_graph_viewer_with_session_id() {
     let fake = Fake::fixed("hlo content");
-    assert_eq!(
-        text(get_graph_viewer(&fake, &args("session_123", &[]))),
-        "hlo content"
-    );
+    assert_eq!(text(get_graph_viewer(&fake, &args("session_123", &[]))), "hlo content");
     assert_eq!(
         options(&fake),
-        expected(&[
-            ("graph_type", "xla"),
-            ("type", "short_txt"),
-            ("show_metadata", "true")
-        ])
+        expected(&[("graph_type", "xla"), ("type", "short_txt"), ("show_metadata", "true")])
     );
 }
 
@@ -67,10 +49,7 @@ fn test_get_graph_viewer_with_session_id() {
 fn test_get_graph_viewer_with_symbol_id() {
     let fake = Fake::fixed("hlo content");
     assert_eq!(
-        text(get_graph_viewer(
-            &fake,
-            &args("", &[("symbol_id", J::from("symbol_123"))])
-        )),
+        text(get_graph_viewer(&fake, &args("", &[("symbol_id", J::from("symbol_123"))]))),
         "hlo content"
     );
     assert_eq!(
@@ -100,10 +79,7 @@ fn test_get_graph_viewer_with_advanced_params() {
         ("use_xplane", J::Int(1)),
         ("output_type", J::from("short_txt")),
     ];
-    assert_eq!(
-        text(get_graph_viewer(&fake, &args("session_123", &flags))),
-        "graph content"
-    );
+    assert_eq!(text(get_graph_viewer(&fake, &args("session_123", &flags))), "graph content");
     assert_eq!(
         options(&fake),
         expected(&[
@@ -124,12 +100,8 @@ fn test_get_graph_viewer_with_advanced_params() {
 
 #[test]
 fn test_missing_hlo_proto_returns_clean_diagnostic() {
-    let fake = Fake::new(|_, _| {
-        Err(Error::new(
-            Kind::Value,
-            "Can not load hlo proto from options.",
-        ))
-    });
+    let fake =
+        Fake::new(|_, _| Err(Error::new(Kind::Value, "Can not load hlo proto from options.")));
     let error = get_graph_viewer(&fake, &args("session_without_hlo", &[])).unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
     assert!(error.message.to_lowercase().contains("xla_flags"));

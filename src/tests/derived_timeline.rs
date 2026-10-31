@@ -15,14 +15,10 @@ type Event<'a> = (&'a str, i64, i64, &'a [(&'a str, V)]);
 
 fn generate(space: &XSpace, groups: &[(i64, &str)]) -> (Vec<u8>, Vec<Plane>) {
     let (map, mut planes) = space.parsed();
-    let groups: HashMap<i64, String> = groups
-        .iter()
-        .map(|&(id, name)| (id, name.to_string()))
-        .collect();
+    let groups: HashMap<i64, String> =
+        groups.iter().map(|&(id, name)| (id, name.to_string())).collect();
     derive_gpu(&mut planes, &map, Some(&groups), true);
-    let tensor_core_planes = planes
-        .iter_mut()
-        .filter(|plane| is_tensor_core(&plane.name));
+    let tensor_core_planes = planes.iter_mut().filter(|plane| is_tensor_core(&plane.name));
     for plane in tensor_core_planes {
         derive(plane, &map);
     }
@@ -34,23 +30,13 @@ fn event_name<'a>(plane: &'a Plane, line: &'a Line, event: &Ev) -> &'a str {
         return &plane.meta[event.meta as usize].name;
     }
     let long = &line.longs[event.meta as usize];
-    if long.is_empty() {
-        &line.labels[event.meta as usize]
-    } else {
-        long
-    }
+    if long.is_empty() { &line.labels[event.meta as usize] } else { long }
 }
 
 fn names_and_spans(plane: &Plane, line: &Line) -> Vec<(String, u64, u64)> {
     line.events
         .iter()
-        .map(|event| {
-            (
-                event_name(plane, line, event).to_string(),
-                event.ts,
-                event.dur,
-            )
-        })
+        .map(|event| (event_name(plane, line, event).to_string(), event.ts, event.dur))
         .collect()
 }
 
@@ -79,22 +65,14 @@ fn module_lines(scopes: [Option<i64>; 2]) -> Vec<(i64, Vec<String>)> {
         stats
     };
     let (first, second) = (stats(scopes[0]), stats(scopes[1]));
-    let (_, planes) = generate(
-        &gpu_space(&[("op1", 0, 100, &first), ("op2", 200, 300, &second)]),
-        &[],
-    );
+    let (_, planes) =
+        generate(&gpu_space(&[("op1", 0, 100, &first), ("op2", 200, 300, &second)]), &[]);
     let plane = &planes[0];
     plane
         .lines
         .iter()
         .map(|line| {
-            (
-                line.id,
-                names_and_spans(plane, line)
-                    .into_iter()
-                    .map(|event| event.0)
-                    .collect(),
-            )
+            (line.id, names_and_spans(plane, line).into_iter().map(|event| event.0).collect())
         })
         .collect()
 }
@@ -105,10 +83,7 @@ fn hlo_module_name_test() {
     assert_eq!(lines.len(), 2);
     assert_eq!(
         lines[1],
-        (
-            DEVICE_DERIVED_MIN + HLO_MODULE - TF_NAME_SCOPE,
-            vec!["hlo_module".to_string()]
-        )
+        (DEVICE_DERIVED_MIN + HLO_MODULE - TF_NAME_SCOPE, vec!["hlo_module".to_string()])
     );
 }
 
@@ -118,10 +93,7 @@ fn hlo_module_name_same_scope_range_id_test() {
     assert_eq!(lines.len(), 2);
     assert_eq!(
         lines[1],
-        (
-            DEVICE_DERIVED_MIN + HLO_MODULE - TF_NAME_SCOPE,
-            vec!["hlo_module".to_string()]
-        )
+        (DEVICE_DERIVED_MIN + HLO_MODULE - TF_NAME_SCOPE, vec!["hlo_module".to_string()])
     );
 }
 
@@ -131,10 +103,7 @@ fn hlo_module_name_different_scope_range_id_test() {
     assert_eq!(lines.len(), 2);
     assert_eq!(
         lines[1],
-        (
-            DEVICE_DERIVED_MIN + HLO_MODULE - TF_NAME_SCOPE,
-            vec!["hlo_module".to_string(); 2]
-        )
+        (DEVICE_DERIVED_MIN + HLO_MODULE - TF_NAME_SCOPE, vec!["hlo_module".to_string(); 2])
     );
 }
 
@@ -154,14 +123,8 @@ fn no_hlo_module_name_test() {
 
 #[test]
 fn tf_op_line_test() {
-    let kernel = [
-        ("tf_op", V::from("mul:Mul")),
-        ("kernel_details", "kernel_details".into()),
-    ];
-    let graph = [
-        ("tf_op", V::from("mul:Mul")),
-        ("cuda_graph_exec_id", 1u64.into()),
-    ];
+    let kernel = [("tf_op", V::from("mul:Mul")), ("kernel_details", "kernel_details".into())];
+    let graph = [("tf_op", V::from("mul:Mul")), ("cuda_graph_exec_id", 1u64.into())];
     let (_, planes) = generate(
         &gpu_space(&[
             ("op1", 0, 100, &kernel),
@@ -172,14 +135,8 @@ fn tf_op_line_test() {
     );
     let plane = &planes[0];
     assert_eq!(plane.lines.len(), 2);
-    assert_eq!(
-        plane.lines[1].id - DEVICE_DERIVED_MIN,
-        TF_OP - TF_NAME_SCOPE
-    );
-    assert_eq!(
-        names_and_spans(plane, &plane.lines[1]),
-        [("mul:Mul".to_string(), 0, 600)]
-    );
+    assert_eq!(plane.lines[1].id - DEVICE_DERIVED_MIN, TF_OP - TF_NAME_SCOPE);
+    assert_eq!(names_and_spans(plane, &plane.lines[1]), [("mul:Mul".to_string(), 0, 600)]);
 }
 
 #[test]
@@ -210,23 +167,16 @@ fn dependency_test() {
 
 #[test]
 fn tf_op_name_scope_test() {
-    let stats = [
-        ("tf_op", V::from("scope1/scope2/mul:Mul")),
-        ("kernel_details", "kernel_details".into()),
-    ];
-    let (_, planes) = generate(
-        &gpu_space(&[("op1", 0, 100, &stats), ("op2", 200, 300, &stats)]),
-        &[],
-    );
+    let stats =
+        [("tf_op", V::from("scope1/scope2/mul:Mul")), ("kernel_details", "kernel_details".into())];
+    let (_, planes) =
+        generate(&gpu_space(&[("op1", 0, 100, &stats), ("op2", 200, 300, &stats)]), &[]);
     let plane = &planes[0];
     assert_eq!(plane.lines.len(), 3);
     for line in &plane.lines {
         if line.id == TF_NAME_SCOPE {
             assert_eq!(
-                line.events
-                    .iter()
-                    .map(|event| (event.ts, event.dur))
-                    .collect::<Vec<_>>(),
+                line.events.iter().map(|event| (event.ts, event.dur)).collect::<Vec<_>>(),
                 [(0, 500); 2]
             );
         } else if line.id == TF_OP {
@@ -246,25 +196,14 @@ fn tf_name_scope_maintains_order() {
         "op1",
         0,
         10000,
-        &[
-            ("tf_op", "scope1/scope2/mul:Mul".into()),
-            ("kernel_details", "kernel_details".into()),
-        ],
+        &[("tf_op", "scope1/scope2/mul:Mul".into()), ("kernel_details", "kernel_details".into())],
     );
     let (_, planes) = generate(&space, &[]);
     let plane = &planes[0];
     assert_eq!(plane.lines.len(), 3);
-    let scopes = plane
-        .lines
-        .iter()
-        .find(|line| line.name == "Framework Name Scope")
-        .unwrap();
+    let scopes = plane.lines.iter().find(|line| line.name == "Framework Name Scope").unwrap();
     assert_eq!(
-        scopes
-            .events
-            .iter()
-            .map(|event| (event.ts, event.dur))
-            .collect::<Vec<_>>(),
+        scopes.events.iter().map(|event| (event.ts, event.dur)).collect::<Vec<_>>(),
         [(0, 10000), (0, 9000)]
     );
 }
@@ -280,30 +219,21 @@ fn only_derived_events_from_all_lines() {
         "op1",
         0,
         100,
-        &[
-            ("tf_op", first.into()),
-            ("kernel_details", "kernel_details".into()),
-        ],
+        &[("tf_op", first.into()), ("kernel_details", "kernel_details".into())],
     );
     plane.event(
         0,
         "op2",
         200,
         300,
-        &[
-            ("tf_op", first.into()),
-            ("kernel_details", "kernel_details".into()),
-        ],
+        &[("tf_op", first.into()), ("kernel_details", "kernel_details".into())],
     );
     plane.event(
         1,
         "op3",
         50,
         850,
-        &[
-            ("tf_op", second.into()),
-            ("kernel_details", "kernel_details".into()),
-        ],
+        &[("tf_op", second.into()), ("kernel_details", "kernel_details".into())],
     );
     let (_, planes) = generate(&space, &[]);
     let plane = &planes[0];
@@ -330,10 +260,7 @@ fn only_derived_events_from_all_lines() {
                 ("stream1scope2".to_string(), (0, 500)),
             ]),
         ),
-        (
-            "Framework Ops - from #0",
-            BTreeMap::from([(first.to_string(), (0, 500))]),
-        ),
+        ("Framework Ops - from #0", BTreeMap::from([(first.to_string(), (0, 500))])),
         (
             "Framework Name Scope - from #1",
             BTreeMap::from([
@@ -341,10 +268,7 @@ fn only_derived_events_from_all_lines() {
                 ("stream2scope2".to_string(), (50, 850)),
             ]),
         ),
-        (
-            "Framework Ops - from #1",
-            BTreeMap::from([(second.to_string(), (50, 850))]),
-        ),
+        ("Framework Ops - from #1", BTreeMap::from([(second.to_string(), (50, 850))])),
     ]);
     assert_eq!(actual, expected);
 }
@@ -354,17 +278,13 @@ fn tf_op_name_scope_shrink_test() {
     let blah =
         |tf_op: &'static str| vec![("tf_op", V::from(tf_op)), ("kernel_details", "blah".into())];
     let (first, second) = (blah("a/b/c/Add:Add"), blah("a/d/Mul:Mul"));
-    let (_, planes) = generate(
-        &gpu_space(&[("op1", 0, 10000, &first), ("op2", 20000, 30000, &second)]),
-        &[],
-    );
+    let (_, planes) =
+        generate(&gpu_space(&[("op1", 0, 10000, &first), ("op2", 20000, 30000, &second)]), &[]);
     let plane = &planes[0];
     assert_eq!(plane.lines.len(), 3);
     for line in plane.lines.iter().filter(|line| line.id == TF_NAME_SCOPE) {
-        let durations: BTreeMap<String, u64> = names_and_spans(plane, line)
-            .into_iter()
-            .map(|(name, _, dur)| (name, dur))
-            .collect();
+        let durations: BTreeMap<String, u64> =
+            names_and_spans(plane, line).into_iter().map(|(name, _, dur)| (name, dur)).collect();
         assert_eq!(
             durations,
             BTreeMap::from([
@@ -375,11 +295,8 @@ fn tf_op_name_scope_shrink_test() {
             ])
         );
     }
-    let (first, second, third) = (
-        blah("a/b/c/d/e/Add:Add"),
-        blah("a/b/c/d/f/Sub:Sub"),
-        blah("a/g/Mul:Mul"),
-    );
+    let (first, second, third) =
+        (blah("a/b/c/d/e/Add:Add"), blah("a/b/c/d/f/Sub:Sub"), blah("a/g/Mul:Mul"));
     let (_, planes) = generate(
         &gpu_space(&[
             ("op1", 0, 10000, &first),
@@ -390,16 +307,10 @@ fn tf_op_name_scope_shrink_test() {
     );
     let plane = &planes[0];
     assert_eq!(plane.lines.len(), 3);
-    let scopes = plane
-        .lines
-        .iter()
-        .find(|line| line.id == DEVICE_DERIVED_MIN)
-        .unwrap();
+    let scopes = plane.lines.iter().find(|line| line.id == DEVICE_DERIVED_MIN).unwrap();
     assert_eq!(scopes.events.len(), 7);
-    let durations: BTreeMap<String, u64> = names_and_spans(plane, scopes)
-        .into_iter()
-        .map(|(name, _, dur)| (name, dur))
-        .collect();
+    let durations: BTreeMap<String, u64> =
+        names_and_spans(plane, scopes).into_iter().map(|(name, _, dur)| (name, dur)).collect();
     let expected = [
         ("a", 50000),
         ("b", 12000),
@@ -423,10 +334,8 @@ fn xlo_op_has_cuda_graph_stats() {
         ("correlation_id", 10000.into()),
         ("cuda_graph_id", 20u64.into()),
     ];
-    let (_, planes) = generate(
-        &gpu_space(&[("op1", 0, 100, &stats), ("op2", 200, 300, &stats)]),
-        &[],
-    );
+    let (_, planes) =
+        generate(&gpu_space(&[("op1", 0, 100, &stats), ("op2", 200, 300, &stats)]), &[]);
     let lines: Vec<&Line> = planes[0]
         .lines
         .iter()
@@ -453,10 +362,7 @@ fn merge_and_no_merge() {
             name,
             offset,
             duration,
-            &[
-                ("hlo_module", "Framework Ops".into()),
-                ("tf_op", tf_op.into()),
-            ],
+            &[("hlo_module", "Framework Ops".into()), ("tf_op", tf_op.into())],
         );
     }
     let (_, planes) = generate(&space, &[]);
@@ -474,10 +380,8 @@ fn merge_and_no_merge() {
 #[test]
 fn ensure_all_gpu_events_are_grouped() {
     let stats = |group: Option<i64>| {
-        let mut stats = vec![
-            ("tf_op", V::from("mul:Mul")),
-            ("kernel_details", "kernel_details".into()),
-        ];
+        let mut stats =
+            vec![("tf_op", V::from("mul:Mul")), ("kernel_details", "kernel_details".into())];
         stats.extend(group.map(|group| ("group_id", group.into())));
         stats
     };
@@ -496,9 +400,7 @@ fn ensure_all_gpu_events_are_grouped() {
         for event in &line.events {
             let grouped = event.group != NONE_GROUP
                 || (line.labels.is_empty()
-                    && plane
-                        .stat(&map, event.meta, event.raw, "group_id")
-                        .is_some());
+                    && plane.stat(&map, event.meta, event.raw, "group_id").is_some());
             assert!(grouped, "{} {}", line.name, event_name(plane, line, event));
         }
     }
@@ -521,26 +423,12 @@ fn multi_threaded_tensor_core_plane_processing() {
     }
     let (_, planes) = generate(&space, &[]);
     for ordinal in 0..4 {
-        let plane = planes
-            .iter()
-            .find(|plane| plane.name == format!("/device:TPU:{ordinal}"))
-            .unwrap();
+        let plane =
+            planes.iter().find(|plane| plane.name == format!("/device:TPU:{ordinal}")).unwrap();
         let original = plane.lines.iter().find(|line| line.id == 0).unwrap();
         assert_eq!(original.events.len(), 10);
-        assert!(
-            original
-                .events
-                .windows(2)
-                .all(|pair| pair[0].ts <= pair[1].ts)
-        );
-        let ops = plane
-            .lines
-            .iter()
-            .find(|line| line.name == "Framework Ops")
-            .unwrap();
-        assert_eq!(
-            names_and_spans(plane, ops),
-            [(format!("MyOp:{ordinal}"), 0, 1900)]
-        );
+        assert!(original.events.windows(2).all(|pair| pair[0].ts <= pair[1].ts));
+        let ops = plane.lines.iter().find(|line| line.name == "Framework Ops").unwrap();
+        assert_eq!(names_and_spans(plane, ops), [(format!("MyOp:{ordinal}"), 0, 1900)]);
     }
 }

@@ -165,8 +165,7 @@ pub fn name<'a>(plane: &'a Plane, event: &Ev) -> &'a str {
 }
 
 pub fn descriptor(name: &str) -> MessageDescriptor {
-    POOL.get_message_by_name(name)
-        .unwrap_or_else(|| panic!("unknown message {name}"))
+    POOL.get_message_by_name(name).unwrap_or_else(|| panic!("unknown message {name}"))
 }
 
 pub fn op_metrics_db(db: &Db) -> DynamicMessage {
@@ -238,10 +237,7 @@ pub fn op_metrics_db(db: &Db) -> DynamicMessage {
     for (field, number) in [
         ("total_time_ps", db.total_time_ps),
         ("total_op_time_ps", db.total_op_time_ps),
-        (
-            "normalized_total_op_time_ps",
-            db.normalized_total_op_time_ps,
-        ),
+        ("normalized_total_op_time_ps", db.normalized_total_op_time_ps),
     ] {
         message.set_field_by_name(field, Value::U64(number));
     }
@@ -255,10 +251,8 @@ fn without_unmodeled(message: &mut DynamicMessage) {
         }
     }
     for name in ["metrics_db", "children"] {
-        let Some(field) = message
-            .descriptor()
-            .get_field_by_name(name)
-            .filter(|field| message.has_field(field))
+        let Some(field) =
+            message.descriptor().get_field_by_name(name).filter(|field| message.has_field(field))
         else {
             continue;
         };
@@ -289,9 +283,7 @@ pub fn assert_db(db: &Db, expected: &str) {
 }
 
 pub fn proto_bytes(name: &str, text: &str) -> Vec<u8> {
-    DynamicMessage::parse_text_format(descriptor(name), text)
-        .unwrap()
-        .encode_to_vec()
+    DynamicMessage::parse_text_format(descriptor(name), text).unwrap().encode_to_vec()
 }
 
 fn field(message: &DynamicMessage, name: &str) -> Value {
@@ -409,10 +401,7 @@ fn tensor_results(message: &DynamicMessage) -> Vec<TensorPatternResult> {
         .map(percentile)
         .collect(),
     };
-    messages(message, "tensor_pattern_results")
-        .iter()
-        .map(result)
-        .collect()
+    messages(message, "tensor_pattern_results").iter().map(result).collect()
 }
 
 fn per_model(message: &DynamicMessage) -> PerModelInferenceStats {
@@ -424,17 +413,11 @@ fn per_model(message: &DynamicMessage) -> PerModelInferenceStats {
         batch_throughput: float(result, "batch_throughput"),
     };
     PerModelInferenceStats {
-        request_details: messages(message, "request_details")
-            .iter()
-            .map(request)
-            .collect(),
+        request_details: messages(message, "request_details").iter().map(request).collect(),
         aggregated_request_detail: request(&child(message, "aggregated_request_detail")),
         request_throughput: float(message, "request_throughput"),
         request_average_latency_us: float(message, "request_average_latency_us"),
-        batch_details: messages(message, "batch_details")
-            .iter()
-            .map(batch)
-            .collect(),
+        batch_details: messages(message, "batch_details").iter().map(batch).collect(),
         aggregated_batch_detail: batch(&child(message, "aggregated_batch_detail")),
         batch_throughput: float(message, "batch_throughput"),
         batch_average_latency_us: float(message, "batch_average_latency_us"),
@@ -467,10 +450,7 @@ pub fn inference_stats(text: &str) -> InferenceStats {
             .unwrap();
     let models = child(&message, "model_id_db");
     let per_host = |host: &DynamicMessage| PerHostInferenceStats {
-        request_details: messages(host, "request_details")
-            .iter()
-            .map(request)
-            .collect(),
+        request_details: messages(host, "request_details").iter().map(request).collect(),
         batch_details: messages(host, "batch_details").iter().map(batch).collect(),
     };
     let id_to_index = field(&models, "id_to_index").as_map().unwrap().clone();
@@ -488,11 +468,7 @@ pub fn inference_stats(text: &str) -> InferenceStats {
                 .iter()
                 .map(|(key, value)| {
                     (
-                        if let MapKey::String(key) = key {
-                            key.clone()
-                        } else {
-                            String::new()
-                        },
+                        if let MapKey::String(key) = key { key.clone() } else { String::new() },
                         value.as_i32().unwrap(),
                     )
                 })
@@ -521,9 +497,7 @@ pub fn tensor_transfer(text: &str) -> Vec<TensorPatternResult> {
 
 pub fn parse_text<T: Message + Default>(name: &str, text: &str) -> T {
     T::decode(
-        &DynamicMessage::parse_text_format(descriptor(name), text)
-            .unwrap()
-            .encode_to_vec()[..],
+        &DynamicMessage::parse_text_format(descriptor(name), text).unwrap().encode_to_vec()[..],
     )
     .unwrap()
 }
@@ -540,18 +514,14 @@ impl XSpace {
     }
 
     pub fn plane(&mut self, name: &str) -> &mut XPlane {
-        let index = self
-            .planes
-            .iter()
-            .position(|plane| plane.name == name)
-            .unwrap_or_else(|| {
-                self.planes.push(XPlane {
-                    id: self.planes.len() as i64,
-                    name: name.into(),
-                    ..Default::default()
-                });
-                self.planes.len() - 1
+        let index = self.planes.iter().position(|plane| plane.name == name).unwrap_or_else(|| {
+            self.planes.push(XPlane {
+                id: self.planes.len() as i64,
+                name: name.into(),
+                ..Default::default()
             });
+            self.planes.len() - 1
+        });
         &mut self.planes[index]
     }
 
@@ -601,13 +571,11 @@ impl XPlane {
             .values()
             .find(|meta| meta.name == name)
             .map_or(self.event_metadata.len() as i64 + 1, |meta| meta.id);
-        self.event_metadata
-            .entry(id)
-            .or_insert_with(|| XEventMetadata {
-                id,
-                name: name.into(),
-                ..Default::default()
-            })
+        self.event_metadata.entry(id).or_insert_with(|| XEventMetadata {
+            id,
+            name: name.into(),
+            ..Default::default()
+        })
     }
 
     pub fn stat_metadata(&mut self, name: &str) -> i64 {
@@ -616,21 +584,16 @@ impl XPlane {
             .values()
             .find(|meta| meta.name == name)
             .map_or(self.stat_metadata.len() as i64 + 1, |meta| meta.id);
-        self.stat_metadata
-            .entry(id)
-            .or_insert_with(|| XStatMetadata {
-                id,
-                name: name.into(),
-                ..Default::default()
-            });
+        self.stat_metadata.entry(id).or_insert_with(|| XStatMetadata {
+            id,
+            name: name.into(),
+            ..Default::default()
+        });
         id
     }
 
     pub fn stat(&mut self, name: &str, value: impl Into<V>) -> XStat {
-        let mut stat = XStat {
-            metadata_id: self.stat_metadata(name),
-            ..Default::default()
-        };
+        let mut stat = XStat { metadata_id: self.stat_metadata(name), ..Default::default() };
         match value.into() {
             V::Int(value) => stat.int64_value = Some(value),
             V::Uint(value) => stat.uint64_value = Some(value),
@@ -643,16 +606,12 @@ impl XPlane {
     }
 
     pub fn stats(&mut self, stats: &[(&str, V)]) -> Vec<XStat> {
-        stats
-            .iter()
-            .map(|(name, value)| self.stat(name, value.clone()))
-            .collect()
+        stats.iter().map(|(name, value)| self.stat(name, value.clone())).collect()
     }
 
     pub fn add_stat(&mut self, name: &str, value: impl Into<V>) {
         let stat = self.stat(name, value);
-        self.stats
-            .retain(|existing| existing.metadata_id != stat.metadata_id);
+        self.stats.retain(|existing| existing.metadata_id != stat.metadata_id);
         self.stats.push(stat);
     }
 
@@ -664,17 +623,10 @@ impl XPlane {
     }
 
     pub fn line(&mut self, id: i64) -> &mut XLine {
-        let index = self
-            .lines
-            .iter()
-            .position(|line| line.id == id)
-            .unwrap_or_else(|| {
-                self.lines.push(XLine {
-                    id,
-                    ..Default::default()
-                });
-                self.lines.len() - 1
-            });
+        let index = self.lines.iter().position(|line| line.id == id).unwrap_or_else(|| {
+            self.lines.push(XLine { id, ..Default::default() });
+            self.lines.len() - 1
+        });
         &mut self.lines[index]
     }
 

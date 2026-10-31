@@ -42,19 +42,14 @@ async fn get_trace_view_option_default_options() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_trace_view_option_invalid_double() {
     assert_eq!(
-        view("options-invalid-double", "&start_time_ms=invalid")
-            .await
-            .0,
+        view("options-invalid-double", "&start_time_ms=invalid").await.0,
         StatusCode::NOT_FOUND
     );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_trace_view_option_invalid_int() {
-    assert_eq!(
-        view("options-invalid-int", "&resolution=invalid").await.0,
-        StatusCode::NOT_FOUND
-    );
+    assert_eq!(view("options-invalid-int", "&resolution=invalid").await.0, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

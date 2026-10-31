@@ -43,11 +43,7 @@ const COUNTERS: [(&str, &str, &str); 6] = [
     ("Bandwidth RX (Gbps)", "Gbps", "bandwidth"),
     ("Bandwidth TX (Gbps)", "Gbps", "bandwidth"),
     ("Inflight Collectives", "count", "inflight_collectives"),
-    (
-        "Inflight Collective Payload",
-        "bytes",
-        "inflight_collective_payload",
-    ),
+    ("Inflight Collective Payload", "bytes", "inflight_collective_payload"),
 ];
 const NETWORK_COUNTERS: usize = 4;
 
@@ -109,10 +105,7 @@ fn digits(text: &str) -> usize {
 fn transfer(name: &str) -> Option<&'static str> {
     TRANSFERS.into_iter().find(|prefix| {
         name.strip_prefix(prefix).is_some_and(|rest| {
-            rest.strip_prefix('.')
-                .unwrap_or(rest)
-                .bytes()
-                .all(|byte| byte.is_ascii_digit())
+            rest.strip_prefix('.').unwrap_or(rest).bytes().all(|byte| byte.is_ascii_digit())
         })
     })
 }
@@ -122,9 +115,7 @@ fn hlo_id(name: &str) -> i64 {
         return 0;
     };
     let valid = !head.is_empty()
-        && head
-            .bytes()
-            .all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
+        && head.bytes().all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
         && !tail.is_empty()
         && digits(tail) == tail.len();
     if valid { tail.parse().unwrap_or(0) } else { 0 }
@@ -138,11 +129,7 @@ fn graph_keys(key: &str) -> impl Iterator<Item = (usize, &str, &str)> {
     key.match_indices("device_").filter_map(|(start, _)| {
         let rest = &key[start + "device_".len()..];
         let count = digits(rest);
-        Some((
-            start,
-            &rest[..count],
-            rest[count..].strip_prefix("_gid_").filter(|_| count > 0)?,
-        ))
+        Some((start, &rest[..count], rest[count..].strip_prefix("_gid_").filter(|_| count > 0)?))
     })
 }
 
@@ -213,9 +200,7 @@ fn buffer_sizes(text: &str) -> Vec<(i64, i64, i64)> {
         let source = number(&mut position)?;
         position = text[position..].starts_with("->").then_some(position + 2)?;
         let destination = number(&mut position)?;
-        position = text[position..]
-            .starts_with("d|$c")
-            .then_some(position + 4)?;
+        position = text[position..].starts_with("d|$c").then_some(position + 4)?;
         number(&mut position)?;
         position = text[position..].starts_with('=').then_some(position + 1)?;
         let size = number(&mut position)?;
@@ -226,10 +211,8 @@ fn buffer_sizes(text: &str) -> Vec<(i64, i64, i64)> {
         .filter(|&start| bytes[start] == b's')
         .find_map(|start| Some((start, matched(start)?)))
     {
-        let Ok(parsed) = found
-            .iter()
-            .map(|value| value.parse::<i64>())
-            .collect::<Result<Vec<_>, _>>()
+        let Ok(parsed) =
+            found.iter().map(|value| value.parse::<i64>()).collect::<Result<Vec<_>, _>>()
         else {
             break;
         };
@@ -283,10 +266,7 @@ fn add_args(plane: &Plane, raw: &[u8], field: u32, strings: &mut Interner, args:
                 Value::Text(strings.intern(stat_name(plane, reference as usize)))
             }
         };
-        args.push(Arg {
-            key: strings.intern(name),
-            value,
-        });
+        args.push(Arg { key: strings.intern(name), value });
     }
 }
 
@@ -322,14 +302,7 @@ fn event(
         None => (strings.intern(""), Vec::new()),
     };
     add_args(plane, slice(map, ev.raw), 4, strings, &mut args);
-    Event {
-        name,
-        ts,
-        dur: ev.dur as i64,
-        args,
-        run_id: -1,
-        flows: Vec::new(),
-    }
+    Event { name, ts, dur: ev.dur as i64, args, run_id: -1, flows: Vec::new() }
 }
 
 fn arg_text<'a>(event: &Event, strings: &'a Interner, key: &str) -> Option<&'a str> {
@@ -367,11 +340,7 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
         };
         tpu_ids.push(tpu);
         let (mut tracks, mut prefixes) = (Vec::new(), vec![None; plane.meta.len()]);
-        for line in plane
-            .lines
-            .iter()
-            .filter(|line| TPU_LINES.contains(&line.name.as_str()))
-        {
+        for line in plane.lines.iter().filter(|line| TPU_LINES.contains(&line.name.as_str())) {
             let events = line
                 .events
                 .iter()
@@ -386,10 +355,7 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
                     )
                 })
                 .collect();
-            tracks.push(Track {
-                name: line.name.clone(),
-                events,
-            });
+            tracks.push(Track { name: line.name.clone(), events });
         }
         trace.tpu.entry(tpu).or_default().extend(tracks);
     }
@@ -434,9 +400,7 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
                     (ev.ts as i64).wrapping_add(origin_ps),
                     &mut trace.strings,
                 );
-                raw_fragments.get_mut(&device).expect("entry exists")[index]
-                    .events
-                    .push(built);
+                raw_fragments.get_mut(&device).expect("entry exists")[index].events.push(built);
             }
         }
     }
@@ -444,21 +408,15 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
         return trace;
     }
     let devices: Vec<i64> = raw_fragments.keys().copied().collect();
-    let targets: HashMap<i64, i64> = devices
-        .iter()
-        .zip(&tpu_ids)
-        .map(|(&device, &tpu)| (device, tpu))
-        .collect();
+    let targets: HashMap<i64, i64> =
+        devices.iter().zip(&tpu_ids).map(|(&device, &tpu)| (device, tpu)).collect();
     for (device, mut tracks) in raw_fragments {
         let strings = &trace.strings;
         let key_of = |track: &Track| {
             parse_graph_key(arg_text(&track.events[0], strings, "graph_key").unwrap_or(""))
         };
-        tracks.sort_by(|a, b| {
-            key_of(a)
-                .partial_cmp(&key_of(b))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        tracks
+            .sort_by(|a, b| key_of(a).partial_cmp(&key_of(b)).unwrap_or(std::cmp::Ordering::Equal));
         if let Some(&tpu) = targets.get(&device) {
             trace.megascale.insert(tpu, tracks);
         }
@@ -470,10 +428,7 @@ fn assign_run_ids(trace: &mut Trace) {
     let run_id = trace.strings.intern("run_id");
     let mut runs: HashMap<i64, Vec<(i64, i64)>> = HashMap::default();
     for (&tpu, tracks) in &mut trace.tpu {
-        for track in tracks
-            .iter_mut()
-            .filter(|track| track.name.contains("XLA Modules"))
-        {
+        for track in tracks.iter_mut().filter(|track| track.name.contains("XLA Modules")) {
             let list = runs.entry(tpu).or_default();
             let mut counter = 1i64;
             for event in &mut track.events {
@@ -486,10 +441,7 @@ fn assign_run_ids(trace: &mut Trace) {
                 });
                 let id = found.unwrap_or_else(|| {
                     counter += 1;
-                    event.args.push(Arg {
-                        key: run_id,
-                        value: Value::Int(counter - 1),
-                    });
+                    event.args.push(Arg { key: run_id, value: Value::Int(counter - 1) });
                     counter - 1
                 });
                 event.run_id = id;
@@ -502,18 +454,12 @@ fn assign_run_ids(trace: &mut Trace) {
             let Some(list) = runs.get(tpu).filter(|list| !list.is_empty()) else {
                 continue;
             };
-            for track in tracks
-                .iter_mut()
-                .filter(|track| !track.name.contains("XLA Modules"))
-            {
+            for track in tracks.iter_mut().filter(|track| !track.name.contains("XLA Modules")) {
                 for event in &mut track.events {
                     let position = list.partition_point(|run| run.0 <= event.ts);
                     if position > 0 {
                         event.run_id = list[position - 1].1;
-                        event.args.push(Arg {
-                            key: run_id,
-                            value: Value::Int(event.run_id),
-                        });
+                        event.args.push(Arg { key: run_id, value: Value::Int(event.run_id) });
                     }
                 }
             }
@@ -522,10 +468,8 @@ fn assign_run_ids(trace: &mut Trace) {
 }
 
 fn group_tiny_events(trace: &mut Trace) {
-    let (description_key, description) = (
-        trace.strings.intern("description"),
-        trace.strings.intern(HIDDEN_DESCRIPTION),
-    );
+    let (description_key, description) =
+        (trace.strings.intern("description"), trace.strings.intern(HIDDEN_DESCRIPTION));
     let hidden_key = trace.strings.intern("hidden_events");
     let Trace { strings, tpu, .. } = trace;
     for track in tpu
@@ -564,14 +508,8 @@ fn group_tiny_events(trace: &mut Trace) {
                     dur: end.wrapping_sub(start.ts),
                     run_id: start.run_id,
                     args: vec![
-                        Arg {
-                            key: description_key,
-                            value: Value::Text(description),
-                        },
-                        Arg {
-                            key: hidden_key,
-                            value: Value::Text(hidden),
-                        },
+                        Arg { key: description_key, value: Value::Text(description) },
+                        Arg { key: hidden_key, value: Value::Text(hidden) },
                     ],
                     flows: Vec::new(),
                 });
@@ -585,9 +523,7 @@ fn group_tiny_events(trace: &mut Trace) {
 
 fn mark_last_dma_events(trace: &mut Trace) {
     let last = trace.strings.intern("is_last_instance");
-    let Trace {
-        strings, megascale, ..
-    } = trace;
+    let Trace { strings, megascale, .. } = trace;
     for track in megascale.values_mut().flatten() {
         let executions: Vec<usize> = (0..track.events.len())
             .filter(|&index| graph_name(strings.get(track.events[index].name)).is_some())
@@ -606,10 +542,7 @@ fn mark_last_dma_events(trace: &mut Trace) {
                 }
             }
             for found in [h2d, d2h].into_iter().flatten() {
-                track.events[found].args.push(Arg {
-                    key: last,
-                    value: Value::Int(1),
-                });
+                track.events[found].args.push(Arg { key: last, value: Value::Int(1) });
             }
         }
     }
@@ -628,10 +561,7 @@ impl Flows {
         let id = self.next;
         self.next += 1;
         producer.flows.push((id, false));
-        producer.args.push(Arg {
-            key: self.flow_out,
-            value: Value::Int(id),
-        });
+        producer.args.push(Arg { key: self.flow_out, value: Value::Int(id) });
         id
     }
 
@@ -642,10 +572,7 @@ impl Flows {
 
     fn pop(&self, queue: &mut Queue, key: &str, consumer: &mut Event) {
         if let Some(id) = queue.get_mut(key).and_then(VecDeque::pop_front) {
-            consumer.args.push(Arg {
-                key: self.flow_in,
-                value: Value::Int(id),
-            });
+            consumer.args.push(Arg { key: self.flow_in, value: Value::Int(id) });
             consumer.flows.push((id, true));
         }
     }
@@ -665,19 +592,10 @@ fn resolve_flows(trace: &mut Trace) {
         flow_in: trace.strings.intern("flow_in"),
         flow_out: trace.strings.intern("flow_out"),
     };
-    let Trace {
-        strings,
-        tpu,
-        megascale,
-        ..
-    } = trace;
+    let Trace { strings, tpu, megascale, .. } = trace;
     let mut send_rendezvous: HashMap<String, String> = HashMap::default();
-    let [
-        mut send_to_send_done,
-        mut send_to_d2h,
-        mut recv_to_h2d,
-        mut d2h_to_send_done,
-    ] = std::array::from_fn(|_| Queue::default());
+    let [mut send_to_send_done, mut send_to_d2h, mut recv_to_h2d, mut d2h_to_send_done] =
+        std::array::from_fn(|_| Queue::default());
     let key = |tpu: i64, run: i64, rendezvous: &str| format!("{tpu}_{run}_{rendezvous}");
     for (&device, tracks) in tpu.iter_mut() {
         for event in xla_ops(tracks) {
@@ -731,11 +649,7 @@ fn resolve_flows(trace: &mut Trace) {
             if start {
                 if arg_int(event, strings, "action_index") == Some(0) {
                     flows.pop(
-                        if d2h {
-                            &mut send_to_d2h
-                        } else {
-                            &mut recv_to_h2d
-                        },
+                        if d2h { &mut send_to_d2h } else { &mut recv_to_h2d },
                         &queue_key,
                         event,
                     );
@@ -754,14 +668,9 @@ fn resolve_flows(trace: &mut Trace) {
         for event in
             xla_ops(tracks).filter(|event| transfer(strings.get(event.name)) == Some("send-done"))
         {
-            let hlo_key = key(
-                device,
-                event.run_id,
-                &hlo_id(strings.get(event.name)).to_string(),
-            );
-            let Some(rendezvous) = send_rendezvous
-                .get(&hlo_key)
-                .filter(|rendezvous| !rendezvous.is_empty())
+            let hlo_key = key(device, event.run_id, &hlo_id(strings.get(event.name)).to_string());
+            let Some(rendezvous) =
+                send_rendezvous.get(&hlo_key).filter(|rendezvous| !rendezvous.is_empty())
             else {
                 continue;
             };
@@ -793,12 +702,7 @@ fn add_global_counters(trace: &mut Trace) {
     let [mut rx, mut tx, mut count, mut bytes]: [Deltas<i64>; 4] = Default::default();
     let [mut rx_bandwidth, mut tx_bandwidth]: [Deltas<f64>; 2] = Default::default();
     let strings = &trace.strings;
-    for event in trace
-        .megascale
-        .values()
-        .flatten()
-        .flat_map(|track| &track.events)
-    {
+    for event in trace.megascale.values().flatten().flat_map(|track| &track.events) {
         let name = strings.get(event.name);
         let end = event.ts.wrapping_add(event.dur);
         if graph_name(name).is_some() {
@@ -811,10 +715,9 @@ fn add_global_counters(trace: &mut Trace) {
         let (receive, window_ps) = match name {
             "NetworkReceive END" => {
                 match event.args.iter().find_map(|arg| {
-                    if let (true, Value::Uint(value)) = (
-                        strings.get(arg.key) == "network_transport_latency_us",
-                        arg.value,
-                    ) {
+                    if let (true, Value::Uint(value)) =
+                        (strings.get(arg.key) == "network_transport_latency_us", arg.value)
+                    {
                         Some(value)
                     } else {
                         None
@@ -839,19 +742,12 @@ fn add_global_counters(trace: &mut Trace) {
             }
             let start =
                 end.wrapping_sub(window_ps.wrapping_mul(if receive { 1_000_000 } else { 1000 }));
-            let (amounts, rates) = if receive {
-                (&mut rx, &mut rx_bandwidth)
-            } else {
-                (&mut tx, &mut tx_bandwidth)
-            };
+            let (amounts, rates) =
+                if receive { (&mut rx, &mut rx_bandwidth) } else { (&mut tx, &mut tx_bandwidth) };
             amounts.extend([(start, size), (end, -size)]);
             if window_ps > 0 {
                 let rate = size as f64 * 8.0
-                    / if receive {
-                        window_ps as f64 * 1000.0
-                    } else {
-                        window_ps as f64
-                    };
+                    / if receive { window_ps as f64 * 1000.0 } else { window_ps as f64 };
                 if rate <= MAX_RATE_DELTA_GBPS {
                     rates.extend([(start, rate), (end, -rate)]);
                 }
@@ -860,23 +756,12 @@ fn add_global_counters(trace: &mut Trace) {
     }
     let int = |deltas: Deltas<i64>| counter(deltas, i64::wrapping_add, Sample::Int);
     let double = |deltas: Deltas<f64>| counter(deltas, |sum, delta| sum + delta, Sample::Double);
-    trace.counters = [
-        int(rx),
-        int(tx),
-        double(rx_bandwidth),
-        double(tx_bandwidth),
-        int(count),
-        int(bytes),
-    ];
+    trace.counters =
+        [int(rx), int(tx), double(rx_bandwidth), double(tx_bandwidth), int(count), int(bytes)];
 }
 
 fn process(trace: &mut Trace) {
-    for track in trace
-        .tpu
-        .values_mut()
-        .chain(trace.megascale.values_mut())
-        .flatten()
-    {
+    for track in trace.tpu.values_mut().chain(trace.megascale.values_mut()).flatten() {
         let mut order: Vec<usize> = (0..track.events.len()).collect();
         let events = &track.events;
         std_sort(&mut order, &|a, b| {
@@ -887,22 +772,14 @@ fn process(trace: &mut Trace) {
             }
         });
         let mut taken = std::mem::take(&mut track.events);
-        track.events = order
-            .into_iter()
-            .map(|index| std::mem::take(&mut taken[index]))
-            .collect();
+        track.events = order.into_iter().map(|index| std::mem::take(&mut taken[index])).collect();
     }
     assign_run_ids(trace);
     group_tiny_events(trace);
     mark_last_dma_events(trace);
     resolve_flows(trace);
     add_global_counters(trace);
-    for track in trace
-        .tpu
-        .values_mut()
-        .chain(trace.megascale.values_mut())
-        .flatten()
-    {
+    for track in trace.tpu.values_mut().chain(trace.megascale.values_mut()).flatten() {
         if let Some((device, part)) = graph_name(&track.name)
             .and_then(|(device, part)| Some((device.parse::<u64>().ok()?, part)))
         {
@@ -1024,26 +901,17 @@ impl Writer<'_> {
         } else {
             NEEDS_INCREMENTAL_STATE
         };
-        packet.interned = packet
-            .interned
-            .filter(|data| data != &InternedData::default());
+        packet.interned = packet.interned.filter(|data| data != &InternedData::default());
         prost::encoding::message::encode(1, &packet, &mut self.out);
     }
 
     fn descriptor(&mut self, name: &str, parent: u64, counter: Option<(&str, &str)>) -> u64 {
         let uuid = self.next_uuid;
         self.next_uuid += 1;
-        let counter = counter.map(|(unit, share)| CounterDescriptor {
-            unit: unit.into(),
-            share: share.into(),
-        });
+        let counter = counter
+            .map(|(unit, share)| CounterDescriptor { unit: unit.into(), share: share.into() });
         self.emit(TracePacket {
-            descriptor: Some(TrackDescriptor {
-                uuid,
-                name: Some(name.into()),
-                parent,
-                counter,
-            }),
+            descriptor: Some(TrackDescriptor { uuid, name: Some(name.into()), parent, counter }),
             ..Default::default()
         });
         uuid
@@ -1056,39 +924,22 @@ impl Writer<'_> {
         let iid = self.next_iid;
         self.next_iid += 1;
         self.interned[which].insert(id, iid);
-        let list = [
-            &mut data.event_names,
-            &mut data.annotation_names,
-            &mut data.annotation_texts,
-        ];
+        let list = [&mut data.event_names, &mut data.annotation_names, &mut data.annotation_texts];
         list.into_iter()
             .nth(which)
             .expect("required value is present")
-            .push(Interned {
-                iid,
-                text: Some(self.trace.strings.get(id).into()),
-            });
+            .push(Interned { iid, text: Some(self.trace.strings.get(id).into()) });
         iid
     }
 
     fn value(&mut self, value: Value, data: &mut InternedData) -> Annotation {
         match value {
-            Value::Int(int) => Annotation {
-                int: Some(int),
-                ..Default::default()
-            },
-            Value::Uint(uint) => Annotation {
-                uint: Some(uint),
-                ..Default::default()
-            },
-            Value::Double(double) => Annotation {
-                double: Some(double),
-                ..Default::default()
-            },
-            Value::Text(id) => Annotation {
-                text: Some(self.intern(2, id, data)),
-                ..Default::default()
-            },
+            Value::Int(int) => Annotation { int: Some(int), ..Default::default() },
+            Value::Uint(uint) => Annotation { uint: Some(uint), ..Default::default() },
+            Value::Double(double) => Annotation { double: Some(double), ..Default::default() },
+            Value::Text(id) => {
+                Annotation { text: Some(self.intern(2, id, data)), ..Default::default() }
+            }
         }
     }
 
@@ -1112,15 +963,8 @@ impl Writer<'_> {
                 .map(|arg| self.value(arg.value, &mut data))
                 .collect();
             annotations.push(match values.len() {
-                1 => Annotation {
-                    name,
-                    ..values.remove(0)
-                },
-                _ => Annotation {
-                    name,
-                    array: values,
-                    ..Default::default()
-                },
+                1 => Annotation { name, ..values.remove(0) },
+                _ => Annotation { name, array: values, ..Default::default() },
             });
         }
         let flows = event
@@ -1130,14 +974,7 @@ impl Writer<'_> {
             .map(|&(id, _)| id as u64)
             .collect();
         let kind = if instant { INSTANT } else { SLICE_BEGIN };
-        let begin = TrackEvent {
-            annotations,
-            kind,
-            name,
-            track,
-            flows,
-            ..Default::default()
-        };
+        let begin = TrackEvent { annotations, kind, name, track, flows, ..Default::default() };
         self.emit(TracePacket {
             timestamp: Some((event.ts / 1000) as u64),
             event: Some(begin),
@@ -1147,18 +984,9 @@ impl Writer<'_> {
         if instant {
             return;
         }
-        let flows = event
-            .flows
-            .iter()
-            .filter(|(_, sink)| !sink)
-            .map(|&(id, _)| id as u64)
-            .collect();
-        let end = TrackEvent {
-            kind: SLICE_END,
-            track,
-            flows,
-            ..Default::default()
-        };
+        let flows =
+            event.flows.iter().filter(|(_, sink)| !sink).map(|&(id, _)| id as u64).collect();
+        let end = TrackEvent { kind: SLICE_END, track, flows, ..Default::default() };
         self.emit(TracePacket {
             timestamp: Some((event.ts.wrapping_add(event.dur) / 1000) as u64),
             event: Some(end),
@@ -1185,13 +1013,8 @@ impl Writer<'_> {
                 Sample::Int(value) => (Some(value), None),
                 Sample::Double(value) => (None, Some(value)),
             };
-            let event = TrackEvent {
-                kind: COUNTER,
-                track,
-                counter,
-                double_counter,
-                ..Default::default()
-            };
+            let event =
+                TrackEvent { kind: COUNTER, track, counter, double_counter, ..Default::default() };
             self.emit(TracePacket {
                 timestamp: Some((ts / 1000) as u64),
                 event: Some(event),
@@ -1204,14 +1027,10 @@ impl Writer<'_> {
         let trace = self.trace;
         if trace.counters.iter().any(|points| !points.is_empty()) {
             let global = self.descriptor("1. Global Counters", 0, None);
-            for (name, range) in [
-                ("Network", 0..NETWORK_COUNTERS),
-                ("Megascale", NETWORK_COUNTERS..COUNTERS.len()),
-            ] {
-                if trace.counters[range.clone()]
-                    .iter()
-                    .any(|points| !points.is_empty())
-                {
+            for (name, range) in
+                [("Network", 0..NETWORK_COUNTERS), ("Megascale", NETWORK_COUNTERS..COUNTERS.len())]
+            {
+                if trace.counters[range.clone()].iter().any(|points| !points.is_empty()) {
                     let parent = self.descriptor(name, global, None);
                     for index in range.filter(|&index| !trace.counters[index].is_empty()) {
                         self.counter(COUNTERS[index], &trace.counters[index], parent);
@@ -1219,12 +1038,8 @@ impl Writer<'_> {
                 }
             }
         }
-        let devices: std::collections::BTreeSet<i64> = trace
-            .tpu
-            .keys()
-            .chain(trace.megascale.keys())
-            .copied()
-            .collect();
+        let devices: std::collections::BTreeSet<i64> =
+            trace.tpu.keys().chain(trace.megascale.keys()).copied().collect();
         if !devices.is_empty() {
             let tpus = self.descriptor("2. TPUs", 0, None);
             for device in devices {

@@ -63,12 +63,7 @@ pub fn list_hlo_modules(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         Ok(files) => {
             let names = module_names(&files);
             std::iter::once(format!("Found {} HLO modules:", names.len()))
-                .chain(
-                    names
-                        .iter()
-                        .enumerate()
-                        .map(|(index, name)| format!("{index}. {name}")),
-                )
+                .chain(names.iter().enumerate().map(|(index, name)| format!("{index}. {name}")))
                 .collect::<Vec<_>>()
                 .join("\n")
         }
@@ -103,20 +98,12 @@ fn hlo_text(
     metadata: bool,
 ) -> Result<String, Error> {
     let params = [
-        (
-            "type",
-            if metadata { "long_txt" } else { "short_txt" }.to_string(),
-        ),
+        ("type", if metadata { "long_txt" } else { "short_txt" }.to_string()),
         ("module_name", module.to_string()),
     ];
     client
         .fetch_text("graph_viewer.json", session, &params)?
-        .ok_or_else(|| {
-            Error::new(
-                Kind::Runtime,
-                "'NoneType' object has no attribute 'splitlines'",
-            )
-        })
+        .ok_or_else(|| Error::new(Kind::Runtime, "'NoneType' object has no attribute 'splitlines'"))
 }
 
 /// `format` and `max_lines` are `None` for their defaults.
@@ -223,10 +210,8 @@ pub fn neighborhood(
     op_name: Option<&J>,
     metadata: bool,
 ) -> Result<String, Error> {
-    let (instruction, op_name) = (
-        instruction.filter(|name| **name != J::Null),
-        op_name.filter(|name| **name != J::Null),
-    );
+    let (instruction, op_name) =
+        (instruction.filter(|name| **name != J::Null), op_name.filter(|name| **name != J::Null));
     if let (Some(instruction), Some(op_name)) = (instruction, op_name)
         && instruction != op_name
     {
@@ -239,10 +224,8 @@ pub fn neighborhood(
             ),
         );
     }
-    let Some(target) = instruction
-        .filter(|name| name.truthy())
-        .or(op_name)
-        .filter(|name| name.truthy())
+    let Some(target) =
+        instruction.filter(|name| name.truthy()).or(op_name).filter(|name| name.truthy())
     else {
         return fail(
             Kind::Value,
@@ -295,15 +278,10 @@ pub fn neighborhood(
             } else {
                 format!(" Suggestions: {}", suggestions.join(", "))
             };
-            return Ok(format!(
-                "Instruction '{target}' not found in HLO module.{hint}"
-            ));
+            return Ok(format!("Instruction '{target}' not found in HLO module.{hint}"));
         }
-        let (mut visited, mut queue, mut found) = (
-            HashSet::from([target.clone()]),
-            VecDeque::from([(target.clone(), 0)]),
-            Vec::new(),
-        );
+        let (mut visited, mut queue, mut found) =
+            (HashSet::from([target.clone()]), VecDeque::from([(target.clone(), 0)]), Vec::new());
         while let Some((name, distance)) = queue.pop_front() {
             let within = match radius {
                 J::Bool(limit) => distance < i32::from(*limit),
@@ -343,10 +321,7 @@ pub fn neighborhood(
                 lines[name]
             )
         });
-        Ok(std::iter::once(header)
-            .chain(body)
-            .collect::<Vec<_>>()
-            .join("\n"))
+        Ok(std::iter::once(header).chain(body).collect::<Vec<_>>().join("\n"))
     };
     Ok(compute().unwrap_or_else(|error| format!("Error analyzing neighborhood: {}", error.repr())))
 }
@@ -356,8 +331,7 @@ pub fn get_hlo_neighborhood(client: &dyn Client, args: &Args) -> Result<Out, Err
         client,
         &args.session(),
         args.raw("instruction_name"),
-        args.raw("radius")
-            .unwrap_or(&J::Int(NEIGHBORHOOD_RADIUS.into())),
+        args.raw("radius").unwrap_or(&J::Int(NEIGHBORHOOD_RADIUS.into())),
         args.raw("module_name"),
         args.raw("op_name"),
         args.flag("print_metadata", false),
@@ -395,9 +369,7 @@ pub fn get_hlo_text(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         }
         Ok(text)
     };
-    Ok(Out::Text(compute().map_err(|_| {
-        Error::new(Kind::Runtime, "Error retrieving HLO text")
-    })?))
+    Ok(Out::Text(compute().map_err(|_| Error::new(Kind::Runtime, "Error retrieving HLO text"))?))
 }
 
 pub fn get_graph_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -408,16 +380,9 @@ pub fn get_graph_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         return fail(Kind::Value, "Cannot set both session_id and symbol_id");
     }
     if session.is_empty() && symbol.is_none() {
-        return fail(
-            Kind::Value,
-            "Either session_id or symbol_id must be provided",
-        );
+        return fail(Kind::Value, "Either session_id or symbol_id must be provided");
     }
-    let session = if symbol.is_some() {
-        "xsymbol".into()
-    } else {
-        session
-    };
+    let session = if symbol.is_some() { "xsymbol".into() } else { session };
     let mut module = truthy("module_name").cloned();
     if symbol.is_none() && module.is_none() {
         module = proto_files(client, &session)
@@ -426,34 +391,17 @@ pub fn get_graph_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             .map(J::Str);
     }
     let text = |name: &str, default: &str| {
-        args.raw(name)
-            .map_or_else(|| J::from(default), |value| J::Str(value.text()))
+        args.raw(name).map_or_else(|| J::from(default), |value| J::Str(value.text()))
     };
     let mut options = vec![
-        (
-            "graph_type",
-            args.raw("graph_type")
-                .cloned()
-                .unwrap_or_else(|| J::from("xla")),
-        ),
-        (
-            "type",
-            args.raw("output_type")
-                .cloned()
-                .unwrap_or_else(|| J::from("short_txt")),
-        ),
-        (
-            "show_metadata",
-            J::Str(text("show_metadata", "True").text().to_lowercase()),
-        ),
+        ("graph_type", args.raw("graph_type").cloned().unwrap_or_else(|| J::from("xla"))),
+        ("type", args.raw("output_type").cloned().unwrap_or_else(|| J::from("short_txt"))),
+        ("show_metadata", J::Str(text("show_metadata", "True").text().to_lowercase())),
     ];
     let positive =
         |name: &str| Ok::<_, Error>((args.compared(name, 0.0, ">")? > 0.0).then(|| text(name, "")));
     let (limit, xplane) = (positive("op_profile_limit")?, positive("use_xplane")?);
-    options.extend(
-        args.flag("bypass_cache", false)
-            .then_some(("bypass_cache", J::Bool(true))),
-    );
+    options.extend(args.flag("bypass_cache", false).then_some(("bypass_cache", J::Bool(true))));
     options.extend(symbol.map(|value| ("symbol_id", value.clone())));
     options.extend(truthy("symbol_type").map(|value| ("symbol_type", value.clone())));
     options.extend(module.map(|value| ("module_name", value)));
@@ -473,9 +421,7 @@ pub fn get_graph_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> 
     let options = options
         .iter()
         .filter_map(|(key, value)| {
-            super::packed(key, value)
-                .transpose()
-                .map(|text| text.map(|text| (*key, text)))
+            super::packed(key, value).transpose().map(|text| text.map(|text| (*key, text)))
         })
         .collect::<Result<Vec<_>, Error>>();
     let fetched = options
@@ -493,9 +439,7 @@ pub fn get_graph_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             )
         }
     })?;
-    Ok(Out::Text(
-        data.ok_or_else(|| Error::new(Kind::FileNotFound, NO_GRAPH))?,
-    ))
+    Ok(Out::Text(data.ok_or_else(|| Error::new(Kind::FileNotFound, NO_GRAPH))?))
 }
 
 fn buffers(
@@ -514,13 +458,8 @@ fn buffers(
             .iter()
             .map(|buffer| {
                 (
-                    buffer
-                        .get("instructionName")
-                        .map_or("unknown".into(), J::text),
-                    buffer
-                        .get("logicalBufferSizeMib")
-                        .map_or(Some(0.0), J::float)
-                        .unwrap_or(0.0),
+                    buffer.get("instructionName").map_or("unknown".into(), J::text),
+                    buffer.get("logicalBufferSizeMib").map_or(Some(0.0), J::float).unwrap_or(0.0),
                 )
             })
             .collect()
@@ -529,10 +468,7 @@ fn buffers(
             .iter()
             .map(|buffer| {
                 (
-                    buffer
-                        .at("definedAt")
-                        .get("instructionName")
-                        .map_or("unknown".into(), J::text),
+                    buffer.at("definedAt").get("instructionName").map_or("unknown".into(), J::text),
                     buffer.get("size").map_or(Some(0), J::int).unwrap_or(0) as f64 / 1048576.0,
                 )
             })
@@ -547,10 +483,7 @@ fn buffers(
     }
     let descending = |items: &mut Vec<(String, f64)>| {
         items.sort_by(|left, right| {
-            right
-                .1
-                .partial_cmp(&left.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            right.1.partial_cmp(&left.1).unwrap_or(std::cmp::Ordering::Equal)
         });
     };
     if !aggregate {
@@ -562,10 +495,7 @@ fn buffers(
         let base = NUMBERED
             .captures(&instruction)
             .map_or_else(|| instruction.clone(), |found| format!("{}.*", &found[1]));
-        groups
-            .entry((base, size.to_bits()))
-            .or_default()
-            .push(instruction);
+        groups.entry((base, size.to_bits())).or_default().push(instruction);
     }
     let mut aggregated: Vec<(String, f64)> = groups
         .into_iter()
@@ -605,10 +535,8 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
             ),
         ),
     };
-    let (aggregate, summary) = (
-        args.flag("aggregate_instructions", true),
-        args.flag("include_summary", true),
-    );
+    let (aggregate, summary) =
+        (args.flag("aggregate_instructions", true), args.flag("include_summary", true));
     let params = [("format", "json".to_string())];
     let names: Vec<String> = match client.fetch_text("memory_viewer.json", &session, &params)? {
         Some(data) => {
@@ -629,50 +557,32 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
         None => match proto_files(client, &session) {
             Ok(files) if !files.is_empty() => module_names(&files),
             _ => {
-                return fail(
-                    Kind::Value,
-                    "No memory viewer data returned for the session",
-                );
+                return fail(Kind::Value, "No memory viewer data returned for the session");
             }
         },
     };
     let failed = |error| {
         rethrow(error, |error| {
-            format!(
-                "Failed to get peak allocations for session {session}: {}",
-                error.message
-            )
+            format!("Failed to get peak allocations for session {session}: {}", error.message)
         })
     };
     let mut modules = Vec::new();
     for name in &names {
-        let mut params = vec![
-            ("format", "json".to_string()),
-            ("module_name", name.clone()),
-        ];
+        let mut params = vec![("format", "json".to_string()), ("module_name", name.clone())];
         params.extend(args.flag("bypass_cache", false).then(|| bypass(true)));
-        let data = client
-            .fetch_text("memory_viewer.json", &session, &params)
-            .map_err(failed)?;
+        let data = client.fetch_text("memory_viewer.json", &session, &params).map_err(failed)?;
         let Some(parsed) = data.and_then(|data| J::parse(&data)) else {
             continue;
         };
         modules.push((
             name.clone(),
-            parsed
-                .get("totalBufferAllocationMib")
-                .cloned()
-                .unwrap_or(J::Int(0)),
+            parsed.get("totalBufferAllocationMib").cloned().unwrap_or(J::Int(0)),
             buffers(&parsed, &min_size, aggregate, &threshold).map_err(failed)?,
         ));
     }
     let total = modules.len();
     modules.sort_by(|left, right| {
-        right
-            .1
-            .float()
-            .partial_cmp(&left.1.float())
-            .unwrap_or(std::cmp::Ordering::Equal)
+        right.1.float().partial_cmp(&left.1.float()).unwrap_or(std::cmp::Ordering::Equal)
     });
     let limit = args.compared("limit", 10.0, ">")?;
     if let Some(message) = super::nlargest_float(args.raw("limit"), limit, total) {
@@ -682,10 +592,7 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
         modules.truncate(limit as usize);
     }
     if args.string("output_format", "json") == "markdown" {
-        let mut lines = vec![
-            "# Peak Memory Allocations by Module".to_string(),
-            String::new(),
-        ];
+        let mut lines = vec!["# Peak Memory Allocations by Module".to_string(), String::new()];
         if aggregate {
             lines.extend([
                 "> [!NOTE]".to_string(),
@@ -696,10 +603,7 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
             ]);
         }
         if summary {
-            lines.extend([
-                "## Session Summary".to_string(),
-                format!("- Total Modules: {total}"),
-            ]);
+            lines.extend(["## Session Summary".to_string(), format!("- Total Modules: {total}")]);
             if !modules.is_empty() {
                 lines.extend([
                     String::new(),
@@ -721,8 +625,7 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
                 "| :--- | ---: |".into(),
             ]);
             lines.extend(
-                kept.iter()
-                    .map(|(instruction, size)| format!("| `{instruction}` | {size:.2} |")),
+                kept.iter().map(|(instruction, size)| format!("| `{instruction}` | {size:.2} |")),
             );
             lines.push(String::new());
         }

@@ -85,11 +85,7 @@ impl J {
         match self {
             Self::List(items) => items.iter().map(Self::object_depth).max().unwrap_or(0),
             Self::Map(entries) => {
-                1 + entries
-                    .iter()
-                    .map(|(_, value)| value.object_depth())
-                    .max()
-                    .unwrap_or(0)
+                1 + entries.iter().map(|(_, value)| value.object_depth()).max().unwrap_or(0)
             }
             _ => 0,
         }
@@ -97,10 +93,9 @@ impl J {
 
     pub fn get(&self, key: &str) -> Option<&Self> {
         match self {
-            Self::Map(entries) => entries
-                .iter()
-                .find(|(name, _)| name == key)
-                .map(|(_, value)| value),
+            Self::Map(entries) => {
+                entries.iter().find(|(name, _)| name == key).map(|(_, value)| value)
+            }
             _ => None,
         }
     }
@@ -180,10 +175,9 @@ impl J {
             Self::Int(number) => number.to_string(),
             Self::Float(number) => crate::tools::table::repr(*number),
             Self::Str(text) => text.clone(),
-            Self::List(items) => format!(
-                "[{}]",
-                items.iter().map(Self::repr).collect::<Vec<_>>().join(", ")
-            ),
+            Self::List(items) => {
+                format!("[{}]", items.iter().map(Self::repr).collect::<Vec<_>>().join(", "))
+            }
             Self::Map(entries) => format!(
                 "{{{}}}",
                 entries
@@ -193,14 +187,12 @@ impl J {
                     .join(", ")
             ),
             Self::Tuple(items) if items.len() == 1 => format!("({},)", items[0].repr()),
-            Self::Tuple(items) => format!(
-                "({})",
-                items.iter().map(Self::repr).collect::<Vec<_>>().join(", ")
-            ),
-            Self::Set(items) => format!(
-                "{{{}}}",
-                items.iter().map(Self::repr).collect::<Vec<_>>().join(", ")
-            ),
+            Self::Tuple(items) => {
+                format!("({})", items.iter().map(Self::repr).collect::<Vec<_>>().join(", "))
+            }
+            Self::Set(items) => {
+                format!("{{{}}}", items.iter().map(Self::repr).collect::<Vec<_>>().join(", "))
+            }
             Self::Dict(entries) => format!(
                 "{{{}}}",
                 entries
@@ -231,10 +223,7 @@ impl J {
             _ if whole(self).is_some() && whole(other).is_some() => whole(self) == whole(other),
             (Self::List(left), Self::List(right)) | (Self::Tuple(left), Self::Tuple(right)) => {
                 left.len() == right.len()
-                    && left
-                        .iter()
-                        .zip(right)
-                        .all(|(left, right)| left.equals(right))
+                    && left.iter().zip(right).all(|(left, right)| left.equals(right))
             }
             _ => self == other,
         }
@@ -281,11 +270,9 @@ impl J {
             Self::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
             Self::Int(number) => _ = write!(out, "{number}"),
             Self::Float(number) if number.is_nan() => out.push_str("NaN"),
-            Self::Float(number) if number.is_infinite() => out.push_str(if *number > 0.0 {
-                "Infinity"
-            } else {
-                "-Infinity"
-            }),
+            Self::Float(number) if number.is_infinite() => {
+                out.push_str(if *number > 0.0 { "Infinity" } else { "-Infinity" });
+            }
             Self::Float(number) => out.push_str(&crate::tools::table::repr(*number)),
             Self::Str(text) => string(out, text, ascii),
             Self::List(items) | Self::Tuple(items) | Self::Set(items) if items.is_empty() => {
@@ -333,13 +320,10 @@ impl J {
                 open(out, depth);
                 out.push('}');
             }
-            Self::Dict(entries) => Self::Map(
-                entries
-                    .iter()
-                    .map(|(key, value)| (key.text(), value.clone()))
-                    .collect(),
-            )
-            .write(out, depth, ascii),
+            Self::Dict(entries) => {
+                Self::Map(entries.iter().map(|(key, value)| (key.text(), value.clone())).collect())
+                    .write(out, depth, ascii);
+            }
         }
     }
 }
@@ -396,11 +380,7 @@ pub fn py_isdigit(text: &str) -> bool {
 }
 
 pub fn py_repr(text: &str) -> String {
-    let quote = if text.contains('\'') && !text.contains('"') {
-        '"'
-    } else {
-        '\''
-    };
+    let quote = if text.contains('\'') && !text.contains('"') { '"' } else { '\'' };
     let mut out = String::from(quote);
     for character in text.chars() {
         match character {
@@ -441,11 +421,7 @@ fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
 }
 
 fn backslashes_before(bytes: &[u8], index: usize) -> usize {
-    bytes[..index]
-        .iter()
-        .rev()
-        .take_while(|&&byte| byte == b'\\')
-        .count()
+    bytes[..index].iter().rev().take_while(|&&byte| byte == b'\\').count()
 }
 
 /// The commas in `bytes[start..end]` at the lowest depth the range reaches, the depth change, and that lowest depth.
@@ -582,11 +558,7 @@ fn split_parse(text: &str, level: usize) -> Option<J> {
     if let [only] = parts[..]
         && trim(only).is_empty()
     {
-        return Some(if open == b'[' {
-            J::List(Vec::new())
-        } else {
-            J::Map(Vec::new())
-        });
+        return Some(if open == b'[' { J::List(Vec::new()) } else { J::Map(Vec::new()) });
     }
     if open == b'[' {
         return parts

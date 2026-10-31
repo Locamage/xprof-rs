@@ -13,10 +13,8 @@ fn training(name: &str, step_ps: i64) -> PathBuf {
 }
 
 fn query(command: &str, path: &Path, flags: &[&str]) -> J {
-    let argv: Vec<&str> = [command, path.to_str().unwrap()]
-        .into_iter()
-        .chain(flags.iter().copied())
-        .collect();
+    let argv: Vec<&str> =
+        [command, path.to_str().unwrap()].into_iter().chain(flags.iter().copied()).collect();
     let result = ok(&argv);
     assert!(!result.has("error"), "{result:?}");
     result
@@ -44,10 +42,7 @@ fn test_n01_t1_steptime_fidelity() {
     assert!(oracle > 0.0);
     let reported = overview_step_time(&path);
     assert!(reported > 0.0);
-    assert!(
-        (reported - oracle).abs() <= RELATIVE_TOLERANCE * oracle,
-        "{reported} vs {oracle}"
-    );
+    assert!((reported - oracle).abs() <= RELATIVE_TOLERANCE * oracle, "{reported} vs {oracle}");
 }
 
 #[test]
@@ -55,19 +50,11 @@ fn test_n02_t1_duty_cycle_fidelity() {
     let path = training("n02", TRAINING_STEP_PS);
     let oracle = oracle_duty_cycle(&path);
     assert!(oracle > 0.0 && oracle <= 1.0);
-    let summary = query("get_overview", &path, &[])
-        .at("performance_summary")
-        .clone();
-    if let Some(reported) = summary
-        .get("device_compute_duty_cycle_percent")
-        .or_else(|| summary.get("duty_cycle"))
+    let summary = query("get_overview", &path, &[]).at("performance_summary").clone();
+    if let Some(reported) =
+        summary.get("device_compute_duty_cycle_percent").or_else(|| summary.get("duty_cycle"))
     {
-        let value = reported
-            .text()
-            .replace('%', "")
-            .trim()
-            .parse::<f64>()
-            .unwrap();
+        let value = reported.text().replace('%', "").trim().parse::<f64>().unwrap();
         let value = if value > 1.0 { value / 100.0 } else { value };
         assert!((value - oracle).abs() <= 0.01);
     }
@@ -79,10 +66,7 @@ fn test_n03_t2_steptime_fidelity() {
     let oracle = oracle_step_time_ms(&path);
     assert!(oracle > 0.0);
     let reported = overview_step_time(&path);
-    assert!(
-        (reported - oracle).abs() <= RELATIVE_TOLERANCE * oracle,
-        "{reported} vs {oracle}"
-    );
+    assert!((reported - oracle).abs() <= RELATIVE_TOLERANCE * oracle, "{reported} vs {oracle}");
 }
 
 #[test]
@@ -125,40 +109,23 @@ fn test_n04_t1_step_trace_fidelity() {
 fn test_n05_kpi_metrics_contract() {
     let path = training("n05", TRAINING_STEP_PS);
     let result = query("get_kpi_metrics", &path, &[]);
-    let step: f64 = result
-        .at("step_time_ms")
-        .text()
-        .replace("ms", "")
-        .trim()
-        .parse()
-        .unwrap();
+    let step: f64 = result.at("step_time_ms").text().replace("ms", "").trim().parse().unwrap();
     assert!(step > 0.0);
-    let duty: f64 = result
-        .at("duty_cycle_percent")
-        .text()
-        .replace('%', "")
-        .trim()
-        .parse()
-        .unwrap();
+    let duty: f64 = result.at("duty_cycle_percent").text().replace('%', "").trim().parse().unwrap();
     assert!((0.0..=100.0).contains(&duty));
 }
 
 #[test]
 fn test_n06_roofline_model_ridge_point() {
     let path = training("n06", TRAINING_STEP_PS);
-    let info = query("get_roofline_model", &path, &[])
-        .at("device_info")
-        .clone();
+    let info = query("get_roofline_model", &path, &[]).at("device_info").clone();
     let (flops, bandwidth, ridge) = (
         number(info.at("peak_flop_rate")),
         number(info.at("peak_hbm_bw")),
         number(info.at("hbm_ridge_point")),
     );
     let expected = oracle_ridge_point(flops, bandwidth);
-    assert!(
-        (ridge - expected).abs() <= RELATIVE_TOLERANCE * expected,
-        "{ridge} vs {expected}"
-    );
+    assert!((ridge - expected).abs() <= RELATIVE_TOLERANCE * expected, "{ridge} vs {expected}");
 }
 
 #[test]
@@ -179,10 +146,8 @@ fn test_n08_top_hlo_ops_sorting() {
 fn test_n11_memory_profile_peak_bounds() {
     let path = demo(&scratch("n11"));
     let result = query("get_memory_profile", &path, &[]);
-    let (capacity, peak) = (
-        number(result.at("memory_capacity_gib")),
-        number(result.at("peak_memory_usage_gib")),
-    );
+    let (capacity, peak) =
+        (number(result.at("memory_capacity_gib")), number(result.at("peak_memory_usage_gib")));
     let details = result.at("peak_usage_details");
     let (stack, heap, free) = (
         number(details.at("stack_reservation_gib")),

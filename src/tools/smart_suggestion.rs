@@ -63,13 +63,8 @@ const DATA_SHUFFLE: [&str; 14] = [
     "slice",
     "sort",
 ];
-const ASYNC_DONE_PREFIXES: [&str; 5] = [
-    "all-gather",
-    "all-reduce",
-    "all-to-all",
-    "ragged-all-to-allreduce-gather",
-    "reduce-scatter",
-];
+const ASYNC_DONE_PREFIXES: [&str; 5] =
+    ["all-gather", "all-reduce", "all-to-all", "ragged-all-to-allreduce-gather", "reduce-scatter"];
 
 pub(crate) type Data<T> = Result<T, String>;
 type Results = BTreeMap<String, Fractions>;
@@ -141,9 +136,8 @@ struct Straggler {
 }
 
 fn stat_average(values: impl Iterator<Item = f32>) -> Option<f64> {
-    let (sum, count) = values.fold((0.0f64, 0u64), |(sum, count), value| {
-        (sum + f64::from(value), count + 1)
-    });
+    let (sum, count) =
+        values.fold((0.0f64, 0u64), |(sum, count), value| (sum + f64::from(value), count + 1));
     (count > 0).then(|| f64::from((sum / count as f64) as f32))
 }
 
@@ -181,24 +175,21 @@ fn percent_of_input(data: &dyn ToolData, enqueue: bool) -> Data<f64> {
 
 fn step_fractions(data: &dyn ToolData, categories: &[&str]) -> Data<Vec<f32>> {
     let steps = data.steps()?;
-    let fractions = steps
-        .iter()
-        .filter(|step| !step.cores.is_empty())
-        .filter_map(|step| {
-            let total: u64 = step
-                .cores
-                .iter()
-                .filter(|(core, _)| *core < SPARSE_CORE_START)
-                .map(|(_, duration)| duration)
-                .sum();
-            let matched: u64 = step
-                .categories
-                .iter()
-                .filter(|(category, _)| categories.contains(&category.as_str()))
-                .map(|(_, time)| time)
-                .sum();
-            (total != 0).then(|| matched as f32 / total as f32)
-        });
+    let fractions = steps.iter().filter(|step| !step.cores.is_empty()).filter_map(|step| {
+        let total: u64 = step
+            .cores
+            .iter()
+            .filter(|(core, _)| *core < SPARSE_CORE_START)
+            .map(|(_, duration)| duration)
+            .sum();
+        let matched: u64 = step
+            .categories
+            .iter()
+            .filter(|(category, _)| categories.contains(&category.as_str()))
+            .map(|(_, time)| time)
+            .sum();
+        (total != 0).then(|| matched as f32 / total as f32)
+    });
     Ok(fractions.collect())
 }
 
@@ -216,9 +207,8 @@ fn data_shuffle_percent(data: &dyn ToolData) -> Data<f64> {
 
 fn tpu_percent(data: &dyn ToolData, sparse_core: bool) -> Data<f64> {
     let input = data.input_pipeline()?;
-    let (idle, sparse) = input
-        .tpu
-        .ok_or_else(|| "Failed to unpack TpuStepTimeBreakdown.".to_string())?;
+    let (idle, sparse) =
+        input.tpu.ok_or_else(|| "Failed to unpack TpuStepTimeBreakdown.".to_string())?;
     Ok(if input.step_time_ms == 0.0 {
         0.0
     } else {
@@ -250,10 +240,7 @@ fn stragglers(data: &dyn ToolData, event: &str) -> Data<Vec<Straggler>> {
     }
     let percentiles: Vec<f64> = hosts.iter().map(|(_, percent)| *percent).collect();
     let center = median(percentiles);
-    let deviations: Vec<f64> = hosts
-        .iter()
-        .map(|(_, percent)| (percent - center).abs())
-        .collect();
+    let deviations: Vec<f64> = hosts.iter().map(|(_, percent)| (percent - center).abs()).collect();
     let mad = median(deviations);
     Ok(hosts
         .into_iter()
@@ -290,9 +277,7 @@ fn peak_memory_percent(data: &dyn ToolData) -> Data<f64> {
     let (usage, capacity) = data
         .memory()?
         .iter()
-        .fold((0.0, 0.0), |(usage, capacity), (peak, total)| {
-            (usage + peak, capacity + total)
-        });
+        .fold((0.0, 0.0), |(usage, capacity), (peak, total)| (usage + peak, capacity + total));
     Ok(usage / capacity * 100.0)
 }
 
@@ -360,10 +345,8 @@ fn debug_print(data: &dyn ToolData) -> Data<String> {
         .into_iter()
         .filter(|(_, percent)| *percent >= DEBUG_PRINT_PERCENT)
         .collect();
-    let max_percent = high.iter().fold(
-        0.0f64,
-        |max, (_, percent)| if *percent > max { *percent } else { max },
-    );
+    let max_percent =
+        high.iter().fold(0.0f64, |max, (_, percent)| if *percent > max { *percent } else { max });
     let list: String = high
         .iter()
         .map(|(host, percent)| {
@@ -463,11 +446,8 @@ pub(crate) const RULES: [Rule; 12] = [
     Rule {
         name: "DebugPrintRule",
         meets: |data| {
-            host_event_percents(data, DEBUG_PRINT).is_ok_and(|hosts| {
-                hosts
-                    .iter()
-                    .any(|(_, percent)| *percent >= DEBUG_PRINT_PERCENT)
-            })
+            host_event_percents(data, DEBUG_PRINT)
+                .is_ok_and(|hosts| hosts.iter().any(|(_, percent)| *percent >= DEBUG_PRINT_PERCENT))
         },
         generate: debug_print,
     },
@@ -520,10 +500,7 @@ pub fn run(data: &dyn ToolData, registered: &[&str]) -> Data<Vec<Suggestion>> {
     let mut suggestions = Vec::new();
     for rule in RULES.iter().filter(|rule| registered.contains(&rule.name)) {
         if (rule.meets)(data) {
-            suggestions.push(Suggestion {
-                rule: rule.name,
-                text: (rule.generate)(data)?,
-            });
+            suggestions.push(Suggestion { rule: rule.name, text: (rule.generate)(data)? });
         }
     }
     Ok(suggestions)
@@ -532,11 +509,7 @@ pub fn run(data: &dyn ToolData, registered: &[&str]) -> Data<Vec<Suggestion>> {
 pub fn render(suggestions: &[Suggestion]) -> String {
     let mut out = String::from("{\"suggestions\":[");
     for (index, suggestion) in suggestions.iter().enumerate() {
-        out.push_str(if index > 0 {
-            ",{\"ruleName\":"
-        } else {
-            "{\"ruleName\":"
-        });
+        out.push_str(if index > 0 { ",{\"ruleName\":" } else { "{\"ruleName\":" });
         json_string(&mut out, suggestion.rule);
         out.push_str(",\"suggestionText\":");
         json_string(&mut out, &suggestion.text);
@@ -556,10 +529,7 @@ impl ToolData for Session {
             .fractions
             .as_ref()
             .ok_or_else(|| "Can't parse an xspace of the session as binary proto".to_string())?;
-        fractions
-            .get(event)
-            .cloned()
-            .ok_or_else(|| format!("Event not found: {event}"))
+        fractions.get(event).cloned().ok_or_else(|| format!("Event not found: {event}"))
     }
 }
 
@@ -588,14 +558,9 @@ fn session_fractions(paths: &[PathBuf]) -> Option<Results> {
 }
 
 pub fn json(paths: &[PathBuf]) -> Option<String> {
-    run(
-        &Session {
-            fractions: session_fractions(paths),
-        },
-        &THIRD_PARTY_RULES,
-    )
-    .ok()
-    .map(|suggestions| render(&suggestions))
+    run(&Session { fractions: session_fractions(paths) }, &THIRD_PARTY_RULES)
+        .ok()
+        .map(|suggestions| render(&suggestions))
 }
 
 #[cfg(test)]

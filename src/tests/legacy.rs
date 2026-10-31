@@ -13,55 +13,29 @@ pub fn number(tag: u64, value: u64) -> Vec<u8> {
 }
 
 pub fn bytes(tag: u64, body: &[u8]) -> Vec<u8> {
-    [
-        varint(tag << 3 | 2),
-        varint(body.len() as u64),
-        body.to_vec(),
-    ]
-    .concat()
+    [varint(tag << 3 | 2), varint(body.len() as u64), body.to_vec()].concat()
 }
 
 pub fn entry(tag: u64, id: u64, name: &str) -> Vec<u8> {
     bytes(
         tag,
-        &[
-            number(1, id),
-            bytes(2, &[number(1, id), bytes(2, name.as_bytes())].concat()),
-        ]
-        .concat(),
+        &[number(1, id), bytes(2, &[number(1, id), bytes(2, name.as_bytes())].concat())].concat(),
     )
 }
 
 fn entries(tag: u64, names: &[&str]) -> Vec<u8> {
-    names
-        .iter()
-        .zip(1..)
-        .flat_map(|(name, id)| entry(tag, id, name))
-        .collect()
+    names.iter().zip(1..).flat_map(|(name, id)| entry(tag, id, name)).collect()
 }
 
-const EVERYTHING: Options = Options {
-    start_ms: 0.0,
-    end_ms: 0.0,
-    resolution: 0.0,
-    full_dma: false,
-};
+const EVERYTHING: Options =
+    Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false };
 
 fn event(meta: u64, offset: u64, duration: u64, stats: &[(u64, u64)]) -> Vec<u8> {
     let stats: Vec<u8> = stats
         .iter()
         .flat_map(|&(id, value)| bytes(4, &[number(1, id), number(4, value)].concat()))
         .collect();
-    bytes(
-        4,
-        &[
-            number(1, meta),
-            number(2, offset),
-            number(3, duration),
-            stats,
-        ]
-        .concat(),
-    )
+    bytes(4, &[number(1, meta), number(2, offset), number(3, duration), stats].concat())
 }
 
 fn annotated_space() -> Vec<u8> {
@@ -117,9 +91,7 @@ fn details_always_list_the_mpmd_toggle() {
 
 #[test]
 fn events_sharing_a_timestamp_beyond_the_serial_limit_are_dropped() {
-    let events: Vec<u8> = (0..300)
-        .flat_map(|_| event(1, 5_000_000, 1_000_000, &[]))
-        .collect();
+    let events: Vec<u8> = (0..300).flat_map(|_| event(1, 5_000_000, 1_000_000, &[])).collect();
     let plane = [
         bytes(2, b"/host:CPU"),
         bytes(3, &[number(1, 1), bytes(2, b"python"), events].concat()),
@@ -139,33 +111,17 @@ fn framework_op_names_parse_like_xprof() {
     let expect = |known: bool, name: &str, kind: &str| (known, name.to_string(), kind.to_string());
     assert_eq!(
         parsed("jit(step)/shard_map/layer_1/dot_general:"),
-        expect(
-            true,
-            "jit(step)/shard_map/layer_1/dot_general",
-            "dot_general"
-        )
+        expect(true, "jit(step)/shard_map/layer_1/dot_general", "dot_general")
     );
     assert_eq!(parsed("scope/add_3:"), expect(true, "scope/add_3", "add"));
     assert_eq!(
         parsed("a/transpose[permutation=(0, 1)]:"),
         expect(true, "a/transpose[permutation=(0, 1)]", "transpose")
     );
-    assert_eq!(
-        parsed("model/MatMul_1:MatMul"),
-        expect(true, "model/MatMul_1", "MatMul")
-    );
-    assert_eq!(
-        parsed("Iterator::Batch"),
-        expect(true, "Iterator::Batch", "Dataset")
-    );
-    assert_eq!(
-        parsed("memcpyHToD"),
-        expect(true, "memcpyHToD", "MemcpyHToD")
-    );
-    assert_eq!(
-        parsed("tpu::System::Execute"),
-        expect(false, "tpu::System::Execute", "")
-    );
+    assert_eq!(parsed("model/MatMul_1:MatMul"), expect(true, "model/MatMul_1", "MatMul"));
+    assert_eq!(parsed("Iterator::Batch"), expect(true, "Iterator::Batch", "Dataset"));
+    assert_eq!(parsed("memcpyHToD"), expect(true, "memcpyHToD", "MemcpyHToD"));
+    assert_eq!(parsed("tpu::System::Execute"), expect(false, "tpu::System::Execute", ""));
     assert_eq!(parsed("dummy"), expect(false, "dummy", ""));
 }
 
@@ -174,16 +130,7 @@ fn host_ops_split_self_time_and_idle_per_thread() {
     let text =
         |id: u64, value: &str| bytes(4, &[number(1, id), bytes(5, value.as_bytes())].concat());
     let host_event = |meta: u64, offset: u64, duration: u64, op: &str| {
-        bytes(
-            4,
-            &[
-                number(1, meta),
-                number(2, offset),
-                number(3, duration),
-                text(1, op),
-            ]
-            .concat(),
-        )
+        bytes(4, &[number(1, meta), number(2, offset), number(3, duration), text(1, op)].concat())
     };
     let line = [
         number(1, 7),
@@ -282,13 +229,8 @@ fn numbers_print_like_nlohmann_grisu2() {
 
 #[test]
 fn barriers_after_the_event_limit_follow_the_stable_time_order() {
-    let first = [
-        number(1, 1),
-        bytes(2, b"a"),
-        event(1, 10, 1_000_000, &[]),
-        event(2, 20, 0, &[]),
-    ]
-    .concat();
+    let first =
+        [number(1, 1), bytes(2, b"a"), event(1, 10, 1_000_000, &[]), event(2, 20, 0, &[])].concat();
     let second = [
         number(1, 2),
         bytes(2, b"b"),
@@ -328,35 +270,24 @@ fn barriers_after_the_event_limit_follow_the_stable_time_order() {
 }
 
 fn op_stats_of(space: &[u8]) -> std::sync::Arc<OpStats> {
-    crate::tests::with_file(space, tools::opstats::load)
-        .unwrap()
-        .unwrap()
+    crate::tests::with_file(space, tools::opstats::load).unwrap().unwrap()
 }
 
 #[test]
 fn cpu_steps_come_from_host_step_markers() {
     let stats = op_stats_of(&annotated_space());
     let pipeline = tools::input_pipeline_analyzer::json(&stats);
-    assert!(
-        pipeline.starts_with("[{\"cols\":[],\"rows\":[]},"),
-        "{pipeline}"
-    );
+    assert!(pipeline.starts_with("[{\"cols\":[],\"rows\":[]},"), "{pipeline}");
     assert!(
         pipeline.contains(
             "{\"c\":[{\"v\":\"train 7\"},{\"v\":0.0},{\"v\":0.0},{\"v\":0.0},{\"v\":0.001},"
         ),
         "{pipeline}"
     );
-    assert!(
-        pipeline.contains("\"hardware_type\":\"CPU_ONLY\""),
-        "{pipeline}"
-    );
+    assert!(pipeline.contains("\"hardware_type\":\"CPU_ONLY\""), "{pipeline}");
     let overview = tools::overview_page::json(&stats, &[]);
     assert!(overview.contains("\"device_type\":\"CPU\""), "{overview}");
-    assert!(
-        overview.contains("\"rows\":[]}, {},{\"cols\":[{\"id\":\"severity\""),
-        "{overview}"
-    );
+    assert!(overview.contains("\"rows\":[]}, {},{\"cols\":[{\"id\":\"severity\""), "{overview}");
 }
 
 #[test]
@@ -376,11 +307,8 @@ fn absl_six_digit_doubles() {
 #[test]
 fn op_profile_partial_sort_breaks_ties_like_libstdcxx() {
     let keys = [3, 1, 3, 2, 3, 1, 2, 3, 0];
-    for (k, expected) in [
-        (9, vec![7, 4, 0, 2, 3, 6, 1, 5, 8]),
-        (4, vec![4, 0, 7, 2]),
-        (1, vec![0]),
-    ] {
+    for (k, expected) in [(9, vec![7, 4, 0, 2, 3, 6, 1, 5, 8]), (4, vec![4, 0, 7, 2]), (1, vec![0])]
+    {
         let mut items: Vec<usize> = (0..keys.len()).collect();
         tools::op_profile::partial_sort(&mut items, k, |a, b| keys[a] > keys[b]);
         assert_eq!(items[..k], expected[..]);
@@ -432,17 +360,10 @@ fn round_trip_matches_printf() {
         2 => (next() % 100_000) as f64 * 10f64.powi((next() % 40) as i32 - 20),
         _ => -((next() >> 11) as f64 / (1u64 << 53) as f64),
     });
-    for value in special
-        .into_iter()
-        .chain(random)
-        .filter(|value| value.is_finite())
-    {
+    for value in special.into_iter().chain(random).filter(|value| value.is_finite()) {
         let short = hlo::general(value, 15);
-        let expected = if short.parse::<f64>().ok() == Some(value) {
-            short
-        } else {
-            hlo::general(value, 17)
-        };
+        let expected =
+            if short.parse::<f64>().ok() == Some(value) { short } else { hlo::general(value, 17) };
         let mut out = String::new();
         hlo::round_trip(&mut out, value);
         assert_eq!(out, expected, "{value:e}");
@@ -451,15 +372,8 @@ fn round_trip_matches_printf() {
 
 #[test]
 fn fused_instructions_print_like_xla() {
-    let shape = bytes(
-        3,
-        &[
-            number(2, 11),
-            bytes(3, &varint(4)),
-            bytes(5, &bytes(1, &varint(0))),
-        ]
-        .concat(),
-    );
+    let shape =
+        bytes(3, &[number(2, 11), bytes(3, &varint(4)), bytes(5, &bytes(1, &varint(0)))].concat());
     let instruction = |id: u64, name: &str, opcode: &str, operands: &[u64], extra: Vec<u8>| {
         bytes(
             2,
@@ -468,10 +382,7 @@ fn fused_instructions_print_like_xla() {
                 bytes(1, name.as_bytes()),
                 bytes(2, opcode.as_bytes()),
                 shape.clone(),
-                operands
-                    .iter()
-                    .flat_map(|&operand| number(36, operand))
-                    .collect(),
+                operands.iter().flat_map(|&operand| number(36, operand)).collect(),
                 extra,
             ]
             .concat(),
@@ -482,13 +393,7 @@ fn fused_instructions_print_like_xla() {
         &[
             bytes(1, b"fused"),
             instruction(1, "p0", "parameter", &[], Vec::new()),
-            instruction(
-                2,
-                "add.1",
-                "add",
-                &[1, 1],
-                bytes(7, &bytes(2, b"jit(f)/add")),
-            ),
+            instruction(2, "add.1", "add", &[1, 1], bytes(7, &bytes(2, b"jit(f)/add"))),
             number(5, 7),
         ]
         .concat(),
@@ -512,28 +417,19 @@ fn fused_instructions_print_like_xla() {
     let proto = bytes(1, &[bytes(1, b"jit_f"), fused, main].concat());
     let module = hlo::Module::parse(std::borrow::Cow::Owned(proto));
     let printer = hlo::text::Printer::new(&module, hlo::text::Style::Expression, false);
-    let (add, fusion) = (
-        module.find("add.1").unwrap(),
-        module.find("fusion.1").unwrap(),
-    );
+    let (add, fusion) = (module.find("add.1").unwrap(), module.find("fusion.1").unwrap());
     let expression = |node: usize| {
         let mut out = String::new();
         printer.instruction(node, &mut out);
         out
     };
-    assert_eq!(
-        expression(add),
-        "%add.1 = f32[4]{0} add(f32[4]{0} %p0, f32[4]{0} %p0)"
-    );
+    assert_eq!(expression(add), "%add.1 = f32[4]{0} add(f32[4]{0} %p0, f32[4]{0} %p0)");
     assert_eq!(
         expression(fusion),
         "%fusion.1 = f32[4]{0} fusion(f32[4]{0} %p1), kind=kLoop, calls=%fused"
     );
     assert_eq!(
-        (
-            module.category(add).as_str(),
-            module.category(fusion).as_str()
-        ),
+        (module.category(add).as_str(), module.category(fusion).as_str()),
         ("non-fusion elementwise", "loop fusion")
     );
     assert_eq!(
@@ -552,12 +448,7 @@ fn bitcast_convert_is_elementwise_only_for_equal_bit_widths() {
     let instruction = |id: u64, name: &str, opcode: &str, kind: u64, operands: &[u64]| {
         let shape = bytes(
             3,
-            &[
-                number(2, kind),
-                bytes(3, &varint(4)),
-                bytes(5, &bytes(1, &varint(0))),
-            ]
-            .concat(),
+            &[number(2, kind), bytes(3, &varint(4)), bytes(5, &bytes(1, &varint(0)))].concat(),
         );
         bytes(
             2,
@@ -566,10 +457,7 @@ fn bitcast_convert_is_elementwise_only_for_equal_bit_widths() {
                 bytes(1, name.as_bytes()),
                 bytes(2, opcode.as_bytes()),
                 shape,
-                operands
-                    .iter()
-                    .flat_map(|&operand| number(36, operand))
-                    .collect(),
+                operands.iter().flat_map(|&operand| number(36, operand)).collect(),
             ]
             .concat(),
         )
@@ -582,25 +470,13 @@ fn bitcast_convert_is_elementwise_only_for_equal_bit_widths() {
     ];
     let main = bytes(
         3,
-        &[
-            main.concat(),
-            instruction(4, "narrow", "bitcast-convert", 6, &[2]),
-            number(5, 4),
-        ]
-        .concat(),
+        &[main.concat(), instruction(4, "narrow", "bitcast-convert", 6, &[2]), number(5, 4)]
+            .concat(),
     );
-    let module = hlo::Module::parse(std::borrow::Cow::Owned(bytes(
-        1,
-        &[bytes(1, b"jit_f"), main].concat(),
-    )));
-    assert_eq!(
-        module.category(module.find("same").unwrap()),
-        "non-fusion elementwise"
-    );
-    assert_eq!(
-        module.category(module.find("narrow").unwrap()),
-        "bitcast-convert"
-    );
+    let module =
+        hlo::Module::parse(std::borrow::Cow::Owned(bytes(1, &[bytes(1, b"jit_f"), main].concat())));
+    assert_eq!(module.category(module.find("same").unwrap()), "non-fusion elementwise");
+    assert_eq!(module.category(module.find("narrow").unwrap()), "bitcast-convert");
 }
 
 #[test]
@@ -611,15 +487,9 @@ fn roofline_category_falls_back_to_opcode_names() {
         ..Default::default()
     };
     assert_eq!(tools::roofline::category(&metrics("copy", "")), "copy");
-    assert_eq!(
-        tools::roofline::category(&metrics("copy.1", "unknown")),
-        "unknown"
-    );
+    assert_eq!(tools::roofline::category(&metrics("copy.1", "unknown")), "unknown");
     assert_eq!(tools::roofline::category(&metrics("x", "")), "unknown");
-    assert_eq!(
-        tools::roofline::category(&metrics("copy", "data formatting")),
-        "data formatting"
-    );
+    assert_eq!(tools::roofline::category(&metrics("copy", "data formatting")), "data formatting");
 }
 
 #[test]
@@ -678,14 +548,8 @@ fn backend_configs_print_bare_only_when_they_lex_as_one_json_dict() {
 #[test]
 fn iota_tile_assignments_print_canonicalized_like_xla() {
     assert_eq!(hlo::text::iota_text(&[4, 1], &[4], &[0]), "[4,1]<=[4]");
-    assert_eq!(
-        hlo::text::iota_text(&[60], &[3, 4, 5], &[1, 2, 0]),
-        "[60]<=[3,20]T(1,0)"
-    );
-    assert_eq!(
-        hlo::text::iota_text(&[60], &[3, 4, 5], &[0, 1, 2]),
-        "[60]<=[60]"
-    );
+    assert_eq!(hlo::text::iota_text(&[60], &[3, 4, 5], &[1, 2, 0]), "[60]<=[3,20]T(1,0)");
+    assert_eq!(hlo::text::iota_text(&[60], &[3, 4, 5], &[0, 1, 2]), "[60]<=[60]");
     assert_eq!(
         hlo::text::iota_text(&[60], &[1, 3, 1, 4, 1, 5], &[4, 3, 2, 5, 1, 0]),
         "[60]<=[3,20]T(1,0)"
@@ -699,8 +563,7 @@ pub fn same(a: &serde_json::Value, b: &serde_json::Value) -> bool {
         (Array(a), Array(b)) => a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same(a, b)),
         (Object(a), Object(b)) => {
             a.len() == b.len()
-                && a.iter()
-                    .all(|(key, value)| b.get(key).is_some_and(|other| same(value, other)))
+                && a.iter().all(|(key, value)| b.get(key).is_some_and(|other| same(value, other)))
         }
         (a, b) => a == b,
     }
@@ -836,18 +699,13 @@ fn layouts_print_every_section_like_xla() {
     };
     let layout = hlo::xla::LayoutProto {
         minor_to_major: vec![1, 0],
-        tiles: vec![hlo::xla::TileProto {
-            dimensions: vec![8, i64::MIN, -5],
-        }],
+        tiles: vec![hlo::xla::TileProto { dimensions: vec![8, i64::MIN, -5] }],
         tail_padding_alignment_in_elements: 2,
         index_primitive_type: 4,
         pointer_primitive_type: 11,
         element_size_in_bits: 4,
         memory_space: 1,
-        split_configs: vec![hlo::xla::SplitConfigProto {
-            dimension: 0,
-            split_indices: vec![1, 2],
-        }],
+        split_configs: vec![hlo::xla::SplitConfigProto { dimension: 0, split_indices: vec![1, 2] }],
         physical_shape: Some(Box::new(array(None))),
         dynamic_shape_metadata_prefix_bytes: 8,
         ..Default::default()
@@ -863,10 +721,7 @@ fn layouts_print_every_section_like_xla() {
         ..Default::default()
     };
     buffer.normalize();
-    assert_eq!(
-        (buffer.text(true), buffer.dimensions.len()),
-        ("b(f32[2,3])".to_string(), 0)
-    );
+    assert_eq!((buffer.text(true), buffer.dimensions.len()), ("b(f32[2,3])".to_string(), 0));
 }
 
 #[test]
@@ -894,13 +749,8 @@ fn serving_roots_take_their_graph_type_and_tensorflow_step_names() {
     );
     let named = bytes(
         4,
-        &[
-            number(1, 2),
-            number(2, 20_000_000),
-            number(3, 1_000_000),
-            text_stat(3, "my step"),
-        ]
-        .concat(),
+        &[number(1, 2), number(2, 20_000_000), number(3, 1_000_000), text_stat(3, "my step")]
+            .concat(),
     );
     let line = [
         number(1, 1),
@@ -926,16 +776,7 @@ fn serving_roots_take_their_graph_type_and_tensorflow_step_names() {
 }
 
 fn stat_event(meta: u64, offset: u64, duration: u64, stats: &[Vec<u8>]) -> Vec<u8> {
-    bytes(
-        4,
-        &[
-            number(1, meta),
-            number(2, offset),
-            number(3, duration),
-            stats.concat(),
-        ]
-        .concat(),
-    )
+    bytes(4, &[number(1, meta), number(2, offset), number(3, duration), stats.concat()].concat())
 }
 
 fn int_stat(id: u64, value: u64) -> Vec<u8> {
@@ -975,16 +816,7 @@ fn gpu_space() -> Vec<u8> {
         bytes(2, b"/device:GPU:0"),
         bytes(3, &gpu_line),
         entry(4, 1, "fusion_kernel"),
-        entries(
-            5,
-            &[
-                "kernel_details",
-                "hlo_module",
-                "correlation_id",
-                "hlo_op",
-                "program_id",
-            ],
-        ),
+        entries(5, &["kernel_details", "hlo_module", "correlation_id", "hlo_op", "program_id"]),
     ]
     .concat();
     [bytes(1, &gpu), bytes(1, &host)].concat()
@@ -1053,14 +885,7 @@ fn tf_op_categories_follow_parse_tf_op_fullname() {
             "MemcpyHToD",
             vec![],
         ),
-        (
-            ":",
-            xplane::derive::Category::TensorFlow,
-            "",
-            "",
-            "",
-            vec![],
-        ),
+        (":", xplane::derive::Category::TensorFlow, "", "", "", vec![]),
         (
             "$threading.py:323 wait ",
             xplane::derive::Category::Unknown,
@@ -1082,10 +907,7 @@ fn tf_op_categories_follow_parse_tf_op_fullname() {
 
 #[test]
 fn run_tools_list_kernel_stats_only_for_gpu_profiles_and_nothing_for_corrupt_files() {
-    assert_eq!(
-        server::run_tools::tools(&gpu_space()).unwrap()[8..],
-        ["kernel_stats"]
-    );
+    assert_eq!(server::run_tools::tools(&gpu_space()).unwrap()[8..], ["kernel_stats"]);
     assert!(
         server::run_tools::tools(
             &[bytes(1, &bytes(2, b"/host:CPU")), vec![0x0a, 0xff, 0x7f]].concat()
@@ -1097,29 +919,15 @@ fn run_tools_list_kernel_stats_only_for_gpu_profiles_and_nothing_for_corrupt_fil
 #[test]
 fn utilization_and_bandwidth_doubles_print_with_two_decimals() {
     let double = |id: u64, value: f64| {
-        bytes(
-            4,
-            &[
-                number(1, id),
-                varint(2 << 3 | 1),
-                value.to_le_bytes().to_vec(),
-            ]
-            .concat(),
-        )
+        bytes(4, &[number(1, id), varint(2 << 3 | 1), value.to_le_bytes().to_vec()].concat())
     };
     let line = [
         number(1, 1),
         bytes(2, b"python"),
         bytes(
             4,
-            &[
-                number(1, 1),
-                number(2, 0),
-                number(3, 10),
-                double(1, 12.3456),
-                double(2, 0.125),
-            ]
-            .concat(),
+            &[number(1, 1), number(2, 0), number(3, 10), double(1, 12.3456), double(2, 0.125)]
+                .concat(),
         ),
     ]
     .concat();
@@ -1131,17 +939,9 @@ fn utilization_and_bandwidth_doubles_print_with_two_decimals() {
     ]
     .concat();
     let host = host_of(&bytes(1, &plane));
-    let view = View {
-        trace: &host.trace,
-        map: &host.map,
-        planes: &host.planes,
-        events: vec![0],
-    };
+    let view = View { trace: &host.trace, map: &host.map, planes: &host.planes, events: vec![0] };
     let json = String::from_utf8(render(&[view], false, crate::trace::json::Args::Event)).unwrap();
-    assert!(
-        json.contains("\"HBM (util %)\":12.35,\"ratio\":0.125"),
-        "{json}"
-    );
+    assert!(json.contains("\"HBM (util %)\":12.35,\"ratio\":0.125"), "{json}");
 }
 
 #[test]
@@ -1156,12 +956,8 @@ fn request_queue_producers_flow_to_their_consumers() {
     ]
     .concat();
     let host = host_of(&bytes(1, &plane));
-    let flows: Vec<(u32, u8)> = host
-        .trace
-        .events
-        .iter()
-        .map(|event| (event.flow, event.flow_entry()))
-        .collect();
+    let flows: Vec<(u32, u8)> =
+        host.trace.events.iter().map(|event| (event.flow, event.flow_entry())).collect();
     assert_eq!(flows, [(0, trace::FLOW_START), (0, trace::FLOW_END)]);
 }
 
@@ -1220,12 +1016,7 @@ pub fn settle(path: &Path) {
 pub async fn fetch(state: &Shared, uri: &str) -> (StatusCode, HeaderMap, String) {
     use tower::ServiceExt;
     let reply = app(state.clone())
-        .oneshot(
-            axum::http::Request::builder()
-                .uri(uri)
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(axum::http::Request::builder().uri(uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
     let (parts, body) = reply.into_parts();
@@ -1244,21 +1035,10 @@ pub async fn served(
 ) -> (StatusCode, HeaderMap, String) {
     let dir = logdir(name);
     for (host, space) in hosts {
-        std::fs::write(
-            dir.join(format!("run/plugins/profile/s/{host}.xplane.pb")),
-            space,
-        )
-        .unwrap();
+        std::fs::write(dir.join(format!("run/plugins/profile/s/{host}.xplane.pb")), space).unwrap();
     }
-    let state = state(&Settings {
-        logdir: dir.clone(),
-        ..Default::default()
-    });
-    let reply = fetch(
-        &state,
-        &format!("/data/plugin/profile/data?run=run/s&{query}"),
-    )
-    .await;
+    let state = state(&Settings { logdir: dir.clone(), ..Default::default() });
+    let reply = fetch(&state, &format!("/data/plugin/profile/data?run=run/s&{query}")).await;
     std::fs::remove_dir_all(&dir).unwrap();
     reply
 }
@@ -1271,10 +1051,7 @@ async fn module_list_extracts_hlo_protos_from_a_profile_with_hostnames() {
         include_bytes!("../../tests/data/demo.xplane.pb"),
     )
     .unwrap();
-    let state = state(&Settings {
-        logdir: dir.clone(),
-        ..Default::default()
-    });
+    let state = state(&Settings { logdir: dir.clone(), ..Default::default() });
     let (status, _, modules) = fetch(&state, "/data/plugin/profile/module_list?run=run/s").await;
     assert_eq!(status, StatusCode::OK, "{modules}");
     let module = modules.split(',').next().unwrap().to_string();
@@ -1287,56 +1064,31 @@ async fn module_list_extracts_hlo_protos_from_a_profile_with_hostnames() {
     };
     let (status, _, text) =
         fetch(&state, &format!("{}&type=short_txt", query("graph_viewer"))).await;
-    assert!(
-        status == StatusCode::OK && text.contains("ENTRY"),
-        "{status} {text}"
-    );
+    assert!(status == StatusCode::OK && text.contains("ENTRY"), "{status} {text}");
     let (status, _, memory) = fetch(&state, &query("memory_viewer")).await;
-    assert!(
-        status == StatusCode::OK && memory.starts_with('{'),
-        "{status} {memory}"
-    );
+    assert!(status == StatusCode::OK && memory.starts_with('{'), "{status} {memory}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_paths_stay_inside_the_logdir() {
     let (dir, outside_dir) = (logdir("confined"), logdir("confined-outside"));
-    std::fs::write(
-        dir.join("run/plugins/profile/s/h.xplane.pb"),
-        annotated_space(),
-    )
-    .unwrap();
-    std::fs::write(
-        outside_dir.join("run/plugins/profile/s/h.xplane.pb"),
-        annotated_space(),
-    )
-    .unwrap();
+    std::fs::write(dir.join("run/plugins/profile/s/h.xplane.pb"), annotated_space()).unwrap();
+    std::fs::write(outside_dir.join("run/plugins/profile/s/h.xplane.pb"), annotated_space())
+        .unwrap();
     std::os::unix::fs::symlink(outside_dir.join("run"), dir.join("escape")).unwrap();
     std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
-    let state = state(&Settings {
-        logdir: dir.clone(),
-        ..Default::default()
-    });
+    let state = state(&Settings { logdir: dir.clone(), ..Default::default() });
     let base = "/data/plugin/profile";
     let inside = dir.join("run/plugins/profile/s");
     for (uri, expected) in [
+        (format!("{base}/data?run=run/s&tag=trace_viewer@&host=h"), StatusCode::OK),
         (
-            format!("{base}/data?run=run/s&tag=trace_viewer@&host=h"),
+            format!("{base}/data?run=s&session_path={}&tag=trace_viewer@&host=h", inside.display()),
             StatusCode::OK,
         ),
         (
-            format!(
-                "{base}/data?run=s&session_path={}&tag=trace_viewer@&host=h",
-                inside.display()
-            ),
-            StatusCode::OK,
-        ),
-        (
-            format!(
-                "{base}/data?run={}/run/s&tag=trace_viewer@&host=h",
-                outside_dir.display()
-            ),
+            format!("{base}/data?run={}/run/s&tag=trace_viewer@&host=h", outside_dir.display()),
             StatusCode::BAD_REQUEST,
         ),
         (
@@ -1346,10 +1098,7 @@ async fn request_paths_stay_inside_the_logdir() {
             ),
             StatusCode::BAD_REQUEST,
         ),
-        (
-            format!("{base}/data?run=escape/s&tag=trace_viewer@&host=h"),
-            StatusCode::BAD_REQUEST,
-        ),
+        (format!("{base}/data?run=escape/s&tag=trace_viewer@&host=h"), StatusCode::BAD_REQUEST),
         (
             format!(
                 "{base}/data?session_path={}&tag=trace_viewer@&host=h",
@@ -1361,10 +1110,7 @@ async fn request_paths_stay_inside_the_logdir() {
             format!("{base}/data?run=run/s&tag=graph_viewer&type=pb&module_name=../../x"),
             StatusCode::BAD_REQUEST,
         ),
-        (
-            format!("{base}/hosts?run=escape/s"),
-            StatusCode::BAD_REQUEST,
-        ),
+        (format!("{base}/hosts?run=escape/s"), StatusCode::BAD_REQUEST),
         (
             format!("{base}/module_list?run=/{}/run/s", outside_dir.display()),
             StatusCode::BAD_REQUEST,
@@ -1372,12 +1118,9 @@ async fn request_paths_stay_inside_the_logdir() {
     ] {
         assert_eq!(fetch(&state, &uri).await.0, expected, "{uri}");
     }
-    let runs = tokio::time::timeout(
-        Duration::from_secs(5),
-        fetch(&state, &format!("{base}/runs")),
-    )
-    .await
-    .unwrap();
+    let runs = tokio::time::timeout(Duration::from_secs(5), fetch(&state, &format!("{base}/runs")))
+        .await
+        .unwrap();
     assert_eq!(runs.2, "[\"run/s\"]");
     std::fs::remove_dir_all(&dir).unwrap();
     std::fs::remove_dir_all(&outside_dir).unwrap();
@@ -1387,10 +1130,7 @@ async fn request_paths_stay_inside_the_logdir() {
 async fn rewritten_profiles_are_reloaded_and_truncation_is_harmless() {
     let dir = logdir("rewrite");
     let file = dir.join("run/plugins/profile/s/h.xplane.pb");
-    let state = state(&Settings {
-        logdir: dir.clone(),
-        ..Default::default()
-    });
+    let state = state(&Settings { logdir: dir.clone(), ..Default::default() });
     let uri = "/data/plugin/profile/data?run=run/s&tag=trace_viewer@&host=h";
     std::fs::write(&file, include_bytes!("../../tests/data/demo.xplane.pb")).unwrap();
     settle(&file);
@@ -1401,12 +1141,7 @@ async fn rewritten_profiles_are_reloaded_and_truncation_is_harmless() {
     settle(&file);
     let (_, _, second) = fetch(&state, uri).await;
     assert!(second != first && second.contains("train 7"), "{second}");
-    std::fs::File::options()
-        .write(true)
-        .open(&file)
-        .unwrap()
-        .set_len(0)
-        .unwrap();
+    std::fs::File::options().write(true).open(&file).unwrap().set_len(0).unwrap();
     let (status, _, third) = fetch(&state, uri).await;
     assert!(third != second, "{status} {third}");
     std::fs::remove_dir_all(&dir).unwrap();
@@ -1426,10 +1161,7 @@ async fn trace_requests_default_to_resolution_8000_and_failures_answer_with_secu
         bytes(1, &entry(4, 1 << 40, "op")),
     )
     .unwrap();
-    let state = state(&Settings {
-        logdir: dir.clone(),
-        ..Default::default()
-    });
+    let state = state(&Settings { logdir: dir.clone(), ..Default::default() });
     let base = "/data/plugin/profile/data?run=run/s";
     let (status, headers, implicit) =
         fetch(&state, &format!("{base}&tag=trace_viewer@&host=h")).await;
@@ -1437,41 +1169,23 @@ async fn trace_requests_default_to_resolution_8000_and_failures_answer_with_secu
     assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
     assert_eq!(headers["content-security-policy"], SECURITY_POLICY);
     assert_eq!(
-        fetch(
-            &state,
-            &format!("{base}&tag=trace_viewer@&host=h&resolution=8000")
-        )
-        .await
-        .2,
+        fetch(&state, &format!("{base}&tag=trace_viewer@&host=h&resolution=8000")).await.2,
         implicit
     );
     for tool in ["trace_viewer@", "overview_page"] {
         let (status, headers, message) =
             fetch(&state, &format!("{base}&tag={tool}&host=bad")).await;
-        assert_eq!(
-            status,
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "{tool} {message}"
-        );
-        assert!(
-            message.contains("An event metadata ID is out of range"),
-            "{message}"
-        );
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{tool} {message}");
+        assert!(message.contains("An event metadata ID is out of range"), "{message}");
         assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
         let (status, _, message) = fetch(&state, &format!("{base}&tag={tool}&host=corrupt")).await;
-        assert_eq!(
-            (status, message.as_str()),
-            (StatusCode::NOT_FOUND, "No Data")
-        );
+        assert_eq!((status, message.as_str()), (StatusCode::NOT_FOUND, "No Data"));
     }
     let detail = format!(
         "{base}&tag=trace_viewer@&host=h&event_name=x&start_time_ms=1e10&duration_ms=1&unique_id=1e30"
     );
     assert_eq!(fetch(&state, &detail).await.0, StatusCode::NOT_FOUND);
-    assert_eq!(
-        fetch(&state, "/data/plugin/profile/version").await.2,
-        VERSION
-    );
+    assert_eq!(fetch(&state, "/data/plugin/profile/version").await.2, VERSION);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1479,11 +1193,7 @@ async fn trace_requests_default_to_resolution_8000_and_failures_answer_with_secu
 fn hosts_match_exactly_like_xprof() {
     let dir = logdir("select");
     for name in ["a", "a.b"] {
-        std::fs::write(
-            dir.join(format!("run/plugins/profile/s/{name}.xplane.pb")),
-            [],
-        )
-        .unwrap();
+        std::fs::write(dir.join(format!("run/plugins/profile/s/{name}.xplane.pb")), []).unwrap();
     }
     let session = dir.join("run/plugins/profile/s");
     let pick = |tool: &str, query: &[(&str, &str)]| {
@@ -1495,18 +1205,9 @@ fn hosts_match_exactly_like_xprof() {
         select(&session, tool, &params)
             .map(|files| files.iter().map(|file| host_name(file)).collect::<Vec<_>>())
     };
-    assert_eq!(
-        pick("hlo_stats", &[("host", "a")]),
-        Ok(vec!["a".to_string()])
-    );
-    assert_eq!(
-        pick("hlo_stats", &[("host", "")]),
-        Ok(vec!["a.b".to_string(), "a".to_string()])
-    );
-    assert_eq!(
-        pick("hlo_stats", &[("host", "a.b"), ("hosts", "a")]),
-        Ok(vec!["a.b".to_string()])
-    );
+    assert_eq!(pick("hlo_stats", &[("host", "a")]), Ok(vec!["a".to_string()]));
+    assert_eq!(pick("hlo_stats", &[("host", "")]), Ok(vec!["a.b".to_string(), "a".to_string()]));
+    assert_eq!(pick("hlo_stats", &[("host", "a.b"), ("hosts", "a")]), Ok(vec!["a.b".to_string()]));
     assert_eq!(
         pick("hlo_stats", &[("hosts", "a")]),
         Err((
@@ -1516,21 +1217,12 @@ fn hosts_match_exactly_like_xprof() {
     );
     assert_eq!(
         pick("trace_viewer@", &[("hosts", "a,zz")]),
-        Err((
-            StatusCode::NOT_FOUND,
-            "No xplane file found for host: zz in run: run/s".to_string()
-        ))
+        Err((StatusCode::NOT_FOUND, "No xplane file found for host: zz in run: run/s".to_string()))
     );
-    assert_eq!(
-        pick("trace_viewer@", &[("hosts", "a.b")]),
-        Ok(vec!["a.b".to_string()])
-    );
+    assert_eq!(pick("trace_viewer@", &[("hosts", "a.b")]), Ok(vec!["a.b".to_string()]));
     assert_eq!(
         pick("overview_page", &[("host", "zz")]),
-        Err((
-            StatusCode::NOT_FOUND,
-            "No xplane file found for host: zz in run: run/s".to_string()
-        ))
+        Err((StatusCode::NOT_FOUND, "No xplane file found for host: zz in run: run/s".to_string()))
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -1577,21 +1269,14 @@ async fn cancelled_requests_leave_one_load_that_later_requests_share() {
         memo.get(settled.clone(), &permits, slow_build),
         memo.get(settled.clone(), &permits, slow_build)
     );
-    assert_eq!(
-        (first, second),
-        (Ok(settled.as_os_str().len()), Ok(settled.as_os_str().len()))
-    );
+    assert_eq!((first, second), (Ok(settled.as_os_str().len()), Ok(settled.as_os_str().len())));
     assert_eq!(
         memo.get(settled.clone(), &permits, slow_build).await,
         Ok(settled.as_os_str().len())
     );
     assert_eq!(SLOW_BUILDS.load(Ordering::SeqCst), 1);
-    memo.get(fresh.clone(), &permits, fresh_build)
-        .await
-        .unwrap();
-    memo.get(fresh.clone(), &permits, fresh_build)
-        .await
-        .unwrap();
+    memo.get(fresh.clone(), &permits, fresh_build).await.unwrap();
+    memo.get(fresh.clone(), &permits, fresh_build).await.unwrap();
     assert_eq!(FRESH_BUILDS.load(Ordering::SeqCst), 2);
     let broken = Memo::new(|_, _: &usize| 1);
     for _ in 0..3 {
@@ -1616,10 +1301,7 @@ async fn flights_run_shared_work_once_and_report_panics() {
         }
     };
     let (first, second) = tokio::join!(flights.join(1, work()), flights.join(1, work()));
-    assert_eq!(
-        (first, second, runs.load(Ordering::SeqCst)),
-        (Ok(7), Ok(7), 1)
-    );
+    assert_eq!((first, second, runs.load(Ordering::SeqCst)), (Ok(7), Ok(7), 1));
     assert_eq!(
         flights.join(2, || async { panic!("broken profile") }).await,
         Err(Arc::from("broken profile"))
@@ -1646,10 +1328,7 @@ fn graph_html_escapes_the_dot_inside_its_template_literal() {
     let plain = "digraph G {\nlabel = <<b>fusion.1</b><br/>{\"debug\":\"\\nring\"}>;\n}";
     assert!(hlo::graph::wrap_dot_html(plain, "dot").contains(&format!("const data = `{plain}`;")));
     let hostile = hlo::graph::wrap_dot_html("a`b${c}\\d</SCRIPT><!--", "dot");
-    assert!(
-        hostile.contains("const data = `a\\`b\\${c}\\\\d<\\/SCRIPT><\\!--`;"),
-        "{hostile}"
-    );
+    assert!(hostile.contains("const data = `a\\`b\\${c}\\\\d<\\/SCRIPT><\\!--`;"), "{hostile}");
 }
 
 #[test]
@@ -1657,32 +1336,14 @@ fn command_line_errors_are_reported_not_panicked() {
     let dir = logdir("arguments");
     let run = |list: &[&str]| arguments(list.iter().map(std::string::ToString::to_string));
     let path = dir.to_string_lossy().into_owned();
-    let base = Settings {
-        logdir: dir.clone(),
-        port: DEFAULT_PORT,
-        ..Default::default()
-    };
+    let base = Settings { logdir: dir.clone(), port: DEFAULT_PORT, ..Default::default() };
     assert_eq!(
         run(&["--logdir", &path]),
-        Ok(Settings {
-            logdir: dir.clone(),
-            port: DEFAULT_PORT,
-            ..Default::default()
-        })
+        Ok(Settings { logdir: dir.clone(), port: DEFAULT_PORT, ..Default::default() })
     );
     assert_eq!(
-        run(&[
-            &format!("--logdir={path}"),
-            "--port",
-            "9000",
-            "--host",
-            "127.0.0.1"
-        ]),
-        Ok(Settings {
-            port: 9000,
-            host: Some("127.0.0.1".into()),
-            ..base
-        })
+        run(&[&format!("--logdir={path}"), "--port", "9000", "--host", "127.0.0.1"]),
+        Ok(Settings { port: 9000, host: Some("127.0.0.1".into()), ..base })
     );
     assert_eq!(
         run(&[
@@ -1715,23 +1376,12 @@ fn command_line_errors_are_reported_not_panicked() {
         run(&["--logdir", &path, "--port", "x"]),
         Err("argument --port: invalid port value: 'x'".to_string())
     );
-    assert_eq!(
-        run(&[]),
-        Ok(Settings {
-            port: DEFAULT_PORT,
-            ..Default::default()
-        })
-    );
-    assert_eq!(
-        run(&["--bogus"]),
-        Err("unrecognized argument: --bogus".to_string())
-    );
+    assert_eq!(run(&[]), Ok(Settings { port: DEFAULT_PORT, ..Default::default() }));
+    assert_eq!(run(&["--bogus"]), Err("unrecognized argument: --bogus".to_string()));
     assert_eq!(
         run(&["--logdir", "/nonexistent/xprof-rs"]),
-        Err(
-            "Log directory '/nonexistent/xprof-rs' does not exist or is not a directory."
-                .to_string()
-        )
+        Err("Log directory '/nonexistent/xprof-rs' does not exist or is not a directory."
+            .to_string())
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -1768,31 +1418,19 @@ fn metadata_ids_beyond_the_table_bound_are_rejected_without_allocating() {
     for tag in [4, 5] {
         for id in [1 << 28, 1 << 40, u64::MAX] {
             assert!(
-                xplane::parse(&bytes(
-                    1,
-                    &[bytes(2, b"/host:CPU"), entry(tag, id, "x")].concat()
-                ))
-                .is_err(),
+                xplane::parse(&bytes(1, &[bytes(2, b"/host:CPU"), entry(tag, id, "x")].concat()))
+                    .is_err(),
                 "{tag} {id}"
             );
         }
     }
     let sparse = xplane::parse(&bytes(
         1,
-        &[
-            bytes(2, b"/host:CPU"),
-            entry(4, 1000, "x"),
-            entry(5, 81, "y"),
-        ]
-        .concat(),
+        &[bytes(2, b"/host:CPU"), entry(4, 1000, "x"), entry(5, 81, "y")].concat(),
     ))
     .unwrap();
     assert_eq!(
-        (
-            sparse[0].meta.len(),
-            &*sparse[0].meta[1000].name,
-            &*sparse[0].stat_names[81]
-        ),
+        (sparse[0].meta.len(), &*sparse[0].meta[1000].name, &*sparse[0].stat_names[81]),
         (1001, "x", "y")
     );
 }
@@ -1807,15 +1445,8 @@ fn events_with_undefined_metadata_resolve_to_an_empty_entry() {
             event(u64::from(u32::MAX) + 7, 4_000, 1_000, &[(9, 1)]),
         ]
         .concat();
-        let space = bytes(
-            1,
-            &[
-                bytes(2, plane.as_bytes()),
-                bytes(3, &line),
-                entry(4, 1, "op"),
-            ]
-            .concat(),
-        );
+        let space =
+            bytes(1, &[bytes(2, plane.as_bytes()), bytes(3, &line), entry(4, 1, "op")].concat());
         let planes = xplane::parse(&space).unwrap();
         assert_eq!(planes[0].meta.len(), 3);
         assert!(
@@ -1829,11 +1460,7 @@ fn events_with_undefined_metadata_resolve_to_an_empty_entry() {
     }
     let empty = bytes(
         1,
-        &[
-            bytes(2, b"/host:CPU"),
-            bytes(3, &[number(1, 1), event(0, 1, 1, &[])].concat()),
-        ]
-        .concat(),
+        &[bytes(2, b"/host:CPU"), bytes(3, &[number(1, 1), event(0, 1, 1, &[])].concat())].concat(),
     );
     assert_eq!(xplane::parse(&empty).unwrap()[0].meta.len(), 1);
 }
@@ -1853,15 +1480,8 @@ fn extreme_timestamps_saturate_at_parse() {
         )
     };
     let spans = |lines: &[Vec<u8>]| {
-        let space = bytes(
-            1,
-            &[
-                bytes(2, b"/device:TPU:0"),
-                lines.concat(),
-                entry(4, 1, "op"),
-            ]
-            .concat(),
-        );
+        let space =
+            bytes(1, &[bytes(2, b"/device:TPU:0"), lines.concat(), entry(4, 1, "op")].concat());
         render_space(&space, &EVERYTHING);
         op_stats_of(&space);
         xplane::parse(&space).unwrap()[0]
@@ -1881,20 +1501,15 @@ fn extreme_timestamps_saturate_at_parse() {
     );
     let epoch = 1_700_000_000_000_000_000;
     assert_eq!(
-        spans(&[
-            line(epoch, 7, 3),
-            line(0, 11, 2),
-            line(epoch + 1, 13, u64::MAX)
-        ]),
+        spans(&[line(epoch, 7, 3), line(0, 11, 2), line(epoch + 1, 13, u64::MAX)]),
         [(7, 3), (11, 2), (1013, u64::MAX - 1013)]
     );
 }
 
 #[test]
 fn deeply_nested_events_build_in_linear_time() {
-    let events: Vec<u8> = (0..200_000u64)
-        .flat_map(|depth| event(1, depth, 1_000_000 - 2 * depth, &[]))
-        .collect();
+    let events: Vec<u8> =
+        (0..200_000u64).flat_map(|depth| event(1, depth, 1_000_000 - 2 * depth, &[])).collect();
     let space = bytes(
         1,
         &[
@@ -1906,11 +1521,7 @@ fn deeply_nested_events_build_in_linear_time() {
     );
     let started = std::time::Instant::now();
     assert_eq!(host_of(&space).trace.events.len(), 200_000);
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(20),
-        "{:?}",
-        started.elapsed()
-    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(20), "{:?}", started.elapsed());
 }
 
 #[test]
@@ -1922,35 +1533,22 @@ fn hlo_split_copies_unmatched_fields_verbatim() {
         9u32.to_le_bytes().to_vec(),
     ]
     .concat();
-    let buf = [
-        number(1, 300),
-        bytes(2, b"a"),
-        fixed.clone(),
-        bytes(2, b"b"),
-        bytes(5, b"c"),
-    ]
-    .concat();
+    let buf =
+        [number(1, 300), bytes(2, b"a"), fixed.clone(), bytes(2, b"b"), bytes(5, b"c")].concat();
     let (rest, matched) = hlo::split(&buf, 2);
     assert_eq!(
         (rest, matched),
-        (
-            [number(1, 300), fixed, bytes(5, b"c")].concat(),
-            vec![&b"a"[..], b"b"]
-        )
+        ([number(1, 300), fixed, bytes(5, b"c")].concat(), vec![&b"a"[..], b"b"])
     );
     assert_eq!(hlo::split(&[0x02, 0x00, 0x0c], 2), (Vec::new(), Vec::new()));
 }
 
 #[test]
 fn lazily_decoded_stats_stop_at_malformed_bytes() {
-    let stats = [
-        bytes(4, &[number(1, 2), number(4, 5)].concat()),
-        vec![4 << 3 | 2, 3, 0x08, 0xff],
-    ]
-    .concat();
-    let found: Vec<(usize, Option<i64>)> = xplane::stats(&stats, 4, |_| true)
-        .map(|stat| (stat.id, stat.value.int()))
-        .collect();
+    let stats = [bytes(4, &[number(1, 2), number(4, 5)].concat()), vec![4 << 3 | 2, 3, 0x08, 0xff]]
+        .concat();
+    let found: Vec<(usize, Option<i64>)> =
+        xplane::stats(&stats, 4, |_| true).map(|stat| (stat.id, stat.value.int())).collect();
     assert_eq!(found, [(2, Some(5))]);
 }
 
@@ -1962,10 +1560,7 @@ async fn invalid_trace_numbers_session_paths_csv_and_graph_errors_answer_like_xp
         include_bytes!("../../tests/data/demo.xplane.pb"),
     )
     .unwrap();
-    let state = state(&Settings {
-        logdir: dir.clone(),
-        ..Default::default()
-    });
+    let state = state(&Settings { logdir: dir.clone(), ..Default::default() });
     let base = "/data/plugin/profile";
     let trace = format!("{base}/data?run=run/s&tag=trace_viewer@&host=tpu-vm-demo-host-0");
     for invalid in ["start_time_ms=invalid", "end_time_ms=", "resolution=x"] {
@@ -1976,61 +1571,35 @@ async fn invalid_trace_numbers_session_paths_csv_and_graph_errors_answer_like_xp
         );
     }
     for valid in ["start_time_ms=%205", "end_time_ms=1e3", "resolution=0"] {
-        assert_eq!(
-            fetch(&state, &format!("{trace}&{valid}")).await.0,
-            StatusCode::OK,
-            "{valid}"
-        );
+        assert_eq!(fetch(&state, &format!("{trace}&{valid}")).await.0, StatusCode::OK, "{valid}");
     }
     let sessions = dir.join("run/plugins/profile");
     assert_eq!(
-        fetch(
-            &state,
-            &format!("{base}/runs?run_path={}", sessions.display())
-        )
-        .await
-        .2,
+        fetch(&state, &format!("{base}/runs?run_path={}", sessions.display())).await.2,
         "[\"s\"]"
     );
     assert_eq!(
-        fetch(
-            &state,
-            &format!("{base}/runs?session_path={}", sessions.join("s").display())
-        )
-        .await
-        .2,
+        fetch(&state, &format!("{base}/runs?session_path={}", sessions.join("s").display()))
+            .await
+            .2,
         "[\"s\"]"
     );
     assert_eq!(
-        fetch(
-            &state,
-            &format!("{base}/runs?session_path={}", sessions.display())
-        )
-        .await
-        .2,
+        fetch(&state, &format!("{base}/runs?session_path={}", sessions.display())).await.2,
         "[]"
     );
     assert_eq!(
         fetch(
             &state,
-            &format!(
-                "{base}/hosts?run=s&run_path={}&tag=trace_viewer@",
-                sessions.display()
-            )
+            &format!("{base}/hosts?run=s&run_path={}&tag=trace_viewer@", sessions.display())
         )
         .await
         .2,
         "[{\"hostname\": \"tpu-vm-demo-host-0\"}]"
     );
-    let (status, _, message) = fetch(
-        &state,
-        &format!("{base}/data_csv?run=run/s&tag=memory_viewer&host=ALL_HOSTS"),
-    )
-    .await;
-    assert_eq!(
-        (status, message.as_str()),
-        (StatusCode::NOT_FOUND, "No Data Found")
-    );
+    let (status, _, message) =
+        fetch(&state, &format!("{base}/data_csv?run=run/s&tag=memory_viewer&host=ALL_HOSTS")).await;
+    assert_eq!((status, message.as_str()), (StatusCode::NOT_FOUND, "No Data Found"));
     let (status, _, message) = fetch(
         &state,
         &format!("{base}/data_csv?run=run/s&tag=trace_viewer@&host=tpu-vm-demo-host-0"),
@@ -2038,50 +1607,27 @@ async fn invalid_trace_numbers_session_paths_csv_and_graph_errors_answer_like_xp
     .await;
     assert_eq!(
         (status, message.as_str()),
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Data format not suitable for CSV (missing 'cols')"
-        )
+        (StatusCode::INTERNAL_SERVER_ERROR, "Data format not suitable for CSV (missing 'cols')")
     );
     let (status, _, modules) = fetch(&state, &format!("{base}/module_list?run=run/s")).await;
     assert_eq!(status, StatusCode::OK);
-    let module = modules
-        .split(',')
-        .next()
-        .unwrap()
-        .replace('(', "%28")
-        .replace(')', "%29");
+    let module = modules.split(',').next().unwrap().replace('(', "%28").replace(')', "%29");
     let graph = format!("{base}/data?run=run/s&host=ALL_HOSTS&tag=graph_viewer");
     for (query, message) in [
         (String::new(), "Can not load hlo proto from options."),
-        (
-            format!("&module_name={module}"),
-            "Graph viewer must provide a type option.",
-        ),
-        (
-            format!("&module_name={module}&type=bogus"),
-            "Unknown graph viewer type option: bogus",
-        ),
-        (
-            format!("&module_name={module}&type=graph"),
-            "node_name should not be empty",
-        ),
+        (format!("&module_name={module}"), "Graph viewer must provide a type option."),
+        (format!("&module_name={module}&type=bogus"), "Unknown graph viewer type option: bogus"),
+        (format!("&module_name={module}&type=graph"), "node_name should not be empty"),
         (
             format!("&module_name={module}&type=adj_nodes&node_name=nope"),
             "Couldn't find HloInstruction or HloComputation named nope.",
         ),
-        (
-            format!("&module_name={module}&type=json"),
-            "Not implemented",
-        ),
+        (format!("&module_name={module}&type=json"), "Not implemented"),
         (
             format!("&module_name={module}&type=custom_call_graph&node_name=x"),
             "Unknown graph viewer type option: custom_call_graph",
         ),
-        (
-            "&module_name=nope&type=short_txt".into(),
-            "nope.hlo_proto.pb; No such file or directory",
-        ),
+        ("&module_name=nope&type=short_txt".into(), "nope.hlo_proto.pb; No such file or directory"),
         (
             "&program_id=zzz&type=short_txt".into(),
             "HLO proto file containing program ID zzz not found in",
@@ -2124,50 +1670,31 @@ async fn routes_answer_at_the_root_and_under_the_plugin_prefix_and_generate_cach
     assert_eq!(fetch(&state, "/local").await.0, StatusCode::OK);
     let post = |uri: String| {
         app(state.clone()).oneshot(
-            axum::http::Request::builder()
-                .method("POST")
-                .uri(uri)
-                .body(Body::empty())
-                .unwrap(),
+            axum::http::Request::builder().method("POST").uri(uri).body(Body::empty()).unwrap(),
         )
     };
     assert_eq!(
         fetch(&state, "/generate_cache?session_path=x").await.0,
         StatusCode::METHOD_NOT_ALLOWED
     );
+    assert_eq!(post("/generate_cache".into()).await.unwrap().status(), StatusCode::BAD_REQUEST);
     assert_eq!(
-        post("/generate_cache".into()).await.unwrap().status(),
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        post(format!("/generate_cache?session_path={}", dir.display()))
-            .await
-            .unwrap()
-            .status(),
+        post(format!("/generate_cache?session_path={}", dir.display())).await.unwrap().status(),
         StatusCode::NOT_FOUND
     );
     let session = dir.join("run/plugins/profile/s");
     assert_eq!(
-        post(format!(
-            "/generate_cache?session_path={}&tools=bogus",
-            session.display()
-        ))
-        .await
-        .unwrap()
-        .status(),
+        post(format!("/generate_cache?session_path={}&tools=bogus", session.display()))
+            .await
+            .unwrap()
+            .status(),
         StatusCode::BAD_REQUEST
     );
-    let accepted = post(format!(
-        "/generate_cache?session_path={}",
-        session.display()
-    ))
-    .await
-    .unwrap();
+    let accepted =
+        post(format!("/generate_cache?session_path={}", session.display())).await.unwrap();
     assert_eq!(accepted.status(), StatusCode::ACCEPTED);
     assert_eq!(
-        &axum::body::to_bytes(accepted.into_body(), usize::MAX)
-            .await
-            .unwrap()[..],
+        &axum::body::to_bytes(accepted.into_body(), usize::MAX).await.unwrap()[..],
         b"{\"message\": \"Cache generation started\", \"status\": \"ACCEPTED\"}"
     );
     std::fs::remove_dir_all(&dir).unwrap();
@@ -2177,32 +1704,19 @@ async fn routes_answer_at_the_root_and_under_the_plugin_prefix_and_generate_cach
 async fn roofline_model_follows_the_host_selection() {
     let dir = logdir("roofline");
     for (host, space) in [
-        (
-            "a",
-            include_bytes!("../../tests/data/demo.xplane.pb").to_vec(),
-        ),
+        ("a", include_bytes!("../../tests/data/demo.xplane.pb").to_vec()),
         ("b", annotated_space()),
     ] {
-        std::fs::write(
-            dir.join(format!("run/plugins/profile/s/{host}.xplane.pb")),
-            space,
-        )
-        .unwrap();
+        std::fs::write(dir.join(format!("run/plugins/profile/s/{host}.xplane.pb")), space).unwrap();
     }
-    let state = state(&Settings {
-        logdir: dir.clone(),
-        ..Default::default()
-    });
+    let state = state(&Settings { logdir: dir.clone(), ..Default::default() });
     let uri =
         |host: &str| format!("/data/plugin/profile/data?run=run/s&tag=roofline_model&host={host}");
     let (status, _, combined) = fetch(&state, &uri("ALL_HOSTS")).await;
     assert_eq!(status, StatusCode::OK, "{combined}");
     let alone = served(
         "roofline-alone",
-        &[(
-            "a",
-            include_bytes!("../../tests/data/demo.xplane.pb").to_vec(),
-        )],
+        &[("a", include_bytes!("../../tests/data/demo.xplane.pb").to_vec())],
         "tag=roofline_model&host=a",
     )
     .await
@@ -2256,10 +1770,7 @@ async fn flows_of_hosts_with_different_hostnames_stay_apart_like_xprof() {
                 None
             }
         });
-        planes
-            .chain([bytes(4, hostname.as_bytes())])
-            .flatten()
-            .collect()
+        planes.chain([bytes(4, hostname.as_bytes())]).flatten().collect()
     };
     let flows = |body: &str| {
         let mut hosts: BTreeMap<i64, BTreeSet<i64>> = BTreeMap::new();
@@ -2268,30 +1779,16 @@ async fn flows_of_hosts_with_different_hostnames_stay_apart_like_xprof() {
             .unwrap()
         {
             if let Some(id) = event.get("bind_id").and_then(serde_json::Value::as_i64) {
-                hosts
-                    .entry(id)
-                    .or_default()
-                    .insert(event["pid"].as_i64().unwrap() / 1000);
+                hosts.entry(id).or_default().insert(event["pid"].as_i64().unwrap() / 1000);
             }
         }
-        hosts
-            .into_values()
-            .map(|hosts| hosts.len())
-            .collect::<Vec<_>>()
+        hosts.into_values().map(|hosts| hosts.len()).collect::<Vec<_>>()
     };
     let query = "tag=trace_viewer@&hosts=a,b&resolution=0";
-    let (status, _, apart) = served(
-        "flows-apart",
-        &[("a", named("host-a")), ("b", named("host-b"))],
-        query,
-    )
-    .await;
-    let (_, _, merged) = served(
-        "flows-merged",
-        &[("a", named("host")), ("b", named("host"))],
-        query,
-    )
-    .await;
+    let (status, _, apart) =
+        served("flows-apart", &[("a", named("host-a")), ("b", named("host-b"))], query).await;
+    let (_, _, merged) =
+        served("flows-merged", &[("a", named("host")), ("b", named("host"))], query).await;
     let (apart, merged) = (flows(&apart), flows(&merged));
     assert!(
         status == StatusCode::OK && !merged.is_empty() && apart.len() == 2 * merged.len(),

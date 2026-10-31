@@ -66,20 +66,8 @@ const INPUT: usize = 3;
 const COLLECTIVES: usize = 7;
 const KERNEL_LAUNCH: usize = 9;
 const GENERIC_COLUMNS: [(&str, &str, &str, &str, usize); 9] = [
-    (
-        "deviceComputeTimeMs",
-        "Device compute",
-        "device_compute_time_ms",
-        "Device compute",
-        5,
-    ),
-    (
-        "deviceToDeviceTimeMs",
-        "Device to device",
-        "device_to_device_time_ms",
-        "Device to device",
-        6,
-    ),
+    ("deviceComputeTimeMs", "Device compute", "device_compute_time_ms", "Device compute", 5),
+    ("deviceToDeviceTimeMs", "Device to device", "device_to_device_time_ms", "Device to device", 6),
     (
         "deviceCollectivesTimeMs",
         "Device collective communication",
@@ -87,13 +75,7 @@ const GENERIC_COLUMNS: [(&str, &str, &str, &str, usize); 9] = [
         "Device collectives",
         COLLECTIVES,
     ),
-    (
-        "hostComputeTimeMs",
-        "Host compute",
-        "host_compute_time_ms",
-        "Host compute",
-        8,
-    ),
+    ("hostComputeTimeMs", "Host compute", "host_compute_time_ms", "Host compute", 8),
     (
         "kernelLaunchTimeMs",
         "Kernel launch",
@@ -103,80 +85,25 @@ const GENERIC_COLUMNS: [(&str, &str, &str, &str, usize); 9] = [
     ),
     ("infeedTimeMs", "Input", "infeed_time_ms", "Input", INPUT),
     ("outfeedTimeMs", "Output", "outfeed_time_ms", "Output", 4),
-    (
-        "compileTimeMs",
-        "Compilation",
-        "compile_time_ms",
-        "Compilation",
-        10,
-    ),
-    (
-        "otherTimeMs",
-        "All others",
-        "other_time_ms",
-        "All others",
-        OTHER,
-    ),
+    ("compileTimeMs", "Compilation", "compile_time_ms", "Compilation", 10),
+    ("otherTimeMs", "All others", "other_time_ms", "All others", OTHER),
 ];
 const TPU_COLUMNS: [(&str, &str, &str, usize); 7] = [
-    (
-        "tcComputeTimeMs",
-        "TensorCore compute (in ms)",
-        "tc_compute_ms_average",
-        TC_COMPUTE,
-    ),
-    (
-        "scv0ComputeTimeMs",
-        "SparseCoreV0 compute (in ms)",
-        "scv0_compute_ms_average",
-        SCV0_COMPUTE,
-    ),
-    (
-        "scv0InfeedTimeMs",
-        "SparseCoreV0 input (in ms)",
-        "scv0_infeed_ms_average",
-        SCV0_INFEED,
-    ),
-    (
-        "tcInfeedTimeMs",
-        "TensorCore input (in ms)",
-        "tc_infeed_ms_average",
-        TC_INFEED,
-    ),
-    (
-        "tcOutfeedTimeMs",
-        "TensorCore output (in ms)",
-        "tc_outfeed_ms_average",
-        TC_OUTFEED,
-    ),
-    (
-        "tcIdleTimeMs",
-        "TensorCore idle (in ms)",
-        "tc_idle_ms_average",
-        TC_IDLE,
-    ),
-    (
-        "hostTransferTimeMs",
-        "Host transfer (in ms)",
-        "host_transfer_ms_average",
-        HOST_TRANSFER,
-    ),
+    ("tcComputeTimeMs", "TensorCore compute (in ms)", "tc_compute_ms_average", TC_COMPUTE),
+    ("scv0ComputeTimeMs", "SparseCoreV0 compute (in ms)", "scv0_compute_ms_average", SCV0_COMPUTE),
+    ("scv0InfeedTimeMs", "SparseCoreV0 input (in ms)", "scv0_infeed_ms_average", SCV0_INFEED),
+    ("tcInfeedTimeMs", "TensorCore input (in ms)", "tc_infeed_ms_average", TC_INFEED),
+    ("tcOutfeedTimeMs", "TensorCore output (in ms)", "tc_outfeed_ms_average", TC_OUTFEED),
+    ("tcIdleTimeMs", "TensorCore idle (in ms)", "tc_idle_ms_average", TC_IDLE),
+    ("hostTransferTimeMs", "Host transfer (in ms)", "host_transfer_ms_average", HOST_TRANSFER),
 ];
 const HOST_COLUMNS: [(&str, &str, &str); 7] = [
     ("opName", "string", "Input Op"),
     ("count", "number", "Count"),
     ("timeInMs", "number", "Total Time (in ms)"),
-    (
-        "timeInPercent",
-        "number",
-        "Total Time (as % of total input-processing time)",
-    ),
+    ("timeInPercent", "number", "Total Time (as % of total input-processing time)"),
     ("selfTimeInMs", "number", "Total Self Time (in ms)"),
-    (
-        "selfTimeInPercent",
-        "number",
-        "Total Self Time (as % of total input-processing time)",
-    ),
+    ("selfTimeInPercent", "number", "Total Self Time (as % of total input-processing time)"),
     ("category", "string", "Category"),
 ];
 const INPUT_TIMES: [&str; 5] = [
@@ -187,28 +114,12 @@ const INPUT_TIMES: [&str; 5] = [
     "unclassified_nonequeue_us",
 ];
 const SUMMARY: [&str; 4] = ["average", "standard_deviation", "minimum", "maximum"];
-const INPUT_CATEGORIES: [&str; 5] = [
-    "Enqueue",
-    "Demanded file read",
-    "Advanced file read",
-    "Preprocessing",
-    "Unknown",
-];
-const FILE_READERS: [&str; 6] = [
-    "::TFRecord",
-    "::TextLine",
-    "::FixedLengthRecord",
-    "::SSTable",
-    "::RecordIO",
-    "::ArrayRecord",
-];
-const ADVANCED_READERS: [&str; 5] = [
-    "::MemoryReader",
-    "::MemoryWriter",
-    "::Interleave",
-    "::Prefetch",
-    "::ParallelMap",
-];
+const INPUT_CATEGORIES: [&str; 5] =
+    ["Enqueue", "Demanded file read", "Advanced file read", "Preprocessing", "Unknown"];
+const FILE_READERS: [&str; 6] =
+    ["::TFRecord", "::TextLine", "::FixedLengthRecord", "::SSTable", "::RecordIO", "::ArrayRecord"];
+const ADVANCED_READERS: [&str; 5] =
+    ["::MemoryReader", "::MemoryWriter", "::Interleave", "::Prefetch", "::ParallelMap"];
 
 pub(crate) fn hardware(device_type: &str) -> u8 {
     match device_type {
@@ -243,11 +154,8 @@ fn summary(values: impl Iterator<Item = f64>) -> [f64; 4] {
     if count == 0 {
         return [0.0; 4];
     }
-    let variance = if min == max {
-        0.0
-    } else {
-        (squared - sum * sum / count as f64) / (count - 1) as f64
-    };
+    let variance =
+        if min == max { 0.0 } else { (squared - sum * sum / count as f64) / (count - 1) as f64 };
     [sum / count as f64, variance.sqrt(), min, max]
 }
 
@@ -292,20 +200,14 @@ pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> Tpu
         record.collectives.get(&core).into_iter().flatten().fold(
             (0u64, 0u64),
             |(compute, sync), reduce| {
-                let (duration, min) = (
-                    reduce.2.wrapping_sub(reduce.1),
-                    minimum.get(&reduce.0).copied().unwrap_or(0),
-                );
+                let (duration, min) =
+                    (reduce.2.wrapping_sub(reduce.1), minimum.get(&reduce.0).copied().unwrap_or(0));
                 (compute.wrapping_add(min), sync.wrapping_add(duration - min))
             },
         )
     };
     let mut step = TpuStep {
-        step_number: if record.cores.is_empty() {
-            -1
-        } else {
-            record.num as i32
-        },
+        step_number: if record.cores.is_empty() { -1 } else { record.num as i32 },
         ..Default::default()
     };
     let mut infeed_percent = Vec::new();
@@ -331,12 +233,9 @@ pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> Tpu
             .filter(|(category, _)| *category != IDLE)
             .map(|(category, time)| (category.as_str(), *time))
             .collect();
-        let total: u64 = categories
-            .values()
-            .fold(0u64, |sum, value| sum.wrapping_add(*value));
-        if let Some(bc_infeed) = categories
-            .remove("sparsecorev0 infeed")
-            .filter(|value| *value != 0)
+        let total: u64 = categories.values().fold(0u64, |sum, value| sum.wrapping_add(*value));
+        if let Some(bc_infeed) =
+            categories.remove("sparsecorev0 infeed").filter(|value| *value != 0)
         {
             let transform =
                 bc_infeed.min(categories.get("sparsecorev0 outfeed").copied().unwrap_or(0));
@@ -344,11 +243,8 @@ pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> Tpu
             categories.insert("sparsecorev0 infeed transform", transform);
         }
         let get = |name: &str| categories.get(name).copied().unwrap_or(0);
-        let (infeed, outfeed, wait_scv0) = (
-            get("infeed"),
-            get("outfeed"),
-            get("sparsecorev0 infeed wait"),
-        );
+        let (infeed, outfeed, wait_scv0) =
+            (get("infeed"), get("outfeed"), get("sparsecorev0 infeed wait"));
         let send_recv =
             get("host send") + get("host send-done") + get("host recv") + get("host recv-done");
         let tc_idle = info.duration.wrapping_sub(total);
@@ -376,10 +272,10 @@ pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> Tpu
         }
     }
     step.fields[TC_INFEED] = ms(max_infeed.1);
-    step.core_name = max_infeed.0.and_then(|core| cores.get(&core)).map_or_else(
-        || "unknown".into(),
-        |core| format!("{}:{}", core.hostname, core.ordinal),
-    );
+    step.core_name = max_infeed
+        .0
+        .and_then(|core| cores.get(&core))
+        .map_or_else(|| "unknown".into(), |core| format!("{}:{}", core.hostname, core.ordinal));
     step.fields[SCV0_COMPUTE] = ms(max_scv0);
     if tc_count > 0 {
         step.fields[TC_OUTFEED] = ms((outfeed_sum as f64 / tc_count as f64) as u64);
@@ -409,9 +305,7 @@ pub struct Analysis {
 }
 
 fn summarize<const N: usize>(rows: &(impl Iterator<Item = [f64; N]> + Clone)) -> Vec<[f64; 4]> {
-    (0..N)
-        .map(|index| summary(rows.clone().map(|row| row[index])))
-        .collect()
+    (0..N).map(|index| summary(rows.clone().map(|row| row[index]))).collect()
 }
 
 fn input_analysis(input_percent: f64, all_other_percent: f64) -> (String, String, bool) {
@@ -435,16 +329,10 @@ fn host_result(host: &Db, enqueue: (u64, u64), fallback_ratio: f64) -> (Table, [
         category.starts_with("InfeedEnqueue")
             || category == "Dataset"
             || category == "MemcpyHToD"
-            || matches!(
-                lower.as_str(),
-                "enqueue" | "read" | "preprocessing" | "unknown"
-            )
+            || matches!(lower.as_str(), "enqueue" | "read" | "preprocessing" | "unknown")
     };
-    let selected: Vec<_> = host
-        .sorted()
-        .into_iter()
-        .filter(|metrics| input_op(&metrics.category))
-        .collect();
+    let selected: Vec<_> =
+        host.sorted().into_iter().filter(|metrics| input_op(&metrics.category)).collect();
     if selected.is_empty() {
         return (table, [0.0; 5]);
     }
@@ -461,15 +349,8 @@ fn host_result(host: &Db, enqueue: (u64, u64), fallback_ratio: f64) -> (Table, [
             {
                 0
             }
-            _ if FILE_READERS
-                .iter()
-                .any(|suffix| metrics.name.ends_with(suffix)) =>
-            {
-                1 + usize::from(
-                    ADVANCED_READERS
-                        .iter()
-                        .any(|part| metrics.name.contains(part)),
-                )
+            _ if FILE_READERS.iter().any(|suffix| metrics.name.ends_with(suffix)) => {
+                1 + usize::from(ADVANCED_READERS.iter().any(|part| metrics.name.contains(part)))
             }
             _ => 3,
         };
@@ -494,17 +375,11 @@ fn host_result(host: &Db, enqueue: (u64, u64), fallback_ratio: f64) -> (Table, [
         fallback_ratio
     }
     .min(1.0);
-    let non_enqueue = if ratio == 0.0 {
-        total_input_us
-    } else {
-        enqueue_us * (1.0 - ratio) / ratio
-    };
+    let non_enqueue =
+        if ratio == 0.0 { total_input_us } else { enqueue_us * (1.0 - ratio) / ratio };
     let scaled = |value: f64| safe_divide(non_enqueue * value, total_input_us);
-    let (demanded, advanced, preprocessing) = (
-        scaled(aggregated[1]),
-        scaled(aggregated[2]),
-        scaled(aggregated[3]),
-    );
+    let (demanded, advanced, preprocessing) =
+        (scaled(aggregated[1]), scaled(aggregated[2]), scaled(aggregated[3]));
     (
         table,
         [
@@ -533,11 +408,8 @@ fn tpu_steps(
 ) -> ([(String, String); 4], String) {
     let (two, one) = (|value: f64| fixed(value, 2), |value: f64| fixed(value, 1));
     let has_sparse_core = extra.cores.values().any(|core| core.sparse);
-    let tpu_steps: Vec<TpuStep> = extra
-        .steps
-        .iter()
-        .map(|record| tpu_step_details(record, &extra.cores))
-        .collect();
+    let tpu_steps: Vec<TpuStep> =
+        extra.steps.iter().map(|record| tpu_step_details(record, &extra.cores)).collect();
     let breakdown = summarize(&tpu_steps.iter().map(|step| step.fields));
     let input_percent = summary(tpu_steps.iter().map(|step| step.infeed_percent[2]));
     let columns: Vec<_> = TPU_COLUMNS
@@ -548,24 +420,11 @@ fn tpu_steps(
     for (id, label, _, _) in &columns {
         steps.column(id, "number", label);
     }
-    let ids: Vec<&str> = steps
-        .columns
-        .iter()
-        .map(|column| column.0.as_str())
-        .chain(["tooltip"])
-        .collect();
+    let ids: Vec<&str> =
+        steps.columns.iter().map(|column| column.0.as_str()).chain(["tooltip"]).collect();
     steps.prop("step_time_graph_column_ids", ids.join(","));
-    steps.columns.push((
-        "tooltip".into(),
-        "string",
-        "tooltip".into(),
-        Some("tooltip"),
-    ));
-    steps.column(
-        "infeedPercentAverage",
-        "number",
-        "% step time waiting for input data",
-    );
+    steps.columns.push(("tooltip".into(), "string", "tooltip".into(), Some("tooltip")));
+    steps.column("infeedPercentAverage", "number", "% step time waiting for input data");
     steps.columns.push((
         "infeedPercentMin".into(),
         "number",
@@ -605,11 +464,7 @@ fn tpu_steps(
         );
         let row = steps.row();
         row.push(Cell::Text(step.step_number.to_string()));
-        row.extend(
-            columns
-                .iter()
-                .map(|column| Cell::Number(step.fields[column.3])),
-        );
+        row.extend(columns.iter().map(|column| Cell::Number(step.fields[column.3])));
         row.push(Cell::Text(tooltip));
         row.extend(step.infeed_percent.map(Cell::Number));
     }
@@ -617,25 +472,14 @@ fn tpu_steps(
     for index in 0..tpu_steps.len() {
         cores.column(&index.to_string(), "string", &index.to_string());
     }
-    let numbers = tpu_steps
-        .iter()
-        .map(|step| Cell::Text(step.step_number.to_string()));
-    let names = tpu_steps
-        .iter()
-        .map(|step| Cell::Text(step.core_name.clone()));
+    let numbers = tpu_steps.iter().map(|step| Cell::Text(step.step_number.to_string()));
+    let names = tpu_steps.iter().map(|step| Cell::Text(step.core_name.clone()));
     cores.rows = vec![
-        std::iter::once(Cell::Text("Step number".into()))
-            .chain(numbers)
-            .collect(),
-        std::iter::once(Cell::Text("Core name".into()))
-            .chain(names)
-            .collect(),
+        std::iter::once(Cell::Text("Step number".into())).chain(numbers).collect(),
+        std::iter::once(Cell::Text("Core name".into())).chain(names).collect(),
     ];
     let sum = |field: fn(&TpuStep) -> f64| {
-        tpu_steps
-            .iter()
-            .map(field)
-            .fold(0.0, |sum, value| sum + value)
+        tpu_steps.iter().map(field).fold(0.0, |sum, value| sum + value)
     };
     let total = sum(TpuStep::step_ms);
     let (classification, input_statement, _) = if total == 0.0 {
@@ -648,19 +492,9 @@ fn tpu_steps(
         .iter()
         .find(|(threshold, _)| total != 0.0 && outfeed_percent >= *threshold)
         .map_or("", |(_, text)| text);
-    steps.prop(
-        "output_conclusion",
-        output.replace("{}", &fixed(outfeed_percent, 1)),
-    );
+    steps.prop("output_conclusion", output.replace("{}", &fixed(outfeed_percent, 1)));
     steps.prop("input_conclusion", input_statement);
-    (
-        if tpu_steps.is_empty() {
-            unknown()
-        } else {
-            Default::default()
-        },
-        classification,
-    )
+    (if tpu_steps.is_empty() { unknown() } else { Default::default() }, classification)
 }
 
 fn generic_steps_table(
@@ -671,16 +505,9 @@ fn generic_steps_table(
     tf_data: bool,
 ) -> ([(String, String); 4], String) {
     let (two, one) = (|value: f64| fixed(value, 2), |value: f64| fixed(value, 1));
-    let total: f64 = generic_steps
-        .iter()
-        .map(|step| step.1)
-        .fold(0.0, |sum, value| sum + value);
+    let total: f64 = generic_steps.iter().map(|step| step.1).fold(0.0, |sum, value| sum + value);
     let percent = |index: usize| {
-        100.0
-            * generic_steps
-                .iter()
-                .map(|step| step.2[index])
-                .fold(0.0, |sum, value| sum + value)
+        100.0 * generic_steps.iter().map(|step| step.2[index]).fold(0.0, |sum, value| sum + value)
             / total
     };
     let assess = |percent: f64, reported: bool, name: &str, suffix: &str| match percent {
@@ -712,30 +539,16 @@ fn generic_steps_table(
                 "All Others",
                 " time. This could be due to Python execution overhead.",
             ),
-            assess(
-                percent(COLLECTIVES),
-                false,
-                "Device Collective Communication",
-                ".",
-            ),
+            assess(percent(COLLECTIVES), false, "Device Collective Communication", "."),
         ]
     };
     steps.column("stepnum", "string", "Step number");
     for (id, label, _, _, _) in GENERIC_COLUMNS {
         steps.column(id, "number", label);
     }
-    let ids: Vec<&str> = steps
-        .columns
-        .iter()
-        .map(|column| column.0.as_str())
-        .collect();
+    let ids: Vec<&str> = steps.columns.iter().map(|column| column.0.as_str()).collect();
     steps.prop("step_time_graph_column_ids", ids.join(",") + ", tooltip");
-    steps.columns.push((
-        "tooltip".into(),
-        "string",
-        "tooltip".into(),
-        Some("tooltip"),
-    ));
+    steps.columns.push(("tooltip".into(), "string", "tooltip".into(), Some("tooltip")));
     steps.column("stepTimeMs", "number", "Step time");
     for (name, value) in SUMMARY.iter().zip(step_summary) {
         steps.prop(&format!("steptime_ms_{name}"), one(value));
@@ -757,11 +570,7 @@ fn generic_steps_table(
         }
         let row = steps.row();
         row.push(Cell::Text(name.clone()));
-        row.extend(
-            GENERIC_COLUMNS
-                .iter()
-                .map(|column| Cell::Number(values[column.4])),
-        );
+        row.extend(GENERIC_COLUMNS.iter().map(|column| Cell::Number(values[column.4])));
         row.extend([Cell::Text(tooltip), Cell::Number(*step_time)]);
     }
     let classification = bottleneck[0].0.clone();
@@ -786,19 +595,15 @@ pub fn analyze(stats: &OpStats) -> Analysis {
         (true, false) => vec![NO_STEP_MARKER.to_string()],
     };
     let mut generic_steps: Vec<(String, f64, [f64; 11])> = Vec::new();
-    for (record, info) in extra
-        .steps
-        .iter()
-        .filter_map(|record| Some((record, record.cores.get(&1)?)))
+    for (record, info) in
+        extra.steps.iter().filter_map(|record| Some((record, record.cores.get(&1)?)))
     {
         let Breakdown::Types(types) = &info.breakdown else {
             continue;
         };
         let time = |kind: u32| ms(types.get(&kind).copied().unwrap_or(0));
-        let (wait, to_device) = (
-            time(HOST_WAIT_INPUT),
-            time(HOST_TO_DEVICE) + time(DEVICE_WAIT_HOST),
-        );
+        let (wait, to_device) =
+            (time(HOST_WAIT_INPUT), time(HOST_TO_DEVICE) + time(DEVICE_WAIT_HOST));
         let values = [
             time(UNKNOWN_TIME),
             wait,
@@ -813,11 +618,7 @@ pub fn analyze(stats: &OpStats) -> Analysis {
             time(HOST_COMPILE),
         ];
         generic_steps.push((
-            if info.name.is_empty() {
-                record.num.to_string()
-            } else {
-                info.name.clone()
-            },
+            if info.name.is_empty() { record.num.to_string() } else { info.name.clone() },
             ms(info.duration),
             values,
         ));
@@ -837,13 +638,7 @@ pub fn analyze(stats: &OpStats) -> Analysis {
     let (bottleneck, classification) = if tpu {
         tpu_steps(extra, &mut steps, &mut cores, step_summary)
     } else {
-        generic_steps_table(
-            &mut steps,
-            &generic_steps,
-            &generic_breakdown,
-            step_summary,
-            tf_data,
-        )
+        generic_steps_table(&mut steps, &generic_steps, &generic_breakdown, step_summary, tf_data)
     };
     let next_step = match classification.as_str() {
         "host" | "both" if tf_data => {
@@ -853,20 +648,12 @@ pub fn analyze(stats: &OpStats) -> Analysis {
         _ => "You may skip the rest of this page.",
     };
     steps.prop("summary_nextstep", next_step);
-    Analysis {
-        cores,
-        host,
-        steps,
-        bottleneck,
-        warnings,
-    }
+    Analysis { cores, host, steps, bottleneck, warnings }
 }
 
 pub fn diagnostics_table(warnings: &[String], errors: &[String]) -> Table {
-    let mut table = Table::new(&[
-        ("severity", "string", "Severity"),
-        ("message", "string", "Message"),
-    ]);
+    let mut table =
+        Table::new(&[("severity", "string", "Severity"), ("message", "string", "Message")]);
     for (severity, messages) in [("WARNING", warnings), ("ERROR", errors)] {
         table.rows.extend(
             messages
@@ -880,10 +667,8 @@ pub fn diagnostics_table(warnings: &[String], errors: &[String]) -> Table {
 pub fn json(stats: &OpStats) -> String {
     let analysis = analyze(stats);
     let mut recommendation = Table::new(&[("link", "string", "link")]);
-    recommendation.rows = RECOMMENDATIONS
-        .iter()
-        .map(|detail| vec![Cell::Text(detail.to_string())])
-        .collect();
+    recommendation.rows =
+        RECOMMENDATIONS.iter().map(|detail| vec![Cell::Text(detail.to_string())]).collect();
     format!(
         "[{},{},{},{},{}]",
         analysis.cores.json(),

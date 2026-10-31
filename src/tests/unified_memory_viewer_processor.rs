@@ -18,13 +18,9 @@ fn process_hlo_json_test() {
 
 #[test]
 fn process_hlo_html_test() {
-    let (data, content_type) = render(
-        &module(&hlo_proto(r#"hlo_module { name: "test_module" }"#)),
-        0,
-        SMALL_BUFFER,
-        true,
-    )
-    .unwrap();
+    let (data, content_type) =
+        render(&module(&hlo_proto(r#"hlo_module { name: "test_module" }"#)), 0, SMALL_BUFFER, true)
+            .unwrap();
     assert_eq!(content_type, "text/html");
     assert!(!data.is_empty());
 }

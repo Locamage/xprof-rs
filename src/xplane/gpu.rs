@@ -48,16 +48,8 @@ const KERNEL_COLUMNS: [(&str, &str, &str); 15] = [
     ("block_dim", "string", "Block dim"),
     ("grid_dim", "string", "Grid dim"),
     ("occupancy_pct", "number", "Theoretical Occupancy %"),
-    (
-        "is_op_tensor_core_eligible",
-        "boolean",
-        "Op is TensorCore eligible",
-    ),
-    (
-        "is_kernel_using_tensor_core",
-        "boolean",
-        "Kernel uses TensorCore",
-    ),
+    ("is_op_tensor_core_eligible", "boolean", "Op is TensorCore eligible"),
+    ("is_kernel_using_tensor_core", "boolean", "Kernel uses TensorCore"),
     ("op_name", "string", "Op Name"),
     ("occurrences", "number", "Occurrences"),
     ("total_duration_us", "number", "Total Duration (\u{3bc}s)"),
@@ -108,14 +100,8 @@ pub struct Info {
 
 pub type Infos = FxHashMap<u64, FxHashMap<String, Info>>;
 type Names = FxHashMap<u64, FxHashSet<String>>;
-type Launch<'a> = (
-    u32,
-    Cow<'a, str>,
-    Cow<'a, str>,
-    Cow<'a, str>,
-    Option<u64>,
-    Option<Cow<'a, str>>,
-);
+type Launch<'a> =
+    (u32, Cow<'a, str>, Cow<'a, str>, Cow<'a, str>, Option<u64>, Option<Cow<'a, str>>);
 
 pub struct Scanner<'a> {
     plane: &'a Plane,
@@ -191,16 +177,10 @@ struct Launches<'a> {
 }
 
 pub fn devices(planes: &[Plane]) -> Vec<&Plane> {
-    if planes
-        .iter()
-        .any(|plane| plane.name.starts_with("/device:TPU:"))
-    {
+    if planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) {
         return Vec::new();
     }
-    planes
-        .iter()
-        .filter(|plane| plane.name.starts_with(PREFIX))
-        .collect()
+    planes.iter().filter(|plane| plane.name.starts_with(PREFIX)).collect()
 }
 
 impl<'a> Scanner<'a> {
@@ -221,10 +201,7 @@ impl<'a> Scanner<'a> {
         }) {
             values[self.slots[stat.id] as usize] = Some(stat.value);
         }
-        Stats {
-            plane: self.plane,
-            values,
-        }
+        Stats { plane: self.plane, values }
     }
 }
 
@@ -234,9 +211,7 @@ impl<'a> Stats<'a> {
     }
 
     pub fn text(&self, slot: usize) -> Cow<'a, str> {
-        self.values[slot]
-            .as_ref()
-            .map_or(Cow::Borrowed(""), |value| self.plane.text_cow(value))
+        self.values[slot].as_ref().map_or(Cow::Borrowed(""), |value| self.plane.text_cow(value))
     }
 
     pub fn int(&self, slot: usize) -> Option<i64> {
@@ -248,13 +223,11 @@ impl<'a> Stats<'a> {
     }
 
     pub fn unsigned(&self, slot: usize) -> Option<u64> {
-        self.values[slot].as_ref().map(|value| {
-            if let Value::Uint(value) = value {
-                *value
-            } else {
-                0
-            }
-        })
+        self.values[slot].as_ref().map(
+            |value| {
+                if let Value::Uint(value) = value { *value } else { 0 }
+            },
+        )
     }
 
     pub fn program(&self) -> Option<u64> {
@@ -280,11 +253,8 @@ pub fn groups(plane: &Plane, map: &[u8]) -> Vec<Vec<Option<i64>>> {
             Some(event.group)
         }
     };
-    let mut result: Vec<Vec<Option<i64>>> = plane
-        .lines
-        .iter()
-        .map(|line| line.events.iter().map(own).collect())
-        .collect();
+    let mut result: Vec<Vec<Option<i64>>> =
+        plane.lines.iter().map(|line| line.events.iter().map(own).collect()).collect();
     if id.is_none() && result.iter().flatten().all(Option::is_none) {
         return result;
     }
@@ -314,17 +284,9 @@ pub fn groups(plane: &Plane, map: &[u8]) -> Vec<Vec<Option<i64>>> {
 fn caps(plane: &Plane) -> Caps {
     let mut caps = Caps::default();
     for (name, value) in &plane.own {
-        let number = if let Own::Int(number) = value {
-            *number as u64
-        } else {
-            0
-        };
+        let number = if let Own::Int(number) = value { *number as u64 } else { 0 };
         let text = || {
-            if let Own::Text(text) = value {
-                text.clone()
-            } else {
-                String::new()
-            }
+            if let Own::Text(text) = value { text.clone() } else { String::new() }
         };
         match &**name {
             "clock_rate" => caps.clock_ghz = number as f64 / 1000000.0,
@@ -355,10 +317,7 @@ fn gfx_version(caps: &Caps) -> &str {
 }
 
 fn max_scaled(values: [f64; 4], clock: f64) -> f64 {
-    values
-        .into_iter()
-        .map(|value| value * clock)
-        .fold(f64::MIN, f64::max)
+    values.into_iter().map(|value| value * clock).fold(f64::MIN, f64::max)
 }
 
 fn flops_per_core(caps: &Caps) -> f64 {
@@ -383,12 +342,7 @@ fn flops_per_core(caps: &Caps) -> f64 {
 fn shared_memory_per_core(caps: &Caps) -> f64 {
     match caps.vendor.as_str() {
         "Nvidia" => {
-            (if caps.major <= 2 {
-                32.0 * 4.0 / 2.0
-            } else {
-                32.0 * 8.0
-            }) * caps.clock_ghz
-                * 1e9
+            (if caps.major <= 2 { 32.0 * 4.0 / 2.0 } else { 32.0 * 8.0 }) * caps.clock_ghz * 1e9
         }
         "AMD" => match ROCM.iter().find(|(name, _, _)| *name == gfx_version(caps)) {
             Some((_, _, bytes)) if *bytes > 0.0 => bytes * caps.clock_ghz * 1e9,
@@ -437,22 +391,14 @@ pub fn perf_env(plane: &Plane) -> Perf {
     }
     let hbm = caps.bandwidth as f64 / 1e9;
     let shared = caps.cores as f64 * (shared_memory_per_core(&caps) / 1e9);
-    let sram = |name: &str| {
-        Some(plane.own_double(name))
-            .filter(|&value| value > 0.0)
-            .unwrap_or(shared)
-    };
+    let sram =
+        |name: &str| Some(plane.own_double(name)).filter(|&value| value > 0.0).unwrap_or(shared);
     let bandwidths = vec![
         hbm,
         sram("peak_sram_rd_bw_gigabytes_per_second"),
         sram("peak_sram_wr_bw_gigabytes_per_second"),
     ];
-    Perf {
-        peak_tera_flops,
-        ridge_point: peak_tera_flops * 1e3 / hbm,
-        bandwidths,
-        cmem: false,
-    }
+    Perf { peak_tera_flops, ridge_point: peak_tera_flops * 1e3 / hbm, bandwidths, cmem: false }
 }
 
 pub fn tf_op_fullname(kind: &str, name: &str) -> String {
@@ -467,11 +413,7 @@ fn stack(module: &Module, mut frame: i32) -> String {
     let index = msg(&module.proto.stack_frame_index);
     let mut out = String::new();
     let get = |list: &[String], id: i32| {
-        usize::try_from(id - 1)
-            .ok()
-            .and_then(|id| list.get(id))
-            .cloned()
-            .unwrap_or_default()
+        usize::try_from(id - 1).ok().and_then(|id| list.get(id)).cloned().unwrap_or_default()
     };
     for _ in 0..index.stack_frames.len() {
         let Some(entry) = usize::try_from(frame)
@@ -521,10 +463,7 @@ fn source(module: &Module, metadata: &crate::hlo::xla::OpMetadata) -> Source {
             stack: frames.as_str().into(),
         };
     }
-    Source {
-        line: -1,
-        ..Default::default()
-    }
+    Source { line: -1, ..Default::default() }
 }
 
 fn wanted(devices: &[&Plane], map: &[u8]) -> Names {
@@ -533,11 +472,8 @@ fn wanted(devices: &[&Plane], map: &[u8]) -> Names {
         .map(|plane| {
             let scanner = Scanner::new(plane, map);
             let mut found = Names::default();
-            for event in plane
-                .lines
-                .iter()
-                .filter(|line| !is_derived(line.id))
-                .flat_map(|line| &line.events)
+            for event in
+                plane.lines.iter().filter(|line| !is_derived(line.id)).flat_map(|line| &line.events)
             {
                 let stats = scanner.scan(event);
                 if let (Some(program), Some(name)) = (stats.program(), stats.hlo_op()) {
@@ -594,10 +530,8 @@ pub fn infos(planes: &[Plane], map: &[u8], devices: &[&Plane]) -> Infos {
             for (node, entry) in module.nodes.iter().enumerate() {
                 index.entry(entry.name.as_str()).or_insert(node);
             }
-            let nodes: Vec<(&String, usize)> = names
-                .iter()
-                .filter_map(|name| Some((name, *index.get(name.as_str())?)))
-                .collect();
+            let nodes: Vec<(&String, usize)> =
+                names.iter().filter_map(|name| Some((name, *index.get(name.as_str())?))).collect();
             let (costs, mut found) = rayon::join(
                 || costs(&module),
                 || {
@@ -648,24 +582,19 @@ impl<'a> Builder<'a> {
         metrics.self_time_ps += op.duration;
         let cost = info.cost.as_ref();
         let (flops, bytes) = (op.flops as i64, op.bytes as i64);
-        let device_flops = cost
-            .filter(|cost| cost.device_flops > 0)
-            .map_or(flops, |cost| cost.device_flops);
-        let bytes = cost
-            .filter(|cost| cost.bytes_accessed > 0)
-            .map_or(bytes, |cost| cost.bytes_accessed);
-        let model = cost
-            .filter(|cost| cost.model_flops > 0)
-            .map_or(flops, |cost| cost.model_flops);
+        let device_flops =
+            cost.filter(|cost| cost.device_flops > 0).map_or(flops, |cost| cost.device_flops);
+        let bytes =
+            cost.filter(|cost| cost.bytes_accessed > 0).map_or(bytes, |cost| cost.bytes_accessed);
+        let model = cost.filter(|cost| cost.model_flops > 0).map_or(flops, |cost| cost.model_flops);
         metrics.flops_v2 += device_flops as f64 * op.occurrences as f64;
         if model == 0 {
             metrics.model_flops_v2 = metrics.flops_v2;
         } else {
             metrics.model_flops_v2 += model as f64 * op.occurrences as f64;
         }
-        metrics.bytes_accessed = metrics
-            .bytes_accessed
-            .wrapping_add((bytes as u64).wrapping_mul(op.occurrences));
+        metrics.bytes_accessed =
+            metrics.bytes_accessed.wrapping_add((bytes as u64).wrapping_mul(op.occurrences));
         if let Some(cost) = cost {
             let breakdown: Vec<(u8, u64, u64)> = cost
                 .memory
@@ -674,9 +603,7 @@ impl<'a> Builder<'a> {
                     (
                         if read { READ } else { WRITE },
                         space,
-                        u64::try_from(bytes)
-                            .unwrap_or(0)
-                            .wrapping_mul(op.occurrences),
+                        u64::try_from(bytes).unwrap_or(0).wrapping_mul(op.occurrences),
                     )
                 })
                 .collect();
@@ -712,9 +639,7 @@ impl<'a> Builder<'a> {
             if let Some(group) = group {
                 current.group = group as u64;
             }
-            current.eager = event
-                .eager
-                .unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0);
+            current.eager = event.eager.unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0);
         }
         current.occurrences += 1;
         current.duration += event.dur;
@@ -741,19 +666,14 @@ impl<'a> Builder<'a> {
             provenance: tf_op.into(),
             deduplicated: ArcStr::new(),
             expression: ArcStr::new(),
-            source: Source {
-                line: -1,
-                ..Default::default()
-            },
+            source: Source { line: -1, ..Default::default() },
             cost: None,
         };
         let name = format!("{}/{event_name}", op.name);
         self.enter(&Tracker {
             info: Some(&info),
             name,
-            eager: event
-                .eager
-                .unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0),
+            eager: event.eager.unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0),
             occurrences: 1,
             duration: event.dur,
             ..Default::default()
@@ -780,12 +700,8 @@ impl<'a> Launches<'a> {
             self.totals.len() - 1
         });
         let totals = &mut self.totals[position].1;
-        *totals = [
-            totals[0] + duration,
-            totals[1].min(duration),
-            totals[2].max(duration),
-            totals[3] + 1,
-        ];
+        *totals =
+            [totals[0] + duration, totals[1].min(duration), totals[2].max(duration), totals[3] + 1];
     }
 }
 
@@ -796,19 +712,11 @@ pub fn device_plane(
     origin: i64,
 ) -> (Db, Vec<KernelReport>) {
     let (scanner, groups) = (Scanner::new(plane, map), groups(plane, map));
-    let (mut builder, mut launches) = (
-        Builder {
-            vdd: plane.id("vdd_energy_j"),
-            ..Default::default()
-        },
-        Launches::default(),
-    );
+    let (mut builder, mut launches) =
+        (Builder { vdd: plane.id("vdd_energy_j"), ..Default::default() }, Launches::default());
     let (mut first, mut last) = (i64::MAX, 0i64);
-    for (line_index, line) in plane
-        .lines
-        .iter()
-        .enumerate()
-        .filter(|(_, line)| !is_derived(line.id))
+    for (line_index, line) in
+        plane.lines.iter().enumerate().filter(|(_, line)| !is_derived(line.id))
     {
         let base = (line.timestamp_ns - origin) * 1000;
         for (event, group) in line.events.iter().zip(&groups[line_index]) {
@@ -819,9 +727,8 @@ pub fn device_plane(
             launches.add(event, &stats);
             match stats.hlo_op() {
                 Some(name) => {
-                    if let Some(info) = stats
-                        .program()
-                        .and_then(|program| infos.get(&program)?.get(&*name))
+                    if let Some(info) =
+                        stats.program().and_then(|program| infos.get(&program)?.get(&*name))
                     {
                         builder.hlo_op(info, name, &stats, *group, map, event);
                     }
@@ -838,20 +745,14 @@ pub fn device_plane(
         builder.flush();
     }
     (
-        builder
-            .db
-            .with_idle(if last != 0 { (last - first) as u64 } else { 0 }),
+        builder.db.with_idle(if last != 0 { (last - first) as u64 } else { 0 }),
         kernel_reports(plane, map, infos, launches.totals),
     )
 }
 
 fn tensor_core_eligible(op_name: &str) -> bool {
-    TENSOR_CORE_SUFFIXES
-        .split(' ')
-        .any(|suffix| op_name.ends_with(suffix))
-        || TENSOR_CORE_INFIXES
-            .split(' ')
-            .any(|part| op_name.contains(part))
+    TENSOR_CORE_SUFFIXES.split(' ').any(|suffix| op_name.ends_with(suffix))
+        || TENSOR_CORE_INFIXES.split(' ').any(|part| op_name.contains(part))
 }
 
 fn einsum_eligible(equation: &str) -> bool {
@@ -866,13 +767,8 @@ pub(crate) fn launch_params(details: &str, key: &mut KernelKey, occupancy: &mut 
         let parts: Vec<&str> = param.split(':').collect();
         let [name, value] = parts[..] else { continue };
         let dims = || {
-            let values: Vec<u32> = value
-                .split(',')
-                .map_while(|part| part.parse().ok())
-                .collect();
-            <[u32; 3]>::try_from(values)
-                .ok()
-                .filter(|_| value.split(',').count() == 3)
+            let values: Vec<u32> = value.split(',').map_while(|part| part.parse().ok()).collect();
+            <[u32; 3]>::try_from(values).ok().filter(|_| value.split(',').count() == 3)
         };
         match name {
             "regs" => key.registers = value.parse().unwrap_or(key.registers),
@@ -900,9 +796,7 @@ fn kernel_reports(
     {
         let name = plane.meta[meta as usize].full_name(map).into_owned();
         let mut key = KernelKey {
-            tensor_core: TENSOR_CORE_KERNELS
-                .split(' ')
-                .any(|pattern| name.contains(pattern)),
+            tensor_core: TENSOR_CORE_KERNELS.split(' ').any(|pattern| name.contains(pattern)),
             name,
             ..Default::default()
         };
@@ -917,14 +811,7 @@ fn kernel_reports(
             key.op_name = info.provenance.to_string();
             key.eligible = tensor_core_eligible(&key.op_name) || key.eligible;
         }
-        reports.push(KernelReport {
-            key,
-            occupancy,
-            total_ns,
-            min_ns,
-            max_ns,
-            occurrences,
-        });
+        reports.push(KernelReport { key, occupancy, total_ns, min_ns, max_ns, occurrences });
     }
     reports
 }
@@ -932,15 +819,10 @@ fn kernel_reports(
 pub fn device(planes: &[Plane], map: &[u8], gpus: &[&Plane]) -> (Db, Vec<KernelReport>) {
     let infos = infos(planes, map, gpus);
     let origin = crate::xplane::origin_ns(planes);
-    let parts: Vec<(Db, Vec<KernelReport>)> = gpus
-        .par_iter()
-        .map(|plane| device_plane(plane, map, &infos, origin))
-        .collect();
+    let parts: Vec<(Db, Vec<KernelReport>)> =
+        gpus.par_iter().map(|plane| device_plane(plane, map, &infos, origin)).collect();
     let db = Db::combined(parts.iter().map(|(part, _)| part), true);
-    (
-        db,
-        top_kernels(parts.into_iter().flat_map(|(_, reports)| reports)),
-    )
+    (db, top_kernels(parts.into_iter().flat_map(|(_, reports)| reports)))
 }
 
 pub fn top_kernels(reports: impl IntoIterator<Item = KernelReport>) -> Vec<KernelReport> {
@@ -969,9 +851,7 @@ pub fn by_op_name(reports: &[KernelReport]) -> HashMap<&str, (bool, u64, u64)> {
     let mut result: HashMap<&str, (bool, u64, u64)> = HashMap::new();
     for report in reports {
         let entry =
-            result
-                .entry(report.key.op_name.as_str())
-                .or_insert((report.key.eligible, 0, 0));
+            result.entry(report.key.op_name.as_str()).or_insert((report.key.eligible, 0, 0));
         entry.1 += report.total_ns;
         if report.key.tensor_core {
             entry.2 += report.total_ns;

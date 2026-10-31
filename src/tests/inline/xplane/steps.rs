@@ -5,12 +5,7 @@ use crate::xplane::gpu::tests::fixture::{Stat, event, line, plane};
 fn gpu_step_events_classify_correlated_kernels_inside_derived_step_markers() {
     let stats = ["correlation_id", "group_id", "tensor_shapes"];
     let kernel = |meta: u64, offset: u64, group: u64| {
-        event(
-            meta,
-            offset,
-            10,
-            &[(1, Stat::Int(1)), (2, Stat::Int(group))],
-        )
+        event(meta, offset, 10, &[(1, Stat::Int(1)), (2, Stat::Int(group))])
     };
     let lines = [
         line(
@@ -33,11 +28,7 @@ fn gpu_step_events_classify_correlated_kernels_inside_derived_step_markers() {
                     1,
                     80,
                     10,
-                    &[
-                        (1, Stat::Int(1)),
-                        (2, Stat::Int(1)),
-                        (3, Stat::Text("(half[2])")),
-                    ],
+                    &[(1, Stat::Int(1)), (2, Stat::Int(1)), (3, Stat::Text("(half[2])"))],
                 ),
             ],
         ),
@@ -45,13 +36,7 @@ fn gpu_step_events_classify_correlated_kernels_inside_derived_step_markers() {
     let map = plane(
         "/device:GPU:3",
         &lines,
-        &[
-            "fusion",
-            "ncclKernel",
-            "MemcpyDToD",
-            "hgemm_fp16",
-            "MemcpyHToD",
-        ],
+        &["fusion", "ncclKernel", "MemcpyDToD", "hgemm_fp16", "MemcpyHToD"],
         &stats,
     );
     let planes = crate::xplane::parse(&map).unwrap();
@@ -60,11 +45,7 @@ fn gpu_step_events_classify_correlated_kernels_inside_derived_step_markers() {
     steps.sort_unstable();
     assert_eq!(steps, vec![0, 1, 2]);
     let kinds = |step: i64| {
-        events[&step]
-            .events
-            .iter()
-            .map(|(kind, span)| (*kind, span.begin))
-            .collect::<Vec<_>>()
+        events[&step].events.iter().map(|(kind, span)| (*kind, span.begin)).collect::<Vec<_>>()
     };
     assert_eq!(
         kinds(0),
@@ -78,29 +59,12 @@ fn gpu_step_events_classify_correlated_kernels_inside_derived_step_markers() {
     assert_eq!(kinds(1), vec![(DEVICE_COMPUTE_16, 1_000_080)]);
     assert_eq!(kinds(2), vec![(DEVICE_COMPUTE_16, 1_000_100)]);
     assert_eq!(
-        events[&0]
-            .markers
-            .iter()
-            .map(|marker| (marker.core, marker.span))
-            .collect::<Vec<_>>(),
-        vec![(
-            Some(0),
-            Span {
-                begin: 1_000_000,
-                duration: 50
-            }
-        )]
+        events[&0].markers.iter().map(|marker| (marker.core, marker.span)).collect::<Vec<_>>(),
+        vec![(Some(0), Span { begin: 1_000_000, duration: 50 })]
     );
     assert_eq!(
-        events[&1]
-            .markers
-            .iter()
-            .map(|marker| marker.span)
-            .collect::<Vec<_>>(),
-        vec![Span {
-            begin: 1_000_060,
-            duration: 30
-        }]
+        events[&1].markers.iter().map(|marker| marker.span).collect::<Vec<_>>(),
+        vec![Span { begin: 1_000_060, duration: 30 }]
     );
     assert_eq!(events[&0].collectives[&0], vec![(0, 1_000_020, 30)]);
 }
@@ -109,9 +73,8 @@ fn gpu_step_events_classify_correlated_kernels_inside_derived_step_markers() {
 fn joined_intervals_keep_the_merged_active_time() {
     let mut state = 1u64;
     let mut next = |limit: u64| {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
+        state =
+            state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
         (state >> 33) % limit
     };
     for _ in 0..200 {
@@ -120,11 +83,7 @@ fn joined_intervals_keep_the_merged_active_time() {
                 let mut begin = next(20);
                 (0..next(40))
                     .map(|_| {
-                        begin = if next(8) == 0 {
-                            next(200)
-                        } else {
-                            begin + next(6)
-                        };
+                        begin = if next(8) == 0 { next(200) } else { begin + next(6) };
                         (
                             begin,
                             if next(10) == 0 {
@@ -144,9 +103,6 @@ fn joined_intervals_keep_the_merged_active_time() {
             }
             intervals
         });
-        assert_eq!(
-            merged_active(joined.collect()),
-            merged_active(streams.concat())
-        );
+        assert_eq!(merged_active(joined.collect()), merged_active(streams.concat()));
     }
 }

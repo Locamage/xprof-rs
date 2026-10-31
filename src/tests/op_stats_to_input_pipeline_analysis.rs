@@ -15,10 +15,7 @@ fn step_info(begin_ps: u64, duration_ps: u64, category_ps: &[(&str, u64)]) -> St
         begin: begin_ps,
         duration: duration_ps,
         breakdown: Breakdown::Categories(
-            category_ps
-                .iter()
-                .map(|(name, ps)| (name.to_string(), *ps))
-                .collect(),
+            category_ps.iter().map(|(name, ps)| (name.to_string(), *ps)).collect(),
         ),
     }
 }
@@ -27,16 +24,9 @@ fn may_fix_tpu_step_analysis(
     device_op_metrics_db: &Db,
     step_info_per_core: BTreeMap<u32, StepInfo>,
 ) -> BTreeMap<u32, BTreeMap<String, u64>> {
-    let total_input: u64 = HOST_INPUT_EVENTS
-        .iter()
-        .map(|(begin, end)| end - begin)
-        .sum();
+    let total_input: u64 = HOST_INPUT_EVENTS.iter().map(|(begin, end)| end - begin).sum();
     let mut extra = Extra {
-        steps: vec![StepRecord {
-            num: STEP_NUM,
-            cores: step_info_per_core,
-            ..Default::default()
-        }],
+        steps: vec![StepRecord { num: STEP_NUM, cores: step_info_per_core, ..Default::default() }],
         host_input: Some(HashMap::from([(STEP_NUM as i64, total_input)])),
         ..Default::default()
     };
@@ -66,16 +56,7 @@ fn sparse_core_step(duration_ps: u64, idle_ps: u64) -> (StepRecord, BTreeMap<u32
         cores: BTreeMap::from([(core, step_info(100, duration_ps, &[(IDLE, idle_ps)]))]),
         ..Default::default()
     };
-    (
-        record,
-        BTreeMap::from([(
-            core,
-            Core {
-                sparse: true,
-                ..Default::default()
-            },
-        )]),
-    )
+    (record, BTreeMap::from([(core, Core { sparse: true, ..Default::default() })]))
 }
 
 #[test]
@@ -132,19 +113,10 @@ fn skip_may_fix_tpu_step_analysis_when_infeed_exists() {
     let sir = step_info(
         40,
         1000,
-        &[
-            (IDLE, 300),
-            ("multiply", 300),
-            ("all-gather", 300),
-            ("async-start", 50),
-            ("infeed", 50),
-        ],
+        &[(IDLE, 300), ("multiply", 300), ("all-gather", 300), ("async-start", 50), ("infeed", 50)],
     );
     let device_op_metrics_db = Db {
-        metrics: vec![Metrics {
-            category: "infeed".into(),
-            ..Default::default()
-        }],
+        metrics: vec![Metrics { category: "infeed".into(), ..Default::default() }],
         ..Default::default()
     };
     let updated = may_fix_tpu_step_analysis(&device_op_metrics_db, BTreeMap::from([(2, sir)]));
@@ -155,10 +127,7 @@ fn skip_may_fix_tpu_step_analysis_when_infeed_exists() {
 #[test]
 fn ensure_sparse_core_steps_set_step_number() {
     let (per_core_step_info, core_details_map) = sparse_core_step(1000, 500);
-    assert_eq!(
-        tpu_step_details(&per_core_step_info, &core_details_map).step_number,
-        1
-    );
+    assert_eq!(tpu_step_details(&per_core_step_info, &core_details_map).step_number, 1);
 }
 
 #[test]
@@ -166,15 +135,9 @@ fn compute_tpu_per_step_data_across_cores_sparse_core_only() {
     let (per_core_step_info, core_details_map) =
         sparse_core_step(1_000_000_000_000, 200_000_000_000);
     let per_step_data = tpu_step_details(&per_core_step_info, &core_details_map);
-    for field in [
-        TC_COMPUTE,
-        TC_INFEED,
-        TC_OUTFEED,
-        TC_IDLE,
-        SCV0_COMPUTE,
-        SCV0_INFEED,
-        HOST_TRANSFER,
-    ] {
+    for field in
+        [TC_COMPUTE, TC_INFEED, TC_OUTFEED, TC_IDLE, SCV0_COMPUTE, SCV0_INFEED, HOST_TRANSFER]
+    {
         assert_eq!(per_step_data.fields[field], 0.0);
     }
     assert_eq!(per_step_data.all_reduce_ms, [0.0, 0.0]);

@@ -20,32 +20,14 @@ fn test_get_roofline_model_success() {
     ));
     let program = parsed.at("program");
     assert_eq!(program.at("bound_by").str(), Some("HBM"));
-    assert_eq!(
-        program.at("roofline_efficiency_percent").str(),
-        Some("13.49%")
-    );
-    assert_eq!(
-        program.at("compute_efficiency_percent").str(),
-        Some("0.76%")
-    );
-    assert_eq!(
-        program.at("max_mem_bw_utilization_percent").str(),
-        Some("13.49%")
-    );
-    assert_eq!(
-        program.at("operational_intensity_flop_per_byte"),
-        &J::Float(25.89)
-    );
+    assert_eq!(program.at("roofline_efficiency_percent").str(), Some("13.49%"));
+    assert_eq!(program.at("compute_efficiency_percent").str(), Some("0.76%"));
+    assert_eq!(program.at("max_mem_bw_utilization_percent").str(), Some("13.49%"));
+    assert_eq!(program.at("operational_intensity_flop_per_byte"), &J::Float(25.89));
     assert_eq!(program.at("measured_flop_rate_gflops"), &J::Float(7181.72));
     assert_eq!(program.at("hbm_bw_gibs"), &J::Float(205.79));
-    assert_eq!(
-        parsed.at("device_info").at("device_type").str(),
-        Some("TPU v6 Lite")
-    );
-    assert_eq!(
-        parsed.at("device_info").at("peak_flop_rate"),
-        &J::Float(946700.0)
-    );
+    assert_eq!(parsed.at("device_info").at("device_type").str(), Some("TPU v6 Lite"));
+    assert_eq!(parsed.at("device_info").at("peak_flop_rate"), &J::Float(946700.0));
     let operations = parsed.at("top_operations").items();
     assert_eq!(operations.len(), 1);
     let operation = &operations[0];
@@ -53,10 +35,7 @@ fn test_get_roofline_model_success() {
     assert_eq!(operation.at("category").str(), Some("all-reduce"));
     assert_eq!(operation.at("total_self_time_ms"), &J::Float(50.0));
     assert_eq!(operation.at("bound_by").str(), Some("HBM"));
-    assert_eq!(
-        operation.at("roofline_efficiency_percent").str(),
-        Some("16.31%")
-    );
+    assert_eq!(operation.at("roofline_efficiency_percent").str(), Some("16.31%"));
     assert_eq!(operation.at("source_info").str(), Some("file.py:10"));
 }
 
@@ -69,34 +48,23 @@ fn test_get_roofline_model_custom_call_opaque() {
         &Fake::fixed(&data),
         &args("test_session", &[("top_n", J::Int(5))]),
     ));
-    assert_eq!(
-        parsed.at("program").at("bound_by").str(),
-        Some("CustomCall (opaque)")
-    );
+    assert_eq!(parsed.at("program").at("bound_by").str(), Some("CustomCall (opaque)"));
     let operations = parsed.at("top_operations").items();
     assert_eq!(operations.len(), 1);
-    assert_eq!(
-        operations[0].at("bound_by").str(),
-        Some("CustomCall (opaque)")
-    );
+    assert_eq!(operations[0].at("bound_by").str(), Some("CustomCall (opaque)"));
     assert!(parsed.at("guidance").text().contains("Pallas kernels"));
 }
 
 #[test]
 fn test_get_roofline_model_no_data() {
-    let parsed = json(get_roofline_model(
-        &Fake::tools(|_| None),
-        &args("test_session", &[]),
-    ));
+    let parsed = json(get_roofline_model(&Fake::tools(|_| None), &args("test_session", &[])));
     assert_eq!(parsed.at("status").str(), Some("NO_DATA"));
 }
 
 #[test]
 fn test_get_roofline_model_invalid_data() {
     assert_eq!(
-        get_roofline_model(&Fake::fixed("{}"), &args("test_session", &[]))
-            .unwrap_err()
-            .kind,
+        get_roofline_model(&Fake::fixed("{}"), &args("test_session", &[])).unwrap_err().kind,
         Kind::Value
     );
 }
@@ -104,16 +72,7 @@ fn test_get_roofline_model_invalid_data() {
 #[test]
 fn test_get_roofline_model_bypass_cache() {
     let fake = Fake::tools(|_| None);
-    get_roofline_model(
-        &fake,
-        &args("test_session", &[("bypass_cache", J::Bool(true))]),
-    )
-    .unwrap();
-    assert!(
-        fake.calls
-            .borrow()
-            .iter()
-            .any(|(tool, params)| tool == "roofline_model.json"
-                && *params == [("bypass_cache".to_string(), "True".to_string())])
-    );
+    get_roofline_model(&fake, &args("test_session", &[("bypass_cache", J::Bool(true))])).unwrap();
+    assert!(fake.calls.borrow().iter().any(|(tool, params)| tool == "roofline_model.json"
+        && *params == [("bypass_cache".to_string(), "True".to_string())]));
 }

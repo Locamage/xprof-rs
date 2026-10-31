@@ -62,10 +62,7 @@ fn test_tensor_pattern_percentile() {
           linearize_delinearize_percentile_time { percentile: 99.9 time_ps: 600000 }
         }",
     );
-    assert_eq!(
-        stats.inference_stats_per_model[&0].tensor_pattern_results,
-        expected
-    );
+    assert_eq!(stats.inference_stats_per_model[&0].tensor_pattern_results, expected);
 }
 
 #[test]

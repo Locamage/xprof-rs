@@ -28,12 +28,7 @@ fn delta_series_protobuf_matches_xprofs_response() {
     let file = dir.join("run/plugins/profile/s/tpu-vm-demo-host-0.xplane.pb");
     std::fs::write(&file, include_bytes!("../../tests/data/demo.xplane.pb")).unwrap();
     let host = crate::load_host(&file).unwrap();
-    let options = Options {
-        start_ms: 0.0,
-        end_ms: 0.0,
-        resolution: 8000.0,
-        full_dma: false,
-    };
+    let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 8000.0, full_dma: false };
     let view = View {
         trace: &host.trace,
         map: &host.map,
@@ -53,18 +48,8 @@ const TF_EXECUTOR_CATEGORY: u64 = 2;
 fn response(space: &XSpace, full_dma: Option<bool>) -> Response {
     let (map, mut planes) = space.parsed();
     let trace = Trace::build(&mut planes, "localhost", &map);
-    let options = Options {
-        start_ms: 0.0,
-        end_ms: 0.0,
-        resolution: 0.0,
-        full_dma: true,
-    };
-    let view = View {
-        trace: &trace,
-        map: &map,
-        planes: &planes,
-        events: trace.load(&options),
-    };
+    let options = Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: true };
+    let view = View { trace: &trace, map: &map, planes: &planes, events: trace.load(&options) };
     Response::decode(&zstd::decode_all(&render(&[view], full_dma)[..]).unwrap()[..]).unwrap()
 }
 
@@ -93,21 +78,13 @@ fn converts_complete_events_and_deltas() {
     assert_eq!(series.deltas, [1000, 1000]);
     assert_eq!(series.durations, [500, 300]);
     assert_eq!(
-        series
-            .event_metadata
-            .iter()
-            .map(|metadata| metadata.serial)
-            .collect::<Vec<_>>(),
+        series.event_metadata.iter().map(|metadata| metadata.serial).collect::<Vec<_>>(),
         [42, 0]
     );
     let process = &response.metadata.as_ref().unwrap().processes[0];
     assert_eq!(process.name, "localhost /host:CPU");
     assert_eq!(
-        process
-            .threads
-            .iter()
-            .map(|thread| thread.name.as_str())
-            .collect::<Vec<_>>(),
+        process.threads.iter().map(|thread| thread.name.as_str()).collect::<Vec<_>>(),
         ["Thread 1", "Thread 2"]
     );
 }
@@ -130,10 +107,7 @@ fn converts_counter_events() {
             .iter()
             .map(|metadata| metadata.counter_value.clone())
             .collect::<Vec<_>>(),
-        [
-            Some(CounterValue::Uint(1234)),
-            Some(CounterValue::Uint(5678))
-        ]
+        [Some(CounterValue::Uint(1234)), Some(CounterValue::Uint(5678))]
     );
 }
 
@@ -147,22 +121,14 @@ fn converts_async_events() {
         "AsyncOp",
         1000,
         500,
-        &[
-            ("flow", async_flow(1001)),
-            ("_a", V::Uint(1)),
-            ("group_id", 42.into()),
-        ],
+        &[("flow", async_flow(1001)), ("_a", V::Uint(1)), ("group_id", 42.into())],
     );
     plane.event(
         1,
         "AsyncOp",
         2000,
         100,
-        &[
-            ("flow", async_flow(1002)),
-            ("_a", V::Uint(1)),
-            ("group_id", 42.into()),
-        ],
+        &[("flow", async_flow(1002)), ("_a", V::Uint(1)), ("group_id", 42.into())],
     );
     let response = response(&space, None);
     assert_eq!(response.async_events.len(), 1);
@@ -175,10 +141,7 @@ fn converts_async_events() {
     assert!(
         first.flow_category > 0 && (first.flow_category as usize) < response.interned_strings.len()
     );
-    assert_eq!(
-        (second.flow_id, second.flow_category),
-        (1002, first.flow_category)
-    );
+    assert_eq!((second.flow_id, second.flow_category), (1002, first.flow_category));
 }
 
 #[test]
@@ -191,20 +154,8 @@ fn converts_mixed_events() {
     plane.named_line(3, "_counters_");
     plane.event(1, "Compute", 1000, 100, &[]);
     plane.event(1, "Compute", 1200, 200, &[]);
-    plane.event(
-        2,
-        "AsyncOp",
-        1500,
-        200,
-        &[("flow", async_flow(1)), ("_a", V::Uint(1))],
-    );
-    plane.event(
-        2,
-        "AsyncOp",
-        1800,
-        100,
-        &[("flow", async_flow(2)), ("_a", V::Uint(1))],
-    );
+    plane.event(2, "AsyncOp", 1500, 200, &[("flow", async_flow(1)), ("_a", V::Uint(1))]);
+    plane.event(2, "AsyncOp", 1800, 100, &[("flow", async_flow(2)), ("_a", V::Uint(1))]);
     plane.event(3, "Memory", 2000, 0, &[("value", 3.14.into())]);
     plane.event(3, "Memory", 2500, 0, &[("value", 6.28.into())]);
     let response = response(&space, None);
@@ -224,21 +175,13 @@ fn converts_mixed_events() {
         .iter()
         .map(|metadata| metadata.counter_value.clone())
         .collect();
-    assert_eq!(
-        values,
-        [
-            Some(CounterValue::Double(3.14)),
-            Some(CounterValue::Double(6.28))
-        ]
-    );
+    assert_eq!(values, [Some(CounterValue::Double(3.14)), Some(CounterValue::Double(6.28))]);
 }
 
 #[test]
 fn populates_details() {
     let mut space = XSpace::default();
-    space
-        .tpu(0, "TPU v4", 0.0, 0.0, None)
-        .event(1, "op", 0, 1, &[]);
+    space.tpu(0, "TPU v4", 0.0, 0.0, None).event(1, "op", 0, 1, &[]);
     let details = |full_dma: Option<bool>| {
         response(&space, full_dma)
             .details
@@ -248,10 +191,7 @@ fn populates_details() {
     };
     assert_eq!(
         details(Some(true)),
-        [
-            ("mpmd_pipeline_view".to_string(), false),
-            ("full_dma".to_string(), true)
-        ]
+        [("mpmd_pipeline_view".to_string(), false), ("full_dma".to_string(), true)]
     );
     assert!(details(None).is_empty());
 }
@@ -259,22 +199,14 @@ fn populates_details() {
 #[test]
 fn populates_full_timespan() {
     let mut space = XSpace::default();
-    space
-        .host()
-        .event(1, "op", 12_345_000, 67_890_000 - 12_345_000, &[]);
+    space.host().event(1, "op", 12_345_000, 67_890_000 - 12_345_000, &[]);
     let response = response(&space, None);
     assert_eq!(
-        (
-            response.full_timespan_start_ps,
-            response.full_timespan_end_ps
-        ),
+        (response.full_timespan_start_ps, response.full_timespan_end_ps),
         (Some(12_345_000), Some(67_890_000))
     );
     let empty = super::delta::response(&XSpace::default(), None);
-    assert_eq!(
-        (empty.full_timespan_start_ps, empty.full_timespan_end_ps),
-        (None, None)
-    );
+    assert_eq!((empty.full_timespan_start_ps, empty.full_timespan_end_ps), (None, None));
 }
 
 #[test]
@@ -286,11 +218,7 @@ fn suppresses_sort_index_for_custom_sort_resources() {
     let response = response(&space, None);
     let process = &response.metadata.as_ref().unwrap().processes[0];
     assert_eq!(
-        process
-            .threads
-            .iter()
-            .map(|thread| (thread.id, thread.sort_index))
-            .collect::<Vec<_>>(),
+        process.threads.iter().map(|thread| (thread.id, thread.sort_index)).collect::<Vec<_>>(),
         [(30, Some(30))]
     );
 }

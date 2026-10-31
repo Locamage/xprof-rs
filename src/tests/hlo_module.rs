@@ -4,15 +4,10 @@ use std::borrow::Cow;
 
 fn printed(name: &str) -> String {
     let module = Module::parse(Cow::Owned(
-        std::fs::read(format!(
-            "{}/tests/data/hlo_printing/{name}.pb",
-            env!("CARGO_MANIFEST_DIR")
-        ))
-        .unwrap(),
+        std::fs::read(format!("{}/tests/data/hlo_printing/{name}.pb", env!("CARGO_MANIFEST_DIR")))
+            .unwrap(),
     ));
-    Printer::new(&module, Style::Long, true)
-        .module_text()
-        .unwrap()
+    Printer::new(&module, Style::Long, true).module_text().unwrap()
 }
 
 #[test]

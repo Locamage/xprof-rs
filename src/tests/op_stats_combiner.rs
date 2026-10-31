@@ -4,12 +4,8 @@ use crate::xplane::steps::TPU;
 use std::sync::Arc;
 
 fn combine(all: &[&str]) -> Arc<OpStats> {
-    OpStats::combine(
-        &all.iter()
-            .map(|text| Some(Arc::new(op_stats(text))))
-            .collect::<Vec<_>>(),
-    )
-    .unwrap()
+    OpStats::combine(&all.iter().map(|text| Some(Arc::new(op_stats(text)))).collect::<Vec<_>>())
+        .unwrap()
 }
 
 #[test]
@@ -25,14 +21,8 @@ fn combine_run_environment_with_unknown_device() {
 fn combine_perf_env_order_zero() {
     let op_stats_1 = "perf_env { peak_tera_flops_per_second: 100 }";
     let op_stats_2 = "perf_env { peak_tera_flops_per_second: 0 }";
-    assert_eq!(
-        combine(&[op_stats_1, op_stats_2]).perf.peak_tera_flops,
-        100.0
-    );
-    assert_eq!(
-        combine(&[op_stats_2, op_stats_1]).perf.peak_tera_flops,
-        100.0
-    );
+    assert_eq!(combine(&[op_stats_1, op_stats_2]).perf.peak_tera_flops, 100.0);
+    assert_eq!(combine(&[op_stats_2, op_stats_1]).perf.peak_tera_flops, 100.0);
 }
 
 #[test]
@@ -47,9 +37,7 @@ fn combine_run_environment_with_mismatch_hardware_type() {
 
 #[test]
 fn combine_run_environment_power_metrics_single_host() {
-    let src_op_stats = Some(Arc::new(op_stats(
-        r#"run_environment { device_type: "TPU" }"#,
-    )));
+    let src_op_stats = Some(Arc::new(op_stats(r#"run_environment { device_type: "TPU" }"#)));
     let dst_op_stats = OpStats::combine(std::slice::from_ref(&src_op_stats)).unwrap();
     assert!(Arc::ptr_eq(&dst_op_stats, src_op_stats.as_ref().unwrap()));
 }

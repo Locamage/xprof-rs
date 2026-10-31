@@ -13,12 +13,8 @@ const COMPUTE_COLUMNS: [&str; 5] = [
     "noninfeedtimems",
 ];
 const COMMUNICATION_COLUMNS: [&str; 2] = ["devicetodevicetimems", "devicecollectivestimems"];
-const INFEED_COLUMNS: [&str; 4] = [
-    "tcinfeedtimems",
-    "scv0infeedtimems",
-    "bcinfeedtimems",
-    "infeedtimems",
-];
+const INFEED_COLUMNS: [&str; 4] =
+    ["tcinfeedtimems", "scv0infeedtimems", "bcinfeedtimems", "infeedtimems"];
 const OUTFEED_COLUMNS: [&str; 2] = ["tcoutfeedtimems", "outfeedtimems"];
 const OTHER_COLUMNS: [&str; 6] = [
     "tcidletimems",
@@ -46,18 +42,11 @@ const DUTY_CYCLE_THRESHOLD: f64 = 50.0;
 const MAX_UTILIZATION_HOSTS: i64 = 32;
 
 fn finite(value: &J) -> f64 {
-    value
-        .float()
-        .filter(|number| number.is_finite())
-        .unwrap_or(0.0)
+    value.float().filter(|number| number.is_finite()).unwrap_or(0.0)
 }
 
 fn percent(part: f64, whole: f64) -> f64 {
-    if whole > 0.0 {
-        round(part / whole * 100.0, 2)
-    } else {
-        0.0
-    }
+    if whole > 0.0 { round(part / whole * 100.0, 2) } else { 0.0 }
 }
 
 fn step(
@@ -103,11 +92,7 @@ fn most_common(items: &[String]) -> Option<String> {
     counts
         .iter()
         .fold(None, |best: Option<(&String, usize)>, &(name, count)| {
-            if best.is_none_or(|(_, top)| count > top) {
-                Some((name, count))
-            } else {
-                best
-            }
+            if best.is_none_or(|(_, top)| count > top) { Some((name, count)) } else { best }
         })
         .map(|(name, _)| name.clone())
 }
@@ -149,10 +134,7 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
         }
         let count = core_stats.len() as f64;
         let average = |key: &str| {
-            round(
-                fsum(core_stats.iter().map(|stats| finite(stats.at(key)))) / count / 1000.0,
-                4,
-            )
+            round(fsum(core_stats.iter().map(|stats| finite(stats.at(key)))) / count / 1000.0, 4)
         };
         let breakdown = |key: &str| {
             let total: f64 = core_stats
@@ -172,10 +154,7 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
             (breakdown("1"), breakdown("3"), 0.0, 0.0);
         let mut communication = round(all_reduce + breakdown("2"), 4);
         let (mut infeed, mut outfeed) = (breakdown("6"), breakdown("7"));
-        if [compute, communication, infeed, outfeed]
-            .iter()
-            .all(|value| *value == 0.0)
-        {
+        if [compute, communication, infeed, outfeed].iter().all(|value| *value == 0.0) {
             (compute, all_reduce, send, recv) = (
                 average("highFlopsComputeUs"),
                 average("crsDurationUs"),
@@ -183,21 +162,12 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
                 average("recvDurationUs"),
             );
             communication = round(all_reduce + send + recv, 4);
-            (infeed, outfeed) = (
-                average("hostInfeedDurationUs"),
-                average("hostOutfeedDurationUs"),
-            );
+            (infeed, outfeed) = (average("hostInfeedDurationUs"), average("hostOutfeedDurationUs"));
         }
-        if [compute, communication, infeed, outfeed]
-            .iter()
-            .all(|value| *value == 0.0)
-        {
+        if [compute, communication, infeed, outfeed].iter().all(|value| *value == 0.0) {
             continue;
         }
-        let idle = round(
-            (total - (compute + communication + infeed + outfeed)).max(0.0),
-            4,
-        );
+        let idle = round((total - (compute + communication + infeed + outfeed)).max(0.0), 4);
         let shares =
             [compute, communication, infeed, outfeed, idle].map(|value| percent(value, total));
         let named: Vec<String> = core_stats
@@ -227,11 +197,7 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
             Some((all_reduce, send, recv)),
         ));
     }
-    if core.is_some() && !core_found {
-        Vec::new()
-    } else {
-        steps
-    }
+    if core.is_some() && !core_found { Vec::new() } else { steps }
 }
 
 fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
@@ -247,9 +213,7 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
             .collect();
         section.has("cols")
             && section.has("rows")
-            && columns
-                .iter()
-                .any(|column| column.contains("step") || column.contains("infeed"))
+            && columns.iter().any(|column| column.contains("step") || column.contains("infeed"))
     });
     let Some(section) = section else {
         return (Vec::new(), None);
@@ -265,22 +229,15 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
                 .map(|id| id.text().to_lowercase())
         })
         .collect();
-    let index = |name: &str| {
-        columns
-            .iter()
-            .position(|column| column.as_deref() == Some(name))
-    };
+    let index = |name: &str| columns.iter().position(|column| column.as_deref() == Some(name));
     let mut steps = Vec::new();
     for row in section.at("rows").items() {
         let cells = row.at("c").items();
         if cells.is_empty() {
             continue;
         }
-        let value = |name: &str| {
-            index(name)
-                .and_then(|at| cells.get(at))
-                .map(|cell| cell.at("v").clone())
-        };
+        let value =
+            |name: &str| index(name).and_then(|at| cells.get(at)).map(|cell| cell.at("v").clone());
         let sum = |names: &[&str]| {
             names
                 .iter()
@@ -320,10 +277,7 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
             Some(cell) => round(finite(&cell), 2),
             None => percent(infeed, total),
         };
-        let idle = round(
-            other.max(total - (compute + communication + infeed + outfeed)),
-            4,
-        );
+        let idle = round(other.max(total - (compute + communication + infeed + outfeed)), 4);
         let candidates = [
             ("Compute", compute),
             ("Communication", communication),
@@ -333,13 +287,12 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
         ];
         let bottleneck = candidates
             .iter()
-            .fold(candidates[0], |best, candidate| {
-                if candidate.1 > best.1 {
-                    *candidate
-                } else {
-                    best
-                }
-            })
+            .fold(
+                candidates[0],
+                |best, candidate| {
+                    if candidate.1 > best.1 { *candidate } else { best }
+                },
+            )
             .0
             .to_string();
         let percents = [
@@ -352,13 +305,7 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
         steps.push(step(
             number,
             total,
-            [
-                round(compute, 4),
-                round(communication, 4),
-                round(infeed, 4),
-                round(outfeed, 4),
-                idle,
-            ],
+            [round(compute, 4), round(communication, 4), round(infeed, 4), round(outfeed, 4), idle],
             percents,
             bottleneck,
             None,
@@ -376,13 +323,8 @@ fn totals(
     primary: J,
     aggregate: bool,
 ) -> J {
-    let [
-        compute_percent,
-        communication_percent,
-        infeed_percent,
-        outfeed_percent,
-        idle_percent,
-    ] = percents;
+    let [compute_percent, communication_percent, infeed_percent, outfeed_percent, idle_percent] =
+        percents;
     obj! {
         "total_steps" => total_steps,
         "step_time_ms_average" => step,
@@ -406,10 +348,7 @@ fn totals(
 
 fn summarize(steps: &[J], props: Option<&J>) -> J {
     let column = |key: &str| {
-        steps
-            .iter()
-            .map(|step| step.at(key).float().unwrap_or(0.0))
-            .collect::<Vec<f64>>()
+        steps.iter().map(|step| step.at(key).float().unwrap_or(0.0)).collect::<Vec<f64>>()
     };
     let average = |key: &str| round(fsum(column(key)) / steps.len() as f64, 4);
     let times = column("step_time_ms");
@@ -428,21 +367,12 @@ fn summarize(steps: &[J], props: Option<&J>) -> J {
         .filter(|name| !name.is_empty())
         .collect();
     let primary = most_common(&named).unwrap_or_else(|| {
-        if communication > compute {
-            "Communication"
-        } else {
-            "Compute"
-        }
-        .into()
+        if communication > compute { "Communication" } else { "Compute" }.into()
     });
     let spread = [
         round(times.iter().copied().fold(f64::INFINITY, f64::min), 4),
         round(times.iter().copied().fold(f64::NEG_INFINITY, f64::max), 4),
-        if steps.len() > 1 {
-            round(stdev(&times), 4)
-        } else {
-            0.0
-        },
+        if steps.len() > 1 { round(stdev(&times), 4) } else { 0.0 },
     ];
     let mut summary = totals(
         steps.len().into(),
@@ -453,9 +383,8 @@ fn summarize(steps: &[J], props: Option<&J>) -> J {
         primary.into(),
         false,
     );
-    if let Some(conclusion) = props
-        .and_then(|props| props.get("summary_conclusion"))
-        .filter(|value| **value != J::Null)
+    if let Some(conclusion) =
+        props.and_then(|props| props.get("summary_conclusion")).filter(|value| **value != J::Null)
     {
         summary.set("conclusion", conclusion.clone());
     }
@@ -465,10 +394,7 @@ fn summarize(steps: &[J], props: Option<&J>) -> J {
 fn overview_steps(raw: &str) -> Option<J> {
     let sections = J::parse(raw)?;
     let mut all = J::Map(Vec::new());
-    let properties = sections
-        .items()
-        .iter()
-        .flat_map(|section| section.at("p").entries());
+    let properties = sections.items().iter().flat_map(|section| section.at("p").entries());
     for (key, value) in properties {
         all.set(key, value);
     }
@@ -512,11 +438,7 @@ fn overview_steps(raw: &str) -> Option<J> {
         "Aggregated overview statistics (individual step breakdown and step count not available)."
     };
     let bound = |key: &str| {
-        if all.has(key) {
-            finite(all.at(key))
-        } else {
-            step
-        }
+        if all.has(key) { finite(all.at(key)) } else { step }
     };
     let spread = [
         round(bound("steptime_ms_min"), 4),
@@ -530,12 +452,7 @@ fn overview_steps(raw: &str) -> Option<J> {
         spread,
         parts.map(|part| round(part, 4)),
         parts.map(|part| percent(part, step)),
-        (if infeed_percent > 50.0 {
-            "Input / Infeed"
-        } else {
-            "Compute"
-        })
-        .into(),
+        (if infeed_percent > 50.0 { "Input / Infeed" } else { "Compute" }).into(),
         true,
     );
     summary.set("note", note);
@@ -553,10 +470,7 @@ fn first_available(
             Ok(Some(data)) => return Ok(Some(data)),
             Ok(None) => {}
             Err(error)
-                if matches!(
-                    error.kind,
-                    Kind::Value | Kind::Runtime | Kind::NotImplemented
-                ) => {}
+                if matches!(error.kind, Kind::Value | Kind::Runtime | Kind::NotImplemented) => {}
             Err(error) => return Err(error),
         }
     }
@@ -569,12 +483,9 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let mut params = vec![("format", "json".to_string())];
     params.push(bypass(args.flag("bypass_cache", false)));
     let mut found: Option<(Vec<J>, Option<J>)> = None;
-    if let Some(data) = first_available(
-        client,
-        &session,
-        &["pod_viewer.json", "pod_viewer"],
-        &params,
-    )? {
+    if let Some(data) =
+        first_available(client, &session, &["pod_viewer.json", "pod_viewer"], &params)?
+    {
         let steps = pod_viewer(&data, step_num, core);
         if !steps.is_empty() {
             let summary = summarize(&steps, None);
@@ -596,12 +507,8 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         }
     }
     if found.is_none()
-        && let Some(data) = first_available(
-            client,
-            &session,
-            &["overview_page.json", "overview_page"],
-            &params,
-        )?
+        && let Some(data) =
+            first_available(client, &session, &["overview_page.json", "overview_page"], &params)?
     {
         found = overview_steps(&data).map(|summary| (Vec::new(), Some(summary)));
     }
@@ -616,15 +523,8 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     if let Some(summary) = summary.filter(|_| args.flag("include_summary", true)) {
         out.set("summary", summary);
     }
-    let shown = if limit > 0.0 {
-        limit as usize
-    } else {
-        steps.len()
-    };
-    out.set(
-        "step_breakdown",
-        steps.into_iter().take(shown).collect::<Vec<_>>(),
-    );
+    let shown = if limit > 0.0 { limit as usize } else { steps.len() };
+    out.set("step_breakdown", steps.into_iter().take(shown).collect::<Vec<_>>());
     Ok(out.into())
 }
 
@@ -632,15 +532,9 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
 pub fn time_class(name: &str, category: &str) -> usize {
     let (name, category) = (name.to_lowercase(), category.to_lowercase());
     let matches = |patterns: &[&str]| {
-        patterns
-            .iter()
-            .any(|pattern| name.contains(pattern) || category.contains(pattern))
+        patterns.iter().any(|pattern| name.contains(pattern) || category.contains(pattern))
     };
-    if matches(&ICI_PATTERNS) {
-        2
-    } else {
-        usize::from(matches(&HBM_PATTERNS))
-    }
+    if matches(&ICI_PATTERNS) { 2 } else { usize::from(matches(&HBM_PATTERNS)) }
 }
 
 pub fn hlo_times(node: &J) -> [f64; 3] {
@@ -648,10 +542,7 @@ pub fn hlo_times(node: &J) -> [f64; 3] {
     let children = node.at("children").items();
     let mut times = [0.0; 3];
     if children.is_empty() && metrics.at("occurrences").float().unwrap_or(0.0) > 0.0 {
-        let category = node
-            .at("xla")
-            .get("category")
-            .map_or(String::new(), J::text);
+        let category = node.at("xla").get("category").map_or(String::new(), J::text);
         times[time_class(&node.at("name").text(), &category)] += Some(metrics.at("rawTime"))
             .filter(|value| value.truthy())
             .and_then(J::float)
@@ -669,10 +560,7 @@ fn barrier(client: &dyn Client, session: &str) -> (f64, usize) {
     if durations.is_empty() {
         (0.0, 0)
     } else {
-        (
-            durations.iter().sum::<f64>() / durations.len() as f64 / 1000.0,
-            durations.len(),
-        )
+        (durations.iter().sum::<f64>() / durations.len() as f64 / 1000.0, durations.len())
     }
 }
 
@@ -714,12 +602,7 @@ fn utilization_metrics(client: &dyn Client, session: &str, hosts: i64, bypass: b
 fn leading_number(value: &J, pattern: fn(char) -> bool) -> Option<String> {
     let text = value.text();
     let start = text.find(pattern)?;
-    Some(
-        text[start..]
-            .chars()
-            .take_while(|character| pattern(*character))
-            .collect(),
-    )
+    Some(text[start..].chars().take_while(|character| pattern(*character)).collect())
 }
 
 pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -728,14 +611,12 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
     let compute = || -> Result<J, Error> {
         let mut params = vec![("format", "json".to_string())];
         params.push(super::bypass(bypass));
-        let raw = client
-            .fetch_text("overview_page.json", &session, &params)?
-            .ok_or_else(|| {
-                Error::new(
-                    Kind::FileNotFound,
-                    format!("No overview data returned for session {session}"),
-                )
-            })?;
+        let raw = client.fetch_text("overview_page.json", &session, &params)?.ok_or_else(|| {
+            Error::new(
+                Kind::FileNotFound,
+                format!("No overview data returned for session {session}"),
+            )
+        })?;
         let sections = J::parse(&raw)
             .ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
         let section = |index: usize, key: &str| {
@@ -744,10 +625,7 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
                 .get(index)
                 .filter(|section| matches!(section, J::Map(_)))
                 .map_or(J::Map(Vec::new()), |section| {
-                    section
-                        .get(key)
-                        .cloned()
-                        .unwrap_or_else(|| J::Map(Vec::new()))
+                    section.get(key).cloned().unwrap_or_else(|| J::Map(Vec::new()))
                 })
         };
         let pick = |key: &str| {
@@ -788,17 +666,13 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         )
         .unwrap_or(0.0);
         let digits = |value: Option<&J>| {
-            leading_number(value.unwrap_or(&J::from("1")), |character| {
-                character.is_ascii_digit()
-            })
-            .and_then(|text| text.parse::<i64>().ok())
-            .unwrap_or(1)
-            .max(1)
+            leading_number(value.unwrap_or(&J::from("1")), |character| character.is_ascii_digit())
+                .and_then(|text| text.parse::<i64>().ok())
+                .unwrap_or(1)
+                .max(1)
         };
-        let (cores, hosts) = (
-            digits(environment.get("device_core_count")),
-            digits(environment.get("host_count")),
-        );
+        let (cores, hosts) =
+            (digits(environment.get("device_core_count")), digits(environment.get("host_count")));
         let step_value = Some(step_table.at("steptime_ms_average"))
             .filter(|value| value.truthy())
             .or_else(|| {
@@ -806,11 +680,10 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
             })
             .cloned()
             .unwrap_or_else(|| J::from("0.0"));
-        let average_step = leading_number(&step_value, |character| {
-            character.is_ascii_digit() || character == '.'
-        })
-        .and_then(|text| super::json::py_float(&text))
-        .unwrap_or(0.0);
+        let average_step =
+            leading_number(&step_value, |character| character.is_ascii_digit() || character == '.')
+                .and_then(|text| super::json::py_float(&text))
+                .unwrap_or(0.0);
         let total = average_step * steps as f64;
         if total == 0.0 || steps == 0 {
             return Ok(obj! {
@@ -823,10 +696,7 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         hlo_params.push(super::bypass(bypass));
         let profile_times = |client: &dyn Client| client.category_times(&session, &hlo_params);
         let others = |client: &dyn Client| {
-            (
-                barrier(client, &session),
-                utilization_metrics(client, &session, hosts, bypass),
-            )
+            (barrier(client, &session), utilization_metrics(client, &session, hosts, bypass))
         };
         let (times, ((barrier_average, barriers), [idleness, hbm, ici_read, ici_write])) =
             super::both(client, profile_times, others);
@@ -834,19 +704,11 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         let [compute_ps, hbm_ps, ici_ps] = times.unwrap_or([0.0; 3]);
         let scale = |picoseconds: f64| picoseconds / 1e9 / cores as f64;
         let (compute_ms, hbm_ms, ici_ms) = (scale(compute_ps), scale(hbm_ps), scale(ici_ps));
-        let barrier_ms = if barriers > 0 {
-            barrier_average * steps as f64
-        } else {
-            0.0
-        };
+        let barrier_ms = if barriers > 0 { barrier_average * steps as f64 } else { 0.0 };
         let idle = total - (compute_ms + hbm_ms + ici_ms);
         let pure_idle = (idle - barrier_ms).max(0.0);
         let active = total - pure_idle;
-        let ratio = if active > 0.0 {
-            pure_idle / active
-        } else {
-            0.0
-        } * 100.0;
+        let ratio = if active > 0.0 { pure_idle / active } else { 0.0 } * 100.0;
         let idle_chips = cores as f64 * if total > 0.0 { pure_idle / total } else { 0.0 };
         let (idle_high, mxu_high, hbm_low, ici_low) = (
             ratio > IDLE_RATIO_THRESHOLD,
@@ -857,9 +719,8 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         let (mut reasons, mut recommendations) = (Vec::new(), Vec::new());
         let status = if idle_high && mxu_high && hbm_low && ici_low {
             reasons.push(format!("Workload is host-bound: Idle Time Ratio exceeds {IDLE_RATIO_THRESHOLD:.1}% of active compute."));
-            recommendations.push(format!(
-                "Opportunity Size: Hardware waste = {idle_chips:.1} idle chips."
-            ));
+            recommendations
+                .push(format!("Opportunity Size: Hardware waste = {idle_chips:.1} idle chips."));
             recommendations.push("Review data pipeline for inefficiencies (e.g., tf.data transformations or PyGrain).".into());
             recommendations.push(if args.get("func_name").is_some_and(J::truthy) {
                 "Use Lumini xprof_check_host_boundness with func_name to run automated step dispersion analysis.".into()
@@ -869,9 +730,7 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
             "HOST_BOUND"
         } else if duty > DUTY_CYCLE_THRESHOLD && (!available || !idle_high) {
             if available {
-                reasons.push(format!(
-                    "TPU duty cycle ({duty:.1}%) is high and idle ratio is low."
-                ));
+                reasons.push(format!("TPU duty cycle ({duty:.1}%) is high and idle ratio is low."));
                 "NOT_HOST_BOUND"
             } else {
                 reasons.push(format!("TPU duty cycle is high ({duty:.1}%), but HLO telemetry is missing. Unable to determine if workload is host-bound."));
@@ -924,9 +783,7 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
     };
     Ok(compute()
         .map_err(|error| {
-            rethrow(error, |error| {
-                format!("Error during host boundness check: {}", error.message)
-            })
+            rethrow(error, |error| format!("Error during host boundness check: {}", error.message))
         })?
         .into())
 }

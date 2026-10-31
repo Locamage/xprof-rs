@@ -27,11 +27,7 @@ fn metadata_with_a_very_deep_child_chain() {
         plane.event_metadata.entry(id).or_default().child_id = vec![id + 1];
         plane.event_metadata.insert(
             id + 1,
-            XEventMetadata {
-                id: id + 1,
-                name: format!("child.{id}"),
-                ..Default::default()
-            },
+            XEventMetadata { id: id + 1, name: format!("child.{id}"), ..Default::default() },
         );
     }
     assert!(op_stats(&[space]).is_some());
@@ -41,14 +37,9 @@ fn metadata_with_a_very_deep_child_chain() {
 fn metadata_with_a_display_name_and_no_name() {
     let mut space = tpu_space();
     let plane = &mut space.planes[0];
-    plane.event_metadata.insert(
-        9,
-        XEventMetadata {
-            id: 9,
-            display_name: "shown".into(),
-            ..Default::default()
-        },
-    );
+    plane
+        .event_metadata
+        .insert(9, XEventMetadata { id: 9, display_name: "shown".into(), ..Default::default() });
     plane.lines[0].events[0].metadata_id = 9;
     let (map, planes) = space.parsed();
     let meta = &planes[0].meta[9];
@@ -93,20 +84,10 @@ fn threadpool_region_at_the_origin() {
 fn threadpool_region_with_display_names() {
     let mut space = XSpace::default();
     let plane = space.add_plane();
-    plane.event(
-        0,
-        "ThreadpoolListener::StartRegion",
-        10,
-        0,
-        &[("_c", 1.into())],
-    );
+    plane.event(0, "ThreadpoolListener::StartRegion", 10, 0, &[("_c", 1.into())]);
     plane.event(0, "ThreadpoolListener::StopRegion", 300, 0, &[]);
-    plane
-        .event_metadata("ThreadpoolListener::StartRegion")
-        .display_name = "start".into();
-    plane
-        .event_metadata("ThreadpoolListener::StopRegion")
-        .display_name = "stop".into();
+    plane.event_metadata("ThreadpoolListener::StartRegion").display_name = "start".into();
+    plane.event_metadata("ThreadpoolListener::StopRegion").display_name = "stop".into();
     let (map, mut planes) = space.parsed();
     planes[0].add_threadpool_regions(&map);
     assert_eq!(planes[0].lines[0].events.len(), 3);
@@ -130,22 +111,15 @@ fn metadata_id_from_the_map_key() {
 fn literals_that_are_not_valid() {
     use crate::hlo::xla::{LayoutProto, LiteralProto, ShapeProto};
     let module = crate::hlo::Module::parse(std::borrow::Cow::Owned(
-        std::fs::read(format!(
-            "{}/tests/data/literal/literals.pb",
-            env!("CARGO_MANIFEST_DIR")
-        ))
-        .unwrap(),
+        std::fs::read(format!("{}/tests/data/literal/literals.pb", env!("CARGO_MANIFEST_DIR")))
+            .unwrap(),
     ));
     let printer = crate::hlo::text::Printer::new(&module, crate::hlo::text::Style::Long, false);
     let shape = |element_type, dimensions: Vec<i64>, layout: Option<Vec<i64>>| ShapeProto {
         element_type,
         dimensions,
-        layout: layout.map(|minor_to_major| {
-            Box::new(LayoutProto {
-                minor_to_major,
-                ..Default::default()
-            })
-        }),
+        layout: layout
+            .map(|minor_to_major| Box::new(LayoutProto { minor_to_major, ..Default::default() })),
         ..Default::default()
     };
     let cases = [
@@ -174,14 +148,8 @@ fn literals_that_are_not_valid() {
             f32s: vec![1.0],
             ..Default::default()
         },
-        LiteralProto {
-            shape: Some(shape(11, vec![1 << 40, 0], None)),
-            ..Default::default()
-        },
-        LiteralProto {
-            shape: Some(shape(11, vec![1 << 32, 1 << 32], None)),
-            ..Default::default()
-        },
+        LiteralProto { shape: Some(shape(11, vec![1 << 40, 0], None)), ..Default::default() },
+        LiteralProto { shape: Some(shape(11, vec![1 << 32, 1 << 32], None)), ..Default::default() },
         LiteralProto {
             shape: Some(shape(11, vec![-1, -1], None)),
             f32s: vec![1.0],
@@ -229,10 +197,7 @@ fn cli_trace_that_cannot_be_read() {
     use crate::cli::client::{Client, Local};
     let dir = crate::tests::scratch("cli-unreadable-trace");
     std::os::unix::fs::symlink(dir.join("missing"), dir.join("h.xplane.pb")).unwrap();
-    assert_eq!(
-        Local::default().fetch("overview_page", &dir.to_string_lossy(), &[]),
-        Ok(None)
-    );
+    assert_eq!(Local::default().fetch("overview_page", &dir.to_string_lossy(), &[]), Ok(None));
 }
 
 #[test]
@@ -245,18 +210,12 @@ fn recovery_module_that_is_not_valid() {
     };
     let recovery = HloModuleProto {
         entry_computation_id: 7,
-        computations: vec![HloComputationProto {
-            id: 7,
-            ..Default::default()
-        }],
+        computations: vec![HloComputationProto { id: 7, ..Default::default() }],
         host_program_shape: Some(ProgramShapeProto::default()),
         ..Default::default()
     };
     let table = OriginalValueRecoveryTableProto {
-        entries: vec![Entry {
-            recovery_module: Some(recovery),
-            ..Default::default()
-        }],
+        entries: vec![Entry { recovery_module: Some(recovery), ..Default::default() }],
     };
     let hlo_module = HloModuleProto {
         name: "m".into(),
@@ -307,11 +266,9 @@ fn hlo_text_proto_with_deep_nesting() {
         out
     };
     let hlo = |shapes: usize| {
-        let tuple_shape = ShapeProto {
-            tuple_shapes: vec![ShapeProto::default()],
-            ..Default::default()
-        }
-        .encode_to_vec()[0];
+        let tuple_shape =
+            ShapeProto { tuple_shapes: vec![ShapeProto::default()], ..Default::default() }
+                .encode_to_vec()[0];
         let mut lengths = vec![0u64];
         for _ in 1..shapes {
             let inner = *lengths.last().unwrap();
@@ -324,11 +281,8 @@ fn hlo_text_proto_with_deep_nesting() {
             encode_varint(length, &mut chain);
         }
         let shape = wrap(
-            HloInstructionProto {
-                shape: Some(Box::default()),
-                ..Default::default()
-            }
-            .encode_to_vec(),
+            HloInstructionProto { shape: Some(Box::default()), ..Default::default() }
+                .encode_to_vec(),
             chain,
         );
         let instruction = wrap(
@@ -348,11 +302,8 @@ fn hlo_text_proto_with_deep_nesting() {
             instruction,
         );
         wrap(
-            HloProto {
-                hlo_module: Some(HloModuleProto::default()),
-                ..Default::default()
-            }
-            .encode_to_vec(),
+            HloProto { hlo_module: Some(HloModuleProto::default()), ..Default::default() }
+                .encode_to_vec(),
             computation,
         )
     };
@@ -379,11 +330,7 @@ fn memory_viewer_with_many_live_buffers() {
     };
     let count = 100_000;
     let instructions = (0..count)
-        .map(|id| HloInstructionProto {
-            name: format!("f.{id}"),
-            id,
-            ..Default::default()
-        })
+        .map(|id| HloInstructionProto { name: format!("f.{id}"), id, ..Default::default() })
         .collect();
     let hlo_module = HloModuleProto {
         name: "m".into(),
@@ -399,10 +346,7 @@ fn memory_viewer_with_many_live_buffers() {
         .map(|id| LogicalBufferProto {
             id: id + 1,
             size: size(id + 1),
-            defined_at: Some(Location {
-                instruction_id: id,
-                ..Default::default()
-            }),
+            defined_at: Some(Location { instruction_id: id, ..Default::default() }),
             ..Default::default()
         })
         .collect();
@@ -414,11 +358,7 @@ fn memory_viewer_with_many_live_buffers() {
             ..Default::default()
         })
         .collect();
-    let event = |kind: i32, id: i64| Event {
-        kind,
-        buffer_id: id + 1,
-        ..Default::default()
-    };
+    let event = |kind: i32, id: i64| Event { kind, buffer_id: id + 1, ..Default::default() };
     let mut events = vec![event(0, 0), event(1, 0)];
     events.extend((1..count).map(|id| event(0, id)));
     events.extend((1..count).map(|id| event(1, id)));
@@ -430,10 +370,7 @@ fn memory_viewer_with_many_live_buffers() {
             assigned,
             ..Default::default()
         }],
-        heap_simulator_traces: vec![HeapSimulatorTrace {
-            events,
-            ..Default::default()
-        }],
+        heap_simulator_traces: vec![HeapSimulatorTrace { events, ..Default::default() }],
         ..Default::default()
     };
     let module = crate::tests::hlo_fixture::module(&HloProto {
@@ -486,11 +423,7 @@ fn json_deeper_than_the_serde_limit() {
         "[1]]",
     ] {
         let expected = serde_json::from_str::<J>(text).ok();
-        assert_eq!(
-            J::parse(&wrap(text, 300)),
-            expected.map(|value| nest(value, 300)),
-            "{text}"
-        );
+        assert_eq!(J::parse(&wrap(text, 300)), expected.map(|value| nest(value, 300)), "{text}");
     }
     assert!(J::parse(&wrap("1", 1000)).is_some() && J::parse(&wrap("1", 1001)).is_none());
     let big = format!("{}{}", "[".repeat(1 << 20), "]".repeat(1 << 20));
@@ -546,25 +479,13 @@ fn request_paths_that_do_not_exist() {
     );
     std::os::unix::fs::symlink(outside.join("later"), dir.join("dangling")).unwrap();
     std::os::unix::fs::symlink(&outside, dir.join("out")).unwrap();
-    let state = crate::state(&crate::Settings {
-        logdir: dir.clone(),
-        ..Default::default()
-    });
-    assert_eq!(
-        crate::confine(&state, &dir.join("run/missing/s")),
-        Some(dir.join("run/missing/s"))
-    );
+    let state = crate::state(&crate::Settings { logdir: dir.clone(), ..Default::default() });
+    assert_eq!(crate::confine(&state, &dir.join("run/missing/s")), Some(dir.join("run/missing/s")));
     assert_eq!(
         crate::confine(&state, &dir.join("run/plugins/profile/s")),
         Some(dir.join("run/plugins/profile/s"))
     );
-    for path in [
-        "dangling/s",
-        "dangling",
-        "out/missing",
-        "missing/../run",
-        "../missing",
-    ] {
+    for path in ["dangling/s", "dangling", "out/missing", "missing/../run", "../missing"] {
         assert_eq!(crate::confine(&state, &dir.join(path)), None, "{path}");
     }
     std::fs::remove_dir_all(&dir).unwrap();
@@ -591,20 +512,13 @@ fn fused_children_of_deep_or_shared_fusions() {
         let modules = [(1, crate::tests::hlo_fixture::module(&proto))];
         let name = format!("fusion.{}", entry_computation_id * 10 + 1);
         let mut db = Db {
-            metrics: vec![Metrics {
-                module: 1,
-                name: name.as_str().into(),
-                ..Default::default()
-            }],
+            metrics: vec![Metrics { module: 1, name: name.as_str().into(), ..Default::default() }],
             ..Default::default()
         };
         crate::hlo::attach_fused(&modules, &mut db);
         db.metrics.remove(0)
     };
-    let (mut metrics, mut depth) = (
-        fused(chained(20_000, |id| vec![calling(id, 1, "fusion")])),
-        0,
-    );
+    let (mut metrics, mut depth) = (fused(chained(20_000, |id| vec![calling(id, 1, "fusion")])), 0);
     while let Some(child) = metrics.children.metrics.pop() {
         (metrics, depth) = (child, depth + 1);
     }
@@ -619,17 +533,11 @@ fn fused_children_of_deep_or_shared_fusions() {
         count
     };
     assert_eq!(
-        count(&fused(chained(40, |id| vec![
-            calling(id, 1, "fusion"),
-            calling(id, 2, "fusion")
-        ]))),
+        count(&fused(chained(40, |id| vec![calling(id, 1, "fusion"), calling(id, 2, "fusion")]))),
         1 << 16
     );
     assert_eq!(
-        count(&fused(chained(4, |id| vec![
-            calling(id, 1, "fusion"),
-            calling(id, 2, "fusion")
-        ]))),
+        count(&fused(chained(4, |id| vec![calling(id, 1, "fusion"), calling(id, 2, "fusion")]))),
         2 + 4 + 4
     );
 }

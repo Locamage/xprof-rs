@@ -13,11 +13,7 @@ fn trace_of(text: &str) -> (Vec<u8>, Trace) {
 }
 
 fn events_by_name(trace: &Trace) -> Vec<(&str, &crate::trace::Event)> {
-    trace
-        .events
-        .iter()
-        .map(|event| (&*trace.names[event.name as usize], event))
-        .collect()
+    trace.events.iter().map(|event| (&*trace.names[event.name as usize], event)).collect()
 }
 
 #[test]
@@ -49,29 +45,21 @@ fn counter_line() {
            }"#,
     );
     let mut counters: HashMap<&str, BTreeMap<u64, Option<i64>>> = HashMap::new();
-    for (name, event) in events_by_name(&trace)
-        .into_iter()
-        .filter(|(name, _)| name.contains("Counter"))
+    for (name, event) in
+        events_by_name(&trace).into_iter().filter(|(name, _)| name.contains("Counter"))
     {
-        let value = stats(slice(&map, event.raw), 4, |_| true)
-            .next()
-            .and_then(|stat| stat.value.int());
+        let value =
+            stats(slice(&map, event.raw), 4, |_| true).next().and_then(|stat| stat.value.int());
         counters.entry(name).or_default().insert(event.ts, value);
     }
     let expected = HashMap::from([
         (
             "Counter 1",
-            BTreeMap::from([
-                (PICOS_PER_SECOND, Some(100)),
-                (2 * PICOS_PER_SECOND, Some(200)),
-            ]),
+            BTreeMap::from([(PICOS_PER_SECOND, Some(100)), (2 * PICOS_PER_SECOND, Some(200))]),
         ),
         (
             "Counter 2",
-            BTreeMap::from([
-                (PICOS_PER_SECOND, Some(300)),
-                (2 * PICOS_PER_SECOND, Some(400)),
-            ]),
+            BTreeMap::from([(PICOS_PER_SECOND, Some(300)), (2 * PICOS_PER_SECOND, Some(400))]),
         ),
     ]);
     assert_eq!(counters, expected);

@@ -13,10 +13,7 @@ fn links_by_name(space: &XSpace) -> Vec<(String, Links)> {
         .iter()
         .flat_map(|line| &line.events)
         .map(|event| {
-            (
-                name(plane, event).to_string(),
-                plane.links(event.meta, slice(&map, event.raw), None),
-            )
+            (name(plane, event).to_string(), plane.links(event.meta, slice(&map, event.raw), None))
         })
         .collect()
 }
@@ -36,16 +33,11 @@ fn is_root_stats_test() {
     let plane = space.add_plane();
     plane.event(0, "ProcessBatch", 100, 100, &[]);
     plane.event(0, "BatchingSessionRun", 200, 100, &[]);
-    let roots: Vec<(String, Option<i64>)> = links_by_name(&space)
-        .into_iter()
-        .map(|(name, links)| (name, links.root))
-        .collect();
+    let roots: Vec<(String, Option<i64>)> =
+        links_by_name(&space).into_iter().map(|(name, links)| (name, links.root)).collect();
     assert_eq!(
         roots,
-        [
-            ("ProcessBatch".to_string(), Some(2)),
-            ("BatchingSessionRun".to_string(), Some(1))
-        ]
+        [("ProcessBatch".to_string(), Some(2)), ("BatchingSessionRun".to_string(), Some(1))]
     );
 }
 
@@ -60,11 +52,7 @@ fn producer_consumer_test() {
 #[test]
 fn producer_consumer_not_matched_test() {
     let (producer, consumer) = legacy_pair(
-        &[
-            ("id", 123.into()),
-            ("iter_num", 456.into()),
-            ("device_ordinal", 789.into()),
-        ],
+        &[("id", 123.into()), ("iter_num", 456.into()), ("device_ordinal", 789.into())],
         &[("id", 123.into()), ("iter_num", 789.into())],
     );
     assert!(producer.is_some() && consumer.is_some());

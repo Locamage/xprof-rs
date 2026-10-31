@@ -7,27 +7,10 @@ use std::fmt::Write;
 use std::path::Path;
 use std::sync::LazyLock;
 
-const VIEWS: [&str; 7] = [
-    "graph",
-    "json",
-    "pb",
-    "pbtxt",
-    "short_txt",
-    "long_txt",
-    "adj_nodes",
-];
+const VIEWS: [&str; 7] = ["graph", "json", "pb", "pbtxt", "short_txt", "long_txt", "adj_nodes"];
 const DOWNLOAD: &str = "application/octet-stream";
-const ACTIVATION_MODES: [&str; 9] = [
-    "none",
-    "sigmoid",
-    "relu",
-    "relu6",
-    "reluX",
-    "tanh",
-    "bandpass",
-    "elu",
-    "leakyrelu",
-];
+const ACTIVATION_MODES: [&str; 9] =
+    ["none", "sigmoid", "relu", "relu6", "reluX", "tanh", "bandpass", "elu", "leakyrelu"];
 
 static GPU_BACKEND_CONFIG: LazyLock<MessageDescriptor> = LazyLock::new(|| {
     DescriptorPool::decode(&include_bytes!("../data/gpu_backend_descriptors.pb")[..])
@@ -47,14 +30,9 @@ pub fn wrap_dot_html(dot: &str, engine: &str) -> String {
     let hostile = dot.contains('`')
         || dot.contains("${")
         || dot.contains("<!--")
-        || dot
-            .as_bytes()
-            .windows(8)
-            .any(|tag| tag.eq_ignore_ascii_case(b"</script"));
+        || dot.as_bytes().windows(8).any(|tag| tag.eq_ignore_ascii_case(b"</script"));
     if !hostile {
-        return GRAPH_HTML
-            .replace("$LAYOUT_ENGINE", engine)
-            .replace("$DOT", dot);
+        return GRAPH_HTML.replace("$LAYOUT_ENGINE", engine).replace("$DOT", dot);
     }
     let mut escaped = String::with_capacity(dot.len());
     for (index, character) in dot.char_indices() {
@@ -63,9 +41,7 @@ pub fn wrap_dot_html(dot: &str, engine: &str) -> String {
             '\\' | '`' => escaped.push('\\'),
             '$' if rest.starts_with(b"{") => escaped.push('\\'),
             '<' if rest.starts_with(b"!--")
-                || rest
-                    .get(..7)
-                    .is_some_and(|tag| tag.eq_ignore_ascii_case(b"/script")) =>
+                || rest.get(..7).is_some_and(|tag| tag.eq_ignore_ascii_case(b"/script")) =>
             {
                 escaped.push_str("<\\");
                 continue;
@@ -74,9 +50,7 @@ pub fn wrap_dot_html(dot: &str, engine: &str) -> String {
         }
         escaped.push(character);
     }
-    GRAPH_HTML
-        .replace("$LAYOUT_ENGINE", engine)
-        .replace("$DOT", &escaped)
+    GRAPH_HTML.replace("$LAYOUT_ENGINE", engine).replace("$DOT", &escaped)
 }
 
 fn adjacent(module: &Module, name: &str) -> Option<String> {
@@ -117,19 +91,10 @@ pub fn serve(
     dir: &Path,
     params: &HashMap<String, String>,
 ) -> Result<(Vec<u8>, &'static str), String> {
-    let text = |key: &str| {
-        params
-            .get(key)
-            .map(String::as_str)
-            .filter(|value| !value.is_empty())
-    };
+    let text = |key: &str| params.get(key).map(String::as_str).filter(|value| !value.is_empty());
     let kind = params.get("type").map(String::as_str);
     let positional = matches!(kind, Some("graph" | "adj_nodes"));
-    let node = if positional {
-        text("node_name").unwrap_or("")
-    } else {
-        ""
-    };
+    let node = if positional { text("node_name").unwrap_or("") } else { "" };
     let unparsable = |module: &str| {
         format!(
             "Can't parse {} as binary proto",
@@ -144,16 +109,15 @@ pub fn serve(
             "{}; No such file or directory",
             dir.join(format!("{module}.hlo_proto.pb")).display()
         ),
-        (None, Some(program)) => match hlo::modules(dir)
-            .into_iter()
-            .find(|module| module.contains(program))
-        {
-            Some(module) => unparsable(&module),
-            None => format!(
-                "HLO proto file containing program ID {program} not found in {}",
-                dir.display()
-            ),
-        },
+        (None, Some(program)) => {
+            match hlo::modules(dir).into_iter().find(|module| module.contains(program)) {
+                Some(module) => unparsable(&module),
+                None => format!(
+                    "HLO proto file containing program ID {program} not found in {}",
+                    dir.display()
+                ),
+            }
+        }
         (None, None) => "Can not load hlo proto from options.".into(),
     };
     let module = if let Some(module) = hlo::by_options(dir, params) {
@@ -168,10 +132,7 @@ pub fn serve(
             .filter_map(|module| hlo::load(dir, module))
             .find(|module| (0..module.nodes.len()).any(|index| module.inst(index).name == node));
         by_node.ok_or_else(|| {
-            format!(
-                "HLO proto file containing node name {node} not found in {}",
-                dir.display()
-            )
+            format!("HLO proto file containing node name {node} not found in {}", dir.display())
         })?
     };
     let kind = kind.ok_or("Graph viewer must provide a type option.")?;
@@ -188,11 +149,7 @@ pub fn serve(
         "json" => Err("Not implemented".into()),
         _ if !module.valid => Err(module.error()),
         "short_txt" | "long_txt" => {
-            let style = if kind == "short_txt" {
-                Style::Short
-            } else {
-                Style::Long
-            };
+            let style = if kind == "short_txt" { Style::Short } else { Style::Long };
             let text = Printer::new(&module, style, flag("show_metadata"))
                 .module_text()
                 .ok_or("Unsupported HLO instruction")?;
@@ -225,9 +182,7 @@ pub fn serve(
                 });
             }
             Ok((
-                adjacent(&module, node)
-                    .ok_or("Unsupported HLO instruction")?
-                    .into_bytes(),
+                adjacent(&module, node).ok_or("Unsupported HLO instruction")?.into_bytes(),
                 "text/plain",
             ))
         }
@@ -260,9 +215,7 @@ struct Dumper<'a> {
 }
 
 fn sanitize_html(text: &str) -> String {
-    text.replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+    text.replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
 fn statistic_attributes(scheme: &str, statistic: Option<(&str, &str)>) -> String {
@@ -271,9 +224,8 @@ fn statistic_attributes(scheme: &str, statistic: Option<(&str, &str)>) -> String
         .find(|entry| entry.split(':').next() == Some(scheme))
         .unwrap_or("dashed:filled,dashed:white:#757575:#757575");
     let parts: Vec<&str> = entry.split(':').collect();
-    let (fill, stroke, font) = statistic.map_or((parts[2], parts[3], parts[4]), |(fill, font)| {
-        (fill, "#c2c2c2", font)
-    });
+    let (fill, stroke, font) =
+        statistic.map_or((parts[2], parts[3], parts[4]), |(fill, font)| (fill, "#c2c2c2", font));
     format!(
         "style=\"{}\", fontcolor=\"{font}\", color=\"{stroke}\", fillcolor=\"{fill}\"",
         parts[1]
@@ -288,9 +240,7 @@ fn statistic_colors(viz: &crate::hlo::xla::StatisticsViz) -> Option<(&'static st
         .ok()
         .and_then(|index| viz.statistics.get(index))?
         .stat_val;
-    let step = (0..9u8)
-        .find(|&step| value < f64::from(step + 1) * 10.0)
-        .map_or(9, usize::from);
+    let step = (0..9u8).find(|&step| value < f64::from(step + 1) * 10.0).map_or(9, usize::from);
     let fill = if value == 0.0 {
         "#f5f5f5"
     } else {
@@ -305,10 +255,7 @@ fn effective_scalar(shape: &Shape) -> bool {
 
 fn has_type(shape: &Shape, kinds: &[i32]) -> bool {
     kinds.contains(&shape.element_type)
-        || shape
-            .tuple_shapes
-            .iter()
-            .any(|element| has_type(element, kinds))
+        || shape.tuple_shapes.iter().any(|element| has_type(element, kinds))
 }
 
 fn is_small(module: &Module, node: usize) -> bool {
@@ -351,19 +298,13 @@ impl Dumper<'_> {
     }
 
     fn fused(&self, node: usize) -> bool {
-        self.fusion_of(self.module.nodes[node].computation)
-            .is_some()
+        self.fusion_of(self.module.nodes[node].computation).is_some()
     }
 
     fn fusion_operand(&self, node: usize) -> Option<usize> {
         let entry = &self.module.nodes[node];
-        let fusion = self
-            .fusion_of(entry.computation)
-            .filter(|_| entry.opcode == "parameter")?;
-        self.module.nodes[fusion]
-            .operands
-            .get(entry.parameter as usize)
-            .copied()
+        let fusion = self.fusion_of(entry.computation).filter(|_| entry.opcode == "parameter")?;
+        self.module.nodes[fusion].operands.get(entry.parameter as usize).copied()
     }
 
     fn acf_parameter(&self, node: usize) -> bool {
@@ -391,15 +332,11 @@ impl Dumper<'_> {
                 && module.inst(node).custom_call_target == target
         };
         let user = entry.users[0];
-        (module.graphs[graph]
-            .name
-            .starts_with("async_collective_fusion")
+        (module.graphs[graph].name.starts_with("async_collective_fusion")
             && custom_call(source, "AsyncCollectiveStart")
             && user == module.graphs[graph].root)
             || (custom_call(user, "AsyncCollectiveDone")
-                && module.graphs[fused]
-                    .name
-                    .starts_with("async_collective_fusion"))
+                && module.graphs[fused].name.starts_with("async_collective_fusion"))
     }
 
     fn trivial(&self, graph: usize) -> Option<&'static str> {
@@ -448,10 +385,7 @@ impl Dumper<'_> {
     fn show_subcomputation(&self, graph: usize) -> bool {
         if let Some(fusion) = self.fusion_of(graph) {
             if !self.shown(fusion)
-                || matches!(
-                    self.show(fusion),
-                    Show::SomeOperandsOmitted | Show::OmitOperands
-                )
+                || matches!(self.show(fusion), Show::SomeOperandsOmitted | Show::OmitOperands)
                 || !self.fusions
             {
                 return false;
@@ -459,30 +393,20 @@ impl Dumper<'_> {
         } else if self.trivial(graph).is_some() {
             return false;
         }
-        self.module.graphs[graph]
-            .nodes
-            .iter()
-            .any(|&node| self.shown(node))
+        self.module.graphs[graph].nodes.iter().any(|&node| self.shown(node))
     }
 
     fn show_fusion(&self, node: usize) -> bool {
-        self.module.nodes[node]
-            .called
-            .first()
-            .is_some_and(|&graph| self.show_subcomputation(graph))
+        self.module.nodes[node].called.first().is_some_and(|&graph| self.show_subcomputation(graph))
     }
 
     fn parameter_constant(&self, node: usize) -> Option<usize> {
-        self.fusion_operand(node)
-            .filter(|&operand| self.module.nodes[operand].opcode == "constant")
+        self.fusion_operand(node).filter(|&operand| self.module.nodes[operand].opcode == "constant")
     }
 
     fn tuple_element(&self, node: usize) -> String {
         let (module, entry) = (self.module, &self.module.nodes[node]);
-        let tuple = entry
-            .operands
-            .first()
-            .map_or("", |&tuple| module.nodes[tuple].name.as_str());
+        let tuple = entry.operands.first().map_or("", |&tuple| module.nodes[tuple].name.as_str());
         format!(
             "tuple-element {} of {tuple} {}",
             module.inst(node).tuple_index,
@@ -527,11 +451,7 @@ impl Dumper<'_> {
         let module = self.module;
         loop {
             let entry = &module.nodes[node];
-            let parameter_color = if is_small(module, node) {
-                "orange"
-            } else {
-                "dark_orange"
-            };
+            let parameter_color = if is_small(module, node) { "orange" } else { "dark_orange" };
             if entry.operands.iter().any(|&operand| {
                 module.nodes[operand].opcode == "parameter"
                     && self.merge_into_users(operand)
@@ -584,11 +504,7 @@ impl Dumper<'_> {
             extended.push(':');
             extended.push_str(&self.module.inst(node).fusion_kind);
         }
-        format!(
-            "<b>{}</b><br/>{}",
-            sanitize_html(&entry.name),
-            sanitize_html(&extended)
-        )
+        format!("<b>{}</b><br/>{}", sanitize_html(&entry.name), sanitize_html(&extended))
     }
 
     fn metadata(&self, node: usize) -> String {
@@ -610,11 +526,7 @@ impl Dumper<'_> {
             let (location, parent) = frames.frames[frame as usize - 1];
             let place = frames.locations[location as usize - 1];
             frame = parent;
-            let column = if place[3] == 0 {
-                String::new()
-            } else {
-                format!(":{}", place[3])
-            };
+            let column = if place[3] == 0 { String::new() } else { format!(":{}", place[3]) };
             lines.push(format!(
                 "{}:{}:{}{column}",
                 frames.files[place[0] as usize - 1],
@@ -659,14 +571,9 @@ impl Dumper<'_> {
             let (mut producer, mut indices) = (start, Vec::new());
             loop {
                 let current = &module.nodes[producer];
-                let element = indices
-                    .last()
-                    .and_then(|&index| current.operands.get(index as usize));
-                match (
-                    current.opcode.as_str(),
-                    current.operands.first(),
-                    current.called.first(),
-                ) {
+                let element =
+                    indices.last().and_then(|&index| current.operands.get(index as usize));
+                match (current.opcode.as_str(), current.operands.first(), current.called.first()) {
                     ("bitcast" | "copy", Some(&operand), _) => producer = operand,
                     ("get-tuple-element", Some(&operand), _) => {
                         indices.push(module.inst(producer).tuple_index);
@@ -692,8 +599,7 @@ impl Dumper<'_> {
             ));
         }
         let mut attributes = Vec::new();
-        self.printer
-            .extra(node, &module.inst(node), true, &mut attributes);
+        self.printer.extra(node, &module.inst(node), true, &mut attributes);
         for line in attributes {
             lines.push(
                 if (line.starts_with("replica_groups=")
@@ -717,9 +623,7 @@ impl Dumper<'_> {
                 (shape.is_array() && shape.dimensions.len() > 1)
                     || shape.tuple_shapes.iter().any(multidim)
             }
-            let mut text = entry
-                .shape
-                .text(entry.opcode != "tuple" && multidim(&entry.shape));
+            let mut text = entry.shape.text(entry.opcode != "tuple" && multidim(&entry.shape));
             if text.len() > 64 {
                 text = format!("{}...", &text[..61]);
             }
@@ -779,11 +683,7 @@ impl Dumper<'_> {
                 None
             };
             if let Some(text) = text {
-                let label = if count > 1 {
-                    format!(" {index}")
-                } else {
-                    String::new()
-                };
+                let label = if count > 1 { format!(" {index}") } else { String::new() };
                 lines.push(format!("<b>operand{label}</b> = {text}"));
             }
             if lines.len() == 32 && index < count - 1 {
@@ -810,15 +710,8 @@ impl Dumper<'_> {
             let Some(kind) = self.trivial(graph) else {
                 continue;
             };
-            let label = if entry.called.len() == 1 {
-                String::new()
-            } else {
-                format!(" {index}")
-            };
-            lines.push(format!(
-                "Subcomputation{label}: <b>{}</b>",
-                sanitize_html(kind)
-            ));
+            let label = if entry.called.len() == 1 { String::new() } else { format!(" {index}") };
+            lines.push(format!("Subcomputation{label}: <b>{}</b>", sanitize_html(kind)));
         }
         lines.join("<br/>")
     }
@@ -832,13 +725,7 @@ impl Dumper<'_> {
         operand_count: usize,
     ) {
         let module = self.module;
-        if self
-            .edge_counts
-            .get(&(from, Some(to)))
-            .copied()
-            .unwrap_or(0)
-            > 64
-        {
+        if self.edge_counts.get(&(from, Some(to))).copied().unwrap_or(0) > 64 {
             return;
         }
         let from = self.node_for_edge(from);
@@ -859,11 +746,7 @@ impl Dumper<'_> {
             "{} -> {} [arrowhead={} tooltip=\"{} -> {}\" {label}];",
             instruction_id(from),
             instruction_id(to),
-            if is_small(module, from) {
-                "empty"
-            } else {
-                "normal"
-            },
+            if is_small(module, from) { "empty" } else { "normal" },
             module.nodes[from].name,
             module.nodes[to].name
         );
@@ -881,11 +764,7 @@ impl Dumper<'_> {
             return String::new();
         }
         self.node_ids.insert(node, self.node_ids.len() as i64 + 1);
-        let mut shape = if entry.opcode == "while" {
-            "ellipse"
-        } else {
-            "rect"
-        };
+        let mut shape = if entry.opcode == "while" { "ellipse" } else { "rect" };
         let label = self.label(node);
         let metadata = self.metadata(node);
         let backend_config = self.backend_config(node);
@@ -893,9 +772,8 @@ impl Dumper<'_> {
         let inlined = self.inlined_operands(node);
         let trivial = self.trivial_text(node);
         if entry.opcode == "parameter" && self.fused(node) {
-            if let Some(input) = self
-                .fusion_operand(node)
-                .filter(|_| entry.computation != self.computation)
+            if let Some(input) =
+                self.fusion_operand(node).filter(|_| entry.computation != self.computation)
             {
                 self.add_edge(input, node, 0, false, entry.operands.len());
             }
@@ -920,9 +798,7 @@ impl Dumper<'_> {
             scheme = "dark_red";
         }
         let mut body = label;
-        for part in [trivial, extra, inlined, backend_config]
-            .iter()
-            .filter(|part| !part.is_empty())
+        for part in [trivial, extra, inlined, backend_config].iter().filter(|part| !part.is_empty())
         {
             write!(body, "<br/>{part}").expect("writing to a string cannot fail");
         }
@@ -954,8 +830,7 @@ impl Dumper<'_> {
         if self.cluster_ids.contains_key(&graph) {
             return false;
         }
-        self.cluster_ids
-            .insert(graph, self.cluster_ids.len() as i64 + 1);
+        self.cluster_ids.insert(graph, self.cluster_ids.len() as i64 + 1);
         let (label, style) = if parent_entry.opcode == "fusion" {
             let category = hlo::fusion_category(&module.inst(parent).fusion_kind);
             let mut label = format!(
@@ -974,11 +849,7 @@ impl Dumper<'_> {
                 statistic_colors(&module.inst(parent).statistics_viz.unwrap_or_default())
                     .filter(|_| !highlight);
             let (fill, stroke) = statistic.map_or(
-                if highlight {
-                    ("#ffcdd2", "#b71c1c")
-                } else {
-                    ("#f5f5f5", "#c2c2c2")
-                },
+                if highlight { ("#ffcdd2", "#b71c1c") } else { ("#f5f5f5", "#c2c2c2") },
                 |(fill, _)| (fill, "#c2c2c2"),
             );
             (
@@ -1044,11 +915,7 @@ impl Dumper<'_> {
             return String::new();
         }
         let to = computation_id(self.computation);
-        self.edges.push((
-            from,
-            None,
-            format!("{} -> {to} [tooltip=\" \"];", instruction_id(from)),
-        ));
+        self.edges.push((from, None, format!("{} -> {to} [tooltip=\" \"];", instruction_id(from))));
         format!(
             "{to} [label=<ROOT>, shape=circle, tooltip=\" \", {}];\n",
             statistic_attributes("brown", None)
@@ -1060,12 +927,8 @@ impl Dumper<'_> {
         let graph = &module.graphs[self.computation];
         let mut label = format!("{}<br/>Computation {}", self.label, graph.name);
         if let Some(fusion) = self.fusion_of(self.computation) {
-            write!(
-                label,
-                " (in fusion instruction {})",
-                module.nodes[fusion].name
-            )
-            .expect("writing to a string cannot fail");
+            write!(label, " (in fusion instruction {})", module.nodes[fusion].name)
+                .expect("writing to a string cannot fail");
         } else if self.computation == module.entry {
             label.push_str("<br/>ENTRY computation");
         } else if !self.callers[self.computation].is_empty() {
@@ -1099,21 +962,11 @@ impl Dumper<'_> {
             if let Some(to) = to {
                 let from_graph = module.nodes[from].computation;
                 if self.fusion_of(from_graph).is_some() && module.graphs[from_graph].root == from {
-                    rule(
-                        "clust",
-                        *self.cluster_ids.get(&from_graph)?,
-                        edge,
-                        "%231976d2",
-                    );
+                    rule("clust", *self.cluster_ids.get(&from_graph)?, edge, "%231976d2");
                 }
                 let to_graph = module.nodes[to].computation;
                 if self.fusion_of(to_graph).is_some() && module.nodes[to].opcode == "parameter" {
-                    rule(
-                        "clust",
-                        *self.cluster_ids.get(&to_graph)?,
-                        edge,
-                        "%23d32f2f",
-                    );
+                    rule("clust", *self.cluster_ids.get(&to_graph)?, edge, "%23d32f2f");
                 }
             }
         }
@@ -1145,14 +998,7 @@ fn radius_filter(
     let mut nodes: HashMap<usize, Show> = HashMap::new();
     let mut worklist = std::collections::VecDeque::from([(root, 0i64)]);
     while let Some((node, depth)) = worklist.pop_front() {
-        nodes.insert(
-            node,
-            if dumper.acf_parameter(node) {
-                Show::Hide
-            } else {
-                Show::Normal
-            },
-        );
+        nodes.insert(node, if dumper.acf_parameter(node) { Show::Hide } else { Show::Normal });
         if depth == radius {
             continue;
         }
@@ -1225,21 +1071,13 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         deserializer.end().ok()?;
     }
     let value = |message: &DynamicMessage, name: &str| {
-        message
-            .get_field_by_name(name)
-            .expect("field exists in the descriptor")
-            .into_owned()
+        message.get_field_by_name(name).expect("field exists in the descriptor").into_owned()
     };
     let child = |message: &DynamicMessage, name: &str| {
-        value(message, name)
-            .as_message()
-            .expect("field has the expected type")
-            .clone()
+        value(message, name).as_message().expect("field has the expected type").clone()
     };
     let number = |message: &DynamicMessage, name: &str| {
-        value(message, name)
-            .as_f64()
-            .expect("field has the expected type")
+        value(message, name).as_f64().expect("field has the expected type")
     };
     let mut properties: Vec<(&str, String)> = Vec::new();
     if convolution {
@@ -1247,9 +1085,7 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         let (scale, side, activation) = (
             number(&conv, "conv_result_scale"),
             number(&conv, "side_input_scale"),
-            value(&conv, "activation_mode")
-                .as_enum_number()
-                .expect("field has the expected type"),
+            value(&conv, "activation_mode").as_enum_number().expect("field has the expected type"),
         );
         if scale != 1.0 {
             properties.push(("conv_result_scale", hlo::general(scale, 6)));
@@ -1258,17 +1094,13 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
             properties.push(("side_input_scale", hlo::general(side, 6)));
         }
         if activation == 8 {
-            properties.push((
-                "leakyrelu_alpha",
-                hlo::general(number(&conv, "leakyrelu_alpha"), 6),
-            ));
+            properties.push(("leakyrelu_alpha", hlo::general(number(&conv, "leakyrelu_alpha"), 6)));
         }
         properties.push((
             "activation_mode",
-            ACTIVATION_MODES.get(activation as usize).map_or_else(
-                || format!("unknown: {activation}"),
-                std::string::ToString::to_string,
-            ),
+            ACTIVATION_MODES
+                .get(activation as usize)
+                .map_or_else(|| format!("unknown: {activation}"), std::string::ToString::to_string),
         ));
         let algorithm = child(&conv, "algorithm");
         let knobs: std::collections::BTreeMap<i64, i64> = value(&algorithm, "tuning_knobs")
@@ -1286,22 +1118,14 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
             "algo",
             format!(
                 "eng{}{{{}}}",
-                value(&algorithm, "algo_id")
-                    .as_i64()
-                    .expect("field has the expected type"),
-                knobs
-                    .iter()
-                    .map(|(key, value)| format!("k{key}={value}"))
-                    .join(",")
+                value(&algorithm, "algo_id").as_i64().expect("field has the expected type"),
+                knobs.iter().map(|(key, value)| format!("k{key}={value}")).join(",")
             ),
         ));
     } else {
         let gemm = child(&message, "gemm_backend_config");
-        let (alpha_real, alpha_imag, beta) = (
-            number(&gemm, "alpha_real"),
-            number(&gemm, "alpha_imag"),
-            number(&gemm, "beta"),
-        );
+        let (alpha_real, alpha_imag, beta) =
+            (number(&gemm, "alpha_real"), number(&gemm, "alpha_imag"), number(&gemm, "beta"));
         if matches!(crate::hlo::type_name(element_type), "c64" | "c128") {
             if alpha_real != 1.0 || alpha_imag != 1.0 {
                 properties.extend([
@@ -1343,9 +1167,8 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
                     .to_string(),
             ));
         }
-        let epilogue = value(&gemm, "epilogue")
-            .as_enum_number()
-            .expect("field has the expected type");
+        let epilogue =
+            value(&gemm, "epilogue").as_enum_number().expect("field has the expected type");
         if epilogue != 0 {
             let name = gemm
                 .descriptor()
@@ -1361,19 +1184,9 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
     }
     let joined: Vec<String> = properties
         .iter()
-        .map(|(key, value)| {
-            if key.is_empty() {
-                value.clone()
-            } else {
-                format!("{key}={value}")
-            }
-        })
+        .map(|(key, value)| if key.is_empty() { value.clone() } else { format!("{key}={value}") })
         .collect();
-    Some(format!(
-        "{}{}",
-        if properties.len() > 1 { "<br/>" } else { "" },
-        joined.join("<br/>")
-    ))
+    Some(format!("{}{}", if properties.len() > 1 { "<br/>" } else { "" }, joined.join("<br/>")))
 }
 
 fn render(
@@ -1385,11 +1198,7 @@ fn render(
     format: &str,
 ) -> Result<(Vec<u8>, &'static str), String> {
     const UNSUPPORTED: &str = "Unsupported HLO instruction";
-    if module
-        .nodes
-        .iter()
-        .any(|node| matches!(node.opcode.as_str(), "infeed" | "outfeed"))
-    {
+    if module.nodes.iter().any(|node| matches!(node.opcode.as_str(), "infeed" | "outfeed")) {
         return Err(UNSUPPORTED.into());
     }
     let mut callers: Vec<Vec<usize>> = vec![Vec::new(); module.graphs.len()];
@@ -1406,10 +1215,7 @@ fn render(
         (Some(graph), _) => (graph, String::new(), None),
         (None, Some(node)) => (
             module.nodes[node].computation,
-            format!(
-                "Neighborhood of {radius} nodes around {}",
-                module.nodes[node].name
-            ),
+            format!("Neighborhood of {radius} nodes around {}", module.nodes[node].name),
             Some(node),
         ),
         (None, None) => {

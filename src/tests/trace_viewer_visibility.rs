@@ -8,11 +8,7 @@ const FLOW_MID_DIRECTION: u64 = 3;
 type TimedEvent<'a> = (&'a str, i64, i64, Option<u64>);
 
 fn visibility(resolution_ps: u64) -> Visibility {
-    Visibility {
-        resolution: resolution_ps,
-        rows: vec![Row::default(); 8],
-        flows: vec![None; 8],
-    }
+    Visibility { resolution: resolution_ps, rows: vec![Row::default(); 8], flows: vec![None; 8] }
 }
 
 fn complete(begin_ps: u64, duration_ps: u64) -> Event {
@@ -83,12 +79,7 @@ fn visible(
         plane.named_line(1, "XLA Ops");
         for &(name, begin, duration, flow) in *events {
             let stats: Vec<(&str, super::xspace::V)> = flow
-                .map(|flow| {
-                    (
-                        "flow",
-                        super::xspace::V::Uint(flow << 2 | FLOW_MID_DIRECTION),
-                    )
-                })
+                .map(|flow| ("flow", super::xspace::V::Uint(flow << 2 | FLOW_MID_DIRECTION)))
                 .into_iter()
                 .collect();
             plane.event(1, name, begin, duration, &stats);
@@ -127,14 +118,7 @@ fn visibility_no_downsampling() {
     ];
     assert_eq!(
         visible(&[("/host:CPU", events)], 1000, 2000, false),
-        [
-            "c1450_100",
-            "c2000_50",
-            "c900_100",
-            "i1000",
-            "i1500",
-            "i2000"
-        ]
+        ["c1450_100", "c2000_50", "c900_100", "i1000", "i1500", "i2000"]
     );
 }
 
@@ -146,10 +130,7 @@ fn test_trace_visibility_filter() {
         ("event3", 900, 50, None),
         ("event4", 1000, 100, Some(1)),
     ];
-    assert_eq!(
-        visible(&[("/device:TPU:0", events)], 1000, 2000, false),
-        ["event", "event2"]
-    );
+    assert_eq!(visible(&[("/device:TPU:0", events)], 1000, 2000, false), ["event", "event2"]);
     assert_eq!(
         visible(&[("/device:TPU:0", events)], 1000, 2000, true),
         ["event", "event2", "event4"]
@@ -162,10 +143,7 @@ fn test_trace_visibility_filter() {
     let core: &[TimedEvent] = &[("event", 1000, 100, None)];
     assert_eq!(
         visible(
-            &[
-                ("/device:TPU:0", core),
-                ("/device:CUSTOM:#Chip TPU Non-Core HBM", non_core)
-            ],
+            &[("/device:TPU:0", core), ("/device:CUSTOM:#Chip TPU Non-Core HBM", non_core)],
             1000,
             2000,
             false

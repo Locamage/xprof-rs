@@ -25,10 +25,7 @@ fn debug_print_rule_lists_hosts_over_the_threshold() {
         event_time_fractions: event_time_fractions(&[], &[("a", &[0.06]), ("b", &[0.01])]),
         ..Default::default()
     };
-    let text = apply("DebugPrintRule", &data)
-        .unwrap()
-        .unwrap()
-        .suggestion_text;
+    let text = apply("DebugPrintRule", &data).unwrap().unwrap().suggestion_text;
     assert!(
         text.contains("<b> up to 6.0% of step time</b>")
             && text
@@ -46,10 +43,7 @@ fn third_party_engine_runs_only_the_barrier_rule_and_renders_protobuf_json() {
     };
     let suggestions = run(&data, &THIRD_PARTY_RULES).unwrap();
     assert_eq!(
-        suggestions
-            .iter()
-            .map(|suggestion| suggestion.rule)
-            .collect::<Vec<_>>(),
+        suggestions.iter().map(|suggestion| suggestion.rule).collect::<Vec<_>>(),
         ["BarrierCoresRule"]
     );
     assert!(render(&suggestions).starts_with("{\"suggestions\":[{\"ruleName\":\"BarrierCoresRule\",\"suggestionText\":\"\\u003cp\\u003eYour program"));

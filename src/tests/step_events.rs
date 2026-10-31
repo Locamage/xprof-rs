@@ -9,16 +9,8 @@ use crate::xplane::{NONE_GROUP, Plane};
 const TFRT_TPU_RUNTIME: i64 = 7;
 
 fn device_steps(planes: &[Plane], map: &[u8], index: usize) -> StepEvents {
-    device_plane(
-        &planes[index],
-        &[],
-        map,
-        &templates(&planes[index], map),
-        0,
-        "localhost",
-        true,
-    )
-    .events
+    device_plane(&planes[index], &[], map, &templates(&planes[index], map), 0, "localhost", true)
+        .events
 }
 
 fn host_step_events(planes: &[Plane], map: &[u8], device: &StepEvents) -> StepEvents {
@@ -32,21 +24,9 @@ fn cpu_only_step_db_test() {
     let mut space = XSpace::default();
     let host = space.host();
     host.event(0, "TraceContext", 0, 100, &[("step_num", 123.into())]);
-    host.event(
-        0,
-        "FunctionRun",
-        10,
-        90,
-        &[("id", 0.into()), ("_pt", 1.into()), ("_p", 0.into())],
-    );
+    host.event(0, "FunctionRun", 10, 90, &[("id", 0.into()), ("_pt", 1.into()), ("_p", 0.into())]);
     host.event(0, "TraceContext", 300, 100, &[("step_num", 456.into())]);
-    host.event(
-        0,
-        "FunctionRun",
-        310,
-        90,
-        &[("id", 1.into()), ("_pt", 1.into()), ("_p", 1.into())],
-    );
+    host.event(0, "FunctionRun", 310, 90, &[("id", 1.into()), ("_pt", 1.into()), ("_p", 1.into())]);
     host.event(
         1,
         "ExecutorState::Process",
@@ -63,9 +43,7 @@ fn cpu_only_step_db_test() {
         &[("id", 1.into()), ("_ct", 1.into()), ("_c", 1.into())],
     );
     host.event(1, "matmul", 330, 10, &[("correlation_id", 200.into())]);
-    space
-        .gpu(0)
-        .event(0, "matmul", 50, 40, &[("correlation_id", 100.into())]);
+    space.gpu(0).event(0, "matmul", 50, 40, &[("correlation_id", 100.into())]);
     let (map, mut planes, names) = grouped(&space);
     derive_gpu(&mut planes, &map, names.as_ref(), true);
     let device = gpu_device(&planes[1], &map, 0);
@@ -79,10 +57,7 @@ fn cpu_only_step_db_test() {
 
 fn op_metadata(plane: &mut XPlane, name: &str, display: &str, symbol: i64) {
     plane.event_metadata(name).display_name = display.into();
-    plane.metadata_stats(
-        name,
-        &[("program_id", 1.into()), ("symbol_id", symbol.into())],
-    );
+    plane.metadata_stats(name, &[("program_id", 1.into()), ("symbol_id", symbol.into())]);
 }
 
 fn tpu_op_plane(step_line: bool, events: &[(&str, i64, i64)]) -> XSpace {
@@ -108,11 +83,7 @@ fn tpu_op_plane(step_line: bool, events: &[(&str, i64, i64)]) -> XSpace {
 fn tpu_device_plane_to_step_events() {
     let (map, planes) = tpu_op_plane(
         true,
-        &[
-            ("op_long_name", 0, 1),
-            ("op_long_name", 100, 2),
-            ("op_long_name2", 50, 1),
-        ],
+        &[("op_long_name", 0, 1), ("op_long_name", 100, 2), ("op_long_name2", 50, 1)],
     )
     .parsed();
     let steps = device_steps(&planes, &map, 0);
@@ -131,24 +102,15 @@ fn sparse_core_should_have_step_markers() {
     plane.named_line(0, "Sparse Core Steps");
     plane.event(0, "Step 1", 0, 1000, &[("group_id", 1.into())]);
     plane.named_line(1, "Sparse Core Ops");
-    plane.metadata_stats(
-        "sparse_op",
-        &[("program_id", 1.into()), ("symbol_id", 1.into())],
-    );
+    plane.metadata_stats("sparse_op", &[("program_id", 1.into()), ("symbol_id", 1.into())]);
     plane.event(1, "sparse_op", 100, 880, &[("group_id", 1.into())]);
     let (map, planes) = space.parsed();
     let steps = device_steps(&planes, &map, 0);
     assert_eq!(steps.len(), 1);
     let step = &steps[&1];
     assert_eq!(
-        step.markers
-            .iter()
-            .map(|marker| marker.span)
-            .collect::<Vec<_>>(),
-        [Span {
-            begin: 0,
-            duration: 1000
-        }]
+        step.markers.iter().map(|marker| marker.span).collect::<Vec<_>>(),
+        [Span { begin: 0, duration: 1000 }]
     );
     assert_eq!(step.cores[&(1 + SPARSE_CORE_START)].1, 880);
 }
@@ -168,18 +130,9 @@ fn device_span_stat_that_is_not_an_int_is_zero() {
         ],
     );
     let (map, planes) = space.parsed();
-    let markers: Vec<Span> = device_steps(&planes, &map, 0)[&3]
-        .markers
-        .iter()
-        .map(|marker| marker.span)
-        .collect();
-    assert_eq!(
-        markers,
-        [Span {
-            begin: 310,
-            duration: 0
-        }]
-    );
+    let markers: Vec<Span> =
+        device_steps(&planes, &map, 0)[&3].markers.iter().map(|marker| marker.span).collect();
+    assert_eq!(markers, [Span { begin: 310, duration: 0 }]);
 }
 
 #[test]
@@ -201,20 +154,8 @@ fn tpu_device_plane_no_step_line() {
 fn cpu_only_py_grain_single_process_input_pipeline_test() {
     let mut space = XSpace::default();
     let host = space.host();
-    host.event(
-        0,
-        "read_data 1",
-        0,
-        100,
-        &[("step_num", 1.into()), ("_r", 1.into())],
-    );
-    host.event(
-        0,
-        "_BatchDatasetIterator.__next__",
-        1,
-        90,
-        &[("_ipl_stage_name", "Batch".into())],
-    );
+    host.event(0, "read_data 1", 0, 100, &[("step_num", 1.into()), ("_r", 1.into())]);
+    host.event(0, "_BatchDatasetIterator.__next__", 1, 90, &[("_ipl_stage_name", "Batch".into())]);
     host.event(
         0,
         "FirstFitPackDatasetIterator.__next__",
@@ -222,9 +163,8 @@ fn cpu_only_py_grain_single_process_input_pipeline_test() {
         88,
         &[("_ipl_stage_name", "FirstFitPack".into())],
     );
-    for (producer, (offset, duration)) in [(3, 9), (13, 9), (23, 50), (74, 10), (85, 5)]
-        .into_iter()
-        .enumerate()
+    for (producer, (offset, duration)) in
+        [(3, 9), (13, 9), (23, 50), (74, 10), (85, 5)].into_iter().enumerate()
     {
         host.event(
             0,
@@ -257,11 +197,7 @@ fn cpu_only_py_grain_single_process_input_pipeline_test() {
         "DoEnqueueProgram",
         95,
         2,
-        &[
-            ("run_id", 1.into()),
-            ("queue_id", 0.into()),
-            ("device_ordinal", 0.into()),
-        ],
+        &[("run_id", 1.into()), ("queue_id", 0.into()), ("device_ordinal", 0.into())],
     );
     for worker in 1..=5 {
         host.named_line(worker + 1, &format!("WorkerThread-{worker}"));
@@ -287,11 +223,7 @@ fn cpu_only_py_grain_single_process_input_pipeline_test() {
         "jit_multiply(1)",
         97,
         2,
-        &[
-            ("run_id", 1.into()),
-            ("replica_id", 0.into()),
-            ("queue_id", 0.into()),
-        ],
+        &[("run_id", 1.into()), ("replica_id", 0.into()), ("queue_id", 0.into())],
     );
     device.event(2, "multiply.1", 98, 1, &[]);
     let (map, planes, names) = grouped(&space);
@@ -300,11 +232,7 @@ fn cpu_only_py_grain_single_process_input_pipeline_test() {
     assert_eq!(device.len(), 1);
     for plane in &planes {
         for event in plane.lines.iter().flat_map(|line| &line.events) {
-            assert_eq!(
-                event.group, 0,
-                "{} {}",
-                plane.name, plane.meta[event.meta as usize].name
-            );
+            assert_eq!(event.group, 0, "{} {}", plane.name, plane.meta[event.meta as usize].name);
         }
     }
     let host = host_step_events(&planes, &map, &device);
@@ -318,13 +246,7 @@ fn cpu_only_py_grain_single_process_input_pipeline_test() {
         .filter(|(kind, _)| *kind == HOST_WAIT_INPUT)
         .map(|(_, span)| *span)
         .collect();
-    assert_eq!(
-        waits,
-        [Span {
-            begin: 1,
-            duration: 90
-        }]
-    );
+    assert_eq!(waits, [Span { begin: 1, duration: 90 }]);
 }
 
 #[test]
@@ -346,10 +268,7 @@ fn the_reads_of_the_op_statistics_give_the_same_program_steps() {
     plane.event(2, "op_long_name", 100, 60, &[("group_id", 2.into())]);
     let (map, mut planes) = space.parsed();
     for (line, groups) in
-        planes[0]
-            .lines
-            .iter_mut()
-            .zip([&[1, 2][..], &[1], &[1, 1, NONE_GROUP, 2]])
+        planes[0].lines.iter_mut().zip([&[1, 2][..], &[1], &[1, 1, NONE_GROUP, 2]])
     {
         for (event, &group) in line.events.iter_mut().zip(groups) {
             event.group = group;

@@ -6,12 +6,7 @@ fn build(space: &XSpace, tensor_core: bool) -> Db {
     let (templates, reader) = (templates(&planes[0], &map), EventReader::new(&planes[0]));
     let mut builder = Builder::new(&templates);
     for event in planes[0].lines.iter().flat_map(|line| &line.events) {
-        builder.add(
-            event,
-            &reader.read(&map, event),
-            (event.dur, event.dur),
-            tensor_core,
-        );
+        builder.add(event, &reader.read(&map, event), (event.dur, event.dur), tensor_core);
     }
     builder.finish()
 }
@@ -33,19 +28,13 @@ fn from_x_event_handles_missing_occurrences() {
             ("model_flops", 4.into()),
             ("bytes_accessed", 5.into()),
             ("source", "my_file.py:123".into()),
-            (
-                "source_stack",
-                "my_file.py:123\nmy_other_file.py:456".into(),
-            ),
+            ("source_stack", "my_file.py:123\nmy_other_file.py:456".into()),
         ],
     );
     plane.event(0, "metadata", 0, 100, &[]);
     let db = build(&space, false);
     assert_db(
-        &Db {
-            metrics: db.metrics,
-            ..Default::default()
-        },
+        &Db { metrics: db.metrics, ..Default::default() },
         r#"metrics_db {
              occurrences: 1
              time_ps: 100
@@ -78,24 +67,14 @@ fn add_op_metric() {
     let mut space = XSpace::default();
     let plane = space.add_plane();
     for (name, display, ids) in [
-        (
-            "m1",
-            "display_name1",
-            &[("program_id", 1), ("symbol_id", 1)][..],
-        ),
-        (
-            "m2",
-            "display_name2",
-            &[("program_id", 1), ("symbol_id", 2)],
-        ),
+        ("m1", "display_name1", &[("program_id", 1), ("symbol_id", 1)][..]),
+        ("m2", "display_name2", &[("program_id", 1), ("symbol_id", 2)]),
         ("m3", "display_name3", &[("symbol_id", 1)]),
     ] {
         plane.event_metadata(name).display_name = display.into();
         plane.metadata_stats(
             name,
-            &ids.iter()
-                .map(|&(key, value)| (key, value.into()))
-                .collect::<Vec<_>>(),
+            &ids.iter().map(|&(key, value)| (key, value.into())).collect::<Vec<_>>(),
         );
     }
     plane.event(
@@ -103,20 +82,14 @@ fn add_op_metric() {
         "m1",
         0,
         100,
-        &[
-            ("Time Scale Multiplier", 0.5.into()),
-            ("vdd_energy_j", 10.0.into()),
-        ],
+        &[("Time Scale Multiplier", 0.5.into()), ("vdd_energy_j", 10.0.into())],
     );
     plane.event(
         0,
         "m1",
         100,
         100,
-        &[
-            ("Time Scale Multiplier", 1.0.into()),
-            ("vdd_energy_j", 20.0.into()),
-        ],
+        &[("Time Scale Multiplier", 1.0.into()), ("vdd_energy_j", 20.0.into())],
     );
     plane.event(0, "m2", 0, 100, &[("Time Scale Multiplier", 2.0.into())]);
     plane.event(0, "m3", 0, 100, &[]);
@@ -159,18 +132,12 @@ fn time_scale_multiplier_that_is_not_a_double_is_zero() {
     let mut space = XSpace::default();
     let plane = space.add_plane();
     for (name, symbol) in [("m1", 1), ("m2", 2)] {
-        plane.metadata_stats(
-            name,
-            &[("program_id", 1.into()), ("symbol_id", symbol.into())],
-        );
+        plane.metadata_stats(name, &[("program_id", 1.into()), ("symbol_id", symbol.into())]);
     }
     plane.event(0, "m1", 0, 100, &[("Time Scale Multiplier", 2i64.into())]);
     plane.event(0, "m2", 100, 100, &[]);
     let db = build(&space, true);
-    let normalized: Vec<(&str, u64)> = db
-        .metrics
-        .iter()
-        .map(|metrics| (&*metrics.name, metrics.normalized_time_ps))
-        .collect();
+    let normalized: Vec<(&str, u64)> =
+        db.metrics.iter().map(|metrics| (&*metrics.name, metrics.normalized_time_ps)).collect();
     assert_eq!(normalized, [("m1", 0), ("m2", 100)]);
 }

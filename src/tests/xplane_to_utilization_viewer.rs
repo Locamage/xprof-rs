@@ -36,10 +36,7 @@ fn counter(plane: &mut XPlane, line: i64, name: &str, id: u64, value: f64, durat
         name,
         0,
         duration_ns * 1000,
-        &[
-            ("performance_counter_id", id.into()),
-            ("counter_value", V::Double(value)),
-        ],
+        &[("performance_counter_id", id.into()), ("counter_value", V::Double(value))],
     );
 }
 
@@ -59,11 +56,7 @@ fn utilization(space: &XSpace) -> String {
 }
 
 fn kernels(space: &XSpace) -> Value {
-    serde_json::from_str(&kernel_utilization(
-        &space.encode_to_vec(),
-        &Default::default(),
-    ))
-    .unwrap()
+    serde_json::from_str(&kernel_utilization(&space.encode_to_vec(), &Default::default())).unwrap()
 }
 
 #[test]
@@ -150,10 +143,7 @@ fn na_n_counter_value_handled_safely() {
             ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), f64::NAN),
         ],
     ));
-    assert!(
-        json_str.contains("Scalar Unit") && json_str.contains('0'),
-        "{json_str}"
-    );
+    assert!(json_str.contains("Scalar Unit") && json_str.contains('0'), "{json_str}");
 }
 
 #[test]
@@ -166,14 +156,7 @@ fn basic_tpu_v7x_with_kernel_attribution() {
     plane.named_line(0, "counters_0");
     counter(plane, 0, "CYCLES", v7x(V7X_CYCLES), 10000.0, 10000);
     counter(plane, 0, "MXU_BUSY", v7x_tc("MXU_BUSY_1"), 16000.0, 0);
-    counter(
-        plane,
-        0,
-        "MXU_BF16",
-        v7x_tc("MATMUL_VREG_BF16_MXU_0"),
-        8000.0,
-        0,
-    );
+    counter(plane, 0, "MXU_BF16", v7x_tc("MATMUL_VREG_BF16_MXU_0"), 8000.0, 0);
     let result = kernels(&space);
     assert_eq!(result["status"], "SUCCESS");
     assert_eq!(result["devices"].as_array().unwrap().len(), 1);
@@ -252,10 +235,7 @@ fn device_id_fallback_from_plane_name() {
     assert_eq!(result["devices"].as_array().unwrap().len(), 1);
     assert_eq!(result["devices"][0]["device_id"], 3);
     assert_eq!(result["devices"][0]["kernels"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        result["devices"][0]["kernels"][0]["kernel_name"],
-        "test_kernel"
-    );
+    assert_eq!(result["devices"][0]["kernels"][0]["kernel_name"], "test_kernel");
 }
 
 #[test]
@@ -291,9 +271,7 @@ fn multi_core_hbm_bandwidth_aggregation_tpu_v7x() {
     ));
     assert_eq!(result["status"], "SUCCESS");
     assert_eq!(result["devices"].as_array().unwrap().len(), 1);
-    let other_metrics = result["devices"][0]["kernels"][0]["other_metrics"]
-        .as_object()
-        .unwrap();
+    let other_metrics = result["devices"][0]["kernels"][0]["other_metrics"].as_object().unwrap();
     assert!(other_metrics.contains_key("HBM Bandwidth Utilization"));
     assert!(!other_metrics.contains_key("HBM Rd+Wr - core 0"));
     assert!(!other_metrics.contains_key("HBM Rd+Wr - core 1"));

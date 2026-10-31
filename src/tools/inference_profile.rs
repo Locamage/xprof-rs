@@ -36,18 +36,11 @@ const HOST_POSTPROCESS: u32 = 30;
 const HOST_BATCH_FORMATION: u32 = 40;
 const HOST_RUNTIME: u32 = 50;
 const BATCHING_REQUEST: &str = "BatchingSessionRun";
-const REQUEST_KINDS: [&[&str]; 3] = [
-    &["TfrtModelRun"],
-    &["ServingModelRun"],
-    &["SessionRun", "RunGraph"],
-];
+const REQUEST_KINDS: [&[&str]; 3] =
+    [&["TfrtModelRun"], &["ServingModelRun"], &["SessionRun", "RunGraph"]];
 const MODEL_ID_EVENTS: [&str; 3] = ["SessionRun", "TfrtModelRun", "ServingModelRun"];
-const SCHEDULE_EVENTS: [&str; 4] = [
-    "ScheduleWithSplit",
-    "ScheduleWithoutSplit",
-    "ScheduleWithEagerSplit",
-    "ASBSQueue::Schedule",
-];
+const SCHEDULE_EVENTS: [&str; 4] =
+    ["ScheduleWithSplit", "ScheduleWithoutSplit", "ScheduleWithEagerSplit", "ASBSQueue::Schedule"];
 const PROCESS_BATCH_EVENTS: [&str; 2] = ["ProcessBatch", "OrbaxServing::ProcessBatch"];
 const PADDING_EVENTS: [&str; 4] = [
     "ConcatInputTensors",
@@ -82,11 +75,7 @@ const EXECUTE_EVENTS: [&str; 4] = [
 ];
 const LAUNCH_EVENTS: [&str; 2] = ["DoEnqueueProgram", "DoEnqueueContinuationProgram"];
 const CALLBACK_EVENTS: [&str; 1] = ["CompleteCallbacks"];
-const TENSOR_EVENTS: [&str; 3] = [
-    "Linearize",
-    "Delinearize",
-    "TransferBufferFromDevice-FastPath",
-];
+const TENSOR_EVENTS: [&str; 3] = ["Linearize", "Delinearize", "TransferBufferFromDevice-FastPath"];
 const BATCHING_PARAM_PREFIX: &str = "/tensorflow/serving/batching/";
 const BATCHING_PARAMS: [&str; 5] = [
     "num_batch_threads",
@@ -98,14 +87,8 @@ const BATCHING_PARAMS: [&str; 5] = [
 const REQUEST_OWNER: i32 = 1;
 const BATCH_OWNER: i32 = 2;
 const TENSOR_PERCENTILES: [f64; 6] = [50.0, 75.0, 90.0, 95.0, 99.0, 99.9];
-const WANTED_PERCENTILES: [(f64, f64); 6] = [
-    (50.0, 1.0),
-    (75.0, 1.0),
-    (90.0, 1.0),
-    (99.0, 0.5),
-    (99.9, 0.05),
-    (99.99, 0.005),
-];
+const WANTED_PERCENTILES: [(f64, f64); 6] =
+    [(50.0, 1.0), (75.0, 1.0), (90.0, 1.0), (99.0, 0.5), (99.9, 0.05), (99.99, 0.005)];
 const PER_PERCENTILE: usize = 10;
 const LATENCY_COLUMN: &str = "Latency";
 const BATCH_COLUMNS: [(&str, &str, &str); 11] = [
@@ -113,11 +96,7 @@ const BATCH_COLUMNS: [(&str, &str, &str); 11] = [
     ("batch_id", "string", "Batch ID"),
     ("latency", "number", "Latency"),
     ("padding_amount", "number", "Padding amount"),
-    (
-        "batch_size_after_padding",
-        "number",
-        "Batch size after padding",
-    ),
+    ("batch_size_after_padding", "number", "Batch size after padding"),
     ("batching_efficiency", "number", "Batching efficiency"),
     ("batching_delay_us", "number", "Batching delay"),
     ("throughput", "string", "Throughput"),
@@ -338,17 +317,10 @@ fn serves_requests(map: &[u8]) -> bool {
     let root = [plane.stat_id("_r")];
     plane.lines.par_iter().any(|line| {
         events(line).any(|event| {
-            let name = plane
-                .metadata
-                .get(&event.meta)
-                .map_or(&[][..], |(name, _)| name);
-            let level = first(event.raw, 4, root)[0].as_ref().map(|value| {
-                if let Value::Int(level) = value {
-                    *level
-                } else {
-                    0
-                }
-            });
+            let name = plane.metadata.get(&event.meta).map_or(&[][..], |(name, _)| name);
+            let level = first(event.raw, 4, root)[0]
+                .as_ref()
+                .map(|value| if let Value::Int(level) = value { *level } else { 0 });
             REQUEST_EVENTS.contains(&name)
                 || level == Some(-1)
                 || (level == Some(1) && name.starts_with(USER_REQUEST_PREFIX.as_bytes()))
@@ -357,18 +329,12 @@ fn serves_requests(map: &[u8]) -> bool {
 }
 
 fn span(begin: u64, end: u64) -> Span {
-    Span {
-        begin,
-        duration: end.saturating_sub(begin),
-    }
+    Span { begin, duration: end.saturating_sub(begin) }
 }
 
 fn targets(relatives: &Metadata, group: i64) -> impl Iterator<Item = i64> + '_ {
     once(group).chain(
-        relatives
-            .get(&group)
-            .into_iter()
-            .flat_map(|relative| relative.parents.iter().copied()),
+        relatives.get(&group).into_iter().flat_map(|relative| relative.parents.iter().copied()),
     )
 }
 
@@ -449,19 +415,11 @@ impl<'a> Events<'a> {
                 _ => false,
             })
             .collect();
-        Events {
-            all,
-            by_name,
-            roots,
-        }
+        Events { all, by_name, roots }
     }
 
     fn named(&self, name: &str) -> impl Iterator<Item = &HostEvent<'a>> {
-        self.by_name
-            .get(name)
-            .map_or(&[][..], Vec::as_slice)
-            .iter()
-            .map(|&index| &self.all[index])
+        self.by_name.get(name).map_or(&[][..], Vec::as_slice).iter().map(|&index| &self.all[index])
     }
 
     fn grouped(
@@ -481,11 +439,10 @@ impl<'a> Events<'a> {
 
 fn model_ids(events: &Events, host: &Plane, ids: &StatIds) -> HashMap<i64, String> {
     let mut model_ids = HashMap::new();
-    for (event, group) in events.grouped(&MODEL_ID_EVENTS).chain(
-        events
-            .roots()
-            .filter_map(|event| Some((event, event.group?))),
-    ) {
+    for (event, group) in events
+        .grouped(&MODEL_ID_EVENTS)
+        .chain(events.roots().filter_map(|event| Some((event, event.group?))))
+    {
         let text = match event_stat(event.raw, ids.model) {
             Some(Value::Int(value)) => value.to_string(),
             Some(Value::Uint(value)) => value.to_string(),
@@ -506,10 +463,8 @@ fn build_requests<'a>(
     models: &mut ModelIdDatabase,
 ) -> BTreeMap<i64, Request<'a>> {
     let model_of = |group: &i64| model_ids.get(group).map_or("", String::as_str);
-    let batch_groups: HashSet<i64> = events
-        .grouped(&PROCESS_BATCH_EVENTS)
-        .map(|(_, group)| group)
-        .collect();
+    let batch_groups: HashSet<i64> =
+        events.grouped(&PROCESS_BATCH_EVENTS).map(|(_, group)| group).collect();
     let batching = events.by_name.contains_key(BATCHING_REQUEST);
     let kinds: &[&str] = if batching {
         &[BATCHING_REQUEST]
@@ -561,15 +516,9 @@ fn build_requests<'a>(
     }
     for event in &events.all {
         if let Some(request) = event.group.and_then(|group| requests.get_mut(&group)) {
-            let begin = if request.span.begin == 0 {
-                event.ts
-            } else {
-                request.span.begin.min(event.ts)
-            };
-            request.span = span(
-                begin,
-                request.span.end().max(event.ts.wrapping_add(event.dur)),
-            );
+            let begin =
+                if request.span.begin == 0 { event.ts } else { request.span.begin.min(event.ts) };
+            request.span = span(begin, request.span.end().max(event.ts.wrapping_add(event.dur)));
         }
     }
     requests
@@ -614,10 +563,8 @@ fn build_batches<'a>(
             event_stat(event.raw, ids.padding),
             event_stat(event.raw, ids.padded_size),
         ) {
-            (
-                batch.detail.batch_size_after_padding,
-                batch.detail.padding_amount,
-            ) = (size.signed() as i32, padding.signed() as i32);
+            (batch.detail.batch_size_after_padding, batch.detail.padding_amount) =
+                (size.signed() as i32, padding.signed() as i32);
         }
     }
     for batch in batches.values_mut() {
@@ -639,26 +586,13 @@ fn device_events(planes: &[Plane], map: &[u8], events: &Events, ids: &StatIds) -
     let mut found: Vec<DeviceEvent> = Vec::new();
     for (name, kind) in TRANSFER_EVENTS {
         found.extend(events.named(name).filter_map(|event| {
-            Some((
-                event.group?,
-                (
-                    kind,
-                    Span {
-                        begin: event.ts,
-                        duration: event.dur,
-                    },
-                ),
-                None,
-            ))
+            Some((event.group?, (kind, Span { begin: event.ts, duration: event.dur }), None))
         }));
     }
     for (start, end, kind) in SYSTEM_TRANSFERS {
         let mut transfers: HashMap<i64, (&HostEvent, Option<&HostEvent>)> = HashMap::new();
         let consumer = |event: &HostEvent| {
-            event
-                .group
-                .and(event_stat(event.raw, ids.consumer))
-                .map(|value| value.signed())
+            event.group.and(event_stat(event.raw, ids.consumer)).map(|value| value.signed())
         };
         for event in events.named(start) {
             if let Some(id) = consumer(event) {
@@ -673,10 +607,7 @@ fn device_events(planes: &[Plane], map: &[u8], events: &Events, ids: &StatIds) -
                 transfer.1 = Some(event);
             }
         }
-        for (start, end) in transfers
-            .values()
-            .filter_map(|&(start, end)| Some((start, end?)))
-        {
+        for (start, end) in transfers.values().filter_map(|&(start, end)| Some((start, end?))) {
             found.push((
                 start.group.unwrap_or_default(),
                 (
@@ -767,11 +698,8 @@ fn apply_batch_timing(requests: &mut BTreeMap<i64, Request>, batches: &mut BTree
 
 fn add_host_phases(requests: &mut BTreeMap<i64, Request>) {
     for request in requests.values_mut() {
-        let (begin, end, stamps) = (
-            request.span.begin,
-            request.span.end(),
-            request.stamps.values(),
-        );
+        let (begin, end, stamps) =
+            (request.span.begin, request.span.end(), request.stamps.values());
         let runtimes: Vec<(u32, Span)> = stamps
             .clone()
             .filter_map(|stamps| Some((HOST_RUNTIME, span(stamps.execute?, stamps.launch?))))
@@ -788,16 +716,12 @@ fn add_host_phases(requests: &mut BTreeMap<i64, Request>) {
             .max()
             .unwrap_or(0);
         request.events.extend(runtimes);
-        request
-            .events
-            .extend(first_execute.map(|execute| (HOST_PREPROCESS, span(begin, execute))));
+        request.events.extend(first_execute.map(|execute| (HOST_PREPROCESS, span(begin, execute))));
         if let Some(start) = callback.or((device_end != 0).then_some(device_end)) {
             request.events.push((HOST_POSTPROCESS, span(start, end)));
         }
         if let (Some(schedule), Some(concat)) = (schedule, concat) {
-            request
-                .events
-                .push((HOST_BATCH_FORMATION, span(schedule, concat)));
+            request.events.push((HOST_BATCH_FORMATION, span(schedule, concat)));
         }
     }
 }
@@ -822,9 +746,8 @@ fn tensor_patterns<'a>(
             let text = |id: Option<usize>| event_stat(event.raw, id).map(|value| host.text(&value));
             let shape = match (text(ids.shape), text(ids.dims)) {
                 (Some(shape), _) => shape,
-                (None, Some(dims)) => text(ids.kind).map_or(dims.clone(), |kind| {
-                    format!("{}{dims}", kind.to_ascii_lowercase())
-                }),
+                (None, Some(dims)) => text(ids.kind)
+                    .map_or(dims.clone(), |kind| format!("{}{dims}", kind.to_ascii_lowercase())),
                 (None, None) => String::new(),
             };
             let Some(layout) = text(ids.layout).filter(|_| !shape.is_empty()) else {
@@ -847,9 +770,7 @@ fn tensor_patterns<'a>(
         })
     };
     for request in requests.values_mut() {
-        request
-            .details
-            .extend(detail(&request.tensors, REQUEST_OWNER));
+        request.details.extend(detail(&request.tensors, REQUEST_OWNER));
     }
     for batch in batches.values_mut() {
         batch.detail.tensor_event_detail = detail(&batch.tensors, BATCH_OWNER);
@@ -883,10 +804,7 @@ fn host_details(
             .sum::<u64>()
     };
     let mut per_host = PerHostInferenceStats::default();
-    for (&group, request) in requests
-        .iter()
-        .filter(|(_, request)| request.span.duration != 0)
-    {
+    for (&group, request) in requests.iter().filter(|(_, request)| request.span.duration != 0) {
         let parts = non_overlapped(&request.events);
         per_host.request_details.push(RequestDetail {
             request_id: group,
@@ -913,41 +831,26 @@ fn host_details(
         .request_details
         .sort_by_key(|request| duration(request.start_time_ps, request.end_time_ps));
     for batch in batches.into_values() {
-        let device_time_ps = total(
-            &non_overlapped(&batch.events),
-            &[DEVICE_COMPUTE_16, DEVICE_COMPUTE_32],
-        );
-        per_host.batch_details.push(BatchDetail {
-            host_id,
-            device_time_ps,
-            ..batch.detail
-        });
+        let device_time_ps =
+            total(&non_overlapped(&batch.events), &[DEVICE_COMPUTE_16, DEVICE_COMPUTE_32]);
+        per_host.batch_details.push(BatchDetail { host_id, device_time_ps, ..batch.detail });
     }
-    per_host
-        .batch_details
-        .sort_by_key(|batch| duration(batch.start_time_ps, batch.end_time_ps));
+    per_host.batch_details.sort_by_key(|batch| duration(batch.start_time_ps, batch.end_time_ps));
     per_host
 }
 
 fn batching_parameters(planes: &[Plane], map: &[u8], models: &mut ModelIdDatabase) {
-    let Some((plane, line)) = planes
-        .iter()
-        .find(|plane| plane.name == TFSTREAMZ_PLANE)
-        .and_then(|plane| {
-            Some((
-                plane,
-                plane.lines.first().filter(|line| line.events.len() == 2)?,
-            ))
+    let Some((plane, line)) =
+        planes.iter().find(|plane| plane.name == TFSTREAMZ_PLANE).and_then(|plane| {
+            Some((plane, plane.lines.first().filter(|line| line.events.len() == 2)?))
         })
     else {
         return;
     };
     let mut params: HashMap<String, BatchingParameters> = HashMap::new();
     for stat in stats(slice(map, line.events[1].raw), 4, |_| true) {
-        let Some(detail) = plane
-            .stat_names
-            .get(stat.id)
-            .and_then(|name| name.strip_prefix(BATCHING_PARAM_PREFIX))
+        let Some(detail) =
+            plane.stat_names.get(stat.id).and_then(|name| name.strip_prefix(BATCHING_PARAM_PREFIX))
         else {
             continue;
         };
@@ -960,23 +863,15 @@ fn batching_parameters(planes: &[Plane], map: &[u8], models: &mut ModelIdDatabas
             continue;
         };
         let found =
-            labels
-                .split(", ")
-                .find_map(|label| match label.split('=').collect::<Vec<_>>()[..] {
-                    ["model_name", model] => Some(model),
-                    _ => None,
-                });
+            labels.split(", ").find_map(|label| match label.split('=').collect::<Vec<_>>()[..] {
+                ["model_name", model] => Some(model),
+                _ => None,
+            });
         let Some(model) = found else { continue };
-        let Some(field) = BATCHING_PARAMS
-            .iter()
-            .position(|param| detail.starts_with(param))
-        else {
+        let Some(field) = BATCHING_PARAMS.iter().position(|param| detail.starts_with(param)) else {
             continue;
         };
-        let (entry, value) = (
-            params.entry(model.to_string()).or_default(),
-            stat.value.signed(),
-        );
+        let (entry, value) = (params.entry(model.to_string()).or_default(), stat.value.signed());
         match field {
             0 => entry.num_batch_threads = value,
             1 => entry.batch_timeout_micros = value,
@@ -989,18 +884,15 @@ fn batching_parameters(planes: &[Plane], map: &[u8], models: &mut ModelIdDatabas
     for id in &models.ids {
         match id.rfind(':') {
             None => sessions.entry(id.clone()).or_default().push(id.clone()),
-            Some(colon) if id[colon + 1..].trim_ascii().parse::<i64>().is_ok() => sessions
-                .entry(id[..colon].to_string())
-                .or_default()
-                .push(id.clone()),
+            Some(colon) if id[colon + 1..].trim_ascii().parse::<i64>().is_ok() => {
+                sessions.entry(id[..colon].to_string()).or_default().push(id.clone());
+            }
             Some(_) => {}
         }
     }
     for (model, params) in params {
         for id in sessions.get(&model).into_iter().flatten() {
-            models
-                .id_to_batching_params
-                .insert(id.clone(), params.clone());
+            models.id_to_batching_params.insert(id.clone(), params.clone());
         }
     }
 }
@@ -1012,9 +904,7 @@ pub fn generate(
     host_id: i32,
 ) -> InferenceStats {
     let mut result = InferenceStats::default();
-    result
-        .inference_stats_per_host
-        .insert(host_id, PerHostInferenceStats::default());
+    result.inference_stats_per_host.insert(host_id, PerHostInferenceStats::default());
     let Some(host) = planes.iter().find(|plane| plane.name == HOST_PLANE) else {
         return result;
     };
@@ -1027,10 +917,9 @@ pub fn generate(
         stamp(&mut requests, relatives, group, &|stamps| {
             stamps.schedule = Some(event.ts);
         });
-        if let (Some(request), Some(size)) = (
-            requests.get_mut(&group),
-            event_stat(event.raw, ids.task_size),
-        ) {
+        if let (Some(request), Some(size)) =
+            (requests.get_mut(&group), event_stat(event.raw, ids.task_size))
+        {
             request.size = size.signed() as i32;
         }
     }
@@ -1048,11 +937,7 @@ pub fn generate(
     }
     for (event, group) in events.grouped(&LAUNCH_EVENTS) {
         stamp(&mut requests, relatives, group, &|stamps| {
-            stamps.launch = Some(
-                stamps
-                    .launch
-                    .map_or(event.ts, |launch| launch.min(event.ts)),
-            );
+            stamps.launch = Some(stamps.launch.map_or(event.ts, |launch| launch.min(event.ts)));
         });
     }
     for (event, group) in events.grouped(&CALLBACK_EVENTS) {
@@ -1063,9 +948,7 @@ pub fn generate(
     apply_batch_timing(&mut requests, &mut batches);
     add_host_phases(&mut requests);
     result.tensor_patterns = tensor_patterns(&events, host, &ids, &mut requests, &mut batches);
-    result
-        .inference_stats_per_host
-        .insert(host_id, host_details(host_id, &requests, batches));
+    result.inference_stats_per_host.insert(host_id, host_details(host_id, &requests, batches));
     batching_parameters(planes, map, &mut result.model_id_db);
     result
 }
@@ -1086,9 +969,7 @@ fn combine(host_id: i32, src: InferenceStats, dst: &mut InferenceStats) {
             if let Some(&index) = dst.model_id_db.id_to_index.get(id) {
                 update |= index != src.model_id_db.id_to_index[id];
             } else {
-                dst.model_id_db
-                    .id_to_index
-                    .insert(id.clone(), dst.model_id_db.ids.len() as i32);
+                dst.model_id_db.id_to_index.insert(id.clone(), dst.model_id_db.ids.len() as i32);
                 dst.model_id_db.ids.push(id.clone());
                 update = true;
             }
@@ -1129,10 +1010,7 @@ fn combine(host_id: i32, src: InferenceStats, dst: &mut InferenceStats) {
         }
     };
     for (_, mut host) in src.inference_stats_per_host {
-        for request in host
-            .request_details
-            .iter_mut()
-            .filter(|_| update_models || update_patterns)
+        for request in host.request_details.iter_mut().filter(|_| update_models || update_patterns)
         {
             if update_models && request.model_id_index != -1 {
                 let Some(&index) = src
@@ -1153,11 +1031,7 @@ fn combine(host_id: i32, src: InferenceStats, dst: &mut InferenceStats) {
         }
         if update_patterns {
             for batch in &mut host.batch_details {
-                remap(
-                    batch
-                        .tensor_event_detail
-                        .get_or_insert_with(TensorEventDetail::default),
-                );
+                remap(batch.tensor_event_detail.get_or_insert_with(TensorEventDetail::default));
             }
         }
         dst.inference_stats_per_host.entry(host_id).or_insert(host);
@@ -1170,9 +1044,8 @@ fn throughput_and_latency(spans: &[(u64, u64)]) -> (f64, f64) {
     }
     let begin = spans.iter().map(|span| span.0).min().unwrap_or_default();
     let end = spans.iter().map(|span| span.1).max().unwrap_or_default();
-    let total = spans.iter().fold(0u64, |total, span| {
-        total.wrapping_add(span.1.wrapping_sub(span.0))
-    });
+    let total =
+        spans.iter().fold(0u64, |total, span| total.wrapping_add(span.1.wrapping_sub(span.0)));
     (
         spans.len() as f64 / (end.wrapping_sub(begin) as f64 / 1e12),
         total as f64 / 1e6 / spans.len() as f64,
@@ -1184,9 +1057,8 @@ macro_rules! wrapping_add {
 }
 
 fn add_request(sum: &mut RequestDetail, request: &RequestDetail) {
-    sum.end_time_ps = sum
-        .end_time_ps
-        .wrapping_add(request.end_time_ps.wrapping_sub(request.start_time_ps));
+    sum.end_time_ps =
+        sum.end_time_ps.wrapping_add(request.end_time_ps.wrapping_sub(request.start_time_ps));
     wrapping_add!(
         sum,
         request,
@@ -1226,9 +1098,8 @@ fn average_request(sum: &RequestDetail, size: usize) -> RequestDetail {
 }
 
 fn add_batch(sum: &mut BatchDetail, batch: &BatchDetail) {
-    sum.end_time_ps = sum
-        .end_time_ps
-        .wrapping_add(batch.end_time_ps.wrapping_sub(batch.start_time_ps));
+    sum.end_time_ps =
+        sum.end_time_ps.wrapping_add(batch.end_time_ps.wrapping_sub(batch.start_time_ps));
     wrapping_add!(
         sum,
         batch,
@@ -1262,18 +1133,10 @@ pub fn regroup(stats: &mut InferenceStats) {
     let no_model = stats.model_id_db.ids.is_empty();
     let mut grouped = vec![
         PerModelInferenceStats::default();
-        if no_model {
-            1
-        } else {
-            stats.model_id_db.ids.len()
-        }
+        if no_model { 1 } else { stats.model_id_db.ids.len() }
     ];
     let bucket = |index: i32| {
-        if no_model {
-            Some(0)
-        } else {
-            usize::try_from(index).ok()
-        }
+        if no_model { Some(0) } else { usize::try_from(index).ok() }
     };
     for host in stats.inference_stats_per_host.values() {
         for request in &host.request_details {
@@ -1296,9 +1159,7 @@ pub fn regroup(stats: &mut InferenceStats) {
         model
             .request_details
             .sort_by_key(|request| duration(request.start_time_ps, request.end_time_ps));
-        model
-            .batch_details
-            .sort_by_key(|batch| duration(batch.start_time_ps, batch.end_time_ps));
+        model.batch_details.sort_by_key(|batch| duration(batch.start_time_ps, batch.end_time_ps));
         let requests: Vec<(u64, u64)> = model
             .request_details
             .iter()
@@ -1319,10 +1180,7 @@ pub fn regroup(stats: &mut InferenceStats) {
             .flat_map(|request| &request.tensor_event_details)
             .filter(|detail| detail.owner == REQUEST_OWNER);
         for detail in owned.chain(
-            model
-                .batch_details
-                .iter()
-                .filter_map(|batch| batch.tensor_event_detail.as_ref()),
+            model.batch_details.iter().filter_map(|batch| batch.tensor_event_detail.as_ref()),
         ) {
             times
                 .entry(detail.tensor_pattern_index)
@@ -1334,10 +1192,7 @@ pub fn regroup(stats: &mut InferenceStats) {
             let linearize_delinearize_percentile_time: Vec<(f64, u64)> = TENSOR_PERCENTILES
                 .iter()
                 .map(|&percentile| {
-                    (
-                        percentile,
-                        times[(percentile / 100.0 * times.len() as f64) as usize],
-                    )
+                    (percentile, times[(percentile / 100.0 * times.len() as f64) as usize])
                 })
                 .collect();
             model.tensor_pattern_results.push(TensorPatternResult {
@@ -1357,11 +1212,7 @@ pub fn regroup(stats: &mut InferenceStats) {
             BTreeMap::new();
         for request in &model.request_details {
             add_request(&mut requests_sum, request);
-            for size in request
-                .related_batch_ids
-                .iter()
-                .filter_map(|id| sizes.get(id))
-            {
+            for size in request.related_batch_ids.iter().filter_map(|id| sizes.get(id)) {
                 let info = per_size.entry(*size).or_default();
                 add_request(&mut info.0, request);
                 info.1 += 1;
@@ -1377,17 +1228,15 @@ pub fn regroup(stats: &mut InferenceStats) {
             average_request(&requests_sum, model.request_details.len());
         model.aggregated_batch_detail = average_batch(&batches_sum, model.batch_details.len());
         for (batch_size, (requests, request_count, batches, batch_count)) in per_size {
-            model
-                .per_batch_size_aggregated_result
-                .push(PerBatchSizeAggregatedResult {
-                    batch_size,
-                    aggregated_request_result: average_request(&requests, request_count),
-                    aggregated_batch_result: average_batch(&batches, batch_count),
-                    request_throughput: request_count as f64 * model.request_throughput
-                        / model.request_details.len() as f64,
-                    batch_throughput: batch_count as f64 * model.batch_throughput
-                        / model.batch_details.len() as f64,
-                });
+            model.per_batch_size_aggregated_result.push(PerBatchSizeAggregatedResult {
+                batch_size,
+                aggregated_request_result: average_request(&requests, request_count),
+                aggregated_batch_result: average_batch(&batches, batch_count),
+                request_throughput: request_count as f64 * model.request_throughput
+                    / model.request_details.len() as f64,
+                batch_throughput: batch_count as f64 * model.batch_throughput
+                    / model.batch_details.len() as f64,
+            });
         }
         stats.inference_stats_per_model.insert(index as i32, model);
     }
@@ -1400,11 +1249,7 @@ pub fn regroup(stats: &mut InferenceStats) {
 
 fn efficiency(batch: &BatchDetail) -> f64 {
     safe_divide(
-        f64::from(
-            batch
-                .batch_size_after_padding
-                .wrapping_sub(batch.padding_amount),
-        ),
+        f64::from(batch.batch_size_after_padding.wrapping_sub(batch.padding_amount)),
         f64::from(batch.batch_size_after_padding),
     )
 }
@@ -1449,13 +1294,7 @@ pub fn sample(
             "Device compute" => (request.device_time_ps.into(), 0.0),
             "Host postprocess" => (request.host_postprocessing_ps.into(), 0.0),
             "Idle time" => (0, request.idle_time_ps),
-            _ => (
-                request
-                    .end_time_ps
-                    .wrapping_sub(request.start_time_ps)
-                    .into(),
-                0.0,
-            ),
+            _ => (request.end_time_ps.wrapping_sub(request.start_time_ps).into(), 0.0),
         }
     };
     let batch_key = |batch: &BatchDetail| -> (i128, f64) {
@@ -1464,10 +1303,7 @@ pub fn sample(
             "Padding amount" => (batch.padding_amount.into(), 0.0),
             "Batch size after padding" => (batch.batch_size_after_padding.into(), 0.0),
             "Batching efficiency" => (0, efficiency(batch)),
-            _ => (
-                batch.end_time_ps.wrapping_sub(batch.start_time_ps).into(),
-                0.0,
-            ),
+            _ => (batch.end_time_ps.wrapping_sub(batch.start_time_ps).into(), 0.0),
         }
     };
     let less = |a: (i128, f64), b: (i128, f64)| a.0 < b.0 || (a.0 == b.0 && a.1 < b.1);
@@ -1476,19 +1312,13 @@ pub fn sample(
         let mut requests: Vec<usize> = (0..model.request_details.len()).collect();
         if request_column != LATENCY_COLUMN {
             std_sort(&mut requests, &|a, b| {
-                less(
-                    request_key(&model.request_details[a]),
-                    request_key(&model.request_details[b]),
-                )
+                less(request_key(&model.request_details[a]), request_key(&model.request_details[b]))
             });
         }
         let mut batches: Vec<usize> = (0..model.batch_details.len()).collect();
         if batch_column != LATENCY_COLUMN {
             std_sort(&mut batches, &|a, b| {
-                less(
-                    batch_key(&model.batch_details[a]),
-                    batch_key(&model.batch_details[b]),
-                )
+                less(batch_key(&model.batch_details[a]), batch_key(&model.batch_details[b]))
             });
         }
         let sampled_requests = percentiles(requests.len())
@@ -1505,13 +1335,7 @@ pub fn sample(
                 ..model.batch_details[batches[at]].clone()
             })
             .collect();
-        sampled.insert(
-            index,
-            SampledPerModelInferenceStats {
-                sampled_requests,
-                sampled_batches,
-            },
-        );
+        sampled.insert(index, SampledPerModelInferenceStats { sampled_requests, sampled_batches });
     }
     sampled
 }
@@ -1527,10 +1351,7 @@ fn request_table(
         ("latency_ms", "number", "Latency"),
     ]);
     table.prop("throughput", fixed(model.request_throughput, 1));
-    table.prop(
-        "averageLatencyMs",
-        fixed(model.request_average_latency_us / 1e3, 3),
-    );
+    table.prop("averageLatencyMs", fixed(model.request_average_latency_us / 1e3, 3));
     if has_batching {
         table.column("batching_request_size", "number", "Request size");
         table.column("host_batch_formation", "number", "Host batch formation");
@@ -1541,12 +1362,7 @@ fn request_table(
     }
     table.column("trace_viewer_url", "string", "Trace Viewer URL");
     let rows = sampled.sampled_requests.iter().map(|request| {
-        (
-            request,
-            fixed(request.percentile, 3),
-            request.request_id.to_string(),
-            "N/A".to_string(),
-        )
+        (request, fixed(request.percentile, 3), request.request_id.to_string(), "N/A".to_string())
     });
     let sizes = model.per_batch_size_aggregated_result.iter().map(|size| {
         (
@@ -1598,12 +1414,7 @@ fn batch_table(
 ) -> String {
     let mut table = Table::new(&BATCH_COLUMNS);
     let rows = sampled.sampled_batches.iter().map(|batch| {
-        (
-            batch,
-            fixed(batch.percentile, 3),
-            batch.batch_id.to_string(),
-            "N/A".to_string(),
-        )
+        (batch, fixed(batch.percentile, 3), batch.batch_id.to_string(), "N/A".to_string())
     });
     let sizes = model.per_batch_size_aggregated_result.iter().map(|size| {
         (
@@ -1623,12 +1434,7 @@ fn batch_table(
         let programs = if batch.program_ids.is_empty() {
             "N/A".into()
         } else {
-            batch
-                .program_ids
-                .iter()
-                .map(u64::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
+            batch.program_ids.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")
         };
         table.row().extend([
             Cell::Text(percentile),
@@ -1645,32 +1451,14 @@ fn batch_table(
         ]);
     }
     table.prop("throughput", fixed(model.batch_throughput, 1));
-    table.prop(
-        "averageLatencyMs",
-        fixed(model.batch_average_latency_us / 1e3, 3),
-    );
+    table.prop("averageLatencyMs", fixed(model.batch_average_latency_us / 1e3, 3));
     table.prop("hasBatchingParam", params.is_some().to_string());
     if let Some(params) = params {
-        table.prop(
-            "batchingParamNumBatchThreads",
-            params.num_batch_threads.to_string(),
-        );
-        table.prop(
-            "batchingParamMaxBatchSize",
-            params.max_batch_size.to_string(),
-        );
-        table.prop(
-            "batchingParamBatchTimeoutMicros",
-            params.batch_timeout_micros.to_string(),
-        );
-        table.prop(
-            "batchingParamMaxEnqueuedBatches",
-            params.max_enqueued_batches.to_string(),
-        );
-        table.prop(
-            "batchingParamAllowedBatchSizes",
-            params.allowed_batch_sizes.clone(),
-        );
+        table.prop("batchingParamNumBatchThreads", params.num_batch_threads.to_string());
+        table.prop("batchingParamMaxBatchSize", params.max_batch_size.to_string());
+        table.prop("batchingParamBatchTimeoutMicros", params.batch_timeout_micros.to_string());
+        table.prop("batchingParamMaxEnqueuedBatches", params.max_enqueued_batches.to_string());
+        table.prop("batchingParamAllowedBatchSizes", params.allowed_batch_sizes.clone());
     }
     table.json()
 }
@@ -1683,9 +1471,8 @@ fn tensor_table(model: &PerModelInferenceStats, patterns: &[String]) -> String {
         ("percentile", "string", "Linearize/Delinearize latency"),
     ]);
     for (index, result) in model.tensor_pattern_results.iter().enumerate() {
-        let Some(pattern) = usize::try_from(result.tensor_pattern_index)
-            .ok()
-            .and_then(|index| patterns.get(index))
+        let Some(pattern) =
+            usize::try_from(result.tensor_pattern_index).ok().and_then(|index| patterns.get(index))
         else {
             continue;
         };
@@ -1707,10 +1494,8 @@ fn tensor_table(model: &PerModelInferenceStats, patterns: &[String]) -> String {
 pub fn tables(stats: &InferenceStats) -> String {
     let mut ids = stats.model_id_db.ids.clone();
     ids.sort();
-    let has_batching = stats
-        .inference_stats_per_model
-        .values()
-        .any(|model| !model.batch_details.is_empty());
+    let has_batching =
+        stats.inference_stats_per_model.values().any(|model| !model.batch_details.is_empty());
     let mut meta = Table::new(&[("model_name", "string", "Model Name")]);
     meta.prop("hasBatching", has_batching.to_string());
     meta.prop("hasTensorPattern", "false");
@@ -1722,10 +1507,9 @@ pub fn tables(stats: &InferenceStats) -> String {
         let Some(index) = stats.model_id_db.id_to_index.get(id) else {
             continue;
         };
-        let (Some(model), Some(sampled)) = (
-            stats.inference_stats_per_model.get(index),
-            stats.sampled_inference_stats.get(index),
-        ) else {
+        let (Some(model), Some(sampled)) =
+            (stats.inference_stats_per_model.get(index), stats.sampled_inference_stats.get(index))
+        else {
             continue;
         };
         tables.push(request_table(model, sampled, has_batching));
@@ -1753,18 +1537,10 @@ pub fn load(paths: &[PathBuf]) -> Option<InferenceStats> {
         .par_iter()
         .enumerate()
         .map(|(index, map)| {
-            let mut planes = if serving {
-                xplane::parse(map).ok()?
-            } else {
-                Vec::new()
-            };
-            planes
-                .par_iter_mut()
-                .for_each(|plane| plane.add_threadpool_regions(map));
+            let mut planes = if serving { xplane::parse(map).ok()? } else { Vec::new() };
+            planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
             let relatives = if serving && !is_grouped(&planes) {
-                group(&mut planes, map)
-                    .map(|groups| groups.relatives)
-                    .unwrap_or_default()
+                group(&mut planes, map).map(|groups| groups.relatives).unwrap_or_default()
             } else {
                 Metadata::new()
             };

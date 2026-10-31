@@ -53,10 +53,7 @@ fn list(message: &DynamicMessage, name: &str) -> Vec<Value> {
 }
 
 fn messages(message: &DynamicMessage, name: &str) -> Vec<DynamicMessage> {
-    list(message, name)
-        .iter()
-        .map(|value| value.as_message().unwrap().clone())
-        .collect()
+    list(message, name).iter().map(|value| value.as_message().unwrap().clone()).collect()
 }
 
 fn key_number(key: &MapKey) -> u64 {
@@ -81,10 +78,7 @@ fn map(message: &DynamicMessage, name: &str) -> Vec<(MapKey, Value)> {
 }
 
 fn value_number(value: &Value) -> u64 {
-    value
-        .as_u64()
-        .or_else(|| value.as_u32().map(u64::from))
-        .unwrap()
+    value.as_u64().or_else(|| value.as_u32().map(u64::from)).unwrap()
 }
 
 pub fn parse(name: &str, text: &str) -> DynamicMessage {
@@ -145,10 +139,7 @@ pub fn metrics(message: &DynamicMessage) -> Metrics {
 
 pub fn db(message: &DynamicMessage) -> Db {
     Db {
-        metrics: messages(message, "metrics_db")
-            .iter()
-            .map(metrics)
-            .collect(),
+        metrics: messages(message, "metrics_db").iter().map(metrics).collect(),
         total_time_ps: number(message, "total_time_ps"),
         total_op_time_ps: number(message, "total_op_time_ps"),
         normalized_total_op_time_ps: number(message, "normalized_total_op_time_ps"),
@@ -161,10 +152,7 @@ fn breakdown(info: &DynamicMessage) -> Breakdown {
     }
     let any = child(info, "step_breakdown");
     let type_url = text(&any, "type_url");
-    assert_eq!(
-        type_url.strip_prefix(ANY_PREFIX),
-        Some(GENERIC_STEP_BREAKDOWN)
-    );
+    assert_eq!(type_url.strip_prefix(ANY_PREFIX), Some(GENERIC_STEP_BREAKDOWN));
     let bytes = field(&any, "value").as_bytes().unwrap().clone();
     let generic = DynamicMessage::decode(descriptor(GENERIC_STEP_BREAKDOWN), bytes).unwrap();
     let categories: BTreeMap<String, u64> = map(&generic, "category_ps")
@@ -226,10 +214,8 @@ pub fn steps(step_db: &DynamicMessage) -> Vec<StepRecord> {
 
 fn kernel(report: &DynamicMessage) -> KernelReport {
     let dims = |name: &str| {
-        let values: Vec<u32> = list(report, name)
-            .iter()
-            .map(|value| value.as_u32().unwrap())
-            .collect();
+        let values: Vec<u32> =
+            list(report, name).iter().map(|value| value.as_u32().unwrap()).collect();
         std::array::from_fn(|index| values.get(index).copied().unwrap_or(0))
     };
     KernelReport {
@@ -264,10 +250,7 @@ pub fn extra(stats: &DynamicMessage) -> Extra {
     let precision = child(&device, "precision_stats");
     let perf_env = child(stats, "perf_env");
     let strings = |name: &str| {
-        list(&diagnostics, name)
-            .iter()
-            .map(|value| value.as_str().unwrap().to_string())
-            .collect()
+        list(&diagnostics, name).iter().map(|value| value.as_str().unwrap().to_string()).collect()
     };
     Extra {
         hostnames: map(&environment, "hostnames")
@@ -280,14 +263,8 @@ pub fn extra(stats: &DynamicMessage) -> Extra {
         core_count: number(&environment, "device_core_count") as i32,
         hardware: number(&environment, "hardware_type") as u8,
         training: flag(&environment, "is_training"),
-        busy_ps: [
-            number(&device, "busy_time_ps"),
-            number(&device, "busy_time_high_confidence_ps"),
-        ],
-        idle_ps: [
-            number(&device, "idle_time_ps"),
-            number(&device, "idle_time_high_confidence_ps"),
-        ],
+        busy_ps: [number(&device, "busy_time_ps"), number(&device, "busy_time_high_confidence_ps")],
+        idle_ps: [number(&device, "idle_time_ps"), number(&device, "idle_time_high_confidence_ps")],
         steps: steps(&step_db),
         cores: map(stats, "core_id_to_details")
             .into_iter()
@@ -308,10 +285,7 @@ pub fn extra(stats: &DynamicMessage) -> Extra {
         warnings: strings("warnings"),
         megacore: flag(&perf_env, "has_megacore"),
         merged_vmem: flag(&perf_env, "has_merged_vmem"),
-        precision: [
-            number(&precision, "compute_32bit_ps"),
-            number(&precision, "compute_16bit_ps"),
-        ],
+        precision: [number(&precision, "compute_32bit_ps"), number(&precision, "compute_16bit_ps")],
         ..Default::default()
     }
 }
@@ -338,10 +312,7 @@ pub fn op_stats_message(stats: &DynamicMessage) -> OpStats {
             .into_iter()
             .map(|(key, value)| (key_number(&key), value.as_str().unwrap().to_string()))
             .collect::<HashMap<_, _>>(),
-        kernels: messages(&child(stats, "kernel_stats_db"), "reports")
-            .iter()
-            .map(kernel)
-            .collect(),
+        kernels: messages(&child(stats, "kernel_stats_db"), "reports").iter().map(kernel).collect(),
     }
 }
 

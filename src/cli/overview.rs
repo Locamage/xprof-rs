@@ -42,10 +42,8 @@ const RUN_ENVIRONMENT_KEYS: [&str; 10] = [
     "build_target",
 ];
 const ZERO_PERCENTS: [&str; 3] = ["0.0%", "0%", "0.0"];
-const BANDWIDTH_RENAMES: [(&str, &str); 2] = [
-    ("peak_hbm_bw", "peak_hbm_bw_gibs"),
-    ("peak_vmem_bw", "peak_vmem_bw_gibs"),
-];
+const BANDWIDTH_RENAMES: [(&str, &str); 2] =
+    [("peak_hbm_bw", "peak_hbm_bw_gibs"), ("peak_vmem_bw", "peak_vmem_bw_gibs")];
 const BYTES_PER_GIB: f64 = 1073741824.0;
 const BYTES_PER_MIB: f64 = 1048576.0;
 pub const CUSTOM_CALL_GUIDANCE: &str = "Op-level metrics unavailable for custom calls. Use get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events for Pallas kernels.";
@@ -67,23 +65,19 @@ pub fn row_dict(table: &J, row: &J) -> J {
         .iter()
         .map(|column| column.get("id").map_or(String::new(), J::text));
     J::Map(
-        ids.zip(row.at("c").items().iter().map(|cell| {
-            if let J::Map(_) = cell {
-                cell.at("v").clone()
-            } else {
-                cell.clone()
-            }
-        }))
+        ids.zip(
+            row.at("c")
+                .items()
+                .iter()
+                .map(|cell| if let J::Map(_) = cell { cell.at("v").clone() } else { cell.clone() }),
+        )
         .collect(),
     )
 }
 
 fn zero(value: Option<&J>) -> bool {
     value.is_none_or(|value| {
-        !value.truthy()
-            || value
-                .str()
-                .is_some_and(|text| ZERO_PERCENTS.contains(&text))
+        !value.truthy() || value.str().is_some_and(|text| ZERO_PERCENTS.contains(&text))
     })
 }
 
@@ -106,10 +100,7 @@ fn roofline_fallback(client: &dyn Client, session: &str, summary: &mut J) -> Opt
     if let Some(efficiency) = value("roofline_efficiency") {
         summary.set("roofline_efficiency_percent", percent(efficiency));
         if needs_flop {
-            summary.set(
-                "flop_rate_utilization_relative_to_roofline",
-                percent(efficiency),
-            );
+            summary.set("flop_rate_utilization_relative_to_roofline", percent(efficiency));
         }
     }
     if let Some(efficiency) = value("compute_efficiency") {
@@ -118,10 +109,7 @@ fn roofline_fallback(client: &dyn Client, session: &str, summary: &mut J) -> Opt
     if let Some(utilization) = value("max_mem_bw_utilization") {
         summary.set("max_mem_bw_utilization_percent", percent(utilization));
         if needs_memory {
-            summary.set(
-                "memory_bw_utilization_relative_to_hw_limit",
-                percent(utilization),
-            );
+            summary.set("memory_bw_utilization_relative_to_hw_limit", percent(utilization));
             summary.set("hbm_bw_utilization_percent", percent(utilization));
         }
     }
@@ -145,10 +133,7 @@ pub fn overview(
             vec![("format", "json".to_string()), super::bypass(bypass)];
         let data = client.fetch_either("overview_page", "overview_page.json", session, &params)?;
         let data = data.ok_or_else(|| {
-            Error::new(
-                Kind::FileNotFound,
-                "No overview data returned for the session",
-            )
+            Error::new(Kind::FileNotFound, "No overview data returned for the session")
         })?;
         let sections = J::parse(&data)
             .ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
@@ -156,10 +141,7 @@ pub fn overview(
             return fail(Kind::Value, "Unexpected overview page data format");
         }
         let mut all = J::Map(Vec::new());
-        let properties = sections
-            .items()
-            .iter()
-            .flat_map(|section| section.at("p").entries());
+        let properties = sections.items().iter().flat_map(|section| section.at("p").entries());
         for (key, value) in properties {
             all.set(key, value);
         }
@@ -171,17 +153,10 @@ pub fn overview(
                 .iter()
                 .map(|column| column.at("id").text())
                 .collect();
-            let row = section
-                .at("rows")
-                .items()
-                .first()
-                .filter(|row| row.at("c").truthy())?;
+            let row = section.at("rows").items().first().filter(|row| row.at("c").truthy())?;
             let cell = |id: &str| {
                 columns.iter().position(|column| column == id).map(|index| {
-                    row.at("c")
-                        .items()
-                        .get(index)
-                        .map_or(J::Null, |cell| cell.at("v").clone())
+                    row.at("c").items().get(index).map_or(J::Null, |cell| cell.at("v").clone())
                 })
             };
             columns
@@ -219,27 +194,24 @@ pub fn overview(
             run.set("bns", bns);
         }
         let command = command.filter(J::truthy);
-        if let Some(command) = command
-            .as_ref()
-            .filter(|_| include_command && !run.has("run_command"))
+        if let Some(command) =
+            command.as_ref().filter(|_| include_command && !run.has("run_command"))
         {
             run.set("run_command", command);
         }
         if let Some(device) = all.get("device_type") {
             run.set("device_type", device.clone());
         }
-        if let Some(xid) = command.as_ref().and_then(|command| {
-            XID.captures(&command.text())
-                .map(|found| found[1].to_string())
-        }) {
+        if let Some(xid) = command
+            .as_ref()
+            .and_then(|command| XID.captures(&command.text()).map(|found| found[1].to_string()))
+        {
             run.set("xid", xid);
         }
         Ok(obj! {"performance_summary" => summary, "run_environment" => run})
     };
     compute().map_err(|error| {
-        rethrow(error, |error| {
-            format!("Error fetching overview data: {}", error.message)
-        })
+        rethrow(error, |error| format!("Error fetching overview data: {}", error.message))
     })
 }
 
@@ -279,29 +251,14 @@ fn integer(value: &J, default: i128) -> Result<i128, Error> {
 
 fn parse_memory(data: &str) -> Result<Memory, Error> {
     let parsed = J::parse(data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse JSON for memory profile: JSONDecodeError('Expecting value: line 1 column 1 (char 0)')"))?;
-    let devices = if let J::Map(_) = parsed {
-        vec![parsed]
-    } else {
-        parsed.items().to_vec()
-    };
+    let devices = if let J::Map(_) = parsed { vec![parsed] } else { parsed.items().to_vec() };
     let Some(first) = devices.first() else {
-        return fail(
-            Kind::Value,
-            "Unexpected memory profile data format: not a list or empty",
-        );
+        return fail(Kind::Value, "Unexpected memory profile data format: not a list or empty");
     };
-    let mut memory = Memory {
-        capacity: -1,
-        peak: -1,
-        stack: -1,
-        heap: -1,
-        free: -1,
-        fragmentation: -1.0,
-    };
+    let mut memory =
+        Memory { capacity: -1, peak: -1, stack: -1, heap: -1, free: -1, fragmentation: -1.0 };
     let take = |summary: &J, peak_key: &str, memory: &mut Memory| -> Result<(), Error> {
-        memory.capacity = memory
-            .capacity
-            .max(integer(summary.at("memoryCapacity"), -1)?);
+        memory.capacity = memory.capacity.max(integer(summary.at("memoryCapacity"), -1)?);
         let stats = summary.at("peakStats");
         let peak = integer(stats.at(peak_key), -1)?;
         if peak > memory.peak {
@@ -309,18 +266,13 @@ fn parse_memory(data: &str) -> Result<Memory, Error> {
             memory.stack = integer(stats.at("stackReservedBytes"), -1)?;
             memory.heap = integer(stats.at("heapAllocatedBytes"), -1)?;
             memory.free = integer(stats.at("freeMemoryBytes"), -1)?;
-            memory.fragmentation = stats
-                .get("fragmentation")
-                .map_or(Some(-1.0), J::float)
-                .unwrap_or(-1.0);
+            memory.fragmentation =
+                stats.get("fragmentation").map_or(Some(-1.0), J::float).unwrap_or(-1.0);
         }
         Ok(())
     };
     if first.has("cols") && first.has("rows") {
-        return fail(
-            Kind::Value,
-            "Table format memory profile not fully supported",
-        );
+        return fail(Kind::Value, "Table format memory profile not fully supported");
     }
     if first.has("memoryProfileSummary") {
         for device in &devices {
@@ -328,9 +280,7 @@ fn parse_memory(data: &str) -> Result<Memory, Error> {
             if !device.truthy() || !device.has("memoryProfileSummary") {
                 continue;
             }
-            memory.capacity = memory
-                .capacity
-                .max(integer(summary.at("memoryCapacity"), -1)?);
+            memory.capacity = memory.capacity.max(integer(summary.at("memoryCapacity"), -1)?);
             if summary.at("peakStats").has("peakBytesUsageHbm") {
                 _ = take(summary, "peakBytesUsageHbm", &mut memory);
             }
@@ -348,11 +298,7 @@ fn parse_memory(data: &str) -> Result<Memory, Error> {
         }
     } else if first.has("memoryProfilePerAllocator") {
         for (_, allocator) in first.at("memoryProfilePerAllocator").entries() {
-            take(
-                allocator.at("profileSummary"),
-                "peakBytesInUse",
-                &mut memory,
-            )?;
+            take(allocator.at("profileSummary"), "peakBytesInUse", &mut memory)?;
         }
     } else {
         return fail(Kind::Value, "Unknown memory profile JSON format");
@@ -372,10 +318,7 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
                 Err(error) => (None, Some(error.message)),
             },
             Err(error) if error.kind == Kind::Value => (None, Some(error.message)),
-            Err(error) => (
-                None,
-                Some(format!("Error fetching memory profile: {}", error.repr())),
-            ),
+            Err(error) => (None, Some(format!("Error fetching memory profile: {}", error.repr()))),
         }
     };
     let valid = |memory: &Memory| memory.capacity > 0 && memory.peak > 0;
@@ -414,10 +357,7 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
             {
                 fail(Kind::Value, error)
             }
-            Some(error) => fail(
-                Kind::Runtime,
-                format!("Error fetching memory profile: {error}"),
-            ),
+            Some(error) => fail(Kind::Runtime, format!("Error fetching memory profile: {error}")),
             None => Ok(obj! {
                 "memory_capacity_gib" => -1.0,
                 "peak_memory_usage_gib" => -1.0,
@@ -426,11 +366,8 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
         };
     };
     let (capacity, peak) = (gib(memory.capacity, true), gib(memory.peak, true));
-    let utilization = if capacity > 0.0 && peak > 0.0 {
-        round(peak / capacity * 100.0, 2)
-    } else {
-        -1.0
-    };
+    let utilization =
+        if capacity > 0.0 && peak > 0.0 { round(peak / capacity * 100.0, 2) } else { -1.0 };
     Ok(obj! {
         "memory_capacity_gib" => capacity,
         "peak_memory_usage_gib" => peak,
@@ -452,17 +389,12 @@ pub fn get_kpi_metrics(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let overview =
         overview(client, &session, false, args.flag("bypass_cache", false)).map_err(|error| {
-            rethrow(error, |error| {
-                format!("Error in get_overview: {}", error.message)
-            })
+            rethrow(error, |error| format!("Error in get_overview: {}", error.message))
         })?;
     let memory = memory_profile(client, &session, args.flag("bypass_cache", false))
         .unwrap_or_else(|_| obj! {"peak_memory_usage_gib" => "N/A"});
     let pick = |section: &J, key: &str| section.get(key).cloned().unwrap_or_else(|| J::from("N/A"));
-    let (summary, run) = (
-        overview.at("performance_summary"),
-        overview.at("run_environment"),
-    );
+    let (summary, run) = (overview.at("performance_summary"), overview.at("run_environment"));
     Ok(obj! {
         "step_time_ms" => pick(summary, "steptime_ms_average"),
         "duty_cycle_percent" => pick(summary, "device_duty_cycle_percent"),
@@ -496,14 +428,12 @@ pub fn get_device_information(client: &dyn Client, args: &Args) -> Result<Out, E
     let session = args.session();
     let params = [bypass(args.flag("bypass_cache", false))];
     let compute = || -> Result<J, Error> {
-        let data = client
-            .roofline_properties(&session, &params)?
-            .ok_or_else(|| {
-                Error::new(
-                    Kind::FileNotFound,
-                    format!("No roofline model data returned for session {session}."),
-                )
-            })?;
+        let data = client.roofline_properties(&session, &params)?.ok_or_else(|| {
+            Error::new(
+                Kind::FileNotFound,
+                format!("No roofline model data returned for session {session}."),
+            )
+        })?;
         let parsed = J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse roofline model data: JSONDecodeError('Expecting value: line 1 column 1 (char 0)')"))?;
         let table = parsed
             .items()
@@ -538,10 +468,7 @@ pub fn get_device_information(client: &dyn Client, args: &Args) -> Result<Out, E
     Ok(compute()
         .map_err(|error| {
             rethrow(error, |error| {
-                format!(
-                    "Error fetching device information for session {session}: {}",
-                    error.repr()
-                )
+                format!("Error fetching device information for session {session}: {}", error.repr())
             })
         })?
         .into())
@@ -551,17 +478,11 @@ pub fn get_hosts(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let hosts = client.hosts(&session).map_err(|error| {
         rethrow(error, |error| {
-            format!(
-                "Error fetching hosts for session {session}: {}",
-                error.repr()
-            )
+            format!("Error fetching hosts for session {session}: {}", error.repr())
         })
     })?;
     if hosts.is_empty() {
-        return fail(
-            Kind::FileNotFound,
-            format!("No hosts found for session {session}."),
-        );
+        return fail(Kind::FileNotFound, format!("No hosts found for session {session}."));
     }
     Ok(obj! {"hosts" => hosts.into_iter().map(|host| obj! {"hostname" => host}).collect::<Vec<_>>()}.into())
 }
@@ -596,12 +517,8 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
             )
         })?;
         let info = device_info(table.at("p"));
-        let rows: Vec<J> = table
-            .at("rows")
-            .items()
-            .iter()
-            .map(|row| row_dict(table, row))
-            .collect();
+        let rows: Vec<J> =
+            table.at("rows").items().iter().map(|row| row_dict(table, row)).collect();
         let Some(program) = rows.first() else {
             return Ok(
                 obj! {"status" => "NO_DATA", "message" => "Roofline model table has no rows", "device_info" => info},
@@ -617,11 +534,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
             if measured == 0.0 && bandwidth.starts_with("hbm_") {
                 measured = number(program, "hbm_bw");
             }
-            match peaks
-                .iter()
-                .map(|key| number(&info, key))
-                .find(|peak| *peak > 0.0)
-            {
+            match peaks.iter().map(|key| number(&info, key)).find(|peak| *peak > 0.0) {
                 Some(peak) => format!("{:.2}%", measured / peak * 100.0),
                 None if *value != J::Null => percent(number(program, util)),
                 None => "N/A".into(),
@@ -650,11 +563,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
         };
         let mut seen = Vec::new();
         let mut operations: Vec<J> = Vec::new();
-        for row in rows
-            .iter()
-            .skip(1)
-            .filter(|row| number(row, "total_self_time") > 0.0)
-        {
+        for row in rows.iter().skip(1).filter(|row| number(row, "total_self_time") > 0.0) {
             let name = Some(row.at("operation"))
                 .filter(|value| value.truthy())
                 .unwrap_or_else(|| row.get("hlo_name").unwrap_or(&J::Null))
@@ -707,10 +616,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
                 .partial_cmp(&left.at("total_self_time_ms").float())
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        operations.truncate(super::slice_end(
-            args.raw("top_n").unwrap_or(&J::Int(15)),
-            total,
-        )?);
+        operations.truncate(super::slice_end(args.raw("top_n").unwrap_or(&J::Int(15)), total)?);
         let custom = operations
             .iter()
             .any(|operation| operation.at("bound_by").str() == Some("CustomCall (opaque)"));
@@ -732,11 +638,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
                 if error.message.is_empty() {
                     format!("Error fetching roofline model: {}", error.name())
                 } else {
-                    format!(
-                        "Error fetching roofline model: {}: {}",
-                        error.name(),
-                        error.message
-                    )
+                    format!("Error fetching roofline model: {}: {}", error.name(), error.message)
                 }
             })
         })?
@@ -746,10 +648,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
 fn loose_float(value: &J, default: f64) -> f64 {
     match value {
         J::Str(text)
-            if matches!(
-                text.trim().to_lowercase().as_str(),
-                "nan" | "none" | "" | "null"
-            ) =>
+            if matches!(text.trim().to_lowercase().as_str(), "nan" | "none" | "" | "null") =>
         {
             default
         }
@@ -769,9 +668,7 @@ fn percentage(rows: &[&J]) -> Option<f64> {
     if !peaked.is_empty() {
         return Some(round(fsum(peaked.iter().copied()) / peaked.len() as f64, 2));
     }
-    rows.iter()
-        .all(|row| loose_float(row.at("Achieved"), 0.0) == 0.0)
-        .then_some(0.0)
+    rows.iter().all(|row| loose_float(row.at("Achieved"), 0.0) == 0.0).then_some(0.0)
 }
 
 pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
@@ -799,11 +696,7 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
                         .iter()
                         .cloned()
                         .zip(row.at("c").items().iter().map(|cell| {
-                            if let J::Map(_) = cell {
-                                cell.at("v").clone()
-                            } else {
-                                cell.clone()
-                            }
+                            if let J::Map(_) = cell { cell.at("v").clone() } else { cell.clone() }
                         }))
                         .collect(),
                 )
@@ -830,13 +723,7 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
                 )
             })
             .collect();
-        (
-            rows,
-            header
-                .into_iter()
-                .filter(|field| !field.is_empty())
-                .collect(),
-        )
+        (rows, header.into_iter().filter(|field| !field.is_empty()).collect())
     };
     if rows.is_empty() {
         return obj! {"status" => "NO_DATA", "message" => "No hardware performance counter events found in trace"};
@@ -894,26 +781,14 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
             .iter()
             .copied()
             .filter(|row| {
-                matches!(
-                    row.at("Name").str(),
-                    Some("HBM Rd+Wr (per chip)" | "HBM Rd+Wr")
-                )
+                matches!(row.at("Name").str(), Some("HBM Rd+Wr (per chip)" | "HBM Rd+Wr"))
             })
             .collect::<Vec<_>>(),
     );
-    let idleness = if selected
-        .iter()
-        .any(|row| row.at("Name").str() == Some("No MXU Busy"))
-    {
+    let idleness = if selected.iter().any(|row| row.at("Name").str() == Some("No MXU Busy")) {
         named("No MXU Busy")
     } else if !mxu_values.is_empty() {
-        Some(
-            round(
-                100.0 - mxu_values.iter().copied().fold(f64::MIN, f64::max),
-                2,
-            )
-            .max(0.0),
-        )
+        Some(round(100.0 - mxu_values.iter().copied().fold(f64::MIN, f64::max), 2).max(0.0))
     } else {
         Some(named("Avg MXU Busy").map_or(100.0, |busy| round(100.0 - busy, 2)))
     };
@@ -923,17 +798,11 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
         ("ici_write_utilization_percent", named("ICI (Write)")),
         ("vector_alu_utilization_percent", named("Vector ALUs")),
         ("scalar_unit_utilization_percent", named("Scalar Unit")),
-        (
-            "vmem_cmem_stores_utilization_percent",
-            named("Vmem/Cmem Stores"),
-        ),
+        ("vmem_cmem_stores_utilization_percent", named("Vmem/Cmem Stores")),
         ("vmem_loads_utilization_percent", named("Vmem Loads")),
         ("cmem_loads_utilization_percent", named("Cmem Loads")),
         ("xlu_utilization_percent", average("XLU")),
-        (
-            "mxu_utilization_percent",
-            named("Avg MXU Busy").or_else(|| average("MXU")),
-        ),
+        ("mxu_utilization_percent", named("Avg MXU Busy").or_else(|| average("MXU"))),
         ("idleness_percent", idleness),
     ];
     let mut output = J::Map(
@@ -942,10 +811,8 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
             .filter_map(|(key, value)| Some((key.to_string(), J::Float(value?))))
             .collect(),
     );
-    let metrics: Vec<(String, J)> = names
-        .iter()
-        .filter_map(|name| Some((name.clone(), J::Float(named(name)?))))
-        .collect();
+    let metrics: Vec<(String, J)> =
+        names.iter().filter_map(|name| Some((name.clone(), J::Float(named(name)?)))).collect();
     if !metrics.is_empty() {
         output.set("metrics", J::Map(metrics));
     }
@@ -964,16 +831,14 @@ pub fn utilization_viewer(
 ) -> Result<J, Error> {
     let mut params = vec![("tqx", "out:csv".to_string())];
     params.push(super::bypass(bypass));
-    let raw = client
-        .fetch_text("utilization_viewer.json", session, &params)
-        .map_err(|error| {
-            rethrow(error, |error| {
-                format!(
-                    "Error fetching utilization_viewer.json for session {session}: {}",
-                    error.repr()
-                )
-            })
-        })?;
+    let raw = client.fetch_text("utilization_viewer.json", session, &params).map_err(|error| {
+        rethrow(error, |error| {
+            format!(
+                "Error fetching utilization_viewer.json for session {session}: {}",
+                error.repr()
+            )
+        })
+    })?;
     Ok(match raw {
         None => {
             obj! {"status" => "NO_DATA", "message" => format!("No data returned for session {session}")}
@@ -1003,11 +868,6 @@ pub fn get_utilization_viewer(client: &dyn Client, args: &Args) -> Result<Out, E
     }
     };
     let indices = (|| Ok([index("host")?, index("device")?, index("node")?]))();
-    Ok(utilization_viewer(
-        client,
-        &args.session(),
-        indices,
-        args.flag("bypass_cache", false),
-    )?
-    .into())
+    Ok(utilization_viewer(client, &args.session(), indices, args.flag("bypass_cache", false))?
+        .into())
 }

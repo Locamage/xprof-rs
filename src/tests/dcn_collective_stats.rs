@@ -45,9 +45,7 @@ fn has_all_hosts_dcn_collective_stats_cache_file() {
 #[test]
 fn has_no_host_dcn_collective_stats_cache_file() {
     let session_snapshot = create_session_snapshot("has_no_host", false);
-    assert!(!has_dcn_collective_stats_in_multi_x_space(
-        &session_snapshot
-    ));
+    assert!(!has_dcn_collective_stats_in_multi_x_space(&session_snapshot));
 }
 
 #[test]
@@ -59,9 +57,7 @@ fn no_cache_file_but_trace_has_dcn_collective_stats() {
 #[test]
 fn no_cache_file_no_dcn_collective_stats_present() {
     let session_snapshot = create_session_snapshot("no_cache_no_stats", false);
-    assert!(!has_dcn_collective_stats_in_multi_x_space(
-        &session_snapshot
-    ));
+    assert!(!has_dcn_collective_stats_in_multi_x_space(&session_snapshot));
 }
 
 #[test]
@@ -76,20 +72,12 @@ fn convert_x_space_to_dcn_collective_stats_when_stats_present() {
 #[test]
 fn convert_x_space_to_dcn_collective_stats_when_stats_not_present() {
     let session_snapshot = create_session_snapshot("convert_absent", false);
-    assert!(!has_dcn_collective_stats_in_multi_x_space(
-        &session_snapshot
-    ));
-    assert_eq!(
-        json(std::slice::from_ref(&session_snapshot.path), "hostname"),
-        Some(table(&[]))
-    );
+    assert!(!has_dcn_collective_stats_in_multi_x_space(&session_snapshot));
+    assert_eq!(json(std::slice::from_ref(&session_snapshot.path), "hostname"), Some(table(&[])));
 }
 
 #[test]
 fn get_host_dcn_slack_analysis_when_stats_not_present() {
     let session_snapshot = create_session_snapshot("slack_absent", false);
-    assert_eq!(
-        json(std::slice::from_ref(&session_snapshot.path), "hostname"),
-        Some(table(&[]))
-    );
+    assert_eq!(json(std::slice::from_ref(&session_snapshot.path), "hostname"), Some(table(&[])));
 }

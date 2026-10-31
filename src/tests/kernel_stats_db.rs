@@ -51,30 +51,8 @@ fn multi_kernels() {
             true,
             "Einsum_80",
         ),
-        (
-            "kernel_name_middle",
-            32,
-            0,
-            16384,
-            [2, 1, 1],
-            [32, 1, 1],
-            2,
-            false,
-            true,
-            "Conv2D",
-        ),
-        (
-            "kernel_name_shortest",
-            16,
-            0,
-            0,
-            [1, 1, 1],
-            [1, 1, 1],
-            1,
-            false,
-            false,
-            "mul_786",
-        ),
+        ("kernel_name_middle", 32, 0, 16384, [2, 1, 1], [32, 1, 1], 2, false, true, "Conv2D"),
+        ("kernel_name_shortest", 16, 0, 0, [1, 1, 1], [1, 1, 1], 1, false, false, "mul_786"),
     ];
     for (kernel, expected) in kernel_stats.iter().zip(expected) {
         let key = &kernel.key;

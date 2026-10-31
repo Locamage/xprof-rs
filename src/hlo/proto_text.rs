@@ -15,8 +15,7 @@ const DESCRIPTORS: &[u8] = include_bytes!("../data/hlo_descriptors.pb");
 
 static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
     let mut pool = DescriptorPool::global();
-    pool.decode_file_descriptor_set(DESCRIPTORS)
-        .expect("embedded hlo descriptors are valid");
+    pool.decode_file_descriptor_set(DESCRIPTORS).expect("embedded hlo descriptors are valid");
     pool
 });
 
@@ -43,21 +42,14 @@ static MESSAGES: LazyLock<FxHashMap<String, (bool, Vec<Spec>)>> = LazyLock::new(
                 map: field.is_map(),
                 list: field.is_list(),
                 presence: field.supports_presence(),
-                oneof: field
-                    .containing_oneof()
-                    .map(|oneof| oneof.full_name().to_string()),
+                oneof: field.containing_oneof().map(|oneof| oneof.full_name().to_string()),
             })
             .collect();
         specs.sort_by_key(|spec| spec.number);
         specs
     };
     POOL.all_messages()
-        .map(|message| {
-            (
-                message.full_name().to_string(),
-                (message.is_map_entry(), specs(&message)),
-            )
-        })
+        .map(|message| (message.full_name().to_string(), (message.is_map_entry(), specs(&message))))
         .collect()
 });
 
@@ -102,10 +94,7 @@ pub fn json_string(out: &mut String, text: &str) {
     loop {
         let mut plain = 0;
         while let Some(chunk) = rest.as_bytes().get(plain..plain + 16) {
-            if chunk
-                .iter()
-                .fold(false, |found, &byte| found | special(byte))
-            {
+            if chunk.iter().fold(false, |found, &byte| found | special(byte)) {
                 break;
             }
             plain += 16;
@@ -183,10 +172,7 @@ fn message_name(kind: &Kind) -> &str {
 }
 
 fn last(entry: &[u8], number: u32) -> Option<Field<'_>> {
-    fields(entry)
-        .filter(|(found, _)| *found == number)
-        .last()
-        .map(|(_, value)| value)
+    fields(entry).filter(|(found, _)| *found == number).last().map(|(_, value)| value)
 }
 
 fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Format) {
@@ -222,11 +208,13 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
                 Kind::Double => out.push_str(&floating(f64::from_bits(raw), [15, 17], |text| {
                     text.parse() == Ok(f64::from_bits(raw))
                 })),
-                Kind::Float => out.push_str(&floating(
-                    f64::from(f32::from_bits(raw as u32)),
-                    [6, 9],
-                    |text| text.parse() == Ok(f32::from_bits(raw as u32)),
-                )),
+                Kind::Float => {
+                    out.push_str(&floating(
+                        f64::from(f32::from_bits(raw as u32)),
+                        [6, 9],
+                        |text| text.parse() == Ok(f32::from_bits(raw as u32)),
+                    ));
+                }
                 Kind::Bool => write!(out, "{}", raw != 0).expect("writing to a string cannot fail"),
                 Kind::Enum(values) => match values.get_value(raw as i32) {
                     Some(value) if json => json_string(out, value.name()),
@@ -289,14 +277,11 @@ static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
         (_, true) => Check::Packed(0),
     };
     let table = |message: &MessageDescriptor| {
-        let mut checks = vec![
-            Check::Any;
-            message
-                .fields()
-                .map(|field| field.number() as usize + 1)
-                .max()
-                .unwrap_or(0)
-        ];
+        let mut checks =
+            vec![
+                Check::Any;
+                message.fields().map(|field| field.number() as usize + 1).max().unwrap_or(0)
+            ];
         for field in message.fields() {
             checks[field.number() as usize] = check(field.clone());
         }
@@ -317,9 +302,8 @@ fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, gr
     let checks = message.map_or(&[][..], |message| &CHECKS.1[message]);
     let (split, mut nested) = (group == 0 && buf.len() >= PARALLEL_BYTES, Vec::new());
     while *pos < buf.len() {
-        let Some(key) = varint(buf, pos)
-            .and_then(|key| u32::try_from(key).ok())
-            .filter(|&key| key >> 3 != 0)
+        let Some(key) =
+            varint(buf, pos).and_then(|key| u32::try_from(key).ok()).filter(|&key| key >> 3 != 0)
         else {
             return false;
         };
@@ -335,9 +319,7 @@ fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, gr
                 let Some(body) = varint(buf, pos).and_then(|length| {
                     buf.get(
                         *pos..*pos
-                            + usize::try_from(length)
-                                .ok()
-                                .filter(|&length| length <= buf.len())?,
+                            + usize::try_from(length).ok().filter(|&length| length <= buf.len())?,
                     )
                 }) else {
                     return false;
@@ -382,11 +364,7 @@ pub fn json(message: &str, value: &impl Message, always_print_defaults: bool) ->
         0,
         message,
         &value.encode_to_vec(),
-        if always_print_defaults {
-            Format::JsonAlways
-        } else {
-            Format::Json
-        },
+        if always_print_defaults { Format::JsonAlways } else { Format::Json },
     );
     out
 }
@@ -395,10 +373,8 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
     let (map_entry, specs) = &MESSAGES[message];
     let json = format != Format::Text;
     let always = |spec: &Spec| *map_entry || (format == Format::JsonAlways && !spec.presence);
-    let mut found: Vec<Option<Vec<Field>>> = specs
-        .iter()
-        .map(|spec| always(spec).then(Vec::new))
-        .collect();
+    let mut found: Vec<Option<Vec<Field>>> =
+        specs.iter().map(|spec| always(spec).then(Vec::new)).collect();
     for (number, value) in fields(buf) {
         let Ok(index) = specs.binary_search_by_key(&number, |spec| spec.number) else {
             continue;
@@ -430,10 +406,7 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                         0 => varint(bytes, &mut pos),
                         _ => bytes.get(pos..pos + width).map(|chunk| {
                             pos += width;
-                            chunk
-                                .iter()
-                                .rev()
-                                .fold(0, |value, &byte| value << 8 | u64::from(byte))
+                            chunk.iter().rev().fold(0, |value, &byte| value << 8 | u64::from(byte))
                         }),
                     };
                     let Some(value) = value else { break };
@@ -447,30 +420,19 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
         out.push('{');
     }
     let start = out.len();
-    for (spec, items) in specs
-        .iter()
-        .zip(&found)
-        .filter_map(|(spec, items)| Some((spec, items.as_ref()?)))
+    for (spec, items) in
+        specs.iter().zip(&found).filter_map(|(spec, items)| Some((spec, items.as_ref()?)))
     {
         let kind = &spec.kind;
         let key = |out: &mut String| {
             if json {
-                write!(
-                    out,
-                    "{}\"{}\":",
-                    if out.len() > start { "," } else { "" },
-                    spec.json_name
-                )
-                .expect("writing to a string cannot fail");
+                write!(out, "{}\"{}\":", if out.len() > start { "," } else { "" }, spec.json_name)
+                    .expect("writing to a string cannot fail");
             }
         };
         if spec.map {
-            let [
-                Spec { kind: key_kind, .. },
-                value_spec @ Spec {
-                    kind: value_kind, ..
-                },
-            ] = &MESSAGES[message_name(kind)].1[..]
+            let [Spec { kind: key_kind, .. }, value_spec @ Spec { kind: value_kind, .. }] =
+                &MESSAGES[message_name(kind)].1[..]
             else {
                 continue;
             };
@@ -508,13 +470,7 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                         } else {
                             Field::Num(0)
                         };
-                    emit(
-                        out,
-                        depth,
-                        value_spec,
-                        &last(bytes, 2).unwrap_or(empty),
-                        format,
-                    );
+                    emit(out, depth, value_spec, &last(bytes, 2).unwrap_or(empty), format);
                 }
                 out.push('}');
             }

@@ -48,11 +48,7 @@ fn to_json() {
                 &parsed["cols"][index]["label"],
                 &parsed["cols"][index]["type"]
             ),
-            (
-                &serde_json::json!(id),
-                &serde_json::json!(label),
-                &serde_json::json!(kind)
-            )
+            (&serde_json::json!(id), &serde_json::json!(label), &serde_json::json!(kind))
         );
     }
     for (row, expected) in test_rows().as_array().unwrap().iter().enumerate() {
@@ -72,32 +68,20 @@ fn to_json_with_custom_properties() {
     table.prop("key1", "value1");
     table.prop("key2", "value2");
     let parsed: serde_json::Value = serde_json::from_str(&table.json()).unwrap();
-    assert_eq!(
-        parsed["p"],
-        serde_json::json!({"key1": "value1", "key2": "value2"})
-    );
+    assert_eq!(parsed["p"], serde_json::json!({"key1": "value1", "key2": "value2"}));
 }
 
 #[test]
 fn add_number_cell() {
-    assert_eq!(
-        row_json(Cell::Number(123.45)),
-        serde_json::json!({"v": 123.45})
-    );
+    assert_eq!(row_json(Cell::Number(123.45)), serde_json::json!({"v": 123.45}));
 }
 
 #[test]
 fn add_text_cell() {
-    assert_eq!(
-        row_json(Cell::Text("test_string".into())),
-        serde_json::json!({"v": "test_string"})
-    );
+    assert_eq!(row_json(Cell::Text("test_string".into())), serde_json::json!({"v": "test_string"}));
 }
 
 #[test]
 fn add_boolean_cell() {
-    assert_eq!(
-        row_json(Cell::Boolean(true)),
-        serde_json::json!({"v": true})
-    );
+    assert_eq!(row_json(Cell::Boolean(true)), serde_json::json!({"v": true}));
 }

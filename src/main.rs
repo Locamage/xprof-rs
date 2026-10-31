@@ -43,12 +43,8 @@ use xplane::Plane;
 
 /// The physical memory, which sizes the caches and the number of loads at once. A load needs about four to six times the size of its file.
 static MEMORY: LazyLock<u64> = LazyLock::new(|| {
-    let (pages, size) = unsafe {
-        (
-            libc::sysconf(libc::_SC_PHYS_PAGES),
-            libc::sysconf(libc::_SC_PAGESIZE),
-        )
-    };
+    let (pages, size) =
+        unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES), libc::sysconf(libc::_SC_PAGESIZE)) };
     (pages.max(0) as u64).saturating_mul(size.max(0) as u64)
 });
 static BUDGET_BYTES: LazyLock<u64> = LazyLock::new(|| (*MEMORY / 8).clamp(256 << 20, 4 << 30));
@@ -170,9 +166,7 @@ impl Stamp {
     }
 
     fn older_than(&self, age: Duration) -> bool {
-        self.modified
-            .elapsed()
-            .map_or(true, |elapsed| elapsed >= age)
+        self.modified.elapsed().map_or(true, |elapsed| elapsed >= age)
     }
 }
 
@@ -214,16 +208,10 @@ struct Memo<T> {
 
 impl<T: Clone + Send + Sync + 'static> Memo<T> {
     fn new(weigh: impl Fn(&Stamp, &T) -> u64 + Send + Sync + 'static) -> Arc<Self> {
-        let cache = cache(
-            *BUDGET_BYTES,
-            move |_, (stamp, outcome): &(Stamp, Outcome<T>)| {
-                outcome.as_ref().map_or(0, |value| weigh(stamp, value))
-            },
-        );
-        Arc::new(Self {
-            cache,
-            flights: Flights::new(),
-        })
+        let cache = cache(*BUDGET_BYTES, move |_, (stamp, outcome): &(Stamp, Outcome<T>)| {
+            outcome.as_ref().map_or(0, |value| weigh(stamp, value))
+        });
+        Arc::new(Self { cache, flights: Flights::new() })
     }
 
     async fn get(
@@ -240,21 +228,19 @@ impl<T: Clone + Send + Sync + 'static> Memo<T> {
             return outcome;
         }
         let (memo, permits) = (self.clone(), permits.clone());
-        let flight = self
-            .flights
-            .join((path.clone(), stamp), move || async move {
-                let _permit = permits.acquire_owned().await;
-                let file = path.clone();
-                let outcome = AssertUnwindSafe(blocking(move || build(&file)))
-                    .catch_unwind()
-                    .await
-                    .map_err(|payload| panic_message(&*payload))
-                    .and_then(|outcome| outcome.map_err(|error| error.to_string().into()));
-                if Stamp::of(&path) == Some(stamp) && stamp.older_than(FRESH) {
-                    memo.cache.insert(path, (stamp, outcome.clone())).await;
-                }
-                outcome
-            });
+        let flight = self.flights.join((path.clone(), stamp), move || async move {
+            let _permit = permits.acquire_owned().await;
+            let file = path.clone();
+            let outcome = AssertUnwindSafe(blocking(move || build(&file)))
+                .catch_unwind()
+                .await
+                .map_err(|payload| panic_message(&*payload))
+                .and_then(|outcome| outcome.map_err(|error| error.to_string().into()));
+            if Stamp::of(&path) == Some(stamp) && stamp.older_than(FRESH) {
+                memo.cache.insert(path, (stamp, outcome.clone())).await;
+            }
+            outcome
+        });
         flight.await.and_then(|outcome| outcome)
     }
 }
@@ -320,10 +306,7 @@ fn cache<K: Hash + Eq + Send + Sync + 'static, V: Clone + Send + Sync + 'static>
 }
 
 fn panic_message(payload: &(dyn Any + Send)) -> Arc<str> {
-    match (
-        payload.downcast_ref::<&str>(),
-        payload.downcast_ref::<String>(),
-    ) {
+    match (payload.downcast_ref::<&str>(), payload.downcast_ref::<String>()) {
         (Some(message), _) => Arc::from(*message),
         (_, Some(message)) => Arc::from(message.as_str()),
         _ => Arc::from("internal error"),
@@ -339,10 +322,7 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) 
 /// Creates a directory that only this user can read. It refuses a directory that another user owns.
 fn private_dir(dir: &Path) -> std::io::Result<PathBuf> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)?;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     let meta = std::fs::symlink_metadata(dir)?;
     if !meta.is_dir() || meta.uid() != unsafe { libc::getuid() } {
         return Err(std::io::Error::other("another user owns this directory"));
@@ -381,12 +361,9 @@ fn read_file(path: &Path) -> std::io::Result<input::Input> {
     if on_fuse(&file) {
         std::io::Read::read_exact(&mut file, &mut bytes)?;
     } else {
-        bytes
-            .par_chunks_mut(READ_CHUNK)
-            .enumerate()
-            .try_for_each(|(index, chunk)| {
-                file.read_exact_at(chunk, (index * READ_CHUNK) as u64)
-            })?;
+        bytes.par_chunks_mut(READ_CHUNK).enumerate().try_for_each(|(index, chunk)| {
+            file.read_exact_at(chunk, (index * READ_CHUNK) as u64)
+        })?;
     }
     Ok(bytes.into())
 }
@@ -479,18 +456,11 @@ fn derive(planes: &mut [Plane], map: &[u8]) {
 
 /// Adds the regions, the groups, and the derived lines of the GPUs, but not the derived lines of the TPUs. Gives `false` if the planes have their groups already.
 fn group(planes: &mut [Plane], map: &[u8], trace: bool) -> bool {
-    planes
-        .par_iter_mut()
-        .for_each(|plane| plane.add_threadpool_regions(map));
+    planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
     let ungrouped = !xplane::derive::is_grouped(planes);
     if ungrouped {
         let groups = xplane::group::group(planes, map);
-        xplane::derive::derive_gpu(
-            planes,
-            map,
-            groups.as_ref().map(|groups| &groups.names),
-            trace,
-        );
+        xplane::derive::derive_gpu(planes, map, groups.as_ref().map(|groups| &groups.names), trace);
     }
     ungrouped
 }
@@ -506,12 +476,9 @@ fn concat(pieces: &[&[u8]]) -> Vec<u8> {
         targets.push(head);
         rest = tail;
     }
-    targets
-        .into_par_iter()
-        .zip(pieces)
-        .for_each(|(target, piece)| {
-            target.write_copy_of_slice(piece);
-        });
+    targets.into_par_iter().zip(pieces).for_each(|(target, piece)| {
+        target.write_copy_of_slice(piece);
+    });
     unsafe { out.set_len(total) };
     out
 }
@@ -610,9 +577,7 @@ fn list(dir: &Path, keep: impl Fn(&std::fs::DirEntry) -> bool) -> Vec<PathBuf> {
 }
 
 fn xplanes(dir: &Path) -> Vec<PathBuf> {
-    list(dir, |entry| {
-        entry.file_name().to_string_lossy().ends_with(".xplane.pb")
-    })
+    list(dir, |entry| entry.file_name().to_string_lossy().ends_with(".xplane.pb"))
 }
 
 fn sessions(logdir: &Path) -> Vec<(String, PathBuf)> {
@@ -622,22 +587,15 @@ fn sessions(logdir: &Path) -> Vec<(String, PathBuf)> {
     let is_dir = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_dir());
     let (mut found, mut pending) = (Vec::new(), vec![(logdir.to_path_buf(), String::new())]);
     while let Some((dir, prefix)) = pending.pop() {
-        found.extend(
-            list(&dir.join("plugins/profile"), is_dir)
-                .into_iter()
-                .map(|session| {
-                    (
-                        format!(
-                            "{prefix}{}",
-                            session
-                                .file_name()
-                                .expect("path has a valid file name")
-                                .to_string_lossy()
-                        ),
-                        session,
-                    )
-                }),
-        );
+        found.extend(list(&dir.join("plugins/profile"), is_dir).into_iter().map(|session| {
+            (
+                format!(
+                    "{prefix}{}",
+                    session.file_name().expect("path has a valid file name").to_string_lossy()
+                ),
+                session,
+            )
+        }));
         pending.extend(
             list(&dir, is_dir)
                 .into_iter()
@@ -681,11 +639,7 @@ fn failure((status, message): Failure) -> Response {
 }
 
 fn internal(message: &str) -> Response {
-    response(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "text/plain",
-        message.to_string(),
-    )
+    response(StatusCode::INTERNAL_SERVER_ERROR, "text/plain", message.to_string())
 }
 
 fn response(status: StatusCode, content_type: &str, body: impl Into<Body>) -> Response {
@@ -723,11 +677,7 @@ async fn assets(request: Request) -> Response {
             .and_then(|path| std::fs::read(path).ok())
         {
             Some(contents) => response(StatusCode::OK, content_type, contents),
-            None => response(
-                StatusCode::NOT_FOUND,
-                "text/plain",
-                "Fail to read the files.",
-            ),
+            None => response(StatusCode::NOT_FOUND, "text/plain", "Fail to read the files."),
         };
     }
     let tag = format!("W/\"{:08x}\"", crc32fast::hash(file));
@@ -746,16 +696,11 @@ async fn assets(request: Request) -> Response {
         )
     };
     // The names of the files do not change between versions, so the browser must ask again each time.
+    reply.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    reply.headers_mut().insert(header::VARY, HeaderValue::from_static("accept-encoding"));
     reply
         .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
-    reply
-        .headers_mut()
-        .insert(header::VARY, HeaderValue::from_static("accept-encoding"));
-    reply.headers_mut().insert(
-        header::ETAG,
-        HeaderValue::from_str(&tag).expect("etag is a valid header value"),
-    );
+        .insert(header::ETAG, HeaderValue::from_str(&tag).expect("etag is a valid header value"));
     reply
 }
 
@@ -775,19 +720,14 @@ fn negotiate(
         let mut raw = Vec::new();
         if let Some(ends) = ends {
             raw.resize(decoded_len(&body, ends), 0);
-            raw.par_chunks_mut(GZIP_CHUNK)
-                .zip(ends)
-                .enumerate()
-                .for_each(|(index, (out, &end))| {
-                    let start = if index == 0 {
-                        GZIP_HEADER.len()
-                    } else {
-                        ends[index - 1]
-                    };
+            raw.par_chunks_mut(GZIP_CHUNK).zip(ends).enumerate().for_each(
+                |(index, (out, &end))| {
+                    let start = if index == 0 { GZIP_HEADER.len() } else { ends[index - 1] };
                     flate2::Decompress::new(false)
                         .decompress(&body[start..end], out, flate2::FlushDecompress::Sync)
                         .expect("compressed body is valid");
-                });
+                },
+            );
         } else {
             flate2::read::GzDecoder::new(&body[..])
                 .read_to_end(&mut raw)
@@ -802,9 +742,7 @@ fn negotiate(
 fn decoded_len(body: &[u8], ends: &[usize]) -> usize {
     let full = (ends.len() - 1) * GZIP_CHUNK;
     full + u32::from_le_bytes(
-        body[body.len() - 4..]
-            .try_into()
-            .expect("slice has the expected length"),
+        body[body.len() - 4..].try_into().expect("slice has the expected length"),
     )
     .wrapping_sub(full as u32) as usize
 }
@@ -816,38 +754,19 @@ fn confine(state: &State_, path: &Path) -> Option<PathBuf> {
         let prefix: PathBuf = parts[..found].iter().collect();
         Some((
             found,
-            if prefix.as_os_str().is_empty() {
-                Path::new(".")
-            } else {
-                &prefix
-            }
-            .canonicalize()
-            .ok()?,
+            if prefix.as_os_str().is_empty() { Path::new(".") } else { &prefix }
+                .canonicalize()
+                .ok()?,
         ))
     })?;
     let missing = &parts[found..];
-    let plain = missing
-        .iter()
-        .all(|part| matches!(part, Component::Normal(_)))
-        && missing
-            .first()
-            .is_none_or(|first| real.join(first).symlink_metadata().is_err());
-    let staged = state
-        .staging
-        .lock()
-        .expect("lock poisoned")
-        .values()
-        .any(|entry| {
-            entry
-                .result
-                .lock()
-                .expect("lock poisoned")
-                .as_ref()
-                .is_some_and(|result| {
-                    result
-                        .as_ref()
-                        .is_ok_and(|profile| real.starts_with(profile))
-                })
+    let plain = missing.iter().all(|part| matches!(part, Component::Normal(_)))
+        && missing.first().is_none_or(|first| real.join(first).symlink_metadata().is_err());
+    let staged =
+        state.staging.lock().expect("lock poisoned").values().any(|entry| {
+            entry.result.lock().expect("lock poisoned").as_ref().is_some_and(|result| {
+                result.as_ref().is_ok_and(|profile| real.starts_with(profile))
+            })
         });
     (plain && (real.starts_with(&state.logdir) || staged))
         .then(|| missing.iter().fold(real, |dir, part| dir.join(part)))
@@ -863,24 +782,12 @@ fn run_dir(state: &State_, run: &str) -> Option<PathBuf> {
         return None;
     }
     let (prefix, session) = run.rsplit_once('/').unwrap_or((".", run));
-    confine(
-        state,
-        &state
-            .logdir
-            .join(prefix)
-            .join("plugins/profile")
-            .join(session),
-    )
+    confine(state, &state.logdir.join(prefix).join("plugins/profile").join(session))
 }
 
 fn session_map(state: &State_, params: &Params) -> Result<Option<Sessions>, Failure> {
     let is_dir = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_dir());
-    let name = |dir: &Path| {
-        dir.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
-    };
+    let name = |dir: &Path| dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
     if let Some(path) = params.get("session_path").filter(|path| !path.is_empty()) {
         let dir = confine(state, &state.logdir.join(path)).ok_or_else(outside)?;
         return Ok(Some(if xplanes(&dir).is_empty() {
@@ -940,9 +847,7 @@ fn session(state: &State_, params: &Params) -> Result<PathBuf, Failure> {
 }
 
 fn accepts_gzip(headers: &HeaderMap) -> bool {
-    let Some(value) = headers
-        .get(header::ACCEPT_ENCODING)
-        .and_then(|value| value.to_str().ok())
+    let Some(value) = headers.get(header::ACCEPT_ENCODING).and_then(|value| value.to_str().ok())
     else {
         return false;
     };
@@ -956,9 +861,7 @@ fn accepts_gzip(headers: &HeaderMap) -> bool {
             })
         })
     };
-    weight("gzip")
-        .or_else(|| weight("*"))
-        .is_some_and(|weight| weight > 0.0)
+    weight("gzip").or_else(|| weight("*")).is_some_and(|weight| weight > 0.0)
 }
 
 /// The gzip of `body`, from parts of `GZIP_CHUNK` bytes that compress in parallel, and the end of each part.
@@ -1016,18 +919,13 @@ async fn cached(
     render: impl Future<Output = Response> + Send + 'static,
 ) -> Response {
     let mut sources = list(dir, |entry| {
-        RENDERED_FROM
-            .iter()
-            .any(|suffix| entry.file_name().to_string_lossy().ends_with(suffix))
+        RENDERED_FROM.iter().any(|suffix| entry.file_name().to_string_lossy().ends_with(suffix))
     });
     sources.sort();
-    let stamps: Vec<(PathBuf, Option<Stamp>)> = sources
-        .into_iter()
-        .map(|file| (file.clone(), Stamp::of(&file)))
-        .collect();
-    let settled = stamps
-        .iter()
-        .all(|(_, stamp)| stamp.is_some_and(|stamp| stamp.older_than(FRESH)));
+    let stamps: Vec<(PathBuf, Option<Stamp>)> =
+        sources.into_iter().map(|file| (file.clone(), Stamp::of(&file))).collect();
+    let settled =
+        stamps.iter().all(|(_, stamp)| stamp.is_some_and(|stamp| stamp.older_than(FRESH)));
     let mut hasher = std::hash::DefaultHasher::new();
     stamps.hash(&mut hasher);
     let key = format!("{key}#{:x}", hasher.finish());
@@ -1037,9 +935,7 @@ async fn cached(
         let (cache, stored) = (state.rendered.clone(), key.clone());
         let flight = state.renders.join(key, move || async move {
             let (parts, body) = render.await.into_parts();
-            let body = axum::body::to_bytes(body, usize::MAX)
-                .await
-                .unwrap_or_default();
+            let body = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
             if parts.status != StatusCode::OK {
                 return Rendered {
                     status: parts.status,
@@ -1062,12 +958,7 @@ async fn cached(
         });
         flight.await
     };
-    let Rendered {
-        status,
-        headers,
-        body,
-        gzipped,
-    } = match rendered {
+    let Rendered { status, headers, body, gzipped } = match rendered {
         Ok(rendered) => rendered,
         Err(message) => return internal(&message),
     };
@@ -1101,10 +992,7 @@ async fn hosts(State(state): State<Shared>, Query(params): Query<Params>) -> Res
             tokio::spawn(async move { _ = state.hosts.get(file, &state.loads, shared_host).await });
         } else if STATS_TOOLS.contains(&tool) {
             tokio::spawn(async move {
-                _ = state
-                    .stats
-                    .get(file, &state.loads, tools::opstats::load)
-                    .await;
+                _ = state.stats.get(file, &state.loads, tools::opstats::load).await;
             });
         }
     }
@@ -1141,9 +1029,8 @@ async fn data_csv(
         let reply = serve(shared, target, params.clone()).await;
         if reply.status() != StatusCode::OK {
             let status = reply.status();
-            let body = axum::body::to_bytes(reply.into_body(), usize::MAX)
-                .await
-                .unwrap_or_default();
+            let body =
+                axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap_or_default();
             return match (status, body == NO_DATA.as_bytes()) {
                 (StatusCode::NOT_FOUND, true) => response(status, "text/plain", "No Data Found"),
                 (StatusCode::NOT_FOUND, false) => {
@@ -1152,32 +1039,18 @@ async fn data_csv(
                 _ => response(status, "text/plain", body),
             };
         }
-        if reply
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .is_none_or(|kind| kind != "application/json")
-        {
+        if reply.headers().get(header::CONTENT_TYPE).is_none_or(|kind| kind != "application/json") {
             return response(
                 StatusCode::BAD_REQUEST,
                 "text/plain",
                 "CSV format not supported for this tool type",
             );
         }
-        let body = axum::body::to_bytes(reply.into_body(), usize::MAX)
-            .await
-            .unwrap_or_default();
+        let body = axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap_or_default();
         let parsed = serde_json::from_slice::<serde_json::Value>(&body).ok();
-        let empty = parsed
-            .as_ref()
-            .and_then(|value| value.as_array())
-            .is_some_and(Vec::is_empty);
-        let parsed = parsed.map(|value| {
-            if let Some(first) = value.get(0) {
-                first.clone()
-            } else {
-                value
-            }
-        });
+        let empty = parsed.as_ref().and_then(|value| value.as_array()).is_some_and(Vec::is_empty);
+        let parsed =
+            parsed.map(|value| if let Some(first) = value.get(0) { first.clone() } else { value });
         let Some(table) = parsed.filter(|table| table.get("cols").is_some() || empty) else {
             return response(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1215,19 +1088,10 @@ async fn data_csv(
         }
         let sanitize = |text: &str| {
             text.chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
+                .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
                 .collect::<String>()
         };
-        let host = params
-            .get("host")
-            .and_then(|host| host.rsplit('-').next())
-            .unwrap_or("");
+        let host = params.get("host").and_then(|host| host.rsplit('-').next()).unwrap_or("");
         let name = [
             sanitize(params.get("tag").map_or("data", String::as_str)),
             sanitize(params.get("run").map_or("", String::as_str)),
@@ -1261,11 +1125,7 @@ async fn generate_cache(
     Query(params): Query<Params>,
 ) -> Response {
     if method != Method::POST {
-        return response(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "text/plain",
-            "Method Not Allowed",
-        );
+        return response(StatusCode::METHOD_NOT_ALLOWED, "text/plain", "Method Not Allowed");
     }
     let Some(path) = params.get("session_path").filter(|path| !path.is_empty()) else {
         return response(
@@ -1284,28 +1144,21 @@ async fn generate_cache(
             "No XPlane files found in session_path",
         );
     }
-    let run = Path::new(path)
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
+    let run = Path::new(path).file_name().unwrap_or_default().to_string_lossy().into_owned();
     let tools_dir = dir.clone();
     let available: Vec<String> =
         serde_json::from_str(&blocking(move || server::run_tools::json(&tools_dir)).await)
             .unwrap_or_default();
-    let requested: Vec<String> = params
-        .get("tools")
-        .filter(|tools| !tools.is_empty())
-        .map_or_else(
-            || CACHE_TOOLS.map(String::from).to_vec(),
-            |tools| {
-                tools
-                    .split(',')
-                    .map(|tool| tool.trim().to_string())
-                    .filter(|tool| !tool.is_empty())
-                    .collect()
-            },
-        );
+    let requested: Vec<String> = params.get("tools").filter(|tools| !tools.is_empty()).map_or_else(
+        || CACHE_TOOLS.map(String::from).to_vec(),
+        |tools| {
+            tools
+                .split(',')
+                .map(|tool| tool.trim().to_string())
+                .filter(|tool| !tool.is_empty())
+                .collect()
+        },
+    );
     let mut tools: Vec<String> = requested
         .into_iter()
         .filter(|tool| available.contains(tool) && XPLANE_TOOLS.contains(&tool.as_str()))
@@ -1340,12 +1193,7 @@ async fn runs(State(state): State<Shared>, Query(params): Query<Params>) -> Resp
     let mapped = or_fail!(session_map(&state, &params));
     let names: BTreeSet<String> = blocking(move || {
         mapped.map_or_else(
-            || {
-                sessions(&logdir)
-                    .into_iter()
-                    .map(|(name, _)| name)
-                    .collect()
-            },
+            || sessions(&logdir).into_iter().map(|(name, _)| name).collect(),
             |map| map.into_iter().map(|(name, _, _)| name).collect(),
         )
     })
@@ -1353,25 +1201,14 @@ async fn runs(State(state): State<Shared>, Query(params): Query<Params>) -> Resp
     response(
         StatusCode::OK,
         "application/json",
-        format!(
-            "[{}]",
-            names
-                .iter()
-                .rev()
-                .map(|name| quoted(name))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        format!("[{}]", names.iter().rev().map(|name| quoted(name)).collect::<Vec<_>>().join(", ")),
     )
 }
 
 fn select(dir: &Path, tool: &str, params: &Params) -> Result<Vec<PathBuf>, Failure> {
     let run = params.get("run").map_or("", String::as_str);
     let missing = |host: &str| {
-        Err((
-            StatusCode::NOT_FOUND,
-            format!("No xplane file found for host: {host} in run: {run}"),
-        ))
+        Err((StatusCode::NOT_FOUND, format!("No xplane file found for host: {host} in run: {run}")))
     };
     let (host, hosts) = (
         params.get("host").map_or("", String::as_str),
@@ -1387,9 +1224,8 @@ fn select(dir: &Path, tool: &str, params: &Params) -> Result<Vec<PathBuf>, Failu
     }
     if !hosts.is_empty() && tool == "trace_viewer@" {
         let wanted: Vec<&str> = hosts.split(',').collect();
-        if let Some(unknown) = wanted
-            .iter()
-            .find(|name| !files.iter().any(|file| host_name(file) == **name))
+        if let Some(unknown) =
+            wanted.iter().find(|name| !files.iter().any(|file| host_name(file) == **name))
         {
             return missing(unknown);
         }
@@ -1406,11 +1242,7 @@ fn select(dir: &Path, tool: &str, params: &Params) -> Result<Vec<PathBuf>, Failu
         )),
         host => {
             files.retain(|file| host_name(file) == host);
-            if files.is_empty() {
-                missing(host)
-            } else {
-                Ok(files)
-            }
+            if files.is_empty() { missing(host) } else { Ok(files) }
         }
     }
 }
@@ -1422,11 +1254,9 @@ fn listed_hosts(dir: &Path, tool: &str, params: &Params) -> Result<Vec<PathBuf>,
 }
 
 async fn tool(state: &Shared, paths: Vec<PathBuf>, render: Render) -> Response {
-    let all = match try_join_all(paths.iter().map(|path| {
-        state
-            .stats
-            .get(path.clone(), &state.loads, tools::opstats::load)
-    }))
+    let all = match try_join_all(
+        paths.iter().map(|path| state.stats.get(path.clone(), &state.loads, tools::opstats::load)),
+    )
     .await
     {
         Ok(all) => all,
@@ -1442,11 +1272,7 @@ async fn tool(state: &Shared, paths: Vec<PathBuf>, render: Render) -> Response {
         return not_found();
     };
     let body = blocking(move || render(&combined)).await;
-    if body.is_empty() {
-        not_found()
-    } else {
-        response(StatusCode::OK, "application/json", body)
-    }
+    if body.is_empty() { not_found() } else { response(StatusCode::OK, "application/json", body) }
 }
 
 async fn counter_tool(dir: &Path, tag: &str, params: &Params) -> Option<Response> {
@@ -1454,9 +1280,8 @@ async fn counter_tool(dir: &Path, tag: &str, params: &Params) -> Option<Response
         return None;
     }
     let (paths, tag) = (listed_hosts(dir, tag, params).ok()?, tag.to_string());
-    let body = tokio::task::spawn_blocking(move || tools::counters::serve(&tag, &paths))
-        .await
-        .ok()??;
+    let body =
+        tokio::task::spawn_blocking(move || tools::counters::serve(&tag, &paths)).await.ok()??;
     Some(response(StatusCode::OK, "application/json", body))
 }
 
@@ -1491,10 +1316,7 @@ async fn data(
     if params.get("tag").is_some_and(|tag| tag == "perf_counters")
         && params.get("names_only").is_some_and(|value| value == "1")
     {
-        return match params
-            .get("device_type")
-            .filter(|device_type| !device_type.is_empty())
-        {
+        return match params.get("device_type").filter(|device_type| !device_type.is_empty()) {
             None => response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "text/plain",
@@ -1533,9 +1355,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
         "framework_op_stats" => Some(Box::new(tools::framework_op_stats::json)),
         "overview_page" => {
             let paths = listed_hosts(&dir, tag, &params).unwrap_or_default();
-            Some(Box::new(move |stats: &OpStats| {
-                tools::overview_page::json(stats, &paths)
-            }))
+            Some(Box::new(move |stats: &OpStats| tools::overview_page::json(stats, &paths)))
         }
         "input_pipeline_analyzer" => Some(Box::new(tools::input_pipeline_analyzer::json)),
         "op_profile" => Some(Box::new(move |stats: &OpStats| {
@@ -1544,15 +1364,10 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
         "roofline_model" => Some(Box::new(tools::roofline::json)),
         "pod_viewer" => Some(Box::new(tools::pod_viewer::json)),
         "perf_counters" | "utilization_viewer" | "kernel_utilization" => {
-            return counter_tool(&dir, tag, &params)
-                .await
-                .unwrap_or_else(not_found);
+            return counter_tool(&dir, tag, &params).await.unwrap_or_else(not_found);
         }
         "memory_viewer" | "graph_viewer" => {
-            if params
-                .get("module_name")
-                .is_some_and(|name| name.contains(['/', '\0']))
-            {
+            if params.get("module_name").is_some_and(|name| name.contains(['/', '\0'])) {
                 return failure(outside());
             }
             or_fail!(select(&dir, tag, &params));
@@ -1564,21 +1379,18 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
                         response(StatusCode::OK, content_type, body)
                     });
             }
-            return blocking(move || hlo::graph::serve(&dir, &params))
-                .await
-                .map_or_else(
-                    |message| internal(&message),
-                    |(body, content_type)| response(StatusCode::OK, content_type, body),
-                );
+            return blocking(move || hlo::graph::serve(&dir, &params)).await.map_or_else(
+                |message| internal(&message),
+                |(body, content_type)| response(StatusCode::OK, content_type, body),
+            );
         }
         "megascale_stats" => {
             let paths = or_fail!(listed_hosts(&dir, tag, &params));
             let Some(host) = params.get("host").filter(|host| !host.is_empty()).cloned() else {
                 return not_found();
             };
-            let perfetto = params
-                .get("perfetto")
-                .is_some_and(|value| value.eq_ignore_ascii_case("true"));
+            let perfetto =
+                params.get("perfetto").is_some_and(|value| value.eq_ignore_ascii_case("true"));
             let own = paths
                 .iter()
                 .find(|path| {
@@ -1601,11 +1413,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             return body.await.map_or_else(not_found, |body| {
                 response(
                     StatusCode::OK,
-                    if perfetto {
-                        "application/octet-stream"
-                    } else {
-                        "application/json"
-                    },
+                    if perfetto { "application/octet-stream" } else { "application/json" },
                     body,
                 )
             });
@@ -1643,9 +1451,8 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
                 }
             })
             .await;
-            return body.map_or_else(not_found, |body| {
-                response(StatusCode::OK, "application/json", body)
-            });
+            return body
+                .map_or_else(not_found, |body| response(StatusCode::OK, "application/json", body));
         }
         _ => None,
     };
@@ -1665,12 +1472,8 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             let body = async {
                 let host = state.hosts.get(file, &state.loads, shared_host).await?;
                 Ok(blocking(move || {
-                    let options = Options {
-                        start_ms: 0.0,
-                        end_ms: 0.0,
-                        resolution: 0.0,
-                        full_dma: true,
-                    };
+                    let options =
+                        Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: true };
                     trace::delta::render(
                         &[View {
                             trace: &host.trace,
@@ -1712,9 +1515,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
     }
     let files = or_fail!(select(&dir, tag, &params));
     let hosts = match try_join_all(
-        files
-            .iter()
-            .map(|file| state.hosts.get(file.clone(), &state.loads, shared_host)),
+        files.iter().map(|file| state.hosts.get(file.clone(), &state.loads, shared_host)),
     )
     .await
     {
@@ -1727,35 +1528,21 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             };
         }
     };
-    let option = |key: &str| {
-        params
-            .get(key)
-            .map_or(Some(0.0), |value| trace::atod(value))
-    };
-    let integer = |key: &str, default: u64| {
-        params
-            .get(key)
-            .map_or(Some(default), |value| trace::atou(value))
-    };
-    let (Some(start_ms), Some(end_ms), Some(resolution)) = (
-        option("start_time_ms"),
-        option("end_time_ms"),
-        integer("resolution", DEFAULT_RESOLUTION),
-    ) else {
+    let option = |key: &str| params.get(key).map_or(Some(0.0), |value| trace::atod(value));
+    let integer =
+        |key: &str, default: u64| params.get(key).map_or(Some(default), |value| trace::atou(value));
+    let (Some(start_ms), Some(end_ms), Some(resolution)) =
+        (option("start_time_ms"), option("end_time_ms"), integer("resolution", DEFAULT_RESOLUTION))
+    else {
         return not_found();
     };
     let options = Options {
         start_ms,
         end_ms,
         resolution: resolution as f64,
-        full_dma: params
-            .get("full_dma")
-            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+        full_dma: params.get("full_dma").is_some_and(|value| value.eq_ignore_ascii_case("true")),
     };
-    let query = params
-        .get("search_prefix")
-        .filter(|prefix| !prefix.is_empty())
-        .cloned();
+    let query = params.get("search_prefix").filter(|prefix| !prefix.is_empty()).cloned();
     let (Some(duration_ms), Some(unique_id)) = (option("duration_ms"), integer("unique_id", 0))
     else {
         return not_found();
@@ -1807,12 +1594,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
                     (None, Some(prefix)) => trace.search(prefix, options.full_dma),
                     (None, None) => trace.load(&options),
                 };
-                View {
-                    trace,
-                    map: &host.map,
-                    planes: &host.planes,
-                    events,
-                }
+                View { trace, map: &host.map, planes: &host.planes, events }
             })
             .collect();
         (detail.is_none() || views.iter().all(|view| !view.events.is_empty())).then(|| {
@@ -1827,11 +1609,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
     body.map_or_else(not_found, |body| {
         response(
             StatusCode::OK,
-            if protobuf {
-                "application/octet-stream"
-            } else {
-                "application/json"
-            },
+            if protobuf { "application/octet-stream" } else { "application/json" },
             body,
         )
     })
@@ -1882,10 +1660,7 @@ async fn prefetch(state: Shared) {
             for dir in std::iter::once(remote.mirror.clone())
                 .chain(used.into_iter().take(WATCHED_SESSIONS).map(|(dir, _)| dir))
             {
-                _ = remote
-                    .sync(&dir, false)
-                    .await
-                    .inspect_err(|message| eprintln!("{message}"));
+                _ = remote.sync(&dir, false).await.inspect_err(|message| eprintln!("{message}"));
             }
         }
         let logdir = state.logdir.clone();
@@ -1913,10 +1688,7 @@ async fn prefetch(state: Shared) {
             if !attempted.contains(&key) {
                 attempted.push(key.clone());
                 quiet().await;
-                _ = state
-                    .stats
-                    .get(key.0.clone(), &permits, tools::opstats::load)
-                    .await;
+                _ = state.stats.get(key.0.clone(), &permits, tools::opstats::load).await;
                 quiet().await;
                 _ = state.hosts.get(key.0, &permits, shared_host).await;
             }
@@ -1961,32 +1733,23 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
         .filter(|logdir| logdir.contains("://"))
         .map(|url| Remote::open(url).map(Arc::new))
         .transpose()?;
-    let logdir = match values
-        .remove("--logdir")
-        .filter(|logdir| !logdir.is_empty())
-    {
+    let logdir = match values.remove("--logdir").filter(|logdir| !logdir.is_empty()) {
         Some(_) if let Some(remote) = &remote => remote.mirror.clone(),
         Some(logdir) => {
             let expanded = cli::expand(&logdir);
             let absolute = std::path::absolute(&expanded).unwrap_or(expanded);
-            absolute
-                .canonicalize()
-                .ok()
-                .filter(|dir| dir.is_dir())
-                .ok_or_else(|| {
-                    format!(
-                        "Log directory '{}' does not exist or is not a directory.",
-                        absolute.display()
-                    )
-                })?
+            absolute.canonicalize().ok().filter(|dir| dir.is_dir()).ok_or_else(|| {
+                format!(
+                    "Log directory '{}' does not exist or is not a directory.",
+                    absolute.display()
+                )
+            })?
         }
         None => PathBuf::new(),
     };
     let mut number = |flag: &str, default: u16| {
         values.remove(flag).map_or(Ok(default), |value| {
-            value
-                .parse()
-                .map_err(|_| format!("argument {flag}: invalid port value: '{value}'"))
+            value.parse().map_err(|_| format!("argument {flag}: invalid port value: '{value}'"))
         })
     };
     let port = number("--port", DEFAULT_PORT)?;
@@ -1996,9 +1759,8 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
                 .into(),
         );
     }
-    if let Some(value) = values
-        .get("--max_concurrent_worker_requests")
-        .filter(|value| value.parse::<i64>().is_err())
+    if let Some(value) =
+        values.get("--max_concurrent_worker_requests").filter(|value| value.parse::<i64>().is_err())
     {
         return Err(format!(
             "argument --max_concurrent_worker_requests: invalid int value: '{value}'"
@@ -2025,10 +1787,7 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
 fn state(settings: &Settings) -> Shared {
     let config = serde_json::json!({"enableTabNameLabel": settings.enable_tab_name_label, "hideCaptureProfileButton": settings.hide_capture_profile_button, "srcPathPrefix": settings.src_prefix});
     Arc::new(State_ {
-        logdir: settings
-            .logdir
-            .canonicalize()
-            .unwrap_or_else(|_| settings.logdir.clone()),
+        logdir: settings.logdir.canonicalize().unwrap_or_else(|_| settings.logdir.clone()),
         remote: settings.remote.clone(),
         config: server::run_tools::python_value(&config),
         hosts: Memo::new(|_, host: &Arc<Host>| host.bytes),
@@ -2054,10 +1813,7 @@ fn plugin() -> Router<Shared> {
         .route("/run_tools", any(run_tools))
         .route("/hosts", any(hosts))
         .route("/data_csv", any(data_csv))
-        .route(
-            "/version",
-            any(|| async { response(StatusCode::OK, "text/plain", VERSION) }),
-        )
+        .route("/version", any(|| async { response(StatusCode::OK, "text/plain", VERSION) }))
         .route(
             "/config",
             any(|State(state): State<Shared>| async move {
@@ -2075,11 +1831,7 @@ async fn capture_profile(State(state): State<Shared>, Query(params): Query<Param
 
 fn stage_uri(state: &State_, uri: &str) -> Result<String, String> {
     let uri = uri.trim_end_matches('/');
-    if state
-        .open_uri_pattern
-        .as_ref()
-        .is_none_or(|pattern| !pattern.is_match(uri))
-    {
+    if state.open_uri_pattern.as_ref().is_none_or(|pattern| !pattern.is_match(uri)) {
         return Err("URI is not allowed by --open_uri_pattern".into());
     }
     Ok(uri.to_string())
@@ -2091,23 +1843,13 @@ fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
         return Ok(entry.clone());
     }
     let remote = Arc::new(Remote::open(uri)?);
-    let entry = Arc::new(Staging {
-        remote,
-        started: Instant::now(),
-        result: Mutex::default(),
-    });
+    let entry = Arc::new(Staging { remote, started: Instant::now(), result: Mutex::default() });
     entries.insert(uri.to_string(), entry.clone());
-    let (work_entry, permits, uri) = (
-        entry.clone(),
-        state.staging_permits.clone(),
-        uri.to_string(),
-    );
+    let (work_entry, permits, uri) =
+        (entry.clone(), state.staging_permits.clone(), uri.to_string());
     tokio::spawn(async move {
         let result = async {
-            let _permit = permits
-                .acquire_owned()
-                .await
-                .map_err(|error| error.to_string())?;
+            let _permit = permits.acquire_owned().await.map_err(|error| error.to_string())?;
             let profile = work_entry.remote.mirror.join("plugins/profile");
             work_entry.remote.sync(&profile, false).await?;
             let sessions: Vec<PathBuf> = std::fs::read_dir(&profile)
@@ -2120,14 +1862,12 @@ fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
             let mut found = false;
             for session in sessions {
                 work_entry.remote.sync(&session, true).await?;
-                found |= list(&session, |file| {
-                    file.file_type().is_ok_and(|kind| kind.is_file())
-                })
-                .iter()
-                .any(|path| {
-                    path.file_name()
-                        .is_some_and(|name| name.to_string_lossy().ends_with(".xplane.pb"))
-                });
+                found |= list(&session, |file| file.file_type().is_ok_and(|kind| kind.is_file()))
+                    .iter()
+                    .any(|path| {
+                        path.file_name()
+                            .is_some_and(|name| name.to_string_lossy().ends_with(".xplane.pb"))
+                    });
             }
             if !found {
                 return Err(format!("no XPlane protobuf files found under {uri}"));
@@ -2151,10 +1891,7 @@ fn staging_location(profile: &Path, tool: &str) -> String {
 
 fn remove_staging(state: &State_, uri: &str, entry: &Arc<Staging>) {
     let mut entries = state.staging.lock().expect("lock poisoned");
-    if entries
-        .get(uri)
-        .is_some_and(|current| Arc::ptr_eq(current, entry))
-    {
+    if entries.get(uri).is_some_and(|current| Arc::ptr_eq(current, entry)) {
         entries.remove(uri);
     }
 }
@@ -2165,18 +1902,10 @@ async fn open(
     Query(params): Query<Params>,
 ) -> Response {
     if method != Method::GET {
-        return response(
-            StatusCode::METHOD_NOT_ALLOWED,
-            "text/plain",
-            "GET required\n",
-        );
+        return response(StatusCode::METHOD_NOT_ALLOWED, "text/plain", "GET required\n");
     }
     let Some(uri) = params.get("uri").filter(|uri| !uri.is_empty()) else {
-        return response(
-            StatusCode::BAD_REQUEST,
-            "text/plain",
-            "missing uri query parameter\n",
-        );
+        return response(StatusCode::BAD_REQUEST, "text/plain", "missing uri query parameter\n");
     };
     let uri = match stage_uri(&state, uri) {
         Ok(uri) => uri,
@@ -2195,11 +1924,9 @@ async fn open(
     };
     let result = entry.result.lock().expect("lock poisoned").clone();
     match result {
-        None => response(
-            StatusCode::ACCEPTED,
-            "text/html; charset=utf-8",
-            loading_page(&uri, tool),
-        ),
+        None => {
+            response(StatusCode::ACCEPTED, "text/html; charset=utf-8", loading_page(&uri, tool))
+        }
         Some(Ok(profile)) => {
             let location = staging_location(&profile, tool);
             let mut reply = response(StatusCode::SEE_OTHER, "text/plain", "");
@@ -2265,11 +1992,8 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
         None => {
             let bytes = entry.remote.downloaded_bytes.load(Ordering::Relaxed);
             let elapsed = entry.started.elapsed().as_secs_f64();
-            let throughput = if elapsed == 0.0 {
-                0
-            } else {
-                (bytes as f64 / elapsed).round() as u64
-            };
+            let throughput =
+                if elapsed == 0.0 { 0 } else { (bytes as f64 / elapsed).round() as u64 };
             response(
                 StatusCode::OK,
                 "application/json",
@@ -2354,9 +2078,7 @@ async fn first_values(mut request: Request) -> Request {
             .split('&')
             .filter(|pair| {
                 seen.insert(
-                    form_urlencoded::parse(pair.as_bytes())
-                        .next()
-                        .map(|(key, _)| key.into_owned()),
+                    form_urlencoded::parse(pair.as_bytes()).next().map(|(key, _)| key.into_owned()),
                 )
             })
             .collect();
@@ -2380,27 +2102,21 @@ fn app(state: Shared) -> Router {
         .merge(plugin())
         .nest(PREFIX, plugin())
         .fallback(assets)
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            server::remote::mirror,
-        ))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), server::remote::mirror))
         .layer(axum::middleware::map_request(first_values))
         .layer(CatchPanicLayer::custom(|payload: Box<dyn Any + Send>| {
             internal(&panic_message(&*payload))
         }))
-        .layer(axum::middleware::map_response(
-            |mut reply: Response| async move {
-                reply.headers_mut().insert(
-                    HeaderName::from_static("content-security-policy"),
-                    HeaderValue::from_static(SECURITY_POLICY),
-                );
-                reply.headers_mut().insert(
-                    header::X_CONTENT_TYPE_OPTIONS,
-                    HeaderValue::from_static("nosniff"),
-                );
-                reply
-            },
-        ))
+        .layer(axum::middleware::map_response(|mut reply: Response| async move {
+            reply.headers_mut().insert(
+                HeaderName::from_static("content-security-policy"),
+                HeaderValue::from_static(SECURITY_POLICY),
+            );
+            reply
+                .headers_mut()
+                .insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+            reply
+        }))
         .layer(CompressionLayer::new().quality(CompressionLevel::Fastest))
         .layer(axum::middleware::from_fn(track))
         .with_state(state)
@@ -2418,12 +2134,8 @@ fn top_help() -> String {
 }
 
 fn main() -> anyhow::Result<()> {
-    let threads = std::thread::available_parallelism()
-        .map_or(1, usize::from)
-        .min(MAX_THREADS);
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build_global()?;
+    let threads = std::thread::available_parallelism().map_or(1, usize::from).min(MAX_THREADS);
+    rayon::ThreadPoolBuilder::new().num_threads(threads).build_global()?;
     let purge_delay = unsafe { libmimalloc_sys::mi_option_get(PURGE_DELAY) };
     // A command exits right after its output. To give freed memory back to the system before the exit only costs time.
     unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, -1) };
@@ -2435,10 +2147,7 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(code);
     }
     unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, purge_delay) };
-    if argv
-        .iter()
-        .any(|argument| argument == "--help" || argument == "-h")
-    {
+    if argv.iter().any(|argument| argument == "--help" || argument == "-h") {
         print!("{}", top_help());
         return Ok(());
     }

@@ -25,17 +25,9 @@ const COLUMNS: [(&str, &str, &str); 37] = [
     ("total_self_time", "number", "Total self time (us)"),
     ("avg_self_time", "number", "Avg. self time (us)"),
     ("total_self_time_percent", "number", "Total self time (%)"),
-    (
-        "cumulative_total_self_time_percent",
-        "number",
-        "Cumulative total self time (%)",
-    ),
+    ("cumulative_total_self_time_percent", "number", "Cumulative total self time (%)"),
     ("dma_stall_percent", "number", "%time stalled by DMA"),
-    (
-        "measured_flop_rate",
-        "number",
-        "Normalized FLOP Rate (GFLOP/s)",
-    ),
+    ("measured_flop_rate", "number", "Normalized FLOP Rate (GFLOP/s)"),
     ("model_flop_rate", "number", "Model FLOP Rate (GFLOP/s)"),
     ("measured_memory_bw", "number", "Memory BW (GiB/s)"),
     ("hbm_bw", "number", "HBM BW (GiB/s)"),
@@ -43,41 +35,13 @@ const COLUMNS: [(&str, &str, &str); 37] = [
     ("cmem_write_bw", "number", "CMEM Write BW (GiB/s)"),
     ("vmem_read_bw", "number", "VMEM Read BW (GiB/s)"),
     ("vmem_write_bw", "number", "VMEM Write BW (GiB/s)"),
-    (
-        "operational_intensity",
-        "number",
-        "Operational Intensity (FLOP/Byte)",
-    ),
-    (
-        "hbm_operational_intensity",
-        "number",
-        "HBM Operational Intensity (FLOP/Byte)",
-    ),
-    (
-        "cmem_read_operational_intensity",
-        "number",
-        "CMEM Read Operational Intensity (FLOP/Byte)",
-    ),
-    (
-        "cmem_write_operational_intensity",
-        "number",
-        "CMEM Write Operational Intensity (FLOP/Byte)",
-    ),
-    (
-        "vmem_read_operational_intensity",
-        "number",
-        "VMEM Read Operational Intensity (FLOP/Byte)",
-    ),
-    (
-        "vmem_write_operational_intensity",
-        "number",
-        "VMEM Write Operational Intensity (FLOP/Byte)",
-    ),
-    (
-        "bottleneck_operational_intensity",
-        "number",
-        "Bottleneck Operational Intensity (FLOP/Byte)",
-    ),
+    ("operational_intensity", "number", "Operational Intensity (FLOP/Byte)"),
+    ("hbm_operational_intensity", "number", "HBM Operational Intensity (FLOP/Byte)"),
+    ("cmem_read_operational_intensity", "number", "CMEM Read Operational Intensity (FLOP/Byte)"),
+    ("cmem_write_operational_intensity", "number", "CMEM Write Operational Intensity (FLOP/Byte)"),
+    ("vmem_read_operational_intensity", "number", "VMEM Read Operational Intensity (FLOP/Byte)"),
+    ("vmem_write_operational_intensity", "number", "VMEM Write Operational Intensity (FLOP/Byte)"),
+    ("bottleneck_operational_intensity", "number", "Bottleneck Operational Intensity (FLOP/Byte)"),
     ("bound_by", "string", "Bound by"),
     ("total_time_per_core", "number", "Total Time per core (us)"),
     ("total_time_in_percentage", "number", "Total Time (%)"),
@@ -89,11 +53,7 @@ const COLUMNS: [(&str, &str, &str); 37] = [
         "number",
         "Max memory BW utilization (among supported memories) (%)",
     ),
-    (
-        "include_infeed_outfeed",
-        "boolean",
-        "Include Infeed/Outfeed",
-    ),
+    ("include_infeed_outfeed", "boolean", "Include Infeed/Outfeed"),
     ("hlo_module_id", "string", "Program ID"),
     ("source_info", "string", "Source Info"),
 ];
@@ -102,10 +62,8 @@ const GPU_COLUMNS: [usize; 30] = [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 19, 20, 21, 25, 26, 27, 28, 29, 30, 31, 32,
     33, 34, 35, 36,
 ];
-const GPU_LABELS: [(usize, &str); 2] = [
-    (19, "SHM/L1 BW (GiB/s)"),
-    (25, "SHM/L1 Operational Intensity (FLOP/Byte)"),
-];
+const GPU_LABELS: [(usize, &str); 2] =
+    [(19, "SHM/L1 BW (GiB/s)"), (25, "SHM/L1 Operational Intensity (FLOP/Byte)")];
 
 struct Placement<'a> {
     step: String,
@@ -141,26 +99,17 @@ fn is_infeed_or_outfeed(category: &str) -> bool {
 fn row(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], metrics: &Metrics, place: &Placement) {
     let roof = roofline(metrics, stats, false);
     let occurrences = metrics.occurrences as f64;
-    let (mut total_time, mut self_time) = (
-        pico_to_micro(metrics.time_ps),
-        pico_to_micro(metrics.self_time_ps),
-    );
-    let (average, self_average) = (
-        safe_divide(total_time, occurrences),
-        safe_divide(self_time, occurrences),
-    );
+    let (mut total_time, mut self_time) =
+        (pico_to_micro(metrics.time_ps), pico_to_micro(metrics.self_time_ps));
+    let (average, self_average) =
+        (safe_divide(total_time, occurrences), safe_divide(self_time, occurrences));
     if let Some(steps) = place.steps {
         total_time = safe_divide(total_time, steps as f64);
         self_time = safe_divide(self_time, steps as f64);
     }
     let flops_utilization = safe_divide(roof.measured_flop_rate, peaks[0]);
-    let bandwidths = [
-        roof.hbm_bw,
-        roof.cmem_read_bw,
-        roof.cmem_write_bw,
-        roof.vmem_read_bw,
-        roof.vmem_write_bw,
-    ];
+    let bandwidths =
+        [roof.hbm_bw, roof.cmem_read_bw, roof.cmem_write_bw, roof.vmem_read_bw, roof.vmem_write_bw];
     let memory_utilization = bandwidths
         .iter()
         .zip(&peaks[1..])
@@ -257,11 +206,7 @@ pub fn program(db: &Db) -> ([Metrics; 2], u64) {
             &mut program,
             sums(metrics),
             (metrics.core_type, metrics.time_ps),
-            (
-                metrics.flops_v2,
-                metrics.model_flops_v2,
-                metrics.bytes_accessed,
-            ),
+            (metrics.flops_v2, metrics.model_flops_v2, metrics.bytes_accessed),
             &metrics.memory,
             1,
         );
@@ -354,11 +299,8 @@ fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool, 
     let total_time_ps = db.total_time_ps.wrapping_sub(infeed_outfeed);
     let total_us = pico_to_micro(total_time_ps);
     let (mut rank, mut cumulative) = (0u64, 0.0);
-    for metrics in db
-        .sorted()
-        .into_iter()
-        .take(MAX_RECORDS)
-        .filter(|metrics| metrics.occurrences != 0)
+    for metrics in
+        db.sorted().into_iter().take(MAX_RECORDS).filter(|metrics| metrics.occurrences != 0)
     {
         let category = category(metrics);
         if !include && is_infeed_or_outfeed(category) {
@@ -433,22 +375,13 @@ pub fn json_rows(stats: &OpStats, rows: Rows) -> String {
                     .map_or(label, |(_, label)| label),
             );
         }
-        let peaks = [
-            stats.perf.peak_tera_flops * 1e3,
-            bandwidth(0),
-            0.0,
-            0.0,
-            bandwidth(1),
-            bandwidth(2),
-        ];
+        let peaks =
+            [stats.perf.peak_tera_flops * 1e3, bandwidth(0), 0.0, 0.0, bandwidth(1), bandwidth(2)];
         table.prop("device_type", extra.device_type.as_str());
         table.prop("peak_flop_rate", general(peaks[0], 6));
         table.prop("peak_hbm_bw", general(peaks[1], 6));
         table.prop("peak_vmem_write_bw", general(peaks[5], 6));
-        table.prop(
-            "hbm_ridge_point",
-            general(safe_divide(peaks[0], peaks[1] * GIBI_IN_GIGA), 6),
-        );
+        table.prop("hbm_ridge_point", general(safe_divide(peaks[0], peaks[1] * GIBI_IN_GIGA), 6));
         table.prop(
             "vmem_write_ridge_point",
             general(safe_divide(peaks[0], peaks[5] * GIBI_IN_GIGA), 6),
@@ -457,16 +390,9 @@ pub fn json_rows(stats: &OpStats, rows: Rows) -> String {
             records(&mut table, stats, &peaks, true, total_only);
             records(&mut table, stats, &peaks, false, total_only);
         }
-        let warnings = if extra.steps.is_empty() {
-            vec![NO_STEP_MARKER.to_string()]
-        } else {
-            Vec::new()
-        };
-        return format!(
-            "[{},{}]",
-            table.json(),
-            diagnostics_table(&warnings, &[]).json()
-        );
+        let warnings =
+            if extra.steps.is_empty() { vec![NO_STEP_MARKER.to_string()] } else { Vec::new() };
+        return format!("[{},{}]", table.json(), diagnostics_table(&warnings, &[]).json());
     }
     let mut table = Table::new(&COLUMNS);
     let cmem = stats.perf.cmem;
@@ -483,10 +409,7 @@ pub fn json_rows(stats: &OpStats, rows: Rows) -> String {
     let tpu_only = |value: String| if stats.tpu { value } else { "0".into() };
     table.prop("megacore", tpu_only((extra.megacore as u8).to_string()));
     table.prop("has_cmem", tpu_only((cmem as u8).to_string()));
-    table.prop(
-        "has_merged_vmem",
-        tpu_only((extra.merged_vmem as u8).to_string()),
-    );
+    table.prop("has_merged_vmem", tpu_only((extra.merged_vmem as u8).to_string()));
     table.prop("peak_flop_rate", tpu_only(general(peaks[0], 6)));
     table.prop(
         "time_scale_multiplier",
@@ -505,14 +428,7 @@ pub fn json_rows(stats: &OpStats, rows: Rows) -> String {
             tpu_only(general(safe_divide(peaks[0], peak * GIBI_IN_GIGA), 6)),
         );
     }
-    table.prop(
-        "device_type",
-        if stats.tpu {
-            extra.device_type.as_str()
-        } else {
-            ""
-        },
-    );
+    table.prop("device_type", if stats.tpu { extra.device_type.as_str() } else { "" });
     let mut warnings = Vec::new();
     if stats.tpu {
         if rows != Rows::None {
@@ -525,9 +441,5 @@ pub fn json_rows(stats: &OpStats, rows: Rows) -> String {
             warnings.push(NO_STEP_MARKER.to_string());
         }
     }
-    format!(
-        "[{},{}]",
-        table.json(),
-        diagnostics_table(&warnings, &[]).json()
-    )
+    format!("[{},{}]", table.json(), diagnostics_table(&warnings, &[]).json())
 }

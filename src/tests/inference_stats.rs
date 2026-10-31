@@ -9,18 +9,10 @@ type TensorEvent<'a> = (&'a str, i64, i64, &'a [(&'a str, V)]);
 fn tensor_patterns(tensor_events: &[TensorEvent]) -> Vec<String> {
     let mut space = XSpace::default();
     let host = space.host();
-    host.event(
-        0,
-        "SessionRun",
-        1000,
-        5000,
-        &[("group_id", GROUP_ID.into())],
-    );
+    host.event(0, "SessionRun", 1000, 5000, &[("group_id", GROUP_ID.into())]);
     for &(name, offset, duration, stats) in tensor_events {
-        let stats: Vec<(&str, V)> = [("group_id", V::from(GROUP_ID))]
-            .into_iter()
-            .chain(stats.iter().cloned())
-            .collect();
+        let stats: Vec<(&str, V)> =
+            [("group_id", V::from(GROUP_ID))].into_iter().chain(stats.iter().cloned()).collect();
         host.event(0, name, offset, duration, &stats);
     }
     let (map, planes) = space.parsed();
@@ -45,11 +37,7 @@ fn generate_tensor_pattern_with_dimensions_and_type() {
         "Linearize",
         1200,
         800,
-        &[
-            ("dims", "[10,20]".into()),
-            ("type", "F32".into()),
-            ("layout", "{1,0}".into()),
-        ],
+        &[("dims", "[10,20]".into()), ("type", "F32".into()), ("layout", "{1,0}".into())],
     )]);
     assert_eq!(patterns, ["Linearize f32[10,20] {1,0}"]);
 }
@@ -72,23 +60,11 @@ fn generate_tensor_pattern_multiple_sorted() {
             "Linearize",
             1200,
             800,
-            &[
-                ("dims", "[1,2]".into()),
-                ("type", "s32".into()),
-                ("layout", "{1,0}".into()),
-            ],
+            &[("dims", "[1,2]".into()), ("type", "s32".into()), ("layout", "{1,0}".into())],
         ),
-        (
-            "Delinearize",
-            2000,
-            500,
-            &[("shape", "[3,4]".into()), ("layout", "{0,1}".into())],
-        ),
+        ("Delinearize", 2000, 500, &[("shape", "[3,4]".into()), ("layout", "{0,1}".into())]),
     ]);
-    assert_eq!(
-        patterns,
-        ["Delinearize [3,4] {0,1}<br>Linearize s32[1,2] {1,0}"]
-    );
+    assert_eq!(patterns, ["Delinearize [3,4] {0,1}<br>Linearize s32[1,2] {1,0}"]);
 }
 
 #[test]

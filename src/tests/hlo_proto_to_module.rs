@@ -69,11 +69,7 @@ fn assert_consecutive_ids_and_operands() {
     let entry = &module.graphs[module.entry];
     assert_eq!(entry.nodes.len(), 3);
     assert_eq!(
-        entry
-            .nodes
-            .iter()
-            .map(|&node| node - entry.nodes[0])
-            .collect::<Vec<_>>(),
+        entry.nodes.iter().map(|&node| node - entry.nodes[0]).collect::<Vec<_>>(),
         [0, 1, 2]
     );
     let parameter = entry.parameters[0];

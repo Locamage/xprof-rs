@@ -9,12 +9,9 @@ async fn invalid_argument() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn process_session_json_success() {
-    let (status, headers, body) = served(
-        "unified-json",
-        &[("test_host", Vec::new())],
-        "tag=trace_viewer&host=test_host",
-    )
-    .await;
+    let (status, headers, body) =
+        served("unified-json", &[("test_host", Vec::new())], "tag=trace_viewer&host=test_host")
+            .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[header::CONTENT_TYPE], "application/json");
     assert!(!body.is_empty());

@@ -14,29 +14,12 @@ fn batch_with_programs(programs: &[(&str, u64, i64, i64)]) -> InferenceStats {
     device.named_line(0, "XLA Modules");
     for &(module, program, offset_ps, duration_ps) in programs {
         device.metadata_stats(module, &[("program_id", V::Uint(program))]);
-        device.event(
-            0,
-            module,
-            offset_ps,
-            duration_ps,
-            &[("group_id", GROUP_ID.into())],
-        );
+        device.event(0, module, offset_ps, duration_ps, &[("group_id", GROUP_ID.into())]);
     }
     space.host().named_line(0, "BatchThread");
-    space.host().event(
-        0,
-        "ProcessBatch",
-        500_000,
-        3_000_000,
-        &[("group_id", GROUP_ID.into())],
-    );
+    space.host().event(0, "ProcessBatch", 500_000, 3_000_000, &[("group_id", GROUP_ID.into())]);
     let (map, planes) = space.parsed();
-    generate(
-        &planes,
-        &map,
-        &Metadata::from([(GROUP_ID, Relatives::default())]),
-        0,
-    )
+    generate(&planes, &map, &Metadata::from([(GROUP_ID, Relatives::default())]), 0)
 }
 
 #[test]
@@ -73,17 +56,11 @@ fn populates_program_id_from_tpu_module_metadata() {
 
     stats.inference_stats_per_model.insert(
         0,
-        PerModelInferenceStats {
-            batch_details: vec![batch.clone()],
-            ..Default::default()
-        },
+        PerModelInferenceStats { batch_details: vec![batch.clone()], ..Default::default() },
     );
     stats.sampled_inference_stats.insert(
         0,
-        SampledPerModelInferenceStats {
-            sampled_batches: vec![batch],
-            ..Default::default()
-        },
+        SampledPerModelInferenceStats { sampled_batches: vec![batch], ..Default::default() },
     );
     stats.model_id_db.ids = vec!["my_model".into()];
     stats.model_id_db.id_to_index.insert("my_model".into(), 0);

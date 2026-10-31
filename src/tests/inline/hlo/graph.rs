@@ -14,14 +14,8 @@ fn cublas_lt_gemm_labels_show_the_backend_dot_dimensions() {
         gpu_properties("custom-call", "__cublas$lt$matmul$f8", 11, plain).as_deref(),
         Some("lhs_contracting_dims={1}<br/>rhs_contracting_dims={0}")
     );
-    assert_eq!(
-        gpu_properties("custom-call", "__cublas$gemm", 11, plain),
-        None
-    );
-    assert_eq!(
-        gpu_properties("custom-call", "__cublas$lt$matmul", 11, b"not json"),
-        None
-    );
+    assert_eq!(gpu_properties("custom-call", "__cublas$gemm", 11, plain), None);
+    assert_eq!(gpu_properties("custom-call", "__cublas$lt$matmul", 11, b"not json"), None);
     assert_eq!(
         gpu_properties(
             "custom-call",
@@ -68,10 +62,7 @@ fn cudnn_convolution_labels_show_scales_activation_and_engine() {
 }
 
 fn graph_dumper_module(name: &str) -> Module<'static> {
-    let path = format!(
-        "{}/tests/data/hlo_graph_dumper/{name}.pb",
-        env!("CARGO_MANIFEST_DIR")
-    );
+    let path = format!("{}/tests/data/hlo_graph_dumper/{name}.pb", env!("CARGO_MANIFEST_DIR"));
     Module::parse(std::borrow::Cow::Owned(std::fs::read(path).unwrap()))
 }
 
@@ -105,11 +96,7 @@ fn nested_fusion() {
     let graph = render_graph(&module, "b", "");
     for computation in ["b", "fused_computation.inner", "fused_computation.outer"] {
         for &node in &module.graphs[module.find_graph(computation).unwrap()].nodes {
-            assert!(
-                graph.contains(&module.nodes[node].name),
-                "{}",
-                module.nodes[node].name
-            );
+            assert!(graph.contains(&module.nodes[node].name), "{}", module.nodes[node].name);
         }
     }
     let neighborhood_graph =
@@ -127,11 +114,7 @@ fn constant() {
 
 #[test]
 fn tuple_constant() {
-    let graph = render_graph(
-        &graph_dumper_module("tuple_constant"),
-        "b",
-        "tuple_constant",
-    );
+    let graph = render_graph(&graph_dumper_module("tuple_constant"), "b", "tuple_constant");
     assert!(graph.contains("tuple_constant"));
     assert!(graph.contains("constant (f32[3,2], s32[4,5])"));
 }
@@ -146,20 +129,12 @@ fn compare() {
 
 #[test]
 fn has_statistics_viz() {
-    render_graph(
-        &graph_dumper_module("has_statistics_viz"),
-        "comp",
-        "tuple_constant",
-    );
+    render_graph(&graph_dumper_module("has_statistics_viz"), "comp", "tuple_constant");
 }
 
 #[test]
 fn root_is_constant() {
-    render_graph(
-        &graph_dumper_module("root_is_constant"),
-        "conditional_select",
-        "tuple_constant",
-    );
+    render_graph(&graph_dumper_module("root_is_constant"), "conditional_select", "tuple_constant");
 }
 
 #[test]
@@ -219,10 +194,7 @@ fn instructions_with_missing_operands_or_computations() {
     let f32 = || shape(11, &[2]);
     let gte = built_module(vec![computation(
         1,
-        vec![
-            inst(1, "get-tuple-element", f32(), &[]),
-            inst(2, "negate", f32(), &[1]),
-        ],
+        vec![inst(1, "get-tuple-element", f32(), &[]), inst(2, "negate", f32(), &[1])],
     )]);
     assert!(render(&gte, "negate.2", 3, false, true, "dot").is_ok());
     let fusion = built_module(vec![
@@ -230,22 +202,15 @@ fn instructions_with_missing_operands_or_computations() {
         computation(2, vec![inst(3, "fusion", f32(), &[])]),
     ]);
     assert!(render(&fusion, "fusion.3", 3, false, true, "dot").is_ok());
-    let fused = HloInstructionProto {
-        called_computation_ids: vec![1],
-        ..inst(4, "fusion", f32(), &[])
-    };
+    let fused =
+        HloInstructionProto { called_computation_ids: vec![1], ..inst(4, "fusion", f32(), &[]) };
     let fused = built_module(vec![
-        computation(
-            1,
-            vec![parameter(1, 0, f32()), inst(2, "negate", f32(), &[1])],
-        ),
+        computation(1, vec![parameter(1, 0, f32()), inst(2, "negate", f32(), &[1])]),
         computation(2, vec![fused]),
     ]);
     assert!(render(&fused, "computation.1", 3, false, true, "dot").is_ok());
-    let called = HloInstructionProto {
-        called_computation_ids: vec![1],
-        ..inst(4, "call", f32(), &[3])
-    };
+    let called =
+        HloInstructionProto { called_computation_ids: vec![1], ..inst(4, "call", f32(), &[3]) };
     let called = built_module(vec![
         computation(1, vec![parameter(1, 5, f32())]),
         computation(2, vec![parameter(3, 0, f32()), called]),
@@ -268,10 +233,7 @@ fn deep_call_chains_render() {
                 .unwrap()
         });
         assert_eq!(
-            String::from_utf8(dot.unwrap().0)
-                .unwrap()
-                .matches("subgraph cluster_")
-                .count(),
+            String::from_utf8(dot.unwrap().0).unwrap().matches("subgraph cluster_").count(),
             usize::try_from(depth).unwrap() - 1,
             "{opcode}"
         );

@@ -25,11 +25,7 @@ fn test_a04_source_provenance_attribution_rubric() {
     let result = query("a04", "get_top_hlo_ops", &["--limit=5"]);
     let top = result.at("top_by_time").items();
     assert!(top.iter().any(|op| op.has("source_file")));
-    assert!(
-        top.iter()
-            .filter_map(|op| op.get("source_file"))
-            .all(|file| file.str().is_some())
-    );
+    assert!(top.iter().filter_map(|op| op.get("source_file")).all(|file| file.str().is_some()));
 }
 
 #[test]
@@ -54,11 +50,7 @@ fn test_a06_hlo_op_profile_category_macro_breakdown_rubric() {
 
 #[test]
 fn test_a07_hlo_op_profile_grouped_navigation_rubric() {
-    let result = query(
-        "a07",
-        "get_hlo_op_profile",
-        &["--view=grouped", "--top_n=3"],
-    );
+    let result = query("a07", "get_hlo_op_profile", &["--view=grouped", "--top_n=3"]);
     assert!(result.has("category_summary") && result.has("grouped_operations"));
     let hints = result.at("navigation_hints");
     assert!(hints.has("drill_down_category") && hints.has("available_categories"));
@@ -66,14 +58,9 @@ fn test_a07_hlo_op_profile_grouped_navigation_rubric() {
         assert!(matches!(ops, J::List(_)));
         for op in ops.items() {
             assert!(
-                [
-                    "name",
-                    "category",
-                    "category_fraction",
-                    "total_self_time_ms"
-                ]
-                .iter()
-                .all(|key| op.has(key))
+                ["name", "category", "category_fraction", "total_self_time_ms"]
+                    .iter()
+                    .all(|key| op.has(key))
             );
         }
     }
@@ -83,17 +70,9 @@ fn test_a07_hlo_op_profile_grouped_navigation_rubric() {
 fn test_a08_hlo_op_profile_category_drill_down_rubric() {
     let dir = scratch("a08");
     let path = demo(&dir);
-    let macro_view = parse(
-        &run(&[
-            "get_hlo_op_profile",
-            path.to_str().unwrap(),
-            "--view=category",
-        ])
-        .1,
-    );
-    let target = macro_view.at("category_summary").items()[0]
-        .at("category")
-        .text();
+    let macro_view =
+        parse(&run(&["get_hlo_op_profile", path.to_str().unwrap(), "--view=category"]).1);
+    let target = macro_view.at("category_summary").items()[0].at("category").text();
     let result = parse(
         &run(&[
             "get_hlo_op_profile",
@@ -105,14 +84,9 @@ fn test_a08_hlo_op_profile_category_drill_down_rubric() {
     );
     assert_eq!(result.at("category").text(), target);
     assert!(
-        [
-            "total_self_time_ms",
-            "fraction_of_total_time",
-            "operations",
-            "navigation_hints"
-        ]
-        .iter()
-        .all(|key| result.has(key))
+        ["total_self_time_ms", "fraction_of_total_time", "operations", "navigation_hints"]
+            .iter()
+            .all(|key| result.has(key))
     );
     let hints = result.at("navigation_hints");
     assert!(
@@ -127,11 +101,8 @@ fn test_a08_hlo_op_profile_category_drill_down_rubric() {
 
 #[test]
 fn test_a09_hlo_op_profile_tree_view_rubric() {
-    let result = query(
-        "a09",
-        "get_hlo_op_profile",
-        &["--view=tree", "--path=by_category", "--depth=2"],
-    );
+    let result =
+        query("a09", "get_hlo_op_profile", &["--view=tree", "--path=by_category", "--depth=2"]);
     assert!(
         ["by_category", "by_program", "root"].contains(&result.at("current_path").text().as_str())
     );

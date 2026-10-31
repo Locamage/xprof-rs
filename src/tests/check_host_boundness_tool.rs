@@ -59,22 +59,12 @@ fn test_insufficient_data_when_zero_duration() {
 #[test]
 fn test_unknown_by_missing_hlo_when_duty_cycle_high() {
     let result = check(
-        &session(
-            HIGH_DUTY.into(),
-            "{}",
-            "{}",
-            utilization(0, [90.0, 10.0, 5.0, 5.0]),
-            &[],
-        ),
+        &session(HIGH_DUTY.into(), "{}", "{}", utilization(0, [90.0, 10.0, 5.0, 5.0]), &[]),
         &[],
     );
     assert_eq!(result.at("status").str(), Some("UNKNOWN"));
     assert_eq!(metric(&result, "tpu_duty_cycle_percent"), 98.3);
-    assert!(
-        result.at("reasons").items()[0]
-            .text()
-            .contains("TPU duty cycle is high")
-    );
+    assert!(result.at("reasons").items()[0].text().contains("TPU duty cycle is high"));
 }
 
 #[test]
@@ -96,15 +86,9 @@ fn test_host_bound_success_all_thresholds_met() {
     assert_eq!(metric(&result, "hbm_bandwidth_utilization_percent"), 2.98);
     assert_eq!(metric(&result, "ici_read_utilization_percent"), 16.88);
     assert_eq!(metric(&result, "scaled_barrier_time_ms"), 500.0);
+    assert!(result.at("reasons").items()[0].text().contains("Workload is host-bound"));
     assert!(
-        result.at("reasons").items()[0]
-            .text()
-            .contains("Workload is host-bound")
-    );
-    assert!(
-        result.at("recommendations").items()[0]
-            .text()
-            .contains("Hardware waste = 4.0 idle chips")
+        result.at("recommendations").items()[0].text().contains("Hardware waste = 4.0 idle chips")
     );
 }
 
@@ -213,13 +197,7 @@ fn test_error_handling_when_overview_empty() {
 
 #[test]
 fn test_bypass_cache_plumbing() {
-    let fake = session(
-        HIGH_DUTY.into(),
-        "{}",
-        "{}",
-        utilization(0, [90.0, 10.0, 5.0, 5.0]),
-        &[],
-    );
+    let fake = session(HIGH_DUTY.into(), "{}", "{}", utilization(0, [90.0, 10.0, 5.0, 5.0]), &[]);
     check(&fake, &[("bypass_cache", J::Bool(true))]);
     let calls = fake.calls.borrow();
     let bypass = ("bypass_cache".to_string(), "True".to_string());
@@ -257,13 +235,7 @@ fn test_func_name_argument_support() {
 #[test]
 fn test_traverse_and_sum_hlo_times_comprehensive() {
     let empty = check(
-        &session(
-            overview("15.0%", "1", "1"),
-            r#"{"byCategory": {}}"#,
-            "{}",
-            String::new(),
-            &[],
-        ),
+        &session(overview("15.0%", "1", "1"), r#"{"byCategory": {}}"#, "{}", String::new(), &[]),
         &[],
     );
     assert_eq!(
@@ -275,10 +247,7 @@ fn test_traverse_and_sum_hlo_times_comprehensive() {
         [0.0; 3]
     );
     let tree = r#"{"byCategory": {"children": [{"name": "all-reduce", "metrics": {"occurrences": 1, "rawTime": 500000000000.0}}, {"name": "copy-start", "metrics": {"occurrences": 1, "rawTime": 300000000000.0}}, {"name": "custom-call", "xla": {"category": "convolution"}, "metrics": {"occurrences": 2, "rawTime": 1200000000000.0}}, {"name": "zero-occurrences-op", "metrics": {"occurrences": 0, "rawTime": 9999000000000.0}}]}}"#;
-    let result = check(
-        &session(overview("15.0%", "1", "1"), tree, "{}", String::new(), &[]),
-        &[],
-    );
+    let result = check(&session(overview("15.0%", "1", "1"), tree, "{}", String::new(), &[]), &[]);
     assert_eq!(metric(&result, "scaled_compute_time_ms"), 1200.0);
     assert_eq!(metric(&result, "scaled_hbm_time_ms"), 300.0);
     assert_eq!(metric(&result, "scaled_ici_time_ms"), 500.0);
@@ -312,16 +281,8 @@ fn test_negative_number_of_steps_stays_negative() {
 
 #[test]
 fn test_utilization_with_none_and_missing_values() {
-    let result = check(
-        &session(
-            overview("15.0%", "0", "0"),
-            MATMUL,
-            "{}",
-            String::new(),
-            &[],
-        ),
-        &[],
-    );
+    let result =
+        check(&session(overview("15.0%", "0", "0"), MATMUL, "{}", String::new(), &[]), &[]);
     assert_eq!(result.at("status").str(), Some("NOT_HOST_BOUND"));
     assert_eq!(result.at("metrics").at("core_count"), &J::Int(1));
 }
@@ -335,33 +296,15 @@ fn test_get_utilization_metrics_short_circuits_on_error() {
     })
     .with_hosts(&[]);
     let result = check(&fake, &[]);
-    assert_eq!(
-        fake.fetched()
-            .iter()
-            .filter(|tool| *tool == "utilization_viewer.json")
-            .count(),
-        1
-    );
+    assert_eq!(fake.fetched().iter().filter(|tool| *tool == "utilization_viewer.json").count(), 1);
     assert_eq!(metric(&result, "mxu_idleness_percent"), 0.0);
 }
 
 #[test]
 fn test_get_utilization_metrics_short_circuits_on_session_no_data() {
-    let fake = session(
-        overview("15.0%", "8", "16"),
-        MATMUL,
-        "{}",
-        String::new(),
-        &[],
-    );
+    let fake = session(overview("15.0%", "8", "16"), MATMUL, "{}", String::new(), &[]);
     let result = check(&fake, &[]);
-    assert_eq!(
-        fake.fetched()
-            .iter()
-            .filter(|tool| *tool == "utilization_viewer.json")
-            .count(),
-        1
-    );
+    assert_eq!(fake.fetched().iter().filter(|tool| *tool == "utilization_viewer.json").count(), 1);
     assert_eq!(metric(&result, "mxu_idleness_percent"), 0.0);
 }
 
@@ -375,13 +318,7 @@ fn test_get_utilization_metrics_falls_back_on_host_filter_miss() {
         &[],
     );
     let result = check(&fake, &[]);
-    assert_eq!(
-        fake.fetched()
-            .iter()
-            .filter(|tool| *tool == "utilization_viewer.json")
-            .count(),
-        2
-    );
+    assert_eq!(fake.fetched().iter().filter(|tool| *tool == "utilization_viewer.json").count(), 2);
     assert_eq!(metric(&result, "mxu_idleness_percent"), 85.0);
     assert_eq!(metric(&result, "hbm_bandwidth_utilization_percent"), 12.0);
 }

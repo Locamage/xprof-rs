@@ -32,13 +32,7 @@ fn generic_breakdowns_sum_event_types_and_pick_the_largest_bottleneck() {
     ]));
     let extra = Extra {
         steps: vec![step(4, &[(1, types)])],
-        cores: BTreeMap::from([(
-            1,
-            Core {
-                hostname: "worker".into(),
-                ..Default::default()
-            },
-        )]),
+        cores: BTreeMap::from([(1, Core { hostname: "worker".into(), ..Default::default() })]),
         device_type: "CPU".into(),
         ..Default::default()
     };
@@ -53,20 +47,11 @@ fn tpu_breakdowns_do_not_unpack_so_every_type_is_zero_and_output_wins_ties() {
         steps: vec![step(
             0,
             &[
-                (
-                    2,
-                    Breakdown::Categories(BTreeMap::from([("IDLE".to_string(), 9)])),
-                ),
+                (2, Breakdown::Categories(BTreeMap::from([("IDLE".to_string(), 9)]))),
                 (5, Breakdown::Categories(BTreeMap::new())),
             ],
         )],
-        cores: BTreeMap::from([(
-            5,
-            Core {
-                hostname: "tpu".into(),
-                ..Default::default()
-            },
-        )]),
+        cores: BTreeMap::from([(5, Core { hostname: "tpu".into(), ..Default::default() })]),
         device_type: "TPU v4".into(),
         ..Default::default()
     };
@@ -77,16 +62,9 @@ fn tpu_breakdowns_do_not_unpack_so_every_type_is_zero_and_output_wins_ties() {
 
 #[test]
 fn missing_steps_warn_like_xprof() {
-    let json = render(&Extra {
-        device_type: "CPU".into(),
-        ..Default::default()
-    });
+    let json = render(&Extra { device_type: "CPU".into(), ..Default::default() });
     assert!(json.starts_with(&format!(r#"{{"podStatsSequence":{{"podStatsMap":[]}},"diagnostics":{{"info":[],"warnings":["{NO_STEP_MARKER}"],"errors":[]}}"#)));
     assert!(
-        render(&Extra {
-            empty_intersect: true,
-            ..Default::default()
-        })
-        .contains(EMPTY_INTERSECT)
+        render(&Extra { empty_intersect: true, ..Default::default() }).contains(EMPTY_INTERSECT)
     );
 }

@@ -101,12 +101,7 @@ fn scan_lines<R: Send>(
     paths: &[PathBuf],
     scan: impl Fn(&Plane, usize, Capture) -> R + Sync,
 ) -> Result<Vec<R>, Error> {
-    scan_until(
-        paths,
-        |plane, index, _, capture| scan(plane, index, capture),
-        |_| 0,
-        usize::MAX,
-    )
+    scan_until(paths, |plane, index, _, capture| scan(plane, index, capture), |_| 0, usize::MAX)
 }
 
 /// The results of `scan` for each line, in the order of the files. The scan stops after `limit` events. `count` gives the number of events in a result.
@@ -186,23 +181,14 @@ fn visit_line(
     // XProf makes the line times relative to the capture start. Other traces keep the clock times.
     let window = capture.map(|(start, stop)| {
         let origin = if timestamp > start / 2 { start } else { 0 };
-        (
-            (origin - timestamp) * 1000,
-            (origin + stop - start - timestamp) * 1000,
-        )
+        ((origin - timestamp) * 1000, (origin + stop - start - timestamp) * 1000)
     });
     events(bytes).all(|event| {
         let cut = window.is_some_and(|(low, high)| {
             (event.offset_ps as i64) < low
                 || event.offset_ps as i64 + event.duration_ps as i64 > high
         });
-        each(&Visit {
-            plane,
-            line: &line,
-            timestamp,
-            event,
-            cut,
-        })
+        each(&Visit { plane, line: &line, timestamp, event, cut })
     })
 }
 
@@ -214,10 +200,7 @@ struct Names<'a> {
 
 impl<'a> Names<'a> {
     fn new(pattern: &'a Pattern) -> Self {
-        Names {
-            pattern,
-            known: FxHashMap::default(),
-        }
+        Names { pattern, known: FxHashMap::default() }
     }
 
     fn resolve(&mut self, visit: &Visit) -> (Cow<'_, str>, bool) {
@@ -243,10 +226,7 @@ fn sources(client: &dyn Client, source: &str) -> Result<Vec<PathBuf>, Error> {
         || TRACE_SUFFIXES.iter().any(|suffix| source.ends_with(suffix))
     {
         if !path.exists() {
-            return fail(
-                Kind::FileNotFound,
-                format!("Path does not exist: {}", py_repr(source)),
-            );
+            return fail(Kind::FileNotFound, format!("Path does not exist: {}", py_repr(source)));
         }
         if path.is_dir() {
             let found = traces(path);
@@ -293,10 +273,8 @@ fn plane_filter(pattern: &Pattern) -> impl Fn(&Plane) -> bool {
 pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let compute = || -> Result<J, Error> {
-        let (planes_re, events_re) = (
-            regex_option(args, "plane_regex")?,
-            regex_option(args, "event_regex")?,
-        );
+        let (planes_re, events_re) =
+            (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
         // Python compares these values only when an event comes to the comparison.
         let number = |name: &str, operator: &str, number_first: bool| match args.raw(name) {
             Some(value @ (J::Bool(_) | J::Int(_) | J::Float(_))) => Ok(value.float()),
@@ -316,27 +294,17 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
             }
         };
         let optional = |name: &str, operator: &str| {
-            if args.get(name).is_some() {
-                number(name, operator, true)
-            } else {
-                Ok(None)
-            }
+            if args.get(name).is_some() { number(name, operator, true) } else { Ok(None) }
         };
         let (start, end) = (optional("start_time_ps", "<"), optional("end_time_ps", ">"));
         let (max_events, offset) = (
             number("max_events", "<=", false).map(|max| max.unwrap_or(100.0)),
             number("offset", "<", true).map(|offset| offset.unwrap_or(0.0)),
         );
-        let (limit, skip) = (
-            *max_events.as_ref().unwrap_or(&0.0),
-            *offset.as_ref().unwrap_or(&0.0),
-        );
+        let (limit, skip) =
+            (*max_events.as_ref().unwrap_or(&0.0), *offset.as_ref().unwrap_or(&0.0));
         let keep = plane_filter(&planes_re);
-        let wanted = if limit <= 0.0 {
-            f64::INFINITY
-        } else {
-            skip.max(0.0).ceil() + limit.ceil()
-        };
+        let wanted = if limit <= 0.0 { f64::INFINITY } else { skip.max(0.0).ceil() + limit.ceil() };
         let failed = AtomicBool::new(false);
         // Each plane keeps the first matches that can be in the answer. The planes join in order.
         let parts = scan_lines(&sources(client, &session)?, |plane, index, _| {
@@ -395,10 +363,7 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
         if let (Err(_), Some(value)) = (&offset, args.raw("offset")) {
             return Err(Error::new(
                 Kind::Type,
-                format!(
-                    "unsupported operand type(s) for +: 'int' and '{}'",
-                    super::kind(value)
-                ),
+                format!("unsupported operand type(s) for +: 'int' and '{}'", super::kind(value)),
             ));
         }
         let returned = listed.len();
@@ -409,10 +374,7 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
     Ok(compute()
         .map_err(|error| {
             rethrow(error, |error| {
-                format!(
-                    "Error listing XPlane events for session {session}: {}",
-                    error.message
-                )
+                format!("Error listing XPlane events for session {session}: {}", error.message)
             })
         })?
         .into())
@@ -421,10 +383,8 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
 pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let compute = || -> Result<J, Error> {
-        let (planes_re, events_re) = (
-            regex_option(args, "plane_regex")?,
-            regex_option(args, "event_regex")?,
-        );
+        let (planes_re, events_re) =
+            (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
         let keep = plane_filter(&planes_re);
         let mut durations = IndexMap::with_hasher(FxBuildHasher);
         let mut scanned = 0usize;
@@ -520,10 +480,7 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
     Ok(compute()
         .map_err(|error| {
             rethrow(error, |error| {
-                format!(
-                    "Error aggregating XPlane events for session {session}: {}",
-                    error.message
-                )
+                format!("Error aggregating XPlane events for session {session}: {}", error.message)
             })
         })?
         .into())
@@ -667,23 +624,20 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         .map(J::text)
         .ok_or_else(|| Error::new(Kind::Value, "Must provide either 'source' or 'session_id'."))?;
     let (kernel, format, summary) = (
-        args.get("kernel_name")
-            .filter(|name| name.truthy())
-            .map(J::text),
+        args.get("kernel_name").filter(|name| name.truthy()).map(J::text),
         args.string("output_format", "json"),
         args.flag("include_summary", false),
     );
-    let matchers: Result<Vec<J>, String> =
-        match args.get("trace_matchers").filter(|value| value.truthy()) {
-            None => Ok(Vec::new()),
-            Some(J::Str(text)) => Ok(text
-                .chars()
-                .map(|character| J::Str(character.into()))
-                .collect()),
-            Some(J::List(items) | J::Tuple(items) | J::Set(items)) => Ok(items.clone()),
-            Some(J::Dict(entries)) => Ok(entries.iter().map(|(key, _)| key.clone()).collect()),
-            Some(value) => Err(format!("'{}' object is not iterable", super::kind(value))),
-        };
+    let matchers: Result<Vec<J>, String> = match args
+        .get("trace_matchers")
+        .filter(|value| value.truthy())
+    {
+        None => Ok(Vec::new()),
+        Some(J::Str(text)) => Ok(text.chars().map(|character| J::Str(character.into())).collect()),
+        Some(J::List(items) | J::Tuple(items) | J::Set(items)) => Ok(items.clone()),
+        Some(J::Dict(entries)) => Ok(entries.iter().map(|(key, _)| key.clone()).collect()),
+        Some(value) => Err(format!("'{}' object is not iterable", super::kind(value))),
+    };
     let compute = || -> Result<Out, Error> {
         // A pattern that Python cannot use is an error at the first event that comes to it. A bad regex finds the pattern as text.
         let patterns: Vec<Result<(Option<Pattern>, &str), String>> = match &matchers {
@@ -701,11 +655,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         };
         let failure = std::sync::OnceLock::new();
         let parts = scan_lines(&sources(client, &source)?, |plane, index, _| {
-            let (mut durations, mut intervals, mut steps) = (
-                IndexMap::<String, Vec<f64>, FxBuildHasher>::default(),
-                Vec::new(),
-                Vec::new(),
-            );
+            let (mut durations, mut intervals, mut steps) =
+                (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
             if !plane.name.starts_with("/device:") {
                 return (durations, intervals, steps);
             }
@@ -715,9 +666,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                     && (patterns.is_empty()
                         || patterns.iter().any(|pattern| match pattern {
                             Ok((compiled, pattern)) => {
-                                compiled
-                                    .as_ref()
-                                    .is_some_and(|compiled| compiled.search(name))
+                                compiled.as_ref().is_some_and(|compiled| compiled.search(name))
                                     || name.contains(pattern)
                             }
                             Err(message) => {
@@ -745,10 +694,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                     return true;
                 }
                 let tf_op = visit.stat("tf_op_name");
-                let cached = tf_op
-                    .is_none()
-                    .then(|| slots.get(&visit.event.meta).copied())
-                    .flatten();
+                let cached =
+                    tf_op.is_none().then(|| slots.get(&visit.event.meta).copied()).flatten();
                 let slot = cached.unwrap_or_else(|| {
                     let by_meta = tf_op.is_none() && !py_isdigit(&visit.raw_name());
                     let name = tf_op.unwrap_or_else(|| visit.name());
@@ -775,11 +722,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         if let Some(message) = failure.into_inner() {
             return Err(Error::new(Kind::Runtime, message));
         }
-        let (mut durations, mut intervals, mut steps) = (
-            IndexMap::<String, Vec<f64>, FxBuildHasher>::default(),
-            Vec::new(),
-            Vec::new(),
-        );
+        let (mut durations, mut intervals, mut steps) =
+            (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
         for (found, spans, times) in parts {
             for (name, values) in found {
                 durations.entry(name).or_default().extend(values);
@@ -790,9 +734,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         if durations.is_empty() {
             let message = format!(
                 "No kernel stats found for session {source}{}",
-                kernel
-                    .as_ref()
-                    .map_or(String::new(), |kernel| format!(" and kernel {kernel}"))
+                kernel.as_ref().map_or(String::new(), |kernel| format!(" and kernel {kernel}"))
             );
             return Ok(match format.as_str() {
                 "dict" if summary => Out::Value(obj! {
@@ -811,13 +753,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         let mut records = Vec::new();
         for (name, values) in durations {
             let total = fsum(values.iter().copied());
-            let canonical = name
-                .trim()
-                .split(':')
-                .next()
-                .unwrap_or_default()
-                .split_whitespace()
-                .next();
+            let canonical =
+                name.trim().split(':').next().unwrap_or_default().split_whitespace().next();
             let canonical = if name.is_empty() {
                 String::new()
             } else {
@@ -868,11 +805,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                 "step_durations_us" => steps.clone(),
                 "stats" => obj! {"mean_us" => round(mean, 4), "std_us" => round(if steps.len() > 1 { stdev(&steps) } else { 0.0 }, 4)},
             };
-            return Ok(if format == "dict" {
-                Out::Value(report)
-            } else {
-                report.into()
-            });
+            return Ok(if format == "dict" { Out::Value(report) } else { report.into() });
         }
         Ok(match format.as_str() {
             "dict" => Out::Value(J::List(records)),
@@ -881,9 +814,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         })
     };
     compute().map_err(|error| {
-        rethrow(error, |error| {
-            format!("Failed to get kernel stats: {}", error.message)
-        })
+        rethrow(error, |error| format!("Failed to get kernel stats: {}", error.message))
     })
 }
 
@@ -957,9 +888,7 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
         })
     };
     compute().map_err(|error| {
-        rethrow(error, |error| {
-            format!("Failed to get average step time: {}", error.message)
-        })
+        rethrow(error, |error| format!("Failed to get average step time: {}", error.message))
     })
 }
 
@@ -985,29 +914,17 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
         .filter(|name| name.truthy())
         .map_or(Ok(None), |name| super::packed("kernel", name));
     params.extend(kernel.clone().ok().flatten().map(|name| ("kernel", name)));
-    params.extend(
-        args.get("duration_us")
-            .map(|value| ("duration_us", value.text())),
-    );
-    params.extend(
-        args.flag("force_duration", false)
-            .then(|| ("force_duration", "True".to_string())),
-    );
+    params.extend(args.get("duration_us").map(|value| ("duration_us", value.text())));
+    params
+        .extend(args.flag("force_duration", false).then(|| ("force_duration", "True".to_string())));
     params.extend(args.get("device").map(|value| ("device_id", value.text())));
     params.push(bypass(args.flag("bypass_cache", false)));
     let text = if session.starts_with('/') || session.starts_with("./") {
         let path = Path::new(&session);
         if !path.exists() {
-            return fail(
-                Kind::FileNotFound,
-                format!("Path does not exist: {}", py_repr(&session)),
-            );
+            return fail(Kind::FileNotFound, format!("Path does not exist: {}", py_repr(&session)));
         }
-        let files = if path.is_dir() {
-            traces(path)
-        } else {
-            vec![path.to_path_buf()]
-        };
+        let files = if path.is_dir() { traces(path) } else { vec![path.to_path_buf()] };
         if files.is_empty() {
             return fail(
                 Kind::FileNotFound,
@@ -1020,10 +937,7 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
         files.iter().try_for_each(|file| super::openable(file))?;
         kernel?;
         let option = |key: &str| {
-            params
-                .iter()
-                .find(|(name, _)| *name == key)
-                .map(|(_, value)| value.as_str())
+            params.iter().find(|(name, _)| *name == key).map(|(_, value)| value.as_str())
         };
         let rendered = <[PathBuf; 1]>::try_from(files).ok().and_then(|[file]| {
             let map = crate::read_file(&file).ok()?;
@@ -1063,10 +977,7 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
         fetched.ok_or_else(|| {
             Error::new(
                 Kind::FileNotFound,
-                format!(
-                    "No utilization data returned for session {}.",
-                    py_repr(&session)
-                ),
+                format!("No utilization data returned for session {}.", py_repr(&session)),
             )
         })?
     };
@@ -1082,9 +993,7 @@ fn llo(client: &dyn Client, args: &Args, failure: &str) -> Result<Out, Error> {
     let session = args.session();
     let path_like = Path::new(&session).exists()
         || session.starts_with(['/', '.', '\\'])
-        || TRACE_SUFFIXES
-            .iter()
-            .any(|suffix| session.ends_with(suffix));
+        || TRACE_SUFFIXES.iter().any(|suffix| session.ends_with(suffix));
     let compute = || -> Result<(), Error> {
         if path_like {
             return Ok(());
@@ -1097,11 +1006,7 @@ fn llo(client: &dyn Client, args: &Args, failure: &str) -> Result<Out, Error> {
                     Kind::Value,
                     format!(
                         "Invalid host: '{host}'. Available hosts: [{}]",
-                        hosts
-                            .iter()
-                            .map(|host| py_repr(host))
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                        hosts.iter().map(|host| py_repr(host)).collect::<Vec<_>>().join(", ")
                     ),
                 );
             }
@@ -1110,9 +1015,7 @@ fn llo(client: &dyn Client, args: &Args, failure: &str) -> Result<Out, Error> {
         serialized(client, &session, &host).map(drop)
     };
     compute().map_err(|error| {
-        rethrow(error, |error| {
-            format!("Error analyzing LLO data: {}", error.message)
-        })
+        rethrow(error, |error| format!("Error analyzing LLO data: {}", error.message))
     })?;
     Ok(obj! {"status" => "UNAVAILABLE", "reason" => "LLO_DATA_ABSENT", "error" => failure, "remediation" => LLO_REMEDIATION}.into())
 }
@@ -1144,9 +1047,7 @@ fn resolve(path: &Path) -> PathBuf {
         rest.push(name.to_os_string());
         existing = parent;
     }
-    let mut resolved = existing
-        .canonicalize()
-        .unwrap_or_else(|_| existing.to_path_buf());
+    let mut resolved = existing.canonicalize().unwrap_or_else(|_| existing.to_path_buf());
     for name in rest.into_iter().rev() {
         if name == ".." {
             resolved.pop();
@@ -1164,16 +1065,9 @@ pub fn upload_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let file = args.string("file_path", "");
     let source = Path::new(&file);
     if !source.exists() {
-        return fail(
-            Kind::FileNotFound,
-            format!("Source trace file '{file}' does not exist."),
-        );
+        return fail(Kind::FileNotFound, format!("Source trace file '{file}' does not exist."));
     }
-    let name = source
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
+    let name = source.file_name().unwrap_or_default().to_string_lossy().into_owned();
     if !TRACE_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) {
         return fail(
             Kind::Value,
@@ -1214,11 +1108,7 @@ pub fn upload_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     };
     std::fs::create_dir_all(&destination).map_err(io)?;
     let target = destination.join(&name);
-    let identity = |path: &Path| {
-        std::fs::metadata(path)
-            .ok()
-            .map(|meta| (meta.dev(), meta.ino()))
-    };
+    let identity = |path: &Path| std::fs::metadata(path).ok().map(|meta| (meta.dev(), meta.ino()));
     if identity(source).is_some_and(|source| identity(&target) == Some(source)) {
         return fail(
             Kind::Os,

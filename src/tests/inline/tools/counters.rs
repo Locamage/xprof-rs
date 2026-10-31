@@ -12,12 +12,8 @@ fn stat(id: u64, value: Vec<u8>) -> Vec<u8> {
 }
 
 fn event(meta: u64, offset: u64, duration: u64, stats: &[Vec<u8>]) -> Vec<u8> {
-    let mut body = [
-        number_field(1, meta),
-        number_field(2, offset),
-        number_field(3, duration),
-    ]
-    .concat();
+    let mut body =
+        [number_field(1, meta), number_field(2, offset), number_field(3, duration)].concat();
     for item in stats {
         body.extend(bytes_field(4, item));
     }
@@ -27,12 +23,7 @@ fn event(meta: u64, offset: u64, duration: u64, stats: &[Vec<u8>]) -> Vec<u8> {
 fn line_bytes(id: u64, name: &str, events: &[Vec<u8>]) -> Vec<u8> {
     bytes_field(
         3,
-        &[
-            number_field(1, id),
-            bytes_field(2, name.as_bytes()),
-            events.concat(),
-        ]
-        .concat(),
+        &[number_field(1, id), bytes_field(2, name.as_bytes()), events.concat()].concat(),
     )
 }
 
@@ -48,29 +39,16 @@ fn space(group: bool) -> Vec<u8> {
         "group_id",
     ];
     let mut plane = bytes_field(2, b"/device:TPU:0");
-    for (index, name) in stat_names
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| group || *index != 7)
-    {
+    for (index, name) in stat_names.iter().enumerate().filter(|(index, _)| group || *index != 7) {
         plane.extend(entry(5, index as u64 + 1, name));
     }
-    for (id, name) in [
-        (10, "VF_Cycles"),
-        (11, "Busy"),
-        (20, "fusion.1"),
-        (21, "fusion.0"),
-    ] {
+    for (id, name) in [(10, "VF_Cycles"), (11, "Busy"), (20, "fusion.1"), (21, "fusion.0")] {
         plane.extend(entry(4, id, name));
     }
     plane.extend(bytes_field(6, &stat(1, number_field(4, 0))));
     plane.extend(bytes_field(6, &stat(2, bytes_field(5, b"TPU v6 Lite"))));
     plane.extend(bytes_field(6, &stat(6, number_field(3, 3))));
-    plane.extend(line_bytes(
-        7,
-        "XLA Ops",
-        &[event(20, 5, 10, &[]), event(21, 1, 3, &[])],
-    ));
+    plane.extend(line_bytes(7, "XLA Ops", &[event(20, 5, 10, &[]), event(21, 1, 3, &[])]));
     let counters = [
         event(
             10,
@@ -83,15 +61,7 @@ fn space(group: bool) -> Vec<u8> {
                 stat(5, bytes_field(5, b"set\"a")),
             ],
         ),
-        event(
-            11,
-            0,
-            0,
-            &[
-                stat(7, number_field(3, V6E_IDS[BUSY])),
-                stat(3, number_field(3, 500)),
-            ],
-        ),
+        event(11, 0, 0, &[stat(7, number_field(3, V6E_IDS[BUSY])), stat(3, number_field(3, 500))]),
     ];
     plane.extend(line_bytes(11, "counters_0", &counters));
     let mut out = bytes_field(1, &plane);
@@ -183,10 +153,7 @@ fn kernel_helpers() {
         kernel["mxu_cycles_breakdown"],
         json!({"BF16": 75.0, "FP8": 0.0, "Int4": 0.0, "Int8": 25.0})
     );
-    assert_eq!(
-        kernel["other_metrics"],
-        json!({"HBM Bandwidth Utilization": 12.5})
-    );
+    assert_eq!(kernel["other_metrics"], json!({"HBM Bandwidth Utilization": 12.5}));
 }
 
 #[test]
@@ -205,9 +172,7 @@ fn chunks_of_a_truncated_line() {
     let mut line = [0x08, 0x00].repeat(FIELDS_PER_CHUNK - 1);
     line.extend([0x09, 0x01, 0x02]);
     assert_eq!(chunks(&line).concat(), line);
-    let long = [
-        0x0a, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01,
-    ];
+    let long = [0x0a, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
     assert_eq!(chunks(&long).concat(), long);
 }
 

@@ -18,10 +18,7 @@ fn kpi_fake(memory: Result<Option<&'static str>, Error>) -> Fake {
 #[test]
 fn test_get_kpi_metrics_success() {
     let memory = r#"[{"memoryProfilePerAllocator": {"default": {"profileSummary": {"memoryCapacity": "34359738368", "peakStats": {"peakBytesInUse": "13421772800"}}}}}]"#;
-    let result = json(get_kpi_metrics(
-        &kpi_fake(Ok(Some(memory))),
-        &args("test_session", &[]),
-    ));
+    let result = json(get_kpi_metrics(&kpi_fake(Ok(Some(memory))), &args("test_session", &[])));
     let expected = parse(
         r#"{"step_time_ms": "10.5", "duty_cycle_percent": "95.0", "mxu_utilization_percent": "80.0", "roofline_utilization": "45.0", "peak_hbm_gib": 12.5, "accelerator_info": {"device_type": "TPU", "device_core_count": "8"}}"#,
     );

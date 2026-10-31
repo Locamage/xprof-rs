@@ -43,20 +43,13 @@ fn to_string(module: &Module, name: &str) -> String {
 
 fn fixture(name: &str) -> Module<'static> {
     Module::parse(Cow::Owned(
-        std::fs::read(format!(
-            "{}/tests/data/hlo_printing/{name}.pb",
-            env!("CARGO_MANIFEST_DIR")
-        ))
-        .unwrap(),
+        std::fs::read(format!("{}/tests/data/hlo_printing/{name}.pb", env!("CARGO_MANIFEST_DIR")))
+            .unwrap(),
     ))
 }
 
 fn convolution(operands: &str, sparsity_config: &str) -> Module<'static> {
-    module(&hlo_proto(
-        &CONVOLUTION
-            .replacen("%s", operands, 1)
-            .replacen("%s", sparsity_config, 1),
-    ))
+    module(&hlo_proto(&CONVOLUTION.replacen("%s", operands, 1).replacen("%s", sparsity_config, 1)))
 }
 
 #[test]
@@ -93,15 +86,9 @@ fn block_scaling_config_to_string() {
             steps: steps.to_vec(),
         })
     };
+    assert_eq!(block_scaling_config_text(&BlockScalingConfig::default()), "");
     assert_eq!(
-        block_scaling_config_text(&BlockScalingConfig::default()),
-        ""
-    );
-    assert_eq!(
-        block_scaling_config_text(&BlockScalingConfig {
-            lhs: side(2, None, &[], &[]),
-            rhs: None
-        }),
+        block_scaling_config_text(&BlockScalingConfig { lhs: side(2, None, &[], &[]), rhs: None }),
         "lhs={scale_idx=2}"
     );
     assert_eq!(

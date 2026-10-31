@@ -9,47 +9,29 @@ fn fixtures() -> PathBuf {
 }
 
 fn view(options: &[(&str, &str)]) -> Result<String, String> {
-    let params: HashMap<String, String> = options
-        .iter()
-        .map(|&(key, value)| (key.to_string(), value.to_string()))
-        .collect();
+    let params: HashMap<String, String> =
+        options.iter().map(|&(key, value)| (key.to_string(), value.to_string())).collect();
     serve(&fixtures(), &params).map(|(body, _)| String::from_utf8(body).unwrap())
 }
 
 #[test]
 fn graph_type() {
-    let defaults = [
-        ("module_name", "fused_while"),
-        ("type", "graph"),
-        ("node_name", "fusion"),
-    ];
+    let defaults = [("module_name", "fused_while"), ("type", "graph"), ("node_name", "fusion")];
     assert_eq!(
         view(&defaults),
         Err("Can't render as URL; no URL renderer was registered.".to_string())
     );
     let html = [&defaults[..], &[("format", "html")]].concat();
     let params1 = view(&html).unwrap();
-    let explicit = [
-        &html[..],
-        &[
-            ("graph_width", "3"),
-            ("show_metadata", "false"),
-            ("merge_fusion", "false"),
-        ],
-    ]
-    .concat();
+    let explicit =
+        [&html[..], &[("graph_width", "3"), ("show_metadata", "false"), ("merge_fusion", "false")]]
+            .concat();
     assert_eq!(view(&explicit).unwrap(), params1);
     assert!(params1.contains("Fused expression for <b>fusion</b>"));
     assert!(!params1.contains("op_type: Mul"));
-    let options2 = [
-        &html[..],
-        &[
-            ("graph_width", "10"),
-            ("show_metadata", "true"),
-            ("merge_fusion", "true"),
-        ],
-    ]
-    .concat();
+    let options2 =
+        [&html[..], &[("graph_width", "10"), ("show_metadata", "true"), ("merge_fusion", "true")]]
+            .concat();
     let params2 = view(&options2).unwrap();
     assert!(params2.contains("op_type: Mul"));
     assert!(!params2.contains("Fused expression for <b>fusion</b>"));
@@ -72,12 +54,9 @@ fn short_txt_type() {
     let params1 = view(&[("module_name", "fused_while"), ("type", "short_txt")]).unwrap();
     assert!(params1.contains("  mul = f32[4]{0} multiply(p0, p1)\n"));
     assert!(!params1.contains("metadata="));
-    let params2 = view(&[
-        ("module_name", "fused_while"),
-        ("type", "short_txt"),
-        ("show_metadata", "true"),
-    ])
-    .unwrap();
+    let params2 =
+        view(&[("module_name", "fused_while"), ("type", "short_txt"), ("show_metadata", "true")])
+            .unwrap();
     assert!(params2.contains("  mul = f32[4]{0} multiply(p0, p1)\n"));
     assert!(params2.contains("metadata={op_type=\"Mul\" op_name=\"jit(f)/while/body/mul\" source_file=\"f.py\" source_line=7}"));
 }
@@ -87,12 +66,9 @@ fn long_txt_type() {
     let params1 = view(&[("module_name", "fused_while"), ("type", "long_txt")]).unwrap();
     assert!(params1.contains("  %mul = f32[4]{0} multiply(%p0, %p1)\n"));
     assert!(!params1.contains("metadata="));
-    let params2 = view(&[
-        ("module_name", "fused_while"),
-        ("type", "long_txt"),
-        ("show_metadata", "true"),
-    ])
-    .unwrap();
+    let params2 =
+        view(&[("module_name", "fused_while"), ("type", "long_txt"), ("show_metadata", "true")])
+            .unwrap();
     assert!(params2.contains("  %mul = f32[4]{0} multiply(%p0, %p1)\n"));
     assert!(params2.contains("metadata={op_type=\"Mul\" op_name=\"jit(f)/while/body/mul\" source_file=\"f.py\" source_line=7}"));
 }
@@ -100,12 +76,8 @@ fn long_txt_type() {
 #[test]
 fn adj_nodes_type() {
     assert_eq!(
-        view(&[
-            ("module_name", "fused_while"),
-            ("type", "adj_nodes"),
-            ("node_name", "fusion")
-        ])
-        .unwrap(),
+        view(&[("module_name", "fused_while"), ("type", "adj_nodes"), ("node_name", "fusion")])
+            .unwrap(),
         r#"{"consumer_names":["t"],"operand_names":["x","x"]}"#
     );
 }
@@ -139,19 +111,12 @@ fn graph_viewer_matches_xprof_on_synthetic_modules() {
             .iter()
             .map(|(key, value)| (key.as_str(), value.as_str().unwrap()))
             .collect();
-        let expected = case["body"]
-            .as_str()
-            .unwrap()
-            .replace("{dir}", &dir.display().to_string());
+        let expected = case["body"].as_str().unwrap().replace("{dir}", &dir.display().to_string());
         let actual = match view(&options) {
             Ok(body) => (200, body),
             Err(message) => (500, message),
         };
-        assert_eq!(
-            actual,
-            (case["status"].as_u64().unwrap(), expected),
-            "{options:?}"
-        );
+        assert_eq!(actual, (case["status"].as_u64().unwrap(), expected), "{options:?}");
     }
     let params = HashMap::from([
         ("module_name".to_string(), "ops".to_string()),

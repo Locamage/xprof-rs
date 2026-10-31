@@ -43,10 +43,7 @@ fn kernel_details_x_stat_parser() {
     );
     let (mut kernel, mut occupancy) = (KernelKey::default(), 0.0);
     launch_params(&details, &mut kernel, &mut occupancy);
-    assert_eq!(
-        (kernel.registers, kernel.static_shmem, kernel.dynamic_shmem),
-        (10, 128, 256)
-    );
+    assert_eq!((kernel.registers, kernel.static_shmem, kernel.dynamic_shmem), (10, 128, 256));
     assert_eq!(kernel.block, [32, 8, 4]);
     assert_eq!(kernel.grid, [3, 2, 1]);
 }
@@ -61,11 +58,7 @@ fn kernel_details_tokenizer() {
     launch_params("block:1,2,3 odd grid:4,5,6", &mut kernel, &mut occupancy);
     assert_eq!(kernel.block, [1, 2, 3]);
     assert_eq!(kernel.grid, [4, 5, 6]);
-    launch_params(
-        "static_shared:7 dynamic_shared:8",
-        &mut kernel,
-        &mut occupancy,
-    );
+    launch_params("static_shared:7 dynamic_shared:8", &mut kernel, &mut occupancy);
     assert_eq!((kernel.static_shmem, kernel.dynamic_shmem), (7, 8));
 }
 
@@ -87,25 +80,14 @@ fn test_insert_or_update_kernel_report() {
         ..Default::default()
     };
     let fields = |reports: Vec<KernelReport>| {
-        (
-            reports[0].total_ns,
-            reports[0].min_ns,
-            reports[0].max_ns,
-            reports[0].occurrences,
-        )
+        (reports[0].total_ns, reports[0].min_ns, reports[0].max_ns, reports[0].occurrences)
     };
     assert_eq!(
-        fields(top_kernels([
-            value(1700, 500, 1200, 2),
-            value(900, 900, 900, 1)
-        ])),
+        fields(top_kernels([value(1700, 500, 1200, 2), value(900, 900, 900, 1)])),
         (2600, 500, 1200, 3)
     );
     assert_eq!(
-        fields(top_kernels([
-            value(900, 900, 900, 1),
-            value(1700, 500, 1200, 2)
-        ])),
+        fields(top_kernels([value(900, 900, 900, 1), value(1700, 500, 1200, 2)])),
         (2600, 500, 1200, 3)
     );
 }

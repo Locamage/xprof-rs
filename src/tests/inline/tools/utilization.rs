@@ -62,13 +62,7 @@ fn v7x_tensor_core_uses_power_manager_cycles_per_die() {
     tensor_core(&values, Device::V7x, 1, &mut metrics);
     assert_eq!(
         metrics[0],
-        Metric {
-            node: 1,
-            name: "Clocks Skipped".into(),
-            achieved: 4.0,
-            peak: 400.0,
-            unit: CYCLES
-        }
+        Metric { node: 1, name: "Clocks Skipped".into(), achieved: 4.0, peak: 400.0, unit: CYCLES }
     );
     assert_eq!(find(&metrics, "MXU E4M3 + E5M2").achieved, 40.0);
     assert_eq!(find(&metrics, "XLU1").peak, 400.0);
@@ -123,10 +117,7 @@ fn sparse_core_metrics() {
         (tile(0, "CYCLES"), 10),
         (tile(3, "VEX_INSTRUCTION"), 4),
         (tile(15, "VEX_INSTRUCTION"), 5),
-        (
-            Device::V6e.id(&format!("VF_CHIP_SC_1_SCS{SC_SUFFIX}CYCLES")),
-            9,
-        ),
+        (Device::V6e.id(&format!("VF_CHIP_SC_1_SCS{SC_SUFFIX}CYCLES")), 9),
     ]);
     let mut metrics = Vec::new();
     sparse_core(&values, Device::V6e, 0, 1, &mut metrics);
@@ -142,9 +133,7 @@ fn sparse_core_metrics() {
         }
     );
     assert_eq!(find(&metrics, "SCS: Smisc Slot").peak, 9.0);
-    let sct = Device::V7x.id(&format!(
-        "VF_CHIP_DIE1_SC_0_SCTC_2{SC_SUFFIX}V1_INSTRUCTION"
-    ));
+    let sct = Device::V7x.id(&format!("VF_CHIP_DIE1_SC_0_SCTC_2{SC_SUFFIX}V1_INSTRUCTION"));
     let mut v7 = Vec::new();
     sparse_core(&counters(&[(sct, 6)]), Device::V7x, 1, 0, &mut v7);
     assert_eq!(

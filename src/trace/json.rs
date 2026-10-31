@@ -35,13 +35,7 @@ pub struct View<'a> {
 }
 
 /// The plane, the map, the stack frames, the keys of the frames, and whether the frame of the event has marks.
-type Extra<'a> = (
-    &'a Plane,
-    &'a [u8],
-    &'a mut Vec<String>,
-    Option<&'a [u64]>,
-    bool,
-);
+type Extra<'a> = (&'a Plane, &'a [u8], &'a mut Vec<String>, Option<&'a [u64]>, bool);
 
 /// The arguments in a trace response. A search takes its stack frames from the table of the full trace; one event has its own table.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -89,18 +83,13 @@ pub fn micros(out: &mut String, ps: u64) {
         return out.push_str(&crate::hlo::general(value, 17));
     }
     let bits = value.to_bits();
-    let (mantissa, shift) = (
-        u128::from(bits & ((1 << 52) - 1) | 1 << 52),
-        1075 - (bits >> 52) as u32,
-    );
+    let (mantissa, shift) =
+        (u128::from(bits & ((1 << 52) - 1) | 1 << 52), 1075 - (bits >> 52) as u32);
     let mut exponent = ps.ilog10() as i32 - 6;
     let digits = loop {
         let scaled = mantissa * POWERS[(16 - exponent) as usize];
-        let (mut digits, rest, half) = (
-            scaled >> shift,
-            scaled & ((1 << shift) - 1),
-            1u128 << (shift - 1),
-        );
+        let (mut digits, rest, half) =
+            (scaled >> shift, scaled & ((1 << shift) - 1), 1u128 << (shift - 1));
         digits += u128::from(rest > half || rest == half && digits & 1 == 1);
         match digits {
             ..10_000_000_000_000_000 => exponent -= 1,
@@ -110,11 +99,8 @@ pub fn micros(out: &mut String, ps: u64) {
     };
     let mut buffer = itoa::Buffer::new();
     let text = buffer.format(digits);
-    let (whole, fraction) = if exponent < 0 {
-        ("0", text)
-    } else {
-        text.split_at(exponent as usize + 1)
-    };
+    let (whole, fraction) =
+        if exponent < 0 { ("0", text) } else { text.split_at(exponent as usize + 1) };
     out.push_str(whole);
     let fraction = fraction.trim_end_matches('0');
     if !fraction.is_empty() {
@@ -138,11 +124,8 @@ pub fn double(value: f64) -> String {
 
 fn long_text(text: Cow<'_, str>) -> Cow<'_, str> {
     if text.len() > LONG_NAME_LIMIT {
-        format!(
-            "{}...<truncated>",
-            String::from_utf8_lossy(&text.as_bytes()[..LONG_NAME_LIMIT])
-        )
-        .into()
+        format!("{}...<truncated>", String::from_utf8_lossy(&text.as_bytes()[..LONG_NAME_LIMIT]))
+            .into()
     } else {
         text
     }
@@ -163,27 +146,19 @@ fn fingerprint(text: &str) -> u64 {
         &first[..2 + head.len()]
     } else {
         let (words, tail) = rest.as_chunks::<8>();
-        hash = words
-            .iter()
-            .fold(mix(hash, first), |hash, &word| mix(hash, word));
+        hash = words.iter().fold(mix(hash, first), |hash, &word| mix(hash, word));
         tail
     };
     if !tail.is_empty() {
-        hash = (hash
-            ^ tail
-                .iter()
-                .rev()
-                .fold(0u64, |acc, &byte| acc << 8 | u64::from(byte)))
-        .wrapping_mul(HASH_MUL);
+        hash = (hash ^ tail.iter().rev().fold(0u64, |acc, &byte| acc << 8 | u64::from(byte)))
+            .wrapping_mul(HASH_MUL);
     }
     shift(shift(hash).wrapping_mul(HASH_MUL))
 }
 
 fn put(texts: &mut FxHashMap<u64, String>, text: Cow<str>) {
     if text.len() > INTERN_THRESHOLD {
-        texts
-            .entry(fingerprint(&text))
-            .or_insert_with(|| text.into_owned());
+        texts.entry(fingerprint(&text)).or_insert_with(|| text.into_owned());
     }
 }
 
@@ -194,10 +169,7 @@ fn frame_texts<'a>(
     field: u32,
 ) -> impl Iterator<Item = Cow<'a, str>> {
     let named = |id: usize| {
-        plane
-            .stat_names
-            .get(id)
-            .is_some_and(|name| matches!(&**name, "long_name" | "hlo_text"))
+        plane.stat_names.get(id).is_some_and(|name| matches!(&**name, "long_name" | "hlo_text"))
     };
     stats(raw, field, |_| true)
         .filter(move |stat| matches!(stat.value, Value::Str(_) | Value::Ref(_)) && named(stat.id))
@@ -212,24 +184,20 @@ fn add_texts(
     long_names: &HashMap<u32, Box<str>>,
 ) {
     let framed = |plane: &Plane| {
-        plane
-            .stat_names
-            .iter()
-            .any(|name| matches!(&**name, "long_name" | "hlo_text"))
+        plane.stat_names.iter().any(|name| matches!(&**name, "long_name" | "hlo_text"))
     };
     let used: Vec<Vec<AtomicBool>> = planes
         .iter()
         .map(|plane| plane.meta.iter().map(|_| AtomicBool::new(false)).collect())
         .collect();
-    events
-        .par_iter()
-        .filter(|event| event.meta != DERIVED_META && event.ts != u64::MAX)
-        .for_each(|event| {
+    events.par_iter().filter(|event| event.meta != DERIVED_META && event.ts != u64::MAX).for_each(
+        |event| {
             let flag = &used[event.plane as usize][event.meta as usize];
             if !flag.load(Relaxed) {
                 flag.store(true, Relaxed);
             }
-        });
+        },
+    );
     for long in long_names.values() {
         put(texts, long_text(Cow::Borrowed(long)));
     }
@@ -277,14 +245,7 @@ fn add_texts(
 }
 
 fn table<'a>(
-    sources: impl IntoIterator<
-        Item = (
-            &'a [Plane],
-            &'a [u8],
-            &'a [Event],
-            &'a HashMap<u32, Box<str>>,
-        ),
-    >,
+    sources: impl IntoIterator<Item = (&'a [Plane], &'a [u8], &'a [Event], &'a HashMap<u32, Box<str>>)>,
 ) -> Vec<String> {
     let mut texts = FxHashMap::default();
     for (planes, map, events, long_names) in sources {
@@ -299,23 +260,14 @@ fn frames_json(frames: &[String]) -> Vec<String> {
     let chunk = |(chunk, frames): (usize, &[String])| {
         let mut out = String::new();
         for (index, frame) in (chunk * FRAME_CHUNK..).zip(frames) {
-            write!(
-                out,
-                "{}\"{}\":{{\"name\":",
-                if index > 0 { "," } else { "" },
-                index + 1
-            )
-            .expect("writing to a string cannot fail");
+            write!(out, "{}\"{}\":{{\"name\":", if index > 0 { "," } else { "" }, index + 1)
+                .expect("writing to a string cannot fail");
             push_quoted(&mut out, frame);
             out.push('}');
         }
         out
     };
-    frames
-        .par_chunks(FRAME_CHUNK)
-        .enumerate()
-        .map(chunk)
-        .collect()
+    frames.par_chunks(FRAME_CHUNK).enumerate().map(chunk).collect()
 }
 
 fn stat_double(name: &str, v: f64) -> String {
@@ -333,10 +285,7 @@ pub fn stack_frames(
     long_names: &HashMap<u32, Box<str>>,
 ) -> (String, Vec<u64>) {
     let texts = table([(planes, map, events, long_names)]);
-    (
-        frames_json(&texts).concat(),
-        texts.iter().map(|text| fingerprint(text)).collect(),
-    )
+    (frames_json(&texts).concat(), texts.iter().map(|text| fingerprint(text)).collect())
 }
 
 fn full_args(
@@ -363,11 +312,7 @@ fn full_args(
     };
     if event.meta == DERIVED_META {
         if let Some(long) = trace.long_names.get(&event.name) {
-            text_arg(
-                &mut args,
-                "long_name",
-                long_text(Cow::Borrowed(long)).into_owned(),
-            );
+            text_arg(&mut args, "long_name", long_text(Cow::Borrowed(long)).into_owned());
         }
         if event.raw.0 == u32::MAX {
             args.extend(trace.args[event.raw.1 as usize].iter().cloned());
@@ -376,11 +321,7 @@ fn full_args(
     }
     let meta = &plane.meta[event.meta as usize];
     if !meta.display.is_empty() {
-        text_arg(
-            &mut args,
-            "long_name",
-            long_text(meta.long_name(map)).into_owned(),
-        );
+        text_arg(&mut args, "long_name", long_text(meta.long_name(map)).into_owned());
     }
     let step = trace.steps.get(&event.raw);
     let mut used = Vec::new();
@@ -460,11 +401,7 @@ pub fn ordered(views: &[View]) -> Vec<(u32, u32)> {
             (
                 view.trace.device(event),
                 !event.unbound,
-                if event.unbound {
-                    &*view.trace.names[event.name as usize]
-                } else {
-                    ""
-                },
+                if event.unbound { &*view.trace.names[event.name as usize] } else { "" },
                 view.trace.resource(event),
             )
         });
@@ -522,10 +459,7 @@ pub fn write_event(
 ) {
     let (entry, category) = (
         forced_entry.unwrap_or(event.flow_entry()),
-        CONTEXT_TYPES
-            .split('|')
-            .nth(event.flow_cat() as usize)
-            .unwrap_or(""),
+        CONTEXT_TYPES.split('|').nth(event.flow_cat() as usize).unwrap_or(""),
     );
     out.push_str("{\"pid\":");
     number(out, pid as u64);
@@ -536,25 +470,14 @@ pub fn write_event(
     out.push_str(",\"name\":");
     push_quoted(out, &trace.names[event.name as usize]);
     out.push_str(",\"ts\":");
-    micros(
-        out,
-        if forced_entry.is_some() {
-            event.ts + event.dur
-        } else {
-            event.ts
-        },
-    );
+    micros(out, if forced_entry.is_some() { event.ts + event.dur } else { event.ts });
     if event.unbound {
         out.push_str(",\"id\":");
         number(out, trace.flow_ids[event.flow as usize]);
         write!(
             out,
             ",\"cat\":\"{category}\",\"ph\":\"{}\"",
-            if matches!(entry, FLOW_START | FLOW_MID) {
-                "b"
-            } else {
-                "e"
-            }
+            if matches!(entry, FLOW_START | FLOW_MID) { "b" } else { "e" }
         )
         .expect("writing to a string cannot fail");
     } else {
@@ -583,12 +506,10 @@ pub fn write_event(
             write!(out, "\"group_id\":{}", event.group).expect("writing to a string cannot fail");
         }
         match extra.filter(|_| forced_entry.is_none()) {
-            None if forced_entry.is_none() => write!(
-                out,
-                "{}\"uid\":{serial}",
-                if out.len() > start { "," } else { "" }
-            )
-            .expect("writing to a string cannot fail"),
+            None if forced_entry.is_none() => {
+                write!(out, "{}\"uid\":{serial}", if out.len() > start { "," } else { "" })
+                    .expect("writing to a string cannot fail");
+            }
             None => {}
             Some((plane, map, frames, keys, marked)) => {
                 let (args, stack) = full_args(trace, plane, event, map, frames, keys);
@@ -602,11 +523,7 @@ pub fn write_event(
         out.push('}');
     }
     if let Some((frame, marked)) = frame {
-        let (open, close) = if marked {
-            (FRAME_OPEN, FRAME_CLOSE)
-        } else {
-            ("", "")
-        };
+        let (open, close) = if marked { (FRAME_OPEN, FRAME_CLOSE) } else { ("", "") };
         write!(out, ",\"sf\":{open}{frame}{close}").expect("writing to a string cannot fail");
     }
     if serial > 0 {
@@ -624,23 +541,13 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
     let (detail, fresh) = (args != Args::Brief, args == Args::Event);
     let total: usize = views.iter().map(|view| view.events.len()).sum();
     let (min_ps, max_ps) = (
-        views
-            .iter()
-            .map(|view| view.trace.min_ps)
-            .min()
-            .unwrap_or(0),
-        views
-            .iter()
-            .map(|view| view.trace.max_ps)
-            .max()
-            .unwrap_or(0),
+        views.iter().map(|view| view.trace.min_ps).min().unwrap_or(0),
+        views.iter().map(|view| view.trace.max_ps).max().unwrap_or(0),
     );
     let seconds = |ps: u64| {
         format!(
             "{}",
-            format!("{:.5e}", ps as f64 / 1e9)
-                .parse::<f64>()
-                .expect("value has valid syntax")
+            format!("{:.5e}", ps as f64 / 1e9).parse::<f64>().expect("value has valid syntax")
         )
     };
     let mut out = String::with_capacity(total * 140 + 4096);
@@ -674,55 +581,38 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
     }
     let ordered = ordered(views);
     let reused = views.len() == 1 && !fresh;
-    let mut frames = if fresh || reused {
-        Vec::new()
-    } else {
-        table(views.iter().map(|view| {
-            (
-                view.planes,
-                view.map,
-                &view.trace.events[..],
-                &view.trace.long_names,
-            )
-        }))
-    };
+    let mut frames =
+        if fresh || reused {
+            Vec::new()
+        } else {
+            table(views.iter().map(|view| {
+                (view.planes, view.map, &view.trace.events[..], &view.trace.long_names)
+            }))
+        };
     let merged: Vec<u64> = if args == Args::Search && !reused {
         frames.iter().map(|text| fingerprint(text)).collect()
     } else {
         Vec::new()
     };
-    let keys = (args == Args::Search).then(|| {
-        if reused {
-            &views[0].trace.frame_keys[..]
-        } else {
-            &merged[..]
-        }
-    });
+    let keys = (args == Args::Search)
+        .then(|| if reused { &views[0].trace.frame_keys[..] } else { &merged[..] });
     let is_counter = |&(host, index): &(u32, u32)| {
         let event = &views[host as usize].trace.events[index as usize];
         event.unbound && event.flow == NONE_FLOW
     };
     let counters = ordered.iter().filter(|entry| is_counter(entry)).count();
     let counter_key = |&(host, index): &(u32, u32)| {
-        let (view, event) = (
-            &views[host as usize],
-            &views[host as usize].trace.events[index as usize],
-        );
-        (
-            host,
-            view.trace.device(event),
-            &view.trace.names[event.name as usize],
-        )
+        let (view, event) =
+            (&views[host as usize], &views[host as usize].trace.events[index as usize]);
+        (host, view.trace.device(event), &view.trace.names[event.name as usize])
     };
     let write_chunk = |chunk: &[(u32, u32)], mut frames: Option<&mut Vec<String>>| {
         let mut text = String::with_capacity(chunk.len() * 150);
         let mut open: Option<(u32, u32, &Box<str>)> = None;
         for (position, entry) in chunk.iter().enumerate() {
             let (host, index) = *entry;
-            let (view, event) = (
-                &views[host as usize],
-                &views[host as usize].trace.events[index as usize],
-            );
+            let (view, event) =
+                (&views[host as usize], &views[host as usize].trace.events[index as usize]);
             let pid = view.trace.device(event) + (host + 1) * HOST_PID_STRIDE;
             if is_counter(entry) {
                 let (first, values) =
@@ -764,15 +654,9 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
                 text.push_str("]}");
             }
             text.push_str(if position > 0 { "," } else { "" });
-            let extra = frames.as_deref_mut().map(|frames| {
-                (
-                    &view.planes[event.plane as usize],
-                    view.map,
-                    frames,
-                    keys,
-                    fresh,
-                )
-            });
+            let extra = frames
+                .as_deref_mut()
+                .map(|frames| (&view.planes[event.plane as usize], view.map, frames, keys, fresh));
             write_event(
                 &mut text,
                 view.trace,
@@ -800,10 +684,8 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
         }
         bounds.push(end);
     }
-    let pieces: Vec<&[(u32, u32)]> = bounds
-        .windows(2)
-        .map(|window| &ordered[window[0]..window[1]])
-        .collect();
+    let pieces: Vec<&[(u32, u32)]> =
+        bounds.windows(2).map(|window| &ordered[window[0]..window[1]]).collect();
     let chunks: Vec<String> = if fresh {
         let parts: Vec<(String, Vec<String>)> = pieces
             .par_iter()
@@ -814,9 +696,7 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
             .collect();
         let offsets: Vec<usize> = parts
             .iter()
-            .scan(0, |total, (_, found)| {
-                Some(std::mem::replace(total, *total + found.len()))
-            })
+            .scan(0, |total, (_, found)| Some(std::mem::replace(total, *total + found.len())))
             .collect();
         let renumbered: Vec<String> = parts
             .par_iter()
@@ -826,17 +706,10 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
         frames = parts.into_iter().flat_map(|(_, found)| found).collect();
         renumbered
     } else {
-        pieces
-            .par_iter()
-            .map(|chunk| write_chunk(chunk, detail.then(Vec::new).as_mut()))
-            .collect()
+        pieces.par_iter().map(|chunk| write_chunk(chunk, detail.then(Vec::new).as_mut())).collect()
     };
     out.push_str("\"stackFrames\":{");
-    let listed: Vec<String> = if reused {
-        Vec::new()
-    } else {
-        frames_json(&frames)
-    };
+    let listed: Vec<String> = if reused { Vec::new() } else { frames_json(&frames) };
     let middle = format!("}},\"traceEvents\":[{body}");
     let tail = format!("], \"showCounterMessage\": \"\" ,\"totalCounterEvents\":{counters}}}");
     let mut pieces: Vec<&[u8]> = vec![out.as_bytes()];

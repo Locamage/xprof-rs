@@ -17,21 +17,17 @@ fn space(planes: &[&str]) -> Vec<u8> {
 
 #[test]
 fn test_nonexistent_absolute_path_raises_filenotfounderror() {
-    let error = list_xplane_events(
-        &Fake::fixed(""),
-        &args("/nonexistent/path/that/does/not/exist", &[]),
-    )
-    .unwrap_err();
+    let error =
+        list_xplane_events(&Fake::fixed(""), &args("/nonexistent/path/that/does/not/exist", &[]))
+            .unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
 }
 
 #[test]
 fn test_empty_directory_raises_filenotfounderror() {
-    let error = list_xplane_events(
-        &Fake::fixed(""),
-        &args(&scratch("xp-empty").to_string_lossy(), &[]),
-    )
-    .unwrap_err();
+    let error =
+        list_xplane_events(&Fake::fixed(""), &args(&scratch("xp-empty").to_string_lossy(), &[]))
+            .unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
 }
 
@@ -40,10 +36,7 @@ fn test_directory_glob_finds_both_xplane_and_xspace_files() {
     let dir = scratch("xp-both");
     std::fs::write(dir.join("trace.xplane.pb"), space(&["plane1", "plane2"])).unwrap();
     std::fs::write(dir.join("trace.xspace.pb"), space(&["plane1", "plane2"])).unwrap();
-    let result = json(list_xplane_events(
-        &Fake::fixed(""),
-        &args(&dir.to_string_lossy(), &[]),
-    ));
+    let result = json(list_xplane_events(&Fake::fixed(""), &args(&dir.to_string_lossy(), &[])));
     assert_eq!(result.at("total_matched"), &J::Int(4));
 }
 
@@ -51,16 +44,9 @@ fn test_directory_glob_finds_both_xplane_and_xspace_files() {
 fn test_existing_file_path_yields_planes() {
     let path = scratch("xp-file").join("trace.xplane.pb");
     std::fs::write(&path, space(&["plane1"])).unwrap();
-    let result = json(list_xplane_events(
-        &Fake::fixed(""),
-        &args(&path.to_string_lossy(), &[]),
-    ));
-    let planes: Vec<&str> = result
-        .at("events")
-        .items()
-        .iter()
-        .filter_map(|event| event.at("plane").str())
-        .collect();
+    let result = json(list_xplane_events(&Fake::fixed(""), &args(&path.to_string_lossy(), &[])));
+    let planes: Vec<&str> =
+        result.at("events").items().iter().filter_map(|event| event.at("plane").str()).collect();
     assert_eq!(planes, ["plane1"]);
 }
 
@@ -85,17 +71,13 @@ fn test_list_xplane_events_max_events_negative_one_returns_all() {
     let path = scratch("xp-limit").join("trace.xplane.pb");
     std::fs::write(&path, trace.encode_to_vec()).unwrap();
     let session = path.to_string_lossy().into_owned();
-    let unlimited = json(list_xplane_events(
-        &Fake::fixed(""),
-        &args(&session, &[("max_events", J::Int(-1))]),
-    ))
-    .dumps();
+    let unlimited =
+        json(list_xplane_events(&Fake::fixed(""), &args(&session, &[("max_events", J::Int(-1))])))
+            .dumps();
     assert!(unlimited.contains("event1") && unlimited.contains("event2"));
-    let one = json(list_xplane_events(
-        &Fake::fixed(""),
-        &args(&session, &[("max_events", J::Int(1))]),
-    ))
-    .dumps();
+    let one =
+        json(list_xplane_events(&Fake::fixed(""), &args(&session, &[("max_events", J::Int(1))])))
+            .dumps();
     assert!(one.contains("event1") && !one.contains("event2"));
 }
 
@@ -114,12 +96,8 @@ fn test_event_names_follow_python_int64_and_isdigit() {
         &Fake::fixed(""),
         &args(&path.to_string_lossy(), &[]),
     ));
-    let mut names: Vec<&str> = result
-        .at("aggregates")
-        .items()
-        .iter()
-        .filter_map(|row| row.at("event").str())
-        .collect();
+    let mut names: Vec<&str> =
+        result.at("aggregates").items().iter().filter_map(|row| row.at("event").str()).collect();
     names.sort_unstable();
     assert_eq!(names, ["-1", "named", "½"]);
 }

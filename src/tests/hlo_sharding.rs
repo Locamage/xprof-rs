@@ -19,18 +19,12 @@ fn to_string(sharding: OpSharding, include_metadata: bool) -> String {
         TUPLE => ShapeProto {
             element_type: TUPLE_TYPE,
             tuple_shapes: vec![
-                ShapeProto {
-                    element_type: F32,
-                    ..Default::default()
-                };
+                ShapeProto { element_type: F32, ..Default::default() };
                 sharding.tuple_shardings.len()
             ],
             ..Default::default()
         },
-        _ => ShapeProto {
-            element_type: F32,
-            ..Default::default()
-        },
+        _ => ShapeProto { element_type: F32, ..Default::default() },
     };
     let parameter = HloInstructionProto {
         name: "p".into(),
@@ -54,20 +48,14 @@ fn to_string(sharding: OpSharding, include_metadata: bool) -> String {
         host_program_shape: Some(ProgramShapeProto::default()),
         ..Default::default()
     };
-    let module = module(&HloProto {
-        hlo_module: Some(hlo_module),
-        ..Default::default()
-    });
+    let module = module(&HloProto { hlo_module: Some(hlo_module), ..Default::default() });
     let mut text = String::new();
     Printer::new(&module, Style::Long, include_metadata).instruction(0, &mut text);
     text[text.find("sharding=").unwrap() + "sharding=".len()..].to_string()
 }
 
 fn metadata(op_name: &str) -> OpMetadata {
-    OpMetadata {
-        op_name: op_name.into(),
-        ..Default::default()
-    }
+    OpMetadata { op_name: op_name.into(), ..Default::default() }
 }
 
 fn single_metadata() -> Vec<OpMetadata> {
@@ -79,11 +67,7 @@ fn list_metadata() -> Vec<OpMetadata> {
 }
 
 fn replicate(metadata: Vec<OpMetadata>) -> OpSharding {
-    OpSharding {
-        r#type: REPLICATED,
-        metadata,
-        ..Default::default()
-    }
+    OpSharding { r#type: REPLICATED, metadata, ..Default::default() }
 }
 
 fn single_device(device: i64, metadata: Vec<OpMetadata>) -> OpSharding {
@@ -116,44 +100,26 @@ fn to_string_replicate_sharding_with_metadata_test() {
     for (metadata, expected) in [
         (Vec::new(), "{replicated}"),
         (single_metadata(), "{replicated metadata={op_name=\"a\"}}"),
-        (
-            list_metadata(),
-            "{replicated metadata={{op_name=\"b\"}, {op_name=\"c\"}}}",
-        ),
+        (list_metadata(), "{replicated metadata={{op_name=\"b\"}, {op_name=\"c\"}}}"),
     ] {
-        assert_eq!(
-            to_string(replicate(metadata.clone()), false),
-            "{replicated}"
-        );
+        assert_eq!(to_string(replicate(metadata.clone()), false), "{replicated}");
         assert_eq!(to_string(replicate(metadata), true), expected);
     }
 }
 
 #[test]
 fn to_string_assign_device_test() {
-    assert_eq!(
-        to_string(single_device(7, Vec::new()), false),
-        "{maximal device=7}"
-    );
+    assert_eq!(to_string(single_device(7, Vec::new()), false), "{maximal device=7}");
 }
 
 #[test]
 fn to_string_assign_device_sharding_with_metadata_test() {
     for (metadata, expected) in [
         (Vec::new(), "{maximal device=7}"),
-        (
-            single_metadata(),
-            "{maximal device=7 metadata={op_name=\"a\"}}",
-        ),
-        (
-            list_metadata(),
-            "{maximal device=7 metadata={{op_name=\"b\"}, {op_name=\"c\"}}}",
-        ),
+        (single_metadata(), "{maximal device=7 metadata={op_name=\"a\"}}"),
+        (list_metadata(), "{maximal device=7 metadata={{op_name=\"b\"}, {op_name=\"c\"}}}"),
     ] {
-        assert_eq!(
-            to_string(single_device(7, metadata.clone()), false),
-            "{maximal device=7}"
-        );
+        assert_eq!(to_string(single_device(7, metadata.clone()), false), "{maximal device=7}");
         assert_eq!(to_string(single_device(7, metadata), true), expected);
     }
 }
@@ -175,33 +141,21 @@ fn to_string_iota_tiled_test() {
         iota_transpose_perm: vec![2, 1, 0],
         ..Default::default()
     };
-    assert_eq!(
-        to_string(sharding, false),
-        "{devices=[3,4]<=[2,2,3]T(2,1,0)}"
-    );
+    assert_eq!(to_string(sharding, false), "{devices=[3,4]<=[2,2,3]T(2,1,0)}");
 }
 
 #[test]
 fn to_string_tiled_sharding_with_metadata_test() {
     for (metadata, expected) in [
         (Vec::new(), "{devices=[2,1,2]2,3,5,7}"),
-        (
-            single_metadata(),
-            "{devices=[2,1,2]2,3,5,7 metadata={op_name=\"a\"}}",
-        ),
-        (
-            list_metadata(),
-            "{devices=[2,1,2]2,3,5,7 metadata={{op_name=\"b\"}, {op_name=\"c\"}}}",
-        ),
+        (single_metadata(), "{devices=[2,1,2]2,3,5,7 metadata={op_name=\"a\"}}"),
+        (list_metadata(), "{devices=[2,1,2]2,3,5,7 metadata={{op_name=\"b\"}, {op_name=\"c\"}}}"),
     ] {
         assert_eq!(
             to_string(tile(&[2, 1, 2], &[2, 3, 5, 7], metadata.clone()), false),
             "{devices=[2,1,2]2,3,5,7}"
         );
-        assert_eq!(
-            to_string(tile(&[2, 1, 2], &[2, 3, 5, 7], metadata), true),
-            expected
-        );
+        assert_eq!(to_string(tile(&[2, 1, 2], &[2, 3, 5, 7], metadata), true), expected);
     }
 }
 
@@ -253,23 +207,11 @@ fn ostream_test() {
 
 fn from_axis_names(metadata: Vec<OpMetadata>) -> OpSharding {
     let mesh = MeshProto {
-        axes: vec![
-            MeshAxis {
-                name: "a".into(),
-                size: 2,
-            },
-            MeshAxis {
-                name: "b".into(),
-                size: 4,
-            },
-        ],
+        axes: vec![MeshAxis { name: "a".into(), size: 2 }, MeshAxis { name: "b".into(), size: 4 }],
         ..Default::default()
     };
     let dimension = |index: i64| DimensionSharding {
-        axes: vec![AxisRefProto {
-            mesh_axis_index: index,
-            sub_axis_info: None,
-        }],
+        axes: vec![AxisRefProto { mesh_axis_index: index, sub_axis_info: None }],
         is_closed: true,
     };
     let named = NamedShardingProto {
@@ -278,11 +220,7 @@ fn from_axis_names(metadata: Vec<OpMetadata>) -> OpSharding {
         metadata,
         ..Default::default()
     };
-    OpSharding {
-        r#type: OTHER,
-        named_sharding: Some(named),
-        ..Default::default()
-    }
+    OpSharding { r#type: OTHER, named_sharding: Some(named), ..Default::default() }
 }
 
 #[test]

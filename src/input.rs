@@ -59,28 +59,13 @@ pub fn map(file: File, len: u64) -> Result<Input, File> {
         return Err(file);
     }
     let start = unsafe {
-        libc::mmap(
-            std::ptr::null_mut(),
-            len as usize,
-            libc::PROT_READ,
-            libc::MAP_SHARED,
-            fd,
-            0,
-        )
+        libc::mmap(std::ptr::null_mut(), len as usize, libc::PROT_READ, libc::MAP_SHARED, fd, 0)
     };
     if start == libc::MAP_FAILED {
         return Err(file);
     }
-    let mapping = Mapping {
-        start: start.expose_provenance(),
-        len: len as usize,
-        _file: file,
-    };
-    leases.push(Lease {
-        fd,
-        start: mapping.start,
-        len: mapping.len,
-    });
+    let mapping = Mapping { start: start.expose_provenance(), len: len as usize, _file: file };
+    leases.push(Lease { fd, start: mapping.start, len: mapping.len });
     Ok(Input::Mapped(mapping))
 }
 
@@ -182,11 +167,7 @@ static LISTENING: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
         // During a lease break, `F_GETLEASE` gives `F_UNLCK`. A lease that the thread cannot copy stays, and the writer waits for the lease break time of the system.
         LEASES.lock().expect("lock poisoned").retain(|lease| unsafe { libc::fcntl(lease.fd, libc::F_GETLEASE) } == libc::F_RDLCK || !lease.copy());
     };
-    if std::thread::Builder::new()
-        .name("leases".into())
-        .spawn(listen)
-        .is_err()
-    {
+    if std::thread::Builder::new().name("leases".into()).spawn(listen).is_err() {
         return false;
     }
     let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
@@ -200,11 +181,7 @@ extern "C" fn wake(_: libc::c_int) {
     let byte = 0u8;
     unsafe {
         let errno = *libc::__errno_location();
-        libc::write(
-            WAKE.load(std::sync::atomic::Ordering::Relaxed),
-            (&raw const byte).cast(),
-            1,
-        );
+        libc::write(WAKE.load(std::sync::atomic::Ordering::Relaxed), (&raw const byte).cast(), 1);
         *libc::__errno_location() = errno;
     }
 }

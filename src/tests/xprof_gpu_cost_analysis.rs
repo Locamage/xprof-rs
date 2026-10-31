@@ -27,11 +27,7 @@ const GEMM_BACKEND_CONFIG: &str = r#"{
     }"#;
 
 fn tuple(elements: Vec<ShapeProto>) -> ShapeProto {
-    ShapeProto {
-        element_type: TUPLE,
-        tuple_shapes: elements,
-        ..Default::default()
-    }
+    ShapeProto { element_type: TUPLE, tuple_shapes: elements, ..Default::default() }
 }
 
 fn gemm(
@@ -49,20 +45,14 @@ fn gemm(
     };
     vec![
         gemm,
-        HloInstructionProto {
-            tuple_index: 0,
-            ..inst(11, "get-tuple-element", result, &[10])
-        },
+        HloInstructionProto { tuple_index: 0, ..inst(11, "get-tuple-element", result, &[10]) },
     ]
 }
 
 fn flop_count_and_device_flops_adjustment(instructions: Vec<HloInstructionProto>) -> (i64, i64) {
     let costs = analyze(vec![computation(1, instructions)]).unwrap();
     let gemm = costs.len() - 2;
-    (
-        costs[gemm].model_flops,
-        costs[gemm].model_flops - costs[gemm].device_flops,
-    )
+    (costs[gemm].model_flops, costs[gemm].model_flops - costs[gemm].device_flops)
 }
 
 #[test]
@@ -78,18 +68,13 @@ fn fp16_gemm_no_adjustment() {
         GEMM_BACKEND_CONFIG,
     ));
     let gold_flops = 65536i64 * 32800 * 32 * 2;
-    assert_eq!(
-        flop_count_and_device_flops_adjustment(instructions),
-        (gold_flops, 0)
-    );
+    assert_eq!(flop_count_and_device_flops_adjustment(instructions), (gold_flops, 0));
 }
 
 #[test]
 fn s8_gemm_adjustment() {
-    let mut instructions = vec![
-        parameter(1, 0, shape(S8, &[65536, 32800])),
-        parameter(2, 1, shape(S8, &[32800, 32])),
-    ];
+    let mut instructions =
+        vec![parameter(1, 0, shape(S8, &[65536, 32800])), parameter(2, 1, shape(S8, &[32800, 32]))];
     instructions.extend(gemm(
         "__cublas$lt$matmul",
         tuple(vec![shape(S32, &[65536, 32]), shape(S8, &[0])]),
@@ -97,10 +82,7 @@ fn s8_gemm_adjustment() {
         GEMM_BACKEND_CONFIG,
     ));
     let gold_flops = 65536i64 * 32800 * 32 * 2;
-    assert_eq!(
-        flop_count_and_device_flops_adjustment(instructions),
-        (gold_flops, gold_flops / 2)
-    );
+    assert_eq!(flop_count_and_device_flops_adjustment(instructions), (gold_flops, gold_flops / 2));
 }
 
 #[test]
@@ -122,10 +104,7 @@ fn fp8_gemm_with_fp32_parameter_adjustment() {
         &config,
     ));
     let gold_flops = 2048i64 * 5120 * 5120 * 2;
-    assert_eq!(
-        flop_count_and_device_flops_adjustment(instructions),
-        (gold_flops, gold_flops / 2)
-    );
+    assert_eq!(flop_count_and_device_flops_adjustment(instructions), (gold_flops, gold_flops / 2));
 }
 
 #[test]

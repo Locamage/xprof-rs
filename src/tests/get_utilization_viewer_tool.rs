@@ -65,10 +65,6 @@ fn test_get_utilization_viewer() {
         let fake =
             Fake::new(move |_, _| Ok(Some(payload.clone().unwrap_or_default().into_bytes())));
         let result = json(get_utilization_viewer(&fake, &args("test-session", &flags)));
-        assert!(
-            same(&result, &parse(expected)),
-            "{name}: {}",
-            result.dumps()
-        );
+        assert!(same(&result, &parse(expected)), "{name}: {}", result.dumps());
     }
 }

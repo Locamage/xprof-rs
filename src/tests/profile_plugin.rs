@@ -11,24 +11,8 @@ const PREFIX: &str = "/data/plugin/profile";
 const RUN_TO_TOOLS: [(&str, &[&str]); 6] = [
     ("foo", &["trace_viewer", "trace_viewer@"]),
     ("bar", &["unsupported"]),
-    (
-        "baz",
-        &[
-            "overview_page",
-            "op_profile",
-            "trace_viewer",
-            "trace_viewer@",
-        ],
-    ),
-    (
-        "qux",
-        &[
-            "overview_page",
-            "input_pipeline_analyzer",
-            "trace_viewer",
-            "trace_viewer@",
-        ],
-    ),
+    ("baz", &["overview_page", "op_profile", "trace_viewer", "trace_viewer@"]),
+    ("qux", &["overview_page", "input_pipeline_analyzer", "trace_viewer", "trace_viewer@"]),
     ("abc", &["xplane"]),
     ("empty", &[]),
 ];
@@ -40,18 +24,11 @@ const RUN_TO_HOSTS: [(&str, &[Option<&str>]); 6] = [
     ("abc", &[Some("host1"), Some("host2")]),
     ("empty", &[]),
 ];
-const XPLANE_TOOLS: [&str; 5] = [
-    "trace_viewer",
-    "trace_viewer@",
-    "overview_page",
-    "op_profile",
-    "input_pipeline_analyzer",
-];
+const XPLANE_TOOLS: [&str; 5] =
+    ["trace_viewer", "trace_viewer@", "overview_page", "op_profile", "input_pipeline_analyzer"];
 
 fn temp_logdir(name: &str) -> PathBuf {
-    crate::tests::scratch(&format!("plugin-{name}"))
-        .canonicalize()
-        .unwrap()
+    crate::tests::scratch(&format!("plugin-{name}")).canonicalize().unwrap()
 }
 
 fn generate_testdata(logdir: &Path) {
@@ -59,21 +36,11 @@ fn generate_testdata(logdir: &Path) {
     std::fs::create_dir_all(&plugin).unwrap();
     for (run, tools) in RUN_TO_TOOLS {
         std::fs::create_dir(plugin.join(run)).unwrap();
-        let hosts = RUN_TO_HOSTS
-            .iter()
-            .find(|(name, _)| *name == run)
-            .unwrap()
-            .1;
-        for tool in tools
-            .iter()
-            .filter(|tool| XPLANE_TOOLS.contains(tool) || **tool == "xplane")
-        {
+        let hosts = RUN_TO_HOSTS.iter().find(|(name, _)| *name == run).unwrap().1;
+        for tool in tools.iter().filter(|tool| XPLANE_TOOLS.contains(tool) || **tool == "xplane") {
             for host in hosts {
                 let data = if tool.starts_with("trace_viewer") {
-                    bytes(
-                        1,
-                        &[number(1, 0), bytes(2, &bytes(1, run.as_bytes()))].concat(),
-                    )
+                    bytes(1, &[number(1, 0), bytes(2, &bytes(1, run.as_bytes()))].concat())
                 } else {
                     tool.as_bytes().to_vec()
                 };
@@ -96,10 +63,7 @@ fn write_empty_event_file(dir: &Path) {
 }
 
 fn plugin(logdir: &Path) -> Shared {
-    state(&Settings {
-        logdir: logdir.to_path_buf(),
-        ..Default::default()
-    })
+    state(&Settings { logdir: logdir.to_path_buf(), ..Default::default() })
 }
 
 async fn json(state: &Shared, uri: &str) -> serde_json::Value {
@@ -121,11 +85,7 @@ async fn runs(state: &Shared) -> BTreeSet<String> {
 fn expected_runs(prefixes: &[&str]) -> BTreeSet<String> {
     prefixes
         .iter()
-        .flat_map(|prefix| {
-            RUN_TO_TOOLS
-                .iter()
-                .map(move |(run, _)| format!("{prefix}{run}"))
-        })
+        .flat_map(|prefix| RUN_TO_TOOLS.iter().map(move |(run, _)| format!("{prefix}{run}")))
         .collect()
 }
 
@@ -140,11 +100,7 @@ async fn fetch_testdata(name: &str, query: &str) -> (StatusCode, axum::http::Hea
 async fn post(state: &Shared, uri: &str) -> (StatusCode, String) {
     let reply = app(state.clone())
         .oneshot(
-            axum::http::Request::builder()
-                .method("POST")
-                .uri(uri)
-                .body(Body::empty())
-                .unwrap(),
+            axum::http::Request::builder().method("POST").uri(uri).body(Body::empty()).unwrap(),
         )
         .await
         .unwrap();
@@ -152,9 +108,7 @@ async fn post(state: &Shared, uri: &str) -> (StatusCode, String) {
     (
         status,
         String::from_utf8_lossy(
-            &axum::body::to_bytes(reply.into_body(), usize::MAX)
-                .await
-                .unwrap(),
+            &axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap(),
         )
         .into_owned(),
     )
@@ -166,14 +120,8 @@ async fn runs_logdir_without_event_file() {
     generate_testdata(&logdir);
     let state = plugin(&logdir);
     assert_eq!(runs(&state).await, expected_runs(&[""]));
-    assert_eq!(
-        json(&state, "run_tools?run=bar").await,
-        serde_json::json!([])
-    );
-    assert_eq!(
-        json(&state, "run_tools?run=empty").await,
-        serde_json::json!([])
-    );
+    assert_eq!(json(&state, "run_tools?run=bar").await, serde_json::json!([]));
+    assert_eq!(json(&state, "run_tools?run=empty").await, serde_json::json!([]));
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 
@@ -195,10 +143,7 @@ async fn runs_with_subdirectories() {
     for dir in ["", "a", "b/c"] {
         write_empty_event_file(&logdir.join(dir));
     }
-    assert_eq!(
-        runs(&plugin(&logdir)).await,
-        expected_runs(&["", "a/", "b/", "b/c/"])
-    );
+    assert_eq!(runs(&plugin(&logdir)).await, expected_runs(&["", "a/", "b/", "b/c/"]));
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 
@@ -216,10 +161,7 @@ async fn runs_with_nested_runs() {
     generate_testdata(&logdir.join("2024-12-19"));
     write_empty_event_file(&logdir.join("2024-12-19/train"));
     write_empty_event_file(&logdir.join("2024-12-19/validation"));
-    assert_eq!(
-        runs(&plugin(&logdir)).await,
-        expected_runs(&["2024-12-19/"])
-    );
+    assert_eq!(runs(&plugin(&logdir)).await, expected_runs(&["2024-12-19/"]));
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 
@@ -232,30 +174,15 @@ async fn hosts() {
     let state = plugin(&logdir);
     let hosts_abc = serde_json::json!([{"hostname": "host1"}, {"hostname": "host2"}]);
     let all_hosts_only = serde_json::json!([{"hostname": "ALL_HOSTS"}]);
-    assert_eq!(
-        json(&state, "hosts?run=qux&tag=framework_op_stats").await,
-        serde_json::json!([])
-    );
+    assert_eq!(json(&state, "hosts?run=qux&tag=framework_op_stats").await, serde_json::json!([]));
     assert_eq!(
         json(&state, "hosts?run=abc&tag=framework_op_stats").await,
         serde_json::json!([{"hostname": "ALL_HOSTS"}, {"hostname": "host1"}, {"hostname": "host2"}])
     );
-    assert_eq!(
-        json(&state, "hosts?run=abc&tag=trace_viewer").await,
-        hosts_abc
-    );
-    assert_eq!(
-        json(&state, "hosts?run=abc&tag=memory_profile").await,
-        hosts_abc
-    );
-    assert_eq!(
-        json(&state, "hosts?run=abc&tag=overview_page").await,
-        all_hosts_only
-    );
-    assert_eq!(
-        json(&state, "hosts?run=abc&tag=pod_viewer").await,
-        all_hosts_only
-    );
+    assert_eq!(json(&state, "hosts?run=abc&tag=trace_viewer").await, hosts_abc);
+    assert_eq!(json(&state, "hosts?run=abc&tag=memory_profile").await, hosts_abc);
+    assert_eq!(json(&state, "hosts?run=abc&tag=overview_page").await, all_hosts_only);
+    assert_eq!(json(&state, "hosts?run=abc&tag=pod_viewer").await, all_hosts_only);
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 
@@ -308,11 +235,7 @@ async fn data() {
         ),
     ] {
         let (status, _, body) = fetch(&state, &format!("{PREFIX}/data?{query}")).await;
-        assert_eq!(
-            (status, body.as_str()),
-            (StatusCode::NOT_FOUND, expected),
-            "{query}"
-        );
+        assert_eq!((status, body.as_str()), (StatusCode::NOT_FOUND, expected), "{query}");
     }
     std::fs::remove_dir_all(&logdir).unwrap();
 }
@@ -327,27 +250,18 @@ async fn data_names_only_happy_path() {
     .await;
     assert_eq!(
         (status, &headers[header::CONTENT_TYPE]),
-        (
-            StatusCode::OK,
-            &"application/json".parse::<header::HeaderValue>().unwrap()
-        )
+        (StatusCode::OK, &"application/json".parse::<header::HeaderValue>().unwrap())
     );
     let names: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert!(
-        names[0].get("name").is_some() && names[0].get("val").is_some(),
-        "{body}"
-    );
+    assert!(names[0].get("name").is_some() && names[0].get("val").is_some(), "{body}");
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_names_only_missing_device_type() {
     let logdir = temp_logdir("names-only-missing");
-    let (status, _, body) = fetch(
-        &plugin(&logdir),
-        &format!("{PREFIX}/data?tag=perf_counters&names_only=1"),
-    )
-    .await;
+    let (status, _, body) =
+        fetch(&plugin(&logdir), &format!("{PREFIX}/data?tag=perf_counters&names_only=1")).await;
     assert!(
         status == StatusCode::INTERNAL_SERVER_ERROR && body.contains("device_type is required"),
         "{status} {body}"
@@ -369,11 +283,8 @@ async fn data_impl_trace_viewer_options() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_impl_trace_viewer_format_pb_returns_octet_stream() {
-    let (status, headers, _) = fetch_testdata(
-        "trace-viewer-pb",
-        "run=foo&tag=trace_viewer&host=host1&format=pb",
-    )
-    .await;
+    let (status, headers, _) =
+        fetch_testdata("trace-viewer-pb", "run=foo&tag=trace_viewer&host=host1&format=pb").await;
     assert_eq!(
         (status, headers[header::CONTENT_TYPE].to_str().unwrap()),
         (StatusCode::OK, "application/octet-stream")
@@ -414,25 +325,15 @@ async fn generate_runs_no_logdir() {
     let elsewhere = temp_logdir("no-logdir-session");
     std::fs::write(elsewhere.join("host.xplane.pb"), "").unwrap();
     assert_eq!(
-        json(
-            &state,
-            &format!("runs?session_path={}", elsewhere.display())
-        )
-        .await,
+        json(&state, &format!("runs?session_path={}", elsewhere.display())).await,
         serde_json::json!([elsewhere.file_name().unwrap().to_string_lossy()])
     );
     std::fs::remove_dir_all(&elsewhere).unwrap();
-    let (status, _, body) = fetch(
-        &state,
-        &format!("{PREFIX}/capture_profile?service_addr=localhost:1"),
-    )
-    .await;
+    let (status, _, body) =
+        fetch(&state, &format!("{PREFIX}/capture_profile?service_addr=localhost:1")).await;
     assert_eq!(
         (status, body.as_str()),
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "{\"error\": \"logdir is not set, abort capturing.\"}"
-        )
+        (StatusCode::INTERNAL_SERVER_ERROR, "{\"error\": \"logdir is not set, abort capturing.\"}")
     );
 }
 
@@ -443,11 +344,7 @@ async fn runs_impl_with_session() {
     std::fs::create_dir(&session).unwrap();
     std::fs::write(session.join("host.xplane.pb"), "dummy xplane data").unwrap();
     assert_eq!(
-        json(
-            &plugin(&logdir),
-            &format!("runs?session_path={}", session.display())
-        )
-        .await,
+        json(&plugin(&logdir), &format!("runs?session_path={}", session.display())).await,
         serde_json::json!(["session_run"])
     );
     std::fs::remove_dir_all(&logdir).unwrap();
@@ -460,11 +357,7 @@ async fn runs_impl_with_run_path() {
     std::fs::create_dir_all(&run).unwrap();
     std::fs::write(run.join("host.xplane.pb"), "dummy xplane data").unwrap();
     assert_eq!(
-        json(
-            &plugin(&logdir),
-            &format!("runs?run_path={}", logdir.join("base").display())
-        )
-        .await,
+        json(&plugin(&logdir), &format!("runs?run_path={}", logdir.join("base").display())).await,
         serde_json::json!(["run1"])
     );
     std::fs::remove_dir_all(&logdir).unwrap();
@@ -488,10 +381,7 @@ async fn read_static_file_with_xprof_static_dir_success_and_fallbacks() {
     unsafe { std::env::set_var("XPROF_STATIC_DIR", logdir.join("does_not_exist")) };
     let missing_dir = fetch(&state, "/bundle.js").await;
     unsafe { std::env::remove_var("XPROF_STATIC_DIR") };
-    assert_eq!(
-        (served.0, served.2.as_str()),
-        (StatusCode::OK, "console.log(\"xprof\");")
-    );
+    assert_eq!((served.0, served.2.as_str()), (StatusCode::OK, "console.log(\"xprof\");"));
     assert_eq!(
         (traversal.0, traversal.2.as_str()),
         (StatusCode::NOT_FOUND, "Fail to read the files.")
@@ -520,12 +410,7 @@ async fn embedded_static_file_is_not_sent_again_when_the_tag_matches() {
         (reply.status(), &reply.headers()[header::ETAG]),
         (StatusCode::NOT_MODIFIED, &headers[header::ETAG])
     );
-    assert!(
-        axum::body::to_bytes(reply.into_body(), usize::MAX)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -538,12 +423,9 @@ async fn generate_cache_task_generates_cache() {
     settle(&file);
     let state = plugin(&logdir);
     assert_eq!(
-        post(
-            &state,
-            &format!("{PREFIX}/generate_cache?session_path={}", session.display())
-        )
-        .await
-        .0,
+        post(&state, &format!("{PREFIX}/generate_cache?session_path={}", session.display()))
+            .await
+            .0,
         StatusCode::ACCEPTED
     );
     for _ in 0..600 {
@@ -559,10 +441,7 @@ async fn generate_cache_task_generates_cache() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn generate_cache_impl() {
     let logdir = temp_logdir("generate-cache-impl");
-    let (session, empty) = (
-        logdir.join("plugins/profile/s"),
-        logdir.join("plugins/profile/empty"),
-    );
+    let (session, empty) = (logdir.join("plugins/profile/s"), logdir.join("plugins/profile/empty"));
     std::fs::create_dir_all(&session).unwrap();
     std::fs::create_dir_all(&empty).unwrap();
     std::fs::write(
@@ -572,12 +451,9 @@ async fn generate_cache_impl() {
     .unwrap();
     let state = plugin(&logdir);
     assert_eq!(
-        fetch(
-            &state,
-            &format!("{PREFIX}/generate_cache?session_path={}", session.display())
-        )
-        .await
-        .0,
+        fetch(&state, &format!("{PREFIX}/generate_cache?session_path={}", session.display()))
+            .await
+            .0,
         StatusCode::METHOD_NOT_ALLOWED
     );
     let (status, body) = post(&state, &format!("{PREFIX}/generate_cache")).await;
@@ -585,11 +461,8 @@ async fn generate_cache_impl() {
         status == StatusCode::BAD_REQUEST && body.contains("Missing \"session_path\" parameter"),
         "{status} {body}"
     );
-    let (status, body) = post(
-        &state,
-        &format!("{PREFIX}/generate_cache?session_path={}", empty.display()),
-    )
-    .await;
+    let (status, body) =
+        post(&state, &format!("{PREFIX}/generate_cache?session_path={}", empty.display())).await;
     assert!(
         status == StatusCode::NOT_FOUND && body.contains("No XPlane files found"),
         "{status} {body}"
@@ -614,17 +487,11 @@ async fn generate_cache_impl() {
     ] {
         let (status, body) = post(
             &state,
-            &format!(
-                "{PREFIX}/generate_cache?session_path={}{tools}",
-                session.display()
-            ),
+            &format!("{PREFIX}/generate_cache?session_path={}{tools}", session.display()),
         )
         .await;
         assert_eq!(status, StatusCode::ACCEPTED, "{tools}");
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&body).unwrap()["status"],
-            "ACCEPTED"
-        );
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["status"], "ACCEPTED");
     }
     std::fs::remove_dir_all(&logdir).unwrap();
 }
@@ -639,12 +506,7 @@ async fn data_csv_route_content_disposition() {
             "worker-pool-1-x2y3",
             "roofline_model_my_run_123_x2y3.csv",
         ),
-        (
-            "clean_run",
-            "hlo_stats",
-            "localhost",
-            "hlo_stats_clean_run_localhost.csv",
-        ),
+        ("clean_run", "hlo_stats", "localhost", "hlo_stats_clean_run_localhost.csv"),
     ] {
         let (prefix, session) = run.rsplit_once('/').unwrap_or((".", run));
         let dir = logdir.join(prefix).join("plugins/profile").join(session);
@@ -654,11 +516,9 @@ async fn data_csv_route_content_disposition() {
             include_bytes!("../../tests/data/demo.xplane.pb"),
         )
         .unwrap();
-        let (status, headers, _) = fetch(
-            &plugin(&logdir),
-            &format!("{PREFIX}/data_csv?run={run}&tag={tag}&host={host}"),
-        )
-        .await;
+        let (status, headers, _) =
+            fetch(&plugin(&logdir), &format!("{PREFIX}/data_csv?run={run}&tag={tag}&host={host}"))
+                .await;
         assert_eq!(
             (status, headers[header::CONTENT_TYPE].to_str().unwrap()),
             (StatusCode::OK, "text/csv")
@@ -686,11 +546,8 @@ async fn hlo_module_list_impl_sorts_module_names() {
     ] {
         std::fs::write(run.join(format!("{name}.hlo_proto.pb")), "").unwrap();
     }
-    let (status, _, body) = fetch(
-        &plugin(&logdir),
-        &format!("{PREFIX}/module_list?run=test_run"),
-    )
-    .await;
+    let (status, _, body) =
+        fetch(&plugin(&logdir), &format!("{PREFIX}/module_list?run=test_run")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
@@ -702,11 +559,7 @@ async fn hlo_module_list_impl_sorts_module_names() {
 #[tokio::test]
 async fn static_files_are_gzip_only_for_clients_that_accept_gzip() {
     let packed = axum::body::Bytes::from_static(
-        crate::ASSETS
-            .iter()
-            .find(|(name, _)| *name == "runtime.js")
-            .unwrap()
-            .1,
+        crate::ASSETS.iter().find(|(name, _)| *name == "runtime.js").unwrap().1,
     );
     let reply = |accepts| {
         crate::negotiate(
@@ -719,15 +572,8 @@ async fn static_files_are_gzip_only_for_clients_that_accept_gzip() {
     let (plain, gzipped) = (reply(false), reply(true));
     assert!(plain.headers().get(header::CONTENT_ENCODING).is_none());
     assert_eq!(gzipped.headers()[header::CONTENT_ENCODING], "gzip");
-    assert_eq!(
-        axum::body::to_bytes(gzipped.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-        packed
-    );
-    let plain = axum::body::to_bytes(plain.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    assert_eq!(axum::body::to_bytes(gzipped.into_body(), usize::MAX).await.unwrap(), packed);
+    let plain = axum::body::to_bytes(plain.into_body(), usize::MAX).await.unwrap();
     assert!(!plain.is_empty() && !plain.starts_with(&[0x1f, 0x8b]));
 }
 
@@ -749,12 +595,7 @@ async fn cached_gzip_parts_decode_alone_and_as_one_stream() {
             false,
             Some(&ends),
         );
-        assert_eq!(
-            axum::body::to_bytes(plain.into_body(), usize::MAX)
-                .await
-                .unwrap(),
-            body
-        );
+        assert_eq!(axum::body::to_bytes(plain.into_body(), usize::MAX).await.unwrap(), body);
     }
 }
 
@@ -762,9 +603,6 @@ async fn cached_gzip_parts_decode_alone_and_as_one_stream() {
 fn decoded_length_of_a_body_of_4_gib_or_more() {
     let len = (5usize << 30) + 12345;
     let trailer = [&[0u8; 4][..], &(len as u32).to_le_bytes()].concat();
-    assert_eq!(
-        crate::decoded_len(&trailer, &vec![0; len.div_ceil(crate::GZIP_CHUNK)]),
-        len
-    );
+    assert_eq!(crate::decoded_len(&trailer, &vec![0; len.div_ceil(crate::GZIP_CHUNK)]), len);
     assert_eq!(crate::decoded_len(&trailer, &[0]), len as u32 as usize);
 }

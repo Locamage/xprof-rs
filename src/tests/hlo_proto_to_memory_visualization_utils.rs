@@ -26,10 +26,8 @@ fn hlo_text(color: u8, allocation_size: u64, buffers: &[(&str, u64, u64)], trace
         instructions += &format!(
             r#"instructions {{ name: "{name}" id: {id} shape {{ tuple_shapes {{ element_type: U64 }} }} }} "#
         );
-        assigned += &format!(
-            "assigned {{ logical_buffer_id: {} offset: {offset} size: {size} }} ",
-            id + 1
-        );
+        assigned +=
+            &format!("assigned {{ logical_buffer_id: {} offset: {offset} size: {size} }} ", id + 1);
         logical += &format!(
             "logical_buffers {{ id: {} size: {size} color: {color} defined_at {{ instruction_id: {id} shape_index: 0 }} }} ",
             id + 1
@@ -54,11 +52,7 @@ fn chain(trace: &str) -> HloProto {
     hlo_proto(&hlo_text(
         0,
         3 * HALF,
-        &[
-            ("fusion.1", 0, HALF),
-            ("fusion.2", 0, HALF),
-            ("fusion.3", 0, HALF),
-        ],
+        &[("fusion.1", 0, HALF), ("fusion.2", 0, HALF), ("fusion.3", 0, HALF)],
         trace,
     ))
 }
@@ -78,10 +72,8 @@ fn chain_display_name(trace: &str) -> HloProto {
 }
 
 fn scoped(mut proto: HloProto, sizes: &[u64]) -> HloProto {
-    for (instruction, size) in proto.hlo_module.as_mut().unwrap().computations[0]
-        .instructions
-        .iter_mut()
-        .zip(sizes)
+    for (instruction, size) in
+        proto.hlo_module.as_mut().unwrap().computations[0].instructions.iter_mut().zip(sizes)
     {
         instruction.backend_config =
             format!(r#"{{"used_scoped_memory_configs":[{{"memory_space":"1","size":"{size}"}}]}}"#)
@@ -114,10 +106,7 @@ fn allocation_timeline(proto: &HloProto, color: i64) -> String {
 
 fn number(value: &Value, key: &str) -> f64 {
     value.get(key).map_or(0.0, |number| {
-        number
-            .as_f64()
-            .or_else(|| number.as_str().and_then(|text| text.parse().ok()))
-            .unwrap()
+        number.as_f64().or_else(|| number.as_str().and_then(|text| text.parse().ok())).unwrap()
     })
 }
 
@@ -159,9 +148,7 @@ fn parse_logical_buffers_from_dot(dot: &str) -> Vec<DoubleRectInfo> {
         };
         let (pos_x, pos_y) = dot[pos_start..pos_end]
             .split_once(',')
-            .map_or((0.0, 0.0), |(x, y)| {
-                (x.parse().unwrap(), y.parse().unwrap())
-            });
+            .map_or((0.0, 0.0), |(x, y)| (x.parse().unwrap(), y.parse().unwrap()));
         let Some(width_start) = find("width=\"", pos_end).map(|start| start + 7) else {
             continue;
         };
@@ -178,13 +165,7 @@ fn parse_logical_buffers_from_dot(dot: &str) -> Vec<DoubleRectInfo> {
         let height = dot[height_start..height_end].parse::<f64>().unwrap() * 72.0;
         let fontsize = find("fontsize=", height_end)
             .map(|start| start + 9)
-            .and_then(|start| {
-                Some(
-                    dot[start..find_any(&[',', ' ', ']'], start)?]
-                        .parse()
-                        .unwrap(),
-                )
-            })
+            .and_then(|start| Some(dot[start..find_any(&[',', ' ', ']'], start)?].parse().unwrap()))
             .unwrap_or(0.0);
         let mut next_search_start = height_end;
         let mut label = String::new();
@@ -250,15 +231,9 @@ fn test_heap_simulator_trace_share_with_1() {
     let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
-    assert_eq!(
-        number(&preprocess_result, "peakUnpaddedHeapMib"),
-        8.0 / (1 << 20) as f64 + 1.0
-    );
+    assert_eq!(number(&preprocess_result, "peakUnpaddedHeapMib"), 8.0 / (1 << 20) as f64 + 1.0);
     assert_eq!(number(&preprocess_result, "totalBufferAllocationMib"), 2.0);
-    assert_eq!(
-        number(&preprocess_result, "indefiniteBufferAllocationMib"),
-        1.0
-    );
+    assert_eq!(number(&preprocess_result, "indefiniteBufferAllocationMib"), 1.0);
 }
 
 #[test]
@@ -267,15 +242,9 @@ fn test_heap_simulator_trace_share_with_2() {
     let proto = hlo_proto(&HLO_BASE.replace("%s", trace));
     let preprocess_result = preprocess(&proto, 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
-    assert_eq!(
-        number(&preprocess_result, "peakUnpaddedHeapMib"),
-        8.0 / (1 << 20) as f64 + 1.0
-    );
+    assert_eq!(number(&preprocess_result, "peakUnpaddedHeapMib"), 8.0 / (1 << 20) as f64 + 1.0);
     assert_eq!(number(&preprocess_result, "totalBufferAllocationMib"), 2.0);
-    assert_eq!(
-        number(&preprocess_result, "indefiniteBufferAllocationMib"),
-        1.0
-    );
+    assert_eq!(number(&preprocess_result, "indefiniteBufferAllocationMib"), 1.0);
     assert!(!allocation_timeline(&proto, 0).is_empty());
 }
 
@@ -305,10 +274,7 @@ events { kind: ALLOC buffer_id: 4 } events { kind: SHARE_WITH buffer_id: 3 share
             "Bar chart shows root canonical name 'fusion.1' instead of sharer name 'fusion.3'. heap_object.instruction_name()={instruction_name}"
         );
     }
-    assert!(
-        found_fusion_3,
-        "Expected sharer C's instruction 'fusion.3' in the bar chart"
-    );
+    assert!(found_fusion_3, "Expected sharer C's instruction 'fusion.3' in the bar chart");
     assert!(
         found_fusion_4,
         "Expected independent buffer D's instruction 'fusion.4' in the bar chart"
@@ -351,10 +317,7 @@ fn test_logical_buffers_do_not_overlap() {
         ALLOC_ALLOC_FREE_FREE,
     );
     verify_no_overlap(
-        &[
-            ("fusion.1", 54076112896, 134217728),
-            ("fusion.2", 54210330624, 134217728),
-        ],
+        &[("fusion.1", 54076112896, 134217728), ("fusion.2", 54210330624, 134217728)],
         54344548352,
         ALLOC_ALLOC_FREE_FREE,
     );
@@ -367,20 +330,15 @@ fn test_logical_buffers_do_not_overlap() {
 
 #[test]
 fn scoped_vmem_allocation_single_instruction() {
-    let result = preprocess(
-        &scoped(two_halves(1, ["fusion.1", "fusion.2"]), &[1048576]),
-        1,
-    );
+    let result = preprocess(&scoped(two_halves(1, ["fusion.1", "fusion.2"]), &[1048576]), 1);
     assert_eq!(number(&result, "maxScopedVmemAllocationMib"), 1.0);
     assert_eq!(text(&result, "maxScopedVmemInstructionName"), "fusion.1");
 }
 
 #[test]
 fn scoped_vmem_allocation_max_across_instructions() {
-    let result = preprocess(
-        &scoped(two_halves(1, ["fusion.1", "fusion.2"]), &[1048576, 2097152]),
-        1,
-    );
+    let result =
+        preprocess(&scoped(two_halves(1, ["fusion.1", "fusion.2"]), &[1048576, 2097152]), 1);
     assert_eq!(number(&result, "maxScopedVmemAllocationMib"), 2.0);
     assert_eq!(text(&result, "maxScopedVmemInstructionName"), "fusion.2");
 }
@@ -395,10 +353,7 @@ fn scoped_vmem_allocation_no_scoped_configs() {
 #[test]
 fn scoped_vmem_allocation_hbm_ignores_scoped() {
     let result = preprocess(
-        &scoped(
-            hlo_proto(&HLO_BASE.replace("%s", ALLOC_ALLOC_FREE_FREE)),
-            &[1048576],
-        ),
+        &scoped(hlo_proto(&HLO_BASE.replace("%s", ALLOC_ALLOC_FREE_FREE)), &[1048576]),
         0,
     );
     assert_eq!(number(&result, "maxScopedVmemAllocationMib"), 0.0);
@@ -431,22 +386,13 @@ fn test_convert_allocation_timeline_buffer_blocks() {
 #[test]
 fn test_allocation_timeline_labels() {
     let result = allocation_timeline(
-        &two_halves(
-            1,
-            [
-                "very_long_instruction_name_that_might_need_truncation_or_not",
-                "short",
-            ],
-        ),
+        &two_halves(1, ["very_long_instruction_name_that_might_need_truncation_or_not", "short"]),
         1,
     );
     assert!(!result.is_empty());
     let rects = parse_logical_buffers_from_dot(&result);
     assert_eq!(rects.len(), 2);
-    assert_eq!(
-        rects[0].label,
-        "very_long_instruction_name_that_might_need_truncation_or_not"
-    );
+    assert_eq!(rects[0].label, "very_long_instruction_name_that_might_need_truncation_or_not");
     assert_eq!(rects[1].label, "short");
 }
 
@@ -455,29 +401,13 @@ fn test_allocation_timeline_labels_truncation() {
     let mut proto = hlo_proto(&hlo_text(
         1,
         2 * HALF,
-        &[(
-            "very_long_instruction_name_that_should_be_truncated",
-            0,
-            2 * HALF,
-        )],
+        &[("very_long_instruction_name_that_should_be_truncated", 0, 2 * HALF)],
         "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 }",
     ));
-    let trace = &mut proto
-        .buffer_assignment
-        .as_mut()
-        .unwrap()
-        .heap_simulator_traces[0];
+    let trace = &mut proto.buffer_assignment.as_mut().unwrap().heap_simulator_traces[0];
     for _ in 0..49 {
-        trace.events.push(Event {
-            kind: Kind::Alloc as i32,
-            buffer_id: 1,
-            ..Default::default()
-        });
-        trace.events.push(Event {
-            kind: Kind::Free as i32,
-            buffer_id: 1,
-            ..Default::default()
-        });
+        trace.events.push(Event { kind: Kind::Alloc as i32, buffer_id: 1, ..Default::default() });
+        trace.events.push(Event { kind: Kind::Free as i32, buffer_id: 1, ..Default::default() });
     }
     let result = allocation_timeline(&proto, 1);
     assert!(!result.is_empty());

@@ -30,10 +30,7 @@ impl UnaryService<ProfileRequest> for Profile {
         )
         .into_bytes();
         ready(Ok(tonic::Response::new(ProfileResponse {
-            tool_data: vec![ToolData {
-                name: "xplane.pb".into(),
-                data,
-            }],
+            tool_data: vec![ToolData { name: "xplane.pb".into(), data }],
             empty_trace: false,
         })))
     }
@@ -53,11 +50,7 @@ impl tower::Service<Request<Body>> for Profiler {
     }
 
     fn call(&mut self, request: Request<Body>) -> Self::Future {
-        Box::pin(async move {
-            Ok(Grpc::new(ProstCodec::default())
-                .unary(Profile, request)
-                .await)
-        })
+        Box::pin(async move { Ok(Grpc::new(ProstCodec::default()).unary(Profile, request).await) })
     }
 }
 
@@ -73,10 +66,7 @@ async fn serve() -> String {
 }
 
 fn query(pairs: &[(&str, &str)]) -> crate::Params {
-    pairs
-        .iter()
-        .map(|(key, value)| (key.to_string(), value.to_string()))
-        .collect()
+    pairs.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect()
 }
 
 async fn capture(logdir: &Path, pairs: &[(&str, &str)]) -> (u16, String) {
@@ -84,10 +74,7 @@ async fn capture(logdir: &Path, pairs: &[(&str, &str)]) -> (u16, String) {
     (
         reply.status().as_u16(),
         String::from_utf8(
-            axum::body::to_bytes(reply.into_body(), usize::MAX)
-                .await
-                .unwrap()
-                .to_vec(),
+            axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap().to_vec(),
         )
         .unwrap(),
     )
@@ -107,20 +94,14 @@ async fn capture_saves_the_remote_xplane_under_the_plugin_directory() {
     .await;
     assert_eq!(
         (status, body.as_str()),
-        (
-            200,
-            "{\"result\": \"Capture profile successfully. Please refresh.\"}"
-        )
+        (200, "{\"result\": \"Capture profile successfully. Please refresh.\"}")
     );
     let sessions: Vec<_> = std::fs::read_dir(logdir.join("plugins/profile"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .collect();
     let saved = std::fs::read_to_string(
-        sessions
-            .last()
-            .unwrap()
-            .join(format!("{}.xplane.pb", address.replace(':', "_"))),
+        sessions.last().unwrap().join(format!("{}.xplane.pb", address.replace(':', "_"))),
     )
     .unwrap();
     assert_eq!(saved, format!("{address}|50|3"));
@@ -131,11 +112,7 @@ async fn capture_saves_the_remote_xplane_under_the_plugin_directory() {
 async fn capture_reports_invalid_requests_like_xprof() {
     let logdir = super::legacy::logdir("capture-errors");
     for (pairs, status, message) in [
-        (
-            vec![],
-            500,
-            "'NoneType' object has no attribute 'removeprefix'",
-        ),
+        (vec![], 500, "'NoneType' object has no attribute 'removeprefix'"),
         (
             vec![("service_addr", "bad")],
             500,
@@ -158,25 +135,13 @@ async fn capture_reports_invalid_requests_like_xprof() {
         ),
     ] {
         let (code, body) = capture(&logdir, &pairs).await;
-        assert!(
-            code == status && body.contains(message),
-            "{pairs:?}: {code} {body}"
-        );
+        assert!(code == status && body.contains(message), "{pairs:?}: {code} {body}");
     }
-    assert_eq!(
-        capture(&logdir, &[("service_addr", "h:1"), ("duration", "x")])
-            .await
-            .0,
-        500
-    );
+    assert_eq!(capture(&logdir, &[("service_addr", "h:1"), ("duration", "x")]).await.0, 500);
     assert!(
         capture(
             &logdir,
-            &[
-                ("service_addr", "127.0.0.1:1"),
-                ("duration", " 1_0 "),
-                ("num_retry", "-1")
-            ]
+            &[("service_addr", "127.0.0.1:1"), ("duration", " 1_0 "), ("num_retry", "-1")]
         )
         .await
         .1
@@ -198,27 +163,14 @@ async fn capture_into_a_remote_logdir_uploads_the_session() {
     .await;
     assert_eq!(reply.status().as_u16(), 200);
     let name = format!("{}.xplane.pb", address.replace(':', "_"));
-    let session = std::fs::read_dir(bucket.join("plugins/profile"))
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    assert_eq!(
-        std::fs::read_to_string(session.join(&name)).unwrap(),
-        format!("{address}|50|2")
-    );
-    let mirrored = remote
-        .mirror
-        .join("plugins/profile")
-        .join(session.file_name().unwrap())
-        .join(&name);
+    let session =
+        std::fs::read_dir(bucket.join("plugins/profile")).unwrap().next().unwrap().unwrap().path();
+    assert_eq!(std::fs::read_to_string(session.join(&name)).unwrap(), format!("{address}|50|2"));
+    let mirrored =
+        remote.mirror.join("plugins/profile").join(session.file_name().unwrap()).join(&name);
     assert_eq!(
         std::fs::metadata(mirrored).unwrap().modified().unwrap(),
-        std::fs::metadata(session.join(&name))
-            .unwrap()
-            .modified()
-            .unwrap()
+        std::fs::metadata(session.join(&name)).unwrap().modified().unwrap()
     );
     std::fs::remove_dir_all(&bucket).unwrap();
     std::fs::remove_dir_all(&remote.mirror).unwrap();

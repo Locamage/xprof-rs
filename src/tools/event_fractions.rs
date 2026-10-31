@@ -73,10 +73,8 @@ fn plane_steps(plane: &Plane, map: &[u8]) -> HashMap<i64, u64> {
 pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fractions {
     let mut fractions: BTreeMap<i64, BTreeMap<String, f64>> = BTreeMap::new();
     let mut durations: HashMap<i64, u64> = HashMap::new();
-    let steps: HashMap<&str, HashMap<i64, u64>> = planes
-        .iter()
-        .map(|plane| (plane.name.as_str(), plane_steps(plane, map)))
-        .collect();
+    let steps: HashMap<&str, HashMap<i64, u64>> =
+        planes.iter().map(|plane| (plane.name.as_str(), plane_steps(plane, map))).collect();
     for plane in planes {
         let plane_steps = &steps[plane.name.as_str()];
         let wanted: HashSet<u32> = (0..plane.meta.len())
@@ -99,20 +97,13 @@ pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fr
             let Some(duration) = event_stat(slice(map, event.raw), duration_id) else {
                 continue;
             };
-            let event_ps = if let Value::Uint(value) = duration {
-                value
-            } else {
-                0
-            };
+            let event_ps = if let Value::Uint(value) = duration { value } else { 0 };
             if target == BARRIER_CORES && (event_ps == 0 || event_ps == DUMMY_BARRIER_PS) {
                 continue;
             }
             let portion = (event_ps as f64 / step_ps as f64) as f32;
-            *fractions
-                .entry(step)
-                .or_default()
-                .entry(plane.name.clone())
-                .or_default() += f64::from(portion);
+            *fractions.entry(step).or_default().entry(plane.name.clone()).or_default() +=
+                f64::from(portion);
             durations.insert(step, step_ps);
         }
     }
@@ -134,11 +125,7 @@ pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fr
     let mut result = Fractions::default();
     for planes in fractions.values() {
         for (plane, fraction) in planes {
-            result
-                .chips
-                .entry(plane.clone())
-                .or_default()
-                .push(*fraction as f32);
+            result.chips.entry(plane.clone()).or_default().push(*fraction as f32);
         }
     }
     let host: Vec<f32> = fractions

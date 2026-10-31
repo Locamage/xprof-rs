@@ -15,8 +15,5 @@ fn collective_that_ends_before_it_starts() {
         collectives: BTreeMap::from([(0, vec![(1, 100, 50), (2, 10, 20)])]),
     };
     let step = tpu_step_details(&record, &BTreeMap::new());
-    assert_eq!(
-        step.all_reduce_ms,
-        [ms(50u64.wrapping_sub(100).wrapping_add(10)), 0.0]
-    );
+    assert_eq!(step.all_reduce_ms, [ms(50u64.wrapping_sub(100).wrapping_add(10)), 0.0]);
 }

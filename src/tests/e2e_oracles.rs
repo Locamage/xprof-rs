@@ -20,31 +20,22 @@ type Line = (String, String, Vec<(f64, f64)>);
 
 pub fn demo_query(name: &str, command: &str, flags: &[&str]) -> crate::cli::json::J {
     let path = demo(&super::cli_support::scratch(name));
-    let argv: Vec<&str> = [command, path.to_str().unwrap()]
-        .into_iter()
-        .chain(flags.iter().copied())
-        .collect();
+    let argv: Vec<&str> =
+        [command, path.to_str().unwrap()].into_iter().chain(flags.iter().copied()).collect();
     super::cli_support::ok(&argv)
 }
 
 pub fn training_trace(step_ps: i64) -> Vec<u8> {
     let mut space = XSpace::default();
-    let plane = space.tpu(
-        0,
-        "TPU v6 lite",
-        V6E_PEAK_TFLOPS_BF16,
-        V6E_PEAK_HBM_GB_S,
-        None,
-    );
+    let plane = space.tpu(0, "TPU v6 lite", V6E_PEAK_TFLOPS_BF16, V6E_PEAK_HBM_GB_S, None);
     plane.id = 0;
     plane.add_stat("core_details", V::Bytes(CORE_DETAILS.to_vec()));
     plane.named_line(0, "Steps");
     plane.named_line(1, "XLA Modules");
     plane.named_line(2, "XLA Ops");
-    for (symbol, name, category) in [
-        (1, "fusion.1", "convolution fusion"),
-        (2, "convolution.2", "convolution"),
-    ] {
+    for (symbol, name, category) in
+        [(1, "fusion.1", "convolution fusion"), (2, "convolution.2", "convolution")]
+    {
         plane.metadata_stats(
             name,
             &[
@@ -65,20 +56,8 @@ pub fn training_trace(step_ps: i64) -> Vec<u8> {
             step_ps,
             &[("group_id", (step + 1).into()), ("program_id", 1.into())],
         );
-        plane.event(
-            2,
-            "fusion.1",
-            start + step_ps / 200,
-            step_ps * 3 / 4,
-            &group,
-        );
-        plane.event(
-            2,
-            "convolution.2",
-            start + step_ps * 76 / 100,
-            step_ps * 23 / 100,
-            &group,
-        );
+        plane.event(2, "fusion.1", start + step_ps / 200, step_ps * 3 / 4, &group);
+        plane.event(2, "convolution.2", start + step_ps * 76 / 100, step_ps * 23 / 100, &group);
     }
     space.encode_to_vec()
 }
@@ -150,9 +129,7 @@ pub fn oracle_duty_cycle(path: &Path) -> f64 {
         .into_iter()
         .filter(|(plane, line, _)| {
             plane.starts_with("/device:")
-                && !IGNORED_LINES
-                    .iter()
-                    .any(|ignored| line.to_lowercase().contains(ignored))
+                && !IGNORED_LINES.iter().any(|ignored| line.to_lowercase().contains(ignored))
         })
         .flat_map(|(_, _, spans)| {
             spans
@@ -181,19 +158,13 @@ pub fn oracle_duty_cycle(path: &Path) -> f64 {
 }
 
 pub fn oracle_ridge_point(peak_flops: f64, peak_bandwidth: f64) -> f64 {
-    if peak_bandwidth > 0.0 {
-        RIDGE_DERATING * peak_flops / peak_bandwidth
-    } else {
-        0.0
-    }
+    if peak_bandwidth > 0.0 { RIDGE_DERATING * peak_flops / peak_bandwidth } else { 0.0 }
 }
 
 pub fn datasheet_violations(step_time_ms: f64, duty_cycle: f64) -> Vec<String> {
     let mut violations = Vec::new();
     if step_time_ms <= 0.0 {
-        violations.push(format!(
-            "Step time must be positive (got {step_time_ms} ms)"
-        ));
+        violations.push(format!("Step time must be positive (got {step_time_ms} ms)"));
     }
     if !(0.0..=1.0).contains(&duty_cycle) {
         violations.push(format!("Duty cycle must be in [0, 1] (got {duty_cycle})"));

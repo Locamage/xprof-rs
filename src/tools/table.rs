@@ -40,10 +40,7 @@ static POWERS: LazyLock<Vec<(u64, i32)>> = LazyLock::new(|| {
                     (mantissa << -excess, exponent + excess)
                 };
             }
-            (
-                ((mantissa >> 60) + (mantissa >> 59 & 1)) as u64,
-                exponent + 60,
-            )
+            (((mantissa >> 60) + (mantissa >> 59 & 1)) as u64, exponent + 60)
         })
         .collect()
 });
@@ -80,11 +77,8 @@ fn grisu2(value: f64) -> (Vec<u8>, i32) {
         (fraction + (1 << 52), exponent as i32 - 1075)
     };
     let plus = normalize((2 * v.0 + 1, v.1 - 1));
-    let minus_raw = if fraction == 0 && exponent > 1 {
-        (4 * v.0 - 1, v.1 - 2)
-    } else {
-        (2 * v.0 - 1, v.1 - 1)
-    };
+    let minus_raw =
+        if fraction == 0 && exponent > 1 { (4 * v.0 - 1, v.1 - 2) } else { (2 * v.0 - 1, v.1 - 1) };
     let minus = (minus_raw.0 << (minus_raw.1 - plus.1), plus.1);
     let v = normalize(v);
     let f = -60 - plus.1 - 1;
@@ -92,10 +86,7 @@ fn grisu2(value: f64) -> (Vec<u8>, i32) {
     let index = (300 + k + 7) / 8;
     let ((cached_f, cached_e), cached_k) = (POWERS[index as usize], -300 + 8 * index);
     let w = multiply(v, (cached_f, cached_e));
-    let upper = (
-        multiply(plus, (cached_f, cached_e)).0 - 1,
-        plus.1 + cached_e + 64,
-    );
+    let upper = (multiply(plus, (cached_f, cached_e)).0 - 1, plus.1 + cached_e + 64);
     let lower = (multiply(minus, (cached_f, cached_e)).0 + 1, upper.1);
     let mut decimal_exponent = -cached_k;
     let (mut delta, mut dist) = (upper.0 - lower.0, upper.0 - w.0);
@@ -155,13 +146,8 @@ fn decimal(out: &mut String, digits: &str, point: i32, max_exponent: i32) {
             out.push('.');
             out.push_str(&digits[1..]);
         }
-        write!(
-            out,
-            "e{}{:02}",
-            if point - 1 < 0 { '-' } else { '+' },
-            (point - 1).abs()
-        )
-        .expect("writing to a string cannot fail");
+        write!(out, "e{}{:02}", if point - 1 < 0 { '-' } else { '+' }, (point - 1).abs())
+            .expect("writing to a string cannot fail");
     }
 }
 
@@ -187,10 +173,7 @@ pub fn number(out: &mut String, value: f64) {
 }
 
 pub fn string(out: &mut String, text: &str) {
-    if text
-        .bytes()
-        .any(|byte| byte < 0x20 || byte == b'"' || byte == b'\\')
-    {
+    if text.bytes().any(|byte| byte < 0x20 || byte == b'"' || byte == b'\\') {
         out.push_str(&serde_json::to_string(text).expect("serializing a string cannot fail"));
     } else {
         out.push('"');
@@ -258,11 +241,7 @@ impl Table {
             .map(|rows| {
                 let mut out = String::with_capacity(rows.len() * 512);
                 for row in rows {
-                    out.push_str(if out.is_empty() {
-                        "{\"c\":["
-                    } else {
-                        ",{\"c\":["
-                    });
+                    out.push_str(if out.is_empty() { "{\"c\":[" } else { ",{\"c\":[" });
                     for (position, cell) in row.iter().enumerate() {
                         out.push_str(if position > 0 { ",{\"v\":" } else { "{\"v\":" });
                         match cell {
@@ -302,10 +281,7 @@ struct Short {
 impl Write for Short {
     fn write_str(&mut self, text: &str) -> std::fmt::Result {
         let end = self.len + text.len();
-        self.bytes
-            .get_mut(self.len..end)
-            .ok_or(std::fmt::Error)?
-            .copy_from_slice(text.as_bytes());
+        self.bytes.get_mut(self.len..end).ok_or(std::fmt::Error)?.copy_from_slice(text.as_bytes());
         self.len = end;
         Ok(())
     }
@@ -333,21 +309,16 @@ pub fn repr_into(out: &mut String, value: f64) {
         .expect("scientific notation has an exponent");
     let mut digits = Short::default();
     for part in mantissa.split('.') {
-        digits
-            .write_str(part)
-            .expect("significand fits in the formatting buffer");
+        digits.write_str(part).expect("significand fits in the formatting buffer");
     }
     let (digits, exponent) = (
         &mut digits.bytes[..digits.len],
-        exponent
-            .parse::<i32>()
-            .expect("formatted exponent is an integer"),
+        exponent.parse::<i32>().expect("formatted exponent is an integer"),
     );
     let last = digits.len() - 1;
     if digits[last] % 2 == 1 {
-        let number = digits.iter().fold(0u128, |number, digit| {
-            number * 10 + u128::from(digit - b'0')
-        });
+        let number =
+            digits.iter().fold(0u128, |number, digit| number * 10 + u128::from(digit - b'0'));
         let place = exponent - last as i32;
         let reads_back = |number: u128| format!("{number}e{place}").parse() == Ok(value.abs());
         if halfway(value.abs(), 2 * number - 1, place) && reads_back(number - 1) {

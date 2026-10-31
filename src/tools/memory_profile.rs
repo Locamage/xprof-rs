@@ -47,21 +47,13 @@ fn data_type(value: i64) -> String {
             .filter(|_| value >= 0)
             .map_or_else(|| format!("unknown dtype enum ({value})"), str::to_string)
     };
-    if value > 100 {
-        format!("{}_ref", name(value - 100))
-    } else {
-        name(value)
-    }
+    if value > 100 { format!("{}_ref", name(value - 100)) } else { name(value) }
 }
 
 fn offset(raw: &[u8]) -> i64 {
     fields(raw)
         .find_map(|(tag, field)| {
-            if let (2, Field::Num(offset)) = (tag, field) {
-                Some(offset as i64)
-            } else {
-                None
-            }
+            if let (2, Field::Num(offset)) = (tag, field) { Some(offset as i64) } else { None }
         })
         .unwrap_or(0)
 }
@@ -99,11 +91,7 @@ fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
                 let Some(name) = plane.stat_names.get(stat.id) else {
                     continue;
                 };
-                let int = if let Value::Int(value) = stat.value {
-                    value
-                } else {
-                    0
-                };
+                let int = if let Value::Int(value) = stat.value { value } else { 0 };
                 match &**name {
                     "index_on_host" | "device_ordinal" => memory_id = int.to_string(),
                     "allocator_name" => memory_id = plane.text(&stat.value),
@@ -111,11 +99,8 @@ fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
                     "bytes_allocated" => stats_.heap_allocated_bytes = int,
                     "bytes_available" => stats_.free_memory_bytes = int,
                     "fragmentation" => {
-                        stats_.fragmentation = if let Value::Double(value) = stat.value {
-                            value
-                        } else {
-                            0.0
-                        }
+                        stats_.fragmentation =
+                            if let Value::Double(value) = stat.value { value } else { 0.0 }
                     }
                     "peak_bytes_in_use" => stats_.peak_bytes_in_use = int,
                     "requested_bytes" => meta.requested_bytes = int,
@@ -132,14 +117,7 @@ fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
             if event.group != NONE_GROUP {
                 meta.step_id = event.group;
             }
-            (
-                memory_id,
-                Snapshot {
-                    time: offset(raw),
-                    stats: stats_,
-                    meta,
-                },
-            )
+            (memory_id, Snapshot { time: offset(raw), stats: stats_, meta })
         })
         .collect();
     let mut allocators: BTreeMap<String, Allocator> = BTreeMap::new();
@@ -147,14 +125,9 @@ fn generate(plane: &Plane, map: &[u8]) -> BTreeMap<String, Allocator> {
         let allocator = allocators.entry(memory_id).or_default();
         let (summary, stats_) = (&mut allocator.summary, snapshot.stats);
         summary.lifetime = stats_.peak_bytes_in_use;
-        let in_use = stats_
-            .stack_reserved_bytes
-            .wrapping_add(stats_.heap_allocated_bytes);
+        let in_use = stats_.stack_reserved_bytes.wrapping_add(stats_.heap_allocated_bytes);
         if in_use >= summary.peak.peak_bytes_in_use {
-            summary.peak = Stats {
-                peak_bytes_in_use: in_use,
-                ..stats_
-            };
+            summary.peak = Stats { peak_bytes_in_use: in_use, ..stats_ };
             summary.peak_time = snapshot.time;
             summary.capacity = in_use.wrapping_add(stats_.free_memory_bytes);
         }
@@ -192,17 +165,8 @@ fn process(allocator: &mut Allocator) {
             if let Some(source) = allocations.remove(&address) {
                 let source = snapshots[source].meta.clone();
                 let meta = &mut snapshots[index].meta;
-                (
-                    meta.tf_op_name,
-                    meta.region_type,
-                    meta.data_type,
-                    meta.tensor_shape,
-                ) = (
-                    source.tf_op_name,
-                    source.region_type,
-                    source.data_type,
-                    source.tensor_shape,
-                );
+                (meta.tf_op_name, meta.region_type, meta.data_type, meta.tensor_shape) =
+                    (source.tf_op_name, source.region_type, source.data_type, source.tensor_shape);
             }
         } else {
             allocations.entry(address).or_insert(index);
@@ -210,19 +174,15 @@ fn process(allocator: &mut Allocator) {
     }
     let count = snapshots.len();
     let in_use = |snapshot: &Snapshot| {
-        snapshot
-            .stats
-            .heap_allocated_bytes
-            .wrapping_add(snapshot.stats.stack_reserved_bytes)
+        snapshot.stats.heap_allocated_bytes.wrapping_add(snapshot.stats.stack_reserved_bytes)
     };
     allocator.sampled = if count > MAX_SNAPSHOTS {
         let width = count / MAX_SNAPSHOTS;
         let first = MAX_SNAPSHOTS * (width + 1) - count;
         let mut sampled = Vec::with_capacity(MAX_SNAPSHOTS);
-        for (width, samples, start) in [
-            (width, first, 0),
-            (width + 1, MAX_SNAPSHOTS - first, width * first),
-        ] {
+        for (width, samples, start) in
+            [(width, first, 0), (width + 1, MAX_SNAPSHOTS - first, width * first)]
+        {
             for begin in (0..samples).map(|sample| start + width * sample) {
                 sampled.push(
                     snapshots[(begin..begin + width)
@@ -264,10 +224,8 @@ fn process(allocator: &mut Allocator) {
     unmapped = unmapped.wrapping_sub(unmapped_free);
     let mut order: Vec<usize> = active.into_values().collect();
     order.sort_unstable();
-    let mut entries: Vec<(i64, &Activity)> = order
-        .into_iter()
-        .map(|index| (index as i64, &snapshots[index].meta))
-        .collect();
+    let mut entries: Vec<(i64, &Activity)> =
+        order.into_iter().map(|index| (index as i64, &snapshots[index].meta)).collect();
     let special = |name: &str, bytes: i64, region: &str| Activity {
         memory_activity: ALLOCATION,
         requested_bytes: bytes,
@@ -281,21 +239,13 @@ fn process(allocator: &mut Allocator) {
     };
     let mut specials = Vec::new();
     if unmapped > 0 {
-        specials.push(special(
-            "unused preallocated device memory",
-            unmapped,
-            "persist/dynamic",
-        ));
+        specials.push(special("unused preallocated device memory", unmapped, "persist/dynamic"));
     }
     if summary.peak.stack_reserved_bytes > 0 {
         specials.push(special("stack", summary.peak.stack_reserved_bytes, "stack"));
     }
-    entries.extend(
-        specials
-            .iter()
-            .enumerate()
-            .map(|(position, meta)| (-(position as i64) - 1, meta)),
-    );
+    entries
+        .extend(specials.iter().enumerate().map(|(position, meta)| (-(position as i64) - 1, meta)));
     entries.sort_by_key(|(_, meta)| key(meta));
     let mut active: Vec<ActiveAllocation> = entries
         .chunk_by(|a, b| key(a.1) == key(b.1))
@@ -310,11 +260,7 @@ fn process(allocator: &mut Allocator) {
         .filter(|entry| entry.snapshot_index >= 0)
         .map(|entry| snapshots[entry.snapshot_index as usize].clone())
         .collect();
-    for (next, entry) in active
-        .iter_mut()
-        .filter(|entry| entry.snapshot_index >= 0)
-        .enumerate()
-    {
+    for (next, entry) in active.iter_mut().filter(|entry| entry.snapshot_index >= 0).enumerate() {
         entry.snapshot_index = next as i64;
     }
     allocator.snapshots = kept;
@@ -381,11 +327,7 @@ pub fn json(planes: &[Plane], map: &[u8]) -> String {
                 start_time_ps: start,
                 end_time_ps: start.saturating_add(event.dur as i64),
                 id: id as i64,
-                plane_name: plane
-                    .name
-                    .strip_prefix("/device:")
-                    .unwrap_or(&plane.name)
-                    .to_string(),
+                plane_name: plane.name.strip_prefix("/device:").unwrap_or(&plane.name).to_string(),
             }
         })
         .collect();

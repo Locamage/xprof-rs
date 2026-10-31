@@ -26,19 +26,13 @@ fn create_one_test_step(
     };
     StepRecord {
         num: step_num,
-        cores: (0..NUM_CORES_PER_HOST)
-            .map(|core| (core, info.clone()))
-            .collect(),
+        cores: (0..NUM_CORES_PER_HOST).map(|core| (core, info.clone())).collect(),
         ..Default::default()
     }
 }
 
 fn host(steps: Vec<StepRecord>) -> Extra {
-    Extra {
-        device_type: "TPU".into(),
-        steps,
-        ..Default::default()
-    }
+    Extra { device_type: "TPU".into(), steps, ..Default::default() }
 }
 
 fn create_step_database_result_for_host(
@@ -93,28 +87,18 @@ fn single_core_step(duration: u64) -> Extra {
         duration,
         breakdown: Breakdown::Types(BTreeMap::new()),
     };
-    host(vec![StepRecord {
-        num: 0,
-        cores: BTreeMap::from([(0, info)]),
-        ..Default::default()
-    }])
+    host(vec![StepRecord { num: 0, cores: BTreeMap::from([(0, info)]), ..Default::default() }])
 }
 
 #[test]
 fn each_host_shifted_by_1_step_duration() {
     let num_hosts = 4;
-    let intersection = intersection(&create_test_steps(
-        num_hosts,
-        NUM_STEPS_PER_HOST,
-        STEP_DURATION_PS,
-    ));
+    let intersection =
+        intersection(&create_test_steps(num_hosts, NUM_STEPS_PER_HOST, STEP_DURATION_PS));
     let dst_num_steps = NUM_STEPS_PER_HOST - num_hosts + 1;
     assert_eq!(intersection.steps.len() as u32, dst_num_steps);
     assert_eq!(first_step_index(&intersection, 0), (num_hosts - 1) as u64);
-    assert_eq!(
-        dst_step_numbers(&intersection),
-        (0..dst_num_steps).collect::<Vec<_>>()
-    );
+    assert_eq!(dst_step_numbers(&intersection), (0..dst_num_steps).collect::<Vec<_>>());
 }
 
 #[test]
@@ -122,10 +106,7 @@ fn exactly_no_shift() {
     let num_hosts = 4;
     let intersection = intersection(&create_test_steps(num_hosts, NUM_STEPS_PER_HOST, 0));
     assert_eq!(intersection.steps.len() as u32, NUM_STEPS_PER_HOST);
-    assert_eq!(
-        dst_step_numbers(&intersection),
-        (0..NUM_STEPS_PER_HOST).collect::<Vec<_>>()
-    );
+    assert_eq!(dst_step_numbers(&intersection), (0..NUM_STEPS_PER_HOST).collect::<Vec<_>>());
     for host_id in 0..num_hosts {
         assert_eq!(first_step_index(&intersection, host_id), 0);
     }
@@ -136,15 +117,9 @@ fn each_host_shifted_by_just_a_bit() {
     let num_hosts = 4;
     let intersection = intersection(&create_test_steps(num_hosts, NUM_STEPS_PER_HOST, 100));
     assert_eq!(intersection.steps.len() as u32, NUM_STEPS_PER_HOST);
-    assert_eq!(
-        dst_step_numbers(&intersection),
-        (0..NUM_STEPS_PER_HOST).collect::<Vec<_>>()
-    );
+    assert_eq!(dst_step_numbers(&intersection), (0..NUM_STEPS_PER_HOST).collect::<Vec<_>>());
     for host_id in 0..num_hosts {
-        assert_eq!(
-            intersection.steps[0].cores[&(host_id * 1000)].begin,
-            host_id as u64 * 100
-        );
+        assert_eq!(intersection.steps[0].cores[&(host_id * 1000)].begin, host_id as u64 * 100);
     }
 }
 
@@ -152,10 +127,7 @@ fn each_host_shifted_by_just_a_bit() {
 fn single_host() {
     let intersection = intersection(&create_test_steps(1, NUM_STEPS_PER_HOST, 0));
     assert_eq!(intersection.steps.len() as u32, NUM_STEPS_PER_HOST);
-    assert_eq!(
-        dst_step_numbers(&intersection),
-        (0..NUM_STEPS_PER_HOST).collect::<Vec<_>>()
-    );
+    assert_eq!(dst_step_numbers(&intersection), (0..NUM_STEPS_PER_HOST).collect::<Vec<_>>());
     assert_eq!(first_step_index(&intersection, 0), 0);
 }
 
@@ -220,10 +192,8 @@ fn varying_step_durations() {
             step
         })
         .collect();
-    let intersection = intersection(&[
-        host(steps),
-        create_step_database_result_for_host(1, 10, 0, STEP_GAP_PS),
-    ]);
+    let intersection =
+        intersection(&[host(steps), create_step_database_result_for_host(1, 10, 0, STEP_GAP_PS)]);
     assert!(!intersection.steps.is_empty());
 }
 
@@ -279,12 +249,7 @@ fn one_host_with_no_steps() {
 
 #[test]
 fn single_core_steps() {
-    assert_eq!(
-        intersection(&[single_core_step(STEP_DURATION_PS)])
-            .steps
-            .len(),
-        1
-    );
+    assert_eq!(intersection(&[single_core_step(STEP_DURATION_PS)]).steps.len(), 1);
 }
 
 #[test]

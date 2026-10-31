@@ -20,19 +20,11 @@ fn to_string(layout: LayoutProto) -> String {
 }
 
 fn minor_to_major(minor_to_major: &[i64]) -> LayoutProto {
-    LayoutProto {
-        minor_to_major: minor_to_major.to_vec(),
-        ..Default::default()
-    }
+    LayoutProto { minor_to_major: minor_to_major.to_vec(), ..Default::default() }
 }
 
 fn tiles(tiles: &[&[i64]]) -> Vec<TileProto> {
-    tiles
-        .iter()
-        .map(|dimensions| TileProto {
-            dimensions: dimensions.to_vec(),
-        })
-        .collect()
+    tiles.iter().map(|dimensions| TileProto { dimensions: dimensions.to_vec() }).collect()
 }
 
 #[test]
@@ -81,10 +73,7 @@ fn to_string_for_tail_padding_alignment() {
 #[test]
 fn to_string_for_index_primitive_type() {
     assert_eq!(
-        to_string(LayoutProto {
-            index_primitive_type: U32,
-            ..minor_to_major(&[3, 2, 1, 0])
-        }),
+        to_string(LayoutProto { index_primitive_type: U32, ..minor_to_major(&[3, 2, 1, 0]) }),
         "{3,2,1,0:#(u32)}"
     );
 }
@@ -92,10 +81,7 @@ fn to_string_for_index_primitive_type() {
 #[test]
 fn to_string_for_pointer_primitive_type() {
     assert_eq!(
-        to_string(LayoutProto {
-            pointer_primitive_type: U16,
-            ..minor_to_major(&[3, 2, 1, 0])
-        }),
+        to_string(LayoutProto { pointer_primitive_type: U16, ..minor_to_major(&[3, 2, 1, 0]) }),
         "{3,2,1,0:*(u16)}"
     );
 }
@@ -103,10 +89,7 @@ fn to_string_for_pointer_primitive_type() {
 #[test]
 fn to_string_for_element_size() {
     assert_eq!(
-        to_string(LayoutProto {
-            element_size_in_bits: 42,
-            ..minor_to_major(&[3, 2, 1, 0])
-        }),
+        to_string(LayoutProto { element_size_in_bits: 42, ..minor_to_major(&[3, 2, 1, 0]) }),
         "{3,2,1,0:E(42)}"
     );
 }
@@ -114,10 +97,7 @@ fn to_string_for_element_size() {
 #[test]
 fn to_string_for_memory_space() {
     assert_eq!(
-        to_string(LayoutProto {
-            memory_space: 3,
-            ..minor_to_major(&[3, 2, 1, 0])
-        }),
+        to_string(LayoutProto { memory_space: 3, ..minor_to_major(&[3, 2, 1, 0]) }),
         "{3,2,1,0:S(3)}"
     );
 }
@@ -125,20 +105,11 @@ fn to_string_for_memory_space() {
 #[test]
 fn to_string_for_split_configs() {
     let split_configs = vec![
-        SplitConfigProto {
-            dimension: 0,
-            split_indices: vec![3],
-        },
-        SplitConfigProto {
-            dimension: 1,
-            split_indices: vec![0, 4],
-        },
+        SplitConfigProto { dimension: 0, split_indices: vec![3] },
+        SplitConfigProto { dimension: 1, split_indices: vec![0, 4] },
     ];
     assert_eq!(
-        to_string(LayoutProto {
-            split_configs,
-            ..minor_to_major(&[0, 1])
-        }),
+        to_string(LayoutProto { split_configs, ..minor_to_major(&[0, 1]) }),
         "{0,1:SC(0:3)(1:0,4)}"
     );
 }
@@ -185,10 +156,7 @@ fn to_string_for_mutiple_properties() {
 #[test]
 fn stream_out() {
     assert_eq!(
-        to_string(LayoutProto {
-            tiles: tiles(&[&[7, 8]]),
-            ..minor_to_major(&[0, 1])
-        }),
+        to_string(LayoutProto { tiles: tiles(&[&[7, 8]]), ..minor_to_major(&[0, 1]) }),
         "{0,1:T(7,8)}"
     );
     assert_eq!(to_string(minor_to_major(&[0, 1, 2])), "{0,1,2}");

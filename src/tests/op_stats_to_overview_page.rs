@@ -23,16 +23,9 @@ fn high_confidence_tpu_duty_cycle() {
            device_op_metrics_db { busy_time_ps: 70 idle_time_ps: 30 busy_time_high_confidence_ps: 60 idle_time_high_confidence_ps: 20 }"#,
     );
     assert_eq!(analysis["device_duty_cycle_percent"], "70.0%");
-    assert_eq!(
-        analysis["device_duty_cycle_high_confidence_percent"],
-        "75.0%"
-    );
+    assert_eq!(analysis["device_duty_cycle_high_confidence_percent"], "75.0%");
     assert_eq!(analysis["idle_time_high_confidence_ps"], "20");
-    assert!(
-        analysis
-            .get("device_duty_cycle_high_confidence_percent")
-            .is_some()
-    );
+    assert!(analysis.get("device_duty_cycle_high_confidence_percent").is_some());
     assert!(analysis.get("idle_time_high_confidence_ps").is_some());
 }
 
@@ -42,8 +35,5 @@ fn high_confidence_zero_time_test() {
         r#"run_environment { device_type: "TPU" }
            device_op_metrics_db { busy_time_high_confidence_ps: 0 idle_time_high_confidence_ps: 0 }"#,
     );
-    assert_eq!(
-        analysis["device_duty_cycle_high_confidence_percent"],
-        "0.0%"
-    );
+    assert_eq!(analysis["device_duty_cycle_high_confidence_percent"], "0.0%");
 }

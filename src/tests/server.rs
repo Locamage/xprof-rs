@@ -15,17 +15,11 @@ fn test_get_abs_path() {
     assert_eq!(logdir_of(&absolute.to_string_lossy()), absolute);
     assert_eq!(
         logdir_of("~"),
-        PathBuf::from(std::env::var("HOME").unwrap())
-            .canonicalize()
-            .unwrap()
+        PathBuf::from(std::env::var("HOME").unwrap()).canonicalize().unwrap()
     );
     assert_eq!(
         logdir_of("src/tests"),
-        std::env::current_dir()
-            .unwrap()
-            .join("src/tests")
-            .canonicalize()
-            .unwrap()
+        std::env::current_dir().unwrap().join("src/tests").canonicalize().unwrap()
     );
 }
 
@@ -35,27 +29,14 @@ fn test_start_server() {
     let path = dir.to_string_lossy().into_owned();
     assert_eq!(
         run(&["--port", "1234", "--grpc_port", "50051"]),
-        Ok(Settings {
-            port: 1234,
-            ..Default::default()
-        })
+        Ok(Settings { port: 1234, ..Default::default() })
     );
     assert_eq!(
         run(&["--logdir", &path, "--port", "5678"]),
-        Ok(Settings {
-            logdir: dir,
-            port: 5678,
-            ..Default::default()
-        })
+        Ok(Settings { logdir: dir, port: 5678, ..Default::default() })
     );
     assert_eq!(
-        run(&[
-            "--port",
-            "1234",
-            "--hide_capture_profile_button",
-            "--src_prefix",
-            ""
-        ]),
+        run(&["--port", "1234", "--hide_capture_profile_button", "--src_prefix", ""]),
         Ok(Settings {
             port: 1234,
             hide_capture_profile_button: true,
@@ -82,29 +63,19 @@ fn test_start_server_errors() {
 #[test]
 fn test_open_uri_pattern_is_validated_and_anchored() {
     let settings = run(&["--open_uri_pattern", "s3://[^/]+/profile"]).unwrap();
-    assert_eq!(
-        settings.open_uri_pattern.as_deref(),
-        Some("s3://[^/]+/profile")
-    );
+    assert_eq!(settings.open_uri_pattern.as_deref(), Some("s3://[^/]+/profile"));
     let server = crate::state(&settings);
     let pattern = server.open_uri_pattern.as_ref().unwrap();
     assert!(pattern.is_match("s3://bucket/profile"));
     assert!(!pattern.is_match("prefix-s3://bucket/profile"));
-    assert!(
-        run(&["--open_uri_pattern", "("])
-            .unwrap_err()
-            .contains("invalid regex")
-    );
+    assert!(run(&["--open_uri_pattern", "("]).unwrap_err().contains("invalid regex"));
 }
 
 #[test]
 fn test_main_intercepts_cli_subcommand() {
-    for subcommand in [
-        "get_overview",
-        "get_roofline_model",
-        "check_host_boundness",
-        "get_top_hlo_ops",
-    ] {
+    for subcommand in
+        ["get_overview", "get_roofline_model", "check_host_boundness", "get_top_hlo_ops"]
+    {
         let (code, out, _) =
             crate::cli::execute(&[subcommand.to_string(), "/path/to/trace".into()]).unwrap();
         assert_eq!(code, 3);
@@ -120,11 +91,7 @@ fn test_main_launches_server() {
     let dir = std::env::temp_dir().canonicalize().unwrap();
     assert_eq!(
         run(&["--logdir", &dir.to_string_lossy(), "--port", "1234"]),
-        Ok(Settings {
-            logdir: dir,
-            port: 1234,
-            ..Default::default()
-        })
+        Ok(Settings { logdir: dir, port: 1234, ..Default::default() })
     );
     assert_eq!(run(&[]).map(|settings| settings.port), Ok(DEFAULT_PORT));
 }
@@ -133,10 +100,7 @@ fn test_main_launches_server() {
 fn test_server_subcommand_starts_server() {
     assert_eq!(
         run(&["server", "--port", "1234"]),
-        Ok(Settings {
-            port: 1234,
-            ..Default::default()
-        })
+        Ok(Settings { port: 1234, ..Default::default() })
     );
     assert!(crate::cli::execute(&["server".into()]).is_none());
 }
@@ -147,10 +111,7 @@ fn test_value_flag_does_not_take_the_next_flag() {
         run(&["--logdir", "--port", "1234"]),
         Err("argument --logdir: expected one argument".into())
     );
-    assert_eq!(
-        run(&["--src_prefix"]),
-        Err("argument --src_prefix: expected one argument".into())
-    );
+    assert_eq!(run(&["--src_prefix"]), Err("argument --src_prefix: expected one argument".into()));
     assert_eq!(
         run(&["--src_prefix", "-1.5"]).map(|settings| settings.src_prefix),
         Ok(Some("-1.5".into()))
@@ -182,11 +143,8 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
             "open-no-logdir-store"
         });
         for host in ["h0", "h1"] {
-            std::fs::write(
-                root.join(format!("run/plugins/profile/s/{host}.xplane.pb")),
-                demo,
-            )
-            .unwrap();
+            std::fs::write(root.join(format!("run/plugins/profile/s/{host}.xplane.pb")), demo)
+                .unwrap();
         }
         let uri = format!("file://{}", root.join("run").display());
         let state = state(&Settings {
@@ -202,19 +160,8 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
             ),
         )
         .await;
-        assert!(
-            matches!(opened.0, StatusCode::ACCEPTED | StatusCode::SEE_OTHER),
-            "{}",
-            opened.2
-        );
-        let stage = state
-            .staging
-            .lock()
-            .unwrap()
-            .values()
-            .next()
-            .unwrap()
-            .clone();
+        assert!(matches!(opened.0, StatusCode::ACCEPTED | StatusCode::SEE_OTHER), "{}", opened.2);
+        let stage = state.staging.lock().unwrap().values().next().unwrap().clone();
         if opened.0 == StatusCode::ACCEPTED {
             assert!(
                 opened.2.contains("./progress?uri=") && opened.2.contains("tool=trace_viewer"),
@@ -248,25 +195,15 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
             .join(ready["location"].as_str().unwrap())
             .unwrap();
         assert_eq!(
-            location
-                .query_pairs()
-                .find(|(key, _)| key == "tool")
-                .unwrap()
-                .1,
+            location.query_pairs().find(|(key, _)| key == "tool").unwrap().1,
             "trace_viewer"
         );
-        let profile = location
-            .query_pairs()
-            .find(|(key, _)| key == "run_path")
-            .unwrap()
-            .1
-            .into_owned();
+        let profile =
+            location.query_pairs().find(|(key, _)| key == "run_path").unwrap().1.into_owned();
         let mut query = url::form_urlencoded::Serializer::new(String::new());
         query.append_pair("run_path", &profile);
         assert_eq!(
-            crate::tests::legacy::fetch(&state, &format!("/runs?{}", query.finish()))
-                .await
-                .2,
+            crate::tests::legacy::fetch(&state, &format!("/runs?{}", query.finish())).await.2,
             "[\"s\"]"
         );
         let mut query = url::form_urlencoded::Serializer::new(String::new());
@@ -278,41 +215,24 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
         let served =
             crate::tests::legacy::fetch(&state, &format!("/data?{}", query.finish())).await;
         assert_eq!(served.0, StatusCode::OK, "{}", served.2);
-        let stage_mirror = state
-            .staging
-            .lock()
-            .unwrap()
-            .values()
-            .next()
-            .unwrap()
-            .remote
-            .mirror
-            .clone();
+        let stage_mirror =
+            state.staging.lock().unwrap().values().next().unwrap().remote.mirror.clone();
         std::fs::remove_dir_all(stage_mirror).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
     let unrestricted = state(&Settings::default());
     assert_eq!(
-        crate::tests::legacy::fetch(&unrestricted, "/open?uri=file%3A%2F%2Ftmp%2Fprofile")
-            .await
-            .0,
+        crate::tests::legacy::fetch(&unrestricted, "/open?uri=file%3A%2F%2Ftmp%2Fprofile").await.0,
         StatusCode::FORBIDDEN
     );
-    let restricted = state(&Settings {
-        open_uri_pattern: Some("gs://.*".into()),
-        ..Default::default()
-    });
+    let restricted =
+        state(&Settings { open_uri_pattern: Some("gs://.*".into()), ..Default::default() });
     assert_eq!(
-        crate::tests::legacy::fetch(&restricted, "/open?uri=file%3A%2F%2Ftmp%2Fprofile")
-            .await
-            .0,
+        crate::tests::legacy::fetch(&restricted, "/open?uri=file%3A%2F%2Ftmp%2Fprofile").await.0,
         StatusCode::FORBIDDEN
     );
-    assert_eq!(
-        crate::tests::legacy::fetch(&restricted, "/open").await.0,
-        StatusCode::BAD_REQUEST
-    );
+    assert_eq!(crate::tests::legacy::fetch(&restricted, "/open").await.0, StatusCode::BAD_REQUEST);
     let post = app(restricted)
         .oneshot(
             Request::builder()
@@ -331,10 +251,7 @@ async fn healthz_returns_plain_text_ok() {
     let state = crate::state(&Settings::default());
     let reply = crate::tests::legacy::fetch(&state, "/healthz").await;
     assert_eq!(reply.0, axum::http::StatusCode::OK);
-    assert_eq!(
-        reply.1[axum::http::header::CONTENT_TYPE],
-        "text/plain; charset=utf-8"
-    );
+    assert_eq!(reply.1[axum::http::header::CONTENT_TYPE], "text/plain; charset=utf-8");
     assert_eq!(reply.2, "ok\n");
 }
 
@@ -351,9 +268,5 @@ fn top_level_help_lists_every_command() {
 #[test]
 fn release_version_has_a_changelog_section() {
     let section = format!("## {}", env!("CARGO_PKG_VERSION"));
-    assert!(
-        include_str!("../../CHANGELOG.md")
-            .lines()
-            .any(|line| line == section)
-    );
+    assert!(include_str!("../../CHANGELOG.md").lines().any(|line| line == section));
 }

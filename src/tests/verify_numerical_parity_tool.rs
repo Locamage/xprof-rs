@@ -12,12 +12,7 @@ fn unavailable(argv: &[&str]) {
     let payload = J::parse(&out).unwrap();
     assert_eq!(payload.at("reason").str(), Some("INTERNAL_ERROR"));
     assert!(payload.at("error").text().starts_with(DEPENDENCIES));
-    assert!(
-        payload
-            .at("traceback")
-            .text()
-            .contains(&format!("ImportError: {DEPENDENCIES}"))
-    );
+    assert!(payload.at("traceback").text().contains(&format!("ImportError: {DEPENDENCIES}")));
     assert!(err.contains("INTERNAL_ERROR"));
 }
 
@@ -60,10 +55,7 @@ fn test_verify_with_string_shapes_literal() {
 fn test_resolve_callable_invalid_module_raises() {
     let error = verify_numerical_parity(
         &Local::default(),
-        &args(
-            "",
-            &[("kernel_ref", J::from("non_existent_module_xyz.some_fn"))],
-        ),
+        &args("", &[("kernel_ref", J::from("non_existent_module_xyz.some_fn"))]),
     )
     .unwrap_err();
     assert_eq!(error.kind, Kind::Import);
