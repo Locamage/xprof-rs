@@ -19,11 +19,21 @@ pub fn names(device_type: &str) -> Option<&'static str> {
 
 /// Each line of a counter table is `NAME VALUE`, in the order of the `XProf` header.
 fn entries(table: &str) -> impl Iterator<Item = (&str, u64)> {
-    table.lines().filter_map(|line| line.split_once(' ').and_then(|(name, value)| Some((name, value.parse().ok()?))))
+    table.lines().filter_map(|line| {
+        line.split_once(' ')
+            .and_then(|(name, value)| Some((name, value.parse().ok()?)))
+    })
 }
 
 pub fn names_json(table: &str) -> String {
-    let entries: Vec<String> = entries(table).map(|(name, value)| format!("{{\"name\": \"{}\", \"val\": {value}}}", name.to_lowercase())).collect();
+    let entries: Vec<String> = entries(table)
+        .map(|(name, value)| {
+            format!(
+                "{{\"name\": \"{}\", \"val\": {value}}}",
+                name.to_lowercase()
+            )
+        })
+        .collect();
     format!("[{}]", entries.join(", "))
 }
 

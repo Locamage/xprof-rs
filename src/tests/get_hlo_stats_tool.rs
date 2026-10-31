@@ -15,11 +15,16 @@ const SERVER: &str = r##"{"cols": [{"id": "rank", "label": "Rank", "type": "numb
 const LONG_EXPRESSION: &str = "custom_op_instruction_without_standard_hlo_format_that_is_very_long";
 
 fn records(fake: &Fake, pairs: &[(&str, J)]) -> Vec<J> {
-    json(get_hlo_stats(fake, &args("session_123", pairs))).items().to_vec()
+    json(get_hlo_stats(fake, &args("session_123", pairs)))
+        .items()
+        .to_vec()
 }
 
 fn names(records: &[J]) -> Vec<String> {
-    records.iter().map(|record| record.at("op_name").text()).collect()
+    records
+        .iter()
+        .map(|record| record.at("op_name").text())
+        .collect()
 }
 
 #[test]
@@ -34,23 +39,43 @@ fn test_get_hlo_stats_json_default() {
 #[test]
 fn test_get_hlo_stats_bypass_cache_forwarded() {
     let fake = Fake::fixed(DATABASE);
-    get_hlo_stats(&fake, &args("session_123", &[("bypass_cache", J::Bool(true))])).unwrap();
+    get_hlo_stats(
+        &fake,
+        &args("session_123", &[("bypass_cache", J::Bool(true))]),
+    )
+    .unwrap();
     let calls = fake.calls.borrow();
     let (tool, params) = calls.last().unwrap();
     assert_eq!(tool, "hlo_stats.json");
-    let expected: Vec<(String, String)> = [("format", "json"), ("tqx", "out:pb"), ("bypass_cache", "True")].iter().map(|(key, value)| (key.to_string(), value.to_string())).collect();
+    let expected: Vec<(String, String)> = [
+        ("format", "json"),
+        ("tqx", "out:pb"),
+        ("bypass_cache", "True"),
+    ]
+    .iter()
+    .map(|(key, value)| (key.to_string(), value.to_string()))
+    .collect();
     assert_eq!(params, &expected);
 }
 
 #[test]
 fn test_op_name_fallback() {
-    let records = records(&Fake::fixed(&SINGLE.replace("EXPRESSION", LONG_EXPRESSION)), &[]);
+    let records = records(
+        &Fake::fixed(&SINGLE.replace("EXPRESSION", LONG_EXPRESSION)),
+        &[],
+    );
     assert_eq!(names(&records), [LONG_EXPRESSION]);
 }
 
 #[test]
 fn test_op_name_regex_no_redos_on_multiple_percents() {
-    let records = records(&Fake::fixed(&SINGLE.replace("EXPRESSION", "%foo %bar %baz %qux = f32[10] add(%foo, %bar)")), &[]);
+    let records = records(
+        &Fake::fixed(&SINGLE.replace(
+            "EXPRESSION",
+            "%foo %bar %baz %qux = f32[10] add(%foo, %bar)",
+        )),
+        &[],
+    );
     assert_eq!(names(&records), ["qux"]);
 }
 
@@ -63,18 +88,34 @@ fn test_sorting() {
         ("flops", ["convolution.1", "fusion.2", "tuple.3"]),
         ("bandwidth", ["fusion.2", "convolution.1", "tuple.3"]),
     ] {
-        assert_eq!(names(&records(&Fake::fixed(DATABASE), &[("sort_by", J::from(sort_by))])), expected, "{sort_by}");
+        assert_eq!(
+            names(&records(
+                &Fake::fixed(DATABASE),
+                &[("sort_by", J::from(sort_by))]
+            )),
+            expected,
+            "{sort_by}"
+        );
     }
 }
 
 #[test]
 fn test_category_filter() {
-    assert_eq!(names(&records(&Fake::fixed(DATABASE), &[("category_filter", J::from("Convolution"))])), ["convolution.1"]);
+    assert_eq!(
+        names(&records(
+            &Fake::fixed(DATABASE),
+            &[("category_filter", J::from("Convolution"))]
+        )),
+        ["convolution.1"]
+    );
 }
 
 #[test]
 fn test_limit() {
-    assert_eq!(records(&Fake::fixed(DATABASE), &[("limit", J::Int(2))]).len(), 2);
+    assert_eq!(
+        records(&Fake::fixed(DATABASE), &[("limit", J::Int(2))]).len(),
+        2
+    );
 }
 
 #[test]

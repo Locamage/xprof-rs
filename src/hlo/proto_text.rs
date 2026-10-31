@@ -42,13 +42,22 @@ static MESSAGES: LazyLock<FxHashMap<String, (bool, Vec<Spec>)>> = LazyLock::new(
                 map: field.is_map(),
                 list: field.is_list(),
                 presence: field.supports_presence(),
-                oneof: field.containing_oneof().map(|oneof| oneof.full_name().to_string()),
+                oneof: field
+                    .containing_oneof()
+                    .map(|oneof| oneof.full_name().to_string()),
             })
             .collect();
         specs.sort_by_key(|spec| spec.number);
         specs
     };
-    POOL.all_messages().map(|message| (message.full_name().to_string(), (message.is_map_entry(), specs(&message)))).collect()
+    POOL.all_messages()
+        .map(|message| {
+            (
+                message.full_name().to_string(),
+                (message.is_map_entry(), specs(&message)),
+            )
+        })
+        .collect()
 });
 
 #[derive(Clone, Copy, PartialEq)]
@@ -59,7 +68,9 @@ enum Format {
 }
 
 pub fn enum_name(name: &str, number: i32) -> String {
-    POOL.get_enum_by_name(name).and_then(|kind| kind.get_value(number)).map_or_else(String::new, |value| value.name().to_string())
+    POOL.get_enum_by_name(name)
+        .and_then(|kind| kind.get_value(number))
+        .map_or_else(String::new, |value| value.name().to_string())
 }
 
 pub fn c_escape(out: &mut String, bytes: &[u8]) {
@@ -79,20 +90,34 @@ pub fn c_escape(out: &mut String, bytes: &[u8]) {
 
 pub fn json_string(out: &mut String, text: &str) {
     out.push('"');
-    let special = |byte: u8| !(0x20..0x7f).contains(&byte) || (byte == b'"') || (byte == b'\\') || (byte == b'<') || (byte == b'>');
+    let special = |byte: u8| {
+        !(0x20..0x7f).contains(&byte)
+            || (byte == b'"')
+            || (byte == b'\\')
+            || (byte == b'<')
+            || (byte == b'>')
+    };
     let mut rest = text;
     loop {
         let mut plain = 0;
         while let Some(chunk) = rest.as_bytes().get(plain..plain + 16) {
-            if chunk.iter().fold(false, |found, &byte| found | special(byte)) {
+            if chunk
+                .iter()
+                .fold(false, |found, &byte| found | special(byte))
+            {
                 break;
             }
             plain += 16;
         }
-        plain += rest.as_bytes()[plain..].iter().position(|&byte| special(byte)).unwrap_or(rest.len() - plain);
+        plain += rest.as_bytes()[plain..]
+            .iter()
+            .position(|&byte| special(byte))
+            .unwrap_or(rest.len() - plain);
         out.push_str(&rest[..plain]);
         rest = &rest[plain..];
-        let Some(character) = rest.chars().next() else { break };
+        let Some(character) = rest.chars().next() else {
+            break;
+        };
         rest = &rest[character.len_utf8()..];
         match character {
             '"' => out.push_str("\\\""),
@@ -157,7 +182,10 @@ fn message_name(kind: &Kind) -> &str {
 }
 
 fn last(entry: &[u8], number: u32) -> Option<Field<'_>> {
-    fields(entry).filter(|(found, _)| *found == number).last().map(|(_, value)| value)
+    fields(entry)
+        .filter(|(found, _)| *found == number)
+        .last()
+        .map(|(_, value)| value)
 }
 
 fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Format) {
@@ -168,7 +196,9 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
         out.push_str(&spec.name);
     }
     match (value, kind) {
-        (Field::Bytes(_, bytes), Kind::Message(_)) if json => print(out, depth, message_name(kind), bytes, format),
+        (Field::Bytes(_, bytes), Kind::Message(_)) if json => {
+            print(out, depth, message_name(kind), bytes, format);
+        }
         (Field::Bytes(_, bytes), Kind::Message(_)) => {
             out.push_str(" {\n");
             print(out, depth + 1, message_name(kind), bytes, format);
@@ -188,15 +218,25 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
             match kind {
                 Kind::Double if json => proto_double(out, f64::from_bits(raw)),
                 Kind::Float if json => proto_double(out, f64::from(f32::from_bits(raw as u32))),
-                Kind::Double => out.push_str(&floating(f64::from_bits(raw), [15, 17], |text| text.parse() == Ok(f64::from_bits(raw)))),
-                Kind::Float => out.push_str(&floating(f64::from(f32::from_bits(raw as u32)), [6, 9], |text| text.parse() == Ok(f32::from_bits(raw as u32)))),
+                Kind::Double => out.push_str(&floating(f64::from_bits(raw), [15, 17], |text| {
+                    text.parse() == Ok(f64::from_bits(raw))
+                })),
+                Kind::Float => out.push_str(&floating(
+                    f64::from(f32::from_bits(raw as u32)),
+                    [6, 9],
+                    |text| text.parse() == Ok(f32::from_bits(raw as u32)),
+                )),
                 Kind::Bool => write!(out, "{}", raw != 0).unwrap(),
                 Kind::Enum(values) => match values.get_value(raw as i32) {
                     Some(value) if json => json_string(out, value.name()),
                     Some(value) => out.push_str(value.name()),
                     None => write!(out, "{}", raw as i32).unwrap(),
                 },
-                Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 | Kind::Uint64 | Kind::Fixed64 if json => write!(out, "\"{}\"", decode(kind, raw)).unwrap(),
+                Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 | Kind::Uint64 | Kind::Fixed64
+                    if json =>
+                {
+                    write!(out, "\"{}\"", decode(kind, raw)).unwrap();
+                }
                 kind => write!(out, "{}", decode(kind, raw)).unwrap(),
             }
         }
@@ -231,7 +271,11 @@ type Checks = Vec<Check>;
 /// The checks of each message, and the index of `xla.HloProto`.
 static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
     let messages: Vec<MessageDescriptor> = POOL.all_messages().collect();
-    let index: FxHashMap<&str, usize> = messages.iter().enumerate().map(|(position, message)| (message.full_name(), position)).collect();
+    let index: FxHashMap<&str, usize> = messages
+        .iter()
+        .enumerate()
+        .map(|(position, message)| (message.full_name(), position))
+        .collect();
     let check = |field: prost_reflect::FieldDescriptor| match (field.kind(), field.is_list()) {
         (Kind::Message(inner), _) => Check::Message(index[inner.full_name()]),
         (Kind::String, _) => Check::Text,
@@ -241,8 +285,17 @@ static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
         (_, true) => Check::Packed(0),
     };
     let table = |message: &MessageDescriptor| {
-        let mut checks = vec![Check::Any; message.fields().map(|field| field.number() as usize + 1).max().unwrap_or(0)];
-        message.fields().for_each(|field| checks[field.number() as usize] = check(field.clone()));
+        let mut checks = vec![
+            Check::Any;
+            message
+                .fields()
+                .map(|field| field.number() as usize + 1)
+                .max()
+                .unwrap_or(0)
+        ];
+        message
+            .fields()
+            .for_each(|field| checks[field.number() as usize] = check(field.clone()));
         checks
     };
     let checks = messages.iter().map(table).collect();
@@ -260,7 +313,12 @@ fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, gr
     let checks = message.map_or(&[][..], |message| &CHECKS.1[message]);
     let (split, mut nested) = (group == 0 && buf.len() >= PARALLEL_BYTES, Vec::new());
     while *pos < buf.len() {
-        let Some(key) = varint(buf, pos).and_then(|key| u32::try_from(key).ok()).filter(|&key| key >> 3 != 0) else { return false };
+        let Some(key) = varint(buf, pos)
+            .and_then(|key| u32::try_from(key).ok())
+            .filter(|&key| key >> 3 != 0)
+        else {
+            return false;
+        };
         let number = key >> 3;
         let check = checks.get(number as usize).copied().unwrap_or(Check::Any);
         let parsed = match key & 7 {
@@ -270,18 +328,30 @@ fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, gr
                 *pos <= buf.len()
             }
             2 => {
-                let Some(body) = varint(buf, pos).and_then(|length| buf.get(*pos..*pos + usize::try_from(length).ok().filter(|&length| length <= buf.len())?)) else { return false };
+                let Some(body) = varint(buf, pos).and_then(|length| {
+                    buf.get(
+                        *pos..*pos
+                            + usize::try_from(length)
+                                .ok()
+                                .filter(|&length| length <= buf.len())?,
+                    )
+                }) else {
+                    return false;
+                };
                 *pos += body.len();
                 match check {
                     Check::Message(inner) if split && levels > 0 => {
                         nested.push((inner, body));
                         true
                     }
-                    Check::Message(inner) => levels > 0 && parses(Some(inner), body, &mut 0, levels - 1, 0),
+                    Check::Message(inner) => {
+                        levels > 0 && parses(Some(inner), body, &mut 0, levels - 1, 0)
+                    }
                     Check::Text => std::str::from_utf8(body).is_ok(),
                     Check::Packed(0) => {
                         let mut at = 0;
-                        std::iter::from_fn(|| (at < body.len()).then(|| varint(body, &mut at))).all(|value| value.is_some())
+                        std::iter::from_fn(|| (at < body.len()).then(|| varint(body, &mut at)))
+                            .all(|value| value.is_some())
                     }
                     Check::Packed(width) => body.len() % width == 0,
                     Check::Any => true,
@@ -295,12 +365,25 @@ fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, gr
             return false;
         }
     }
-    group == 0 && nested.into_par_iter().all(|(inner, body)| parses(Some(inner), body, &mut 0, levels - 1, 0))
+    group == 0
+        && nested
+            .into_par_iter()
+            .all(|(inner, body)| parses(Some(inner), body, &mut 0, levels - 1, 0))
 }
 
 pub fn json(message: &str, value: &impl Message, always_print_defaults: bool) -> String {
     let mut out = String::new();
-    print(&mut out, 0, message, &value.encode_to_vec(), if always_print_defaults { Format::JsonAlways } else { Format::Json });
+    print(
+        &mut out,
+        0,
+        message,
+        &value.encode_to_vec(),
+        if always_print_defaults {
+            Format::JsonAlways
+        } else {
+            Format::Json
+        },
+    );
     out
 }
 
@@ -308,19 +391,30 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
     let (map_entry, specs) = &MESSAGES[message];
     let json = format != Format::Text;
     let always = |spec: &Spec| *map_entry || (format == Format::JsonAlways && !spec.presence);
-    let mut found: Vec<Option<Vec<Field>>> = specs.iter().map(|spec| always(spec).then(Vec::new)).collect();
+    let mut found: Vec<Option<Vec<Field>>> = specs
+        .iter()
+        .map(|spec| always(spec).then(Vec::new))
+        .collect();
     for (number, value) in fields(buf) {
-        let Ok(index) = specs.binary_search_by_key(&number, |spec| spec.number) else { continue };
+        let Ok(index) = specs.binary_search_by_key(&number, |spec| spec.number) else {
+            continue;
+        };
         let spec = &specs[index];
         let kind = &spec.kind;
         if let Some(oneof) = &spec.oneof {
-            for (_, slot) in specs.iter().zip(&mut found).filter(|(other, _)| other.number != number && other.oneof.as_ref() == Some(oneof)) {
+            for (_, slot) in specs
+                .iter()
+                .zip(&mut found)
+                .filter(|(other, _)| other.number != number && other.oneof.as_ref() == Some(oneof))
+            {
                 *slot = None;
             }
         }
         let items = found[index].get_or_insert_with(Vec::new);
         match value {
-            Field::Bytes(_, bytes) if !matches!(kind, Kind::String | Kind::Bytes | Kind::Message(_)) => {
+            Field::Bytes(_, bytes)
+                if !matches!(kind, Kind::String | Kind::Bytes | Kind::Message(_)) =>
+            {
                 let width = match kind {
                     Kind::Double | Kind::Fixed64 | Kind::Sfixed64 => 8,
                     Kind::Float | Kind::Fixed32 | Kind::Sfixed32 => 4,
@@ -332,7 +426,10 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                         0 => varint(bytes, &mut pos),
                         _ => bytes.get(pos..pos + width).map(|chunk| {
                             pos += width;
-                            chunk.iter().rev().fold(0, |value, &byte| value << 8 | u64::from(byte))
+                            chunk
+                                .iter()
+                                .rev()
+                                .fold(0, |value, &byte| value << 8 | u64::from(byte))
                         }),
                     };
                     let Some(value) = value else { break };
@@ -346,18 +443,38 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
         out.push('{');
     }
     let start = out.len();
-    for (spec, items) in specs.iter().zip(&found).filter_map(|(spec, items)| Some((spec, items.as_ref()?))) {
+    for (spec, items) in specs
+        .iter()
+        .zip(&found)
+        .filter_map(|(spec, items)| Some((spec, items.as_ref()?)))
+    {
         let kind = &spec.kind;
         let key = |out: &mut String| {
             if json {
-                write!(out, "{}\"{}\":", if out.len() > start { "," } else { "" }, spec.json_name).unwrap();
+                write!(
+                    out,
+                    "{}\"{}\":",
+                    if out.len() > start { "," } else { "" },
+                    spec.json_name
+                )
+                .unwrap();
             }
         };
         if spec.map {
-            let [Spec { kind: key_kind, .. }, value_spec @ Spec { kind: value_kind, .. }] = &MESSAGES[message_name(kind)].1[..] else { continue };
+            let [
+                Spec { kind: key_kind, .. },
+                value_spec @ Spec {
+                    kind: value_kind, ..
+                },
+            ] = &MESSAGES[message_name(kind)].1[..]
+            else {
+                continue;
+            };
             let mut entries: BTreeMap<(i128, &[u8]), &[u8]> = BTreeMap::new();
             for item in items {
-                let Field::Bytes(_, bytes) = item else { continue };
+                let Field::Bytes(_, bytes) = item else {
+                    continue;
+                };
                 let entry_key = match last(bytes, 1) {
                     Some(Field::Bytes(_, text)) => (0, text),
                     Some(Field::Num(raw)) => (decode(key_kind, raw), &[][..]),
@@ -366,7 +483,9 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                 entries.insert(entry_key, bytes);
             }
             if !json {
-                entries.values().for_each(|bytes| emit(out, depth, spec, &Field::Bytes(0, bytes), format));
+                entries
+                    .values()
+                    .for_each(|bytes| emit(out, depth, spec, &Field::Bytes(0, bytes), format));
             } else if !entries.is_empty() || always(spec) {
                 key(out);
                 out.push('{');
@@ -379,8 +498,19 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                     out.push_str(if index > 0 { "," } else { "" });
                     json_string(out, &name);
                     out.push(':');
-                    let empty = if matches!(value_kind, Kind::Message(_) | Kind::String | Kind::Bytes) { Field::Bytes(0, &[]) } else { Field::Num(0) };
-                    emit(out, depth, value_spec, &last(bytes, 2).unwrap_or(empty), format);
+                    let empty =
+                        if matches!(value_kind, Kind::Message(_) | Kind::String | Kind::Bytes) {
+                            Field::Bytes(0, &[])
+                        } else {
+                            Field::Num(0)
+                        };
+                    emit(
+                        out,
+                        depth,
+                        value_spec,
+                        &last(bytes, 2).unwrap_or(empty),
+                        format,
+                    );
                 }
                 out.push('}');
             }
@@ -409,7 +539,18 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
         } else if kind.as_message().is_some() {
             let merged = match items.as_slice() {
                 [Field::Bytes(_, bytes)] => Cow::Borrowed(*bytes),
-                _ => Cow::Owned(items.iter().flat_map(|item| if let Field::Bytes(_, bytes) = item { bytes.to_vec() } else { Vec::new() }).collect()),
+                _ => Cow::Owned(
+                    items
+                        .iter()
+                        .flat_map(|item| {
+                            if let Field::Bytes(_, bytes) = item {
+                                bytes.to_vec()
+                            } else {
+                                Vec::new()
+                            }
+                        })
+                        .collect(),
+                ),
             };
             key(out);
             emit(out, depth, spec, &Field::Bytes(0, merged.as_ref()), format);

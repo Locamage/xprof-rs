@@ -34,9 +34,16 @@ static POWERS: LazyLock<Vec<(u64, i32)>> = LazyLock::new(|| {
                     exponent -= shift as i32;
                 }
                 let excess = 4 - mantissa.leading_zeros() as i32;
-                (mantissa, exponent) = if excess > 0 { (mantissa >> excess, exponent + excess) } else { (mantissa << -excess, exponent + excess) };
+                (mantissa, exponent) = if excess > 0 {
+                    (mantissa >> excess, exponent + excess)
+                } else {
+                    (mantissa << -excess, exponent + excess)
+                };
             }
-            (((mantissa >> 60) + (mantissa >> 59 & 1)) as u64, exponent + 60)
+            (
+                ((mantissa >> 60) + (mantissa >> 59 & 1)) as u64,
+                exponent + 60,
+            )
         })
         .collect()
 });
@@ -55,7 +62,10 @@ fn normalize(mut x: (u64, i32)) -> (u64, i32) {
 
 fn round_digits(digits: &mut [u8], dist: u64, delta: u64, mut rest: u64, ten_k: u64) {
     let last = digits.len() - 1;
-    while rest < dist && delta - rest >= ten_k && (rest + ten_k < dist || dist - rest > rest + ten_k - dist) {
+    while rest < dist
+        && delta - rest >= ten_k
+        && (rest + ten_k < dist || dist - rest > rest + ten_k - dist)
+    {
         digits[last] -= 1;
         rest += ten_k;
     }
@@ -64,9 +74,17 @@ fn round_digits(digits: &mut [u8], dist: u64, delta: u64, mut rest: u64, ten_k: 
 fn grisu2(value: f64) -> (Vec<u8>, i32) {
     let bits = value.to_bits();
     let (exponent, fraction) = (bits >> 52, bits & ((1 << 52) - 1));
-    let v = if exponent == 0 { (fraction, -1074) } else { (fraction + (1 << 52), exponent as i32 - 1075) };
+    let v = if exponent == 0 {
+        (fraction, -1074)
+    } else {
+        (fraction + (1 << 52), exponent as i32 - 1075)
+    };
     let plus = normalize((2 * v.0 + 1, v.1 - 1));
-    let minus_raw = if fraction == 0 && exponent > 1 { (4 * v.0 - 1, v.1 - 2) } else { (2 * v.0 - 1, v.1 - 1) };
+    let minus_raw = if fraction == 0 && exponent > 1 {
+        (4 * v.0 - 1, v.1 - 2)
+    } else {
+        (2 * v.0 - 1, v.1 - 1)
+    };
     let minus = (minus_raw.0 << (minus_raw.1 - plus.1), plus.1);
     let v = normalize(v);
     let f = -60 - plus.1 - 1;
@@ -74,7 +92,10 @@ fn grisu2(value: f64) -> (Vec<u8>, i32) {
     let index = (300 + k + 7) / 8;
     let ((cached_f, cached_e), cached_k) = (POWERS[index as usize], -300 + 8 * index);
     let w = multiply(v, (cached_f, cached_e));
-    let upper = (multiply(plus, (cached_f, cached_e)).0 - 1, plus.1 + cached_e + 64);
+    let upper = (
+        multiply(plus, (cached_f, cached_e)).0 - 1,
+        plus.1 + cached_e + 64,
+    );
     let lower = (multiply(minus, (cached_f, cached_e)).0 + 1, upper.1);
     let mut decimal_exponent = -cached_k;
     let (mut delta, mut dist) = (upper.0 - lower.0, upper.0 - w.0);
@@ -134,7 +155,13 @@ fn decimal(out: &mut String, digits: &str, point: i32, max_exponent: i32) {
             out.push('.');
             out.push_str(&digits[1..]);
         }
-        write!(out, "e{}{:02}", if point - 1 < 0 { '-' } else { '+' }, (point - 1).abs()).unwrap();
+        write!(
+            out,
+            "e{}{:02}",
+            if point - 1 < 0 { '-' } else { '+' },
+            (point - 1).abs()
+        )
+        .unwrap();
     }
 }
 
@@ -151,11 +178,19 @@ pub fn number(out: &mut String, value: f64) {
         return;
     }
     let (digits, decimal_exponent) = grisu2(value.abs());
-    decimal(out, std::str::from_utf8(&digits).unwrap(), digits.len() as i32 + decimal_exponent, MAX_EXPONENT);
+    decimal(
+        out,
+        std::str::from_utf8(&digits).unwrap(),
+        digits.len() as i32 + decimal_exponent,
+        MAX_EXPONENT,
+    );
 }
 
 pub fn string(out: &mut String, text: &str) {
-    if text.bytes().any(|byte| byte < 0x20 || byte == b'"' || byte == b'\\') {
+    if text
+        .bytes()
+        .any(|byte| byte < 0x20 || byte == b'"' || byte == b'\\')
+    {
         out.push_str(&serde_json::to_string(text).unwrap());
     } else {
         out.push('"');
@@ -166,7 +201,13 @@ pub fn string(out: &mut String, text: &str) {
 
 impl Table {
     pub fn new(columns: &[(&str, &'static str, &str)]) -> Self {
-        Self { columns: columns.iter().map(|&(id, kind, label)| (id.into(), kind, label.into(), None)).collect(), ..Default::default() }
+        Self {
+            columns: columns
+                .iter()
+                .map(|&(id, kind, label)| (id.into(), kind, label.into(), None))
+                .collect(),
+            ..Default::default()
+        }
     }
 
     pub fn column(&mut self, id: &str, kind: &'static str, label: &str) {
@@ -217,13 +258,19 @@ impl Table {
             .map(|rows| {
                 let mut out = String::with_capacity(rows.len() * 512);
                 for row in rows {
-                    out.push_str(if out.is_empty() { "{\"c\":[" } else { ",{\"c\":[" });
+                    out.push_str(if out.is_empty() {
+                        "{\"c\":["
+                    } else {
+                        ",{\"c\":["
+                    });
                     for (position, cell) in row.iter().enumerate() {
                         out.push_str(if position > 0 { ",{\"v\":" } else { "{\"v\":" });
                         match cell {
                             Cell::Number(value) => number(&mut out, *value),
                             Cell::Text(text) => string(&mut out, text),
-                            Cell::Boolean(value) => out.push_str(if *value { "true" } else { "false" }),
+                            Cell::Boolean(value) => {
+                                out.push_str(if *value { "true" } else { "false" });
+                            }
                         }
                         out.push('}');
                     }
@@ -255,7 +302,10 @@ struct Short {
 impl Write for Short {
     fn write_str(&mut self, text: &str) -> std::fmt::Result {
         let end = self.len + text.len();
-        self.bytes.get_mut(self.len..end).ok_or(std::fmt::Error)?.copy_from_slice(text.as_bytes());
+        self.bytes
+            .get_mut(self.len..end)
+            .ok_or(std::fmt::Error)?
+            .copy_from_slice(text.as_bytes());
         self.len = end;
         Ok(())
     }
@@ -276,22 +326,40 @@ pub fn repr_into(out: &mut String, value: f64) {
     }
     let mut scientific = Short::default();
     write!(scientific, "{:e}", value.abs()).unwrap();
-    let (mantissa, exponent) = std::str::from_utf8(&scientific.bytes[..scientific.len]).unwrap().split_once('e').unwrap();
+    let (mantissa, exponent) = std::str::from_utf8(&scientific.bytes[..scientific.len])
+        .unwrap()
+        .split_once('e')
+        .unwrap();
     let mut digits = Short::default();
-    mantissa.split('.').for_each(|part| digits.write_str(part).unwrap());
-    let (digits, exponent) = (&mut digits.bytes[..digits.len], exponent.parse::<i32>().unwrap());
+    mantissa
+        .split('.')
+        .for_each(|part| digits.write_str(part).unwrap());
+    let (digits, exponent) = (
+        &mut digits.bytes[..digits.len],
+        exponent.parse::<i32>().unwrap(),
+    );
     let last = digits.len() - 1;
     if digits[last] % 2 == 1 {
-        let number = digits.iter().fold(0u128, |number, digit| number * 10 + u128::from(digit - b'0'));
+        let number = digits.iter().fold(0u128, |number, digit| {
+            number * 10 + u128::from(digit - b'0')
+        });
         let place = exponent - last as i32;
         let reads_back = |number: u128| format!("{number}e{place}").parse() == Ok(value.abs());
         if halfway(value.abs(), 2 * number - 1, place) && reads_back(number - 1) {
             digits[last] -= 1;
-        } else if digits[last] != b'9' && halfway(value.abs(), 2 * number + 1, place) && reads_back(number + 1) {
+        } else if digits[last] != b'9'
+            && halfway(value.abs(), 2 * number + 1, place)
+            && reads_back(number + 1)
+        {
             digits[last] += 1;
         }
     }
-    decimal(out, std::str::from_utf8(digits).unwrap(), exponent + 1, MAX_EXPONENT + 1);
+    decimal(
+        out,
+        std::str::from_utf8(digits).unwrap(),
+        exponent + 1,
+        MAX_EXPONENT + 1,
+    );
 }
 
 /// Tells if `value` is `odd / 2 * 10^place`. Then two shortest texts are equally near, and Python writes the text with the even last digit.
@@ -306,7 +374,12 @@ fn halfway(value: f64, odd: u128, place: i32) -> bool {
     let zeros = mantissa.trailing_zeros();
     let (mantissa, power) = (u128::from(mantissa >> zeros), power - 1075 + zeros as i32);
     let five = 5u128.checked_pow(place.unsigned_abs());
-    power + 1 == place && if place >= 0 { five.and_then(|five| odd.checked_mul(five)) == Some(mantissa) } else { five.and_then(|five| mantissa.checked_mul(five)) == Some(odd) }
+    power + 1 == place
+        && if place >= 0 {
+            five.and_then(|five| odd.checked_mul(five)) == Some(mantissa)
+        } else {
+            five.and_then(|five| mantissa.checked_mul(five)) == Some(odd)
+        }
 }
 
 #[cfg(test)]

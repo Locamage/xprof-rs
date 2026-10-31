@@ -6,11 +6,26 @@ pub fn add_tracker(space: &mut XSpace, chip: Option<u32>, intervals: &[Interval]
     let ordinal = space.planes.len() as i32;
     let plane = space.tpu(ordinal, "TPU v4", 0.0, 0.0, None);
     if let Some(chip) = chip {
-        plane.add_stat("core_details", V::Bytes(proto_bytes("tensorflow.profiler.CoreDetails", &format!("local_chip_id: {chip}"))));
+        plane.add_stat(
+            "core_details",
+            V::Bytes(proto_bytes(
+                "tensorflow.profiler.CoreDetails",
+                &format!("local_chip_id: {chip}"),
+            )),
+        );
     }
     plane.named_line(0, "XLA Ops");
     for (index, &(begin, end, active)) in intervals.iter().enumerate() {
-        plane.event(0, &format!("op.{index}"), begin, end - begin, &[("hlo_category", if active { "call" } else { "infeed" }.into())]);
+        plane.event(
+            0,
+            &format!("op.{index}"),
+            begin,
+            end - begin,
+            &[(
+                "hlo_category",
+                if active { "call" } else { "infeed" }.into(),
+            )],
+        );
     }
 }
 

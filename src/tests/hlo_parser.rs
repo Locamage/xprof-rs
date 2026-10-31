@@ -15,7 +15,9 @@ fn canonical(text: &str) -> String {
     let mut text = text.trim().to_string();
     for key in [", replica_count=", ", num_partitions="] {
         while let Some(start) = text.find(key) {
-            let digits = text[start + key.len()..].find(|character: char| !character.is_ascii_digit()).unwrap_or(text.len() - start - key.len());
+            let digits = text[start + key.len()..]
+                .find(|character: char| !character.is_ascii_digit())
+                .unwrap_or(text.len() - start - key.len());
             text.replace_range(start..start + key.len() + digits, "");
         }
     }
@@ -255,15 +257,23 @@ mod hlo_parser_test_printing {
     use std::borrow::Cow;
     use std::sync::LazyLock;
 
-    static PARSER_PRINTING: LazyLock<Module<'static>> = LazyLock::new(|| fixture("parser_printing"));
+    static PARSER_PRINTING: LazyLock<Module<'static>> =
+        LazyLock::new(|| fixture("parser_printing"));
 
     fn fixture(name: &str) -> Module<'static> {
-        Module::parse(Cow::Owned(std::fs::read(format!("{}/tests/data/hlo_parser_test/printing/{name}.pb", env!("CARGO_MANIFEST_DIR"))).unwrap()))
+        Module::parse(Cow::Owned(
+            std::fs::read(format!(
+                "{}/tests/data/hlo_parser_test/printing/{name}.pb",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap(),
+        ))
     }
 
     fn instruction(name: &str) -> String {
         let mut text = String::new();
-        Printer::new(&PARSER_PRINTING, Style::Long, true).instruction(PARSER_PRINTING.find(name).unwrap(), &mut text);
+        Printer::new(&PARSER_PRINTING, Style::Long, true)
+            .instruction(PARSER_PRINTING.find(name).unwrap(), &mut text);
         text
     }
 
@@ -328,16 +338,24 @@ mod hlo_parser_test_printing {
     #[test]
     #[ignore = "differs from upstream: XProf 2.23.2 prints a fully unreduced named sharding as unreduced=max without its axis list (checked over HTTP); XLA prints the axes only for a strict subset of the mesh"]
     fn parse_named_sharding_scalar_unreduced_max() {
-        assert!(instruction("parse_named_sharding_scalar_unreduced_max").contains("sharding={mesh['x'=2,'y'=2], unreduced=max{'x', 'y'}}"));
+        assert!(
+            instruction("parse_named_sharding_scalar_unreduced_max")
+                .contains("sharding={mesh['x'=2,'y'=2], unreduced=max{'x', 'y'}}")
+        );
     }
 
     #[test]
     fn original_value_without_shape() {
-        assert!(module_text("original_value_without_shape", Style::Short).contains(r#"origin={{"v"}}"#));
+        assert!(
+            module_text("original_value_without_shape", Style::Short).contains(r#"origin={{"v"}}"#)
+        );
     }
 
     #[test]
     fn empty_leaf_in_original_value() {
-        assert!(module_text("empty_leaf_in_original_value", Style::Short).contains(r#"origin={(({}, {"v2"}), {"v3"})}"#));
+        assert!(
+            module_text("empty_leaf_in_original_value", Style::Short)
+                .contains(r#"origin={(({}, {"v2"}), {"v3"})}"#)
+        );
     }
 }

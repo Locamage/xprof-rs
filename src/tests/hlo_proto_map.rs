@@ -7,8 +7,16 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn add_original_hlo_proto(space: &mut XSpace, name: &str) {
-    let hlo_proto = HloProto { hlo_module: Some(HloModuleProto { name: name.into(), ..Default::default() }), ..Default::default() };
-    space.plane("/host:metadata").metadata_stats(name, &[("Hlo Proto", V::Bytes(hlo_proto.encode_to_vec()))]);
+    let hlo_proto = HloProto {
+        hlo_module: Some(HloModuleProto {
+            name: name.into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    space
+        .plane("/host:metadata")
+        .metadata_stats(name, &[("Hlo Proto", V::Bytes(hlo_proto.encode_to_vec()))]);
 }
 
 fn extracted(space: &XSpace) -> PathBuf {
@@ -36,7 +44,12 @@ fn get_original_hlo_proto() {
     let mut space = XSpace::default();
     add_original_hlo_proto(&mut space, "module");
     let dir = extracted(&space);
-    let by_program_id = |program_id: &str| by_options(&dir, &HashMap::from([("program_id".to_string(), program_id.to_string())]));
+    let by_program_id = |program_id: &str| {
+        by_options(
+            &dir,
+            &HashMap::from([("program_id".to_string(), program_id.to_string())]),
+        )
+    };
     assert_eq!(by_program_id("1").unwrap().proto.name, "module");
     assert!(by_program_id("2").is_none());
     assert_eq!(load(&dir, "module(1)").unwrap().proto.name, "module");
@@ -50,7 +63,11 @@ fn no_modules_from_a_space_that_does_not_parse() {
     add_original_hlo_proto(&mut space, "module");
     let dir = session_dir("hlo-proto-map-bad-space");
     let xspace = dir.join("host.xplane.pb");
-    std::fs::write(&xspace, [space.encode_to_vec(), b"\x12\x01\xff".to_vec()].concat()).unwrap();
+    std::fs::write(
+        &xspace,
+        [space.encode_to_vec(), b"\x12\x01\xff".to_vec()].concat(),
+    )
+    .unwrap();
     assert!(extract(&dir, &[xspace]).is_none());
     assert!(modules(&dir).is_empty());
 }

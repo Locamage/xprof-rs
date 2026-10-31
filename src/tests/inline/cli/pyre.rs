@@ -19,17 +19,35 @@ fn bad_patterns_give_the_messages_of_python() {
         ("\\x1", "incomplete escape \\x1 at position 0"),
         ("(?<x)", "unknown extension ?<x at position 1"),
         ("(?#abc", "missing ), unterminated comment at position 0"),
-        ("(?im-i:a)", "bad inline flags: flag turned on and off at position 6"),
-        ("a(?i)b", "global flags not at the start of the expression at position 1"),
+        (
+            "(?im-i:a)",
+            "bad inline flags: flag turned on and off at position 6",
+        ),
+        (
+            "a(?i)b",
+            "global flags not at the start of the expression at position 1",
+        ),
         ("(?u)(?a)x", "ASCII and UNICODE flags are incompatible"),
         ("\\N{FOO}", "undefined character name 'FOO' at position 0"),
         ("\\N", "missing { at position 2"),
         ("\\8", "invalid group reference 8 at position 1"),
         ("(?(2)a|b)", "invalid group reference 2 at position 3"),
-        ("(a)(?(1)a|b|c)", "conditional backref with more than two branches at position 11"),
-        ("a\nb)", "unbalanced parenthesis at position 3 (line 2, column 2)"),
-        ("(?P<a>x)(?P<a>y)", "redefinition of group name 'a' as group 2; was group 1 at position 12"),
-        ("(?P<a b>x)", "bad character in group name 'a b' at position 4"),
+        (
+            "(a)(?(1)a|b|c)",
+            "conditional backref with more than two branches at position 11",
+        ),
+        (
+            "a\nb)",
+            "unbalanced parenthesis at position 3 (line 2, column 2)",
+        ),
+        (
+            "(?P<a>x)(?P<a>y)",
+            "redefinition of group name 'a' as group 2; was group 1 at position 12",
+        ),
+        (
+            "(?P<a b>x)",
+            "bad character in group name 'a b' at position 4",
+        ),
         ("(?P", "unexpected end of pattern at position 3"),
         ("(?", "unexpected end of pattern at position 2"),
         ("(?-", "missing flag at position 3"),
@@ -48,27 +66,60 @@ fn bad_patterns_give_the_messages_of_python() {
         ("a{2}?+", "multiple repeat at position 5"),
         ("\\u12", "incomplete escape \\u12 at position 0"),
         ("\\U0011ffff", "bad escape \\U0011ffff at position 0"),
-        ("\\777", "octal escape value \\777 outside of range 0-0o377 at position 0"),
-        ("[\\777]", "octal escape value \\777 outside of range 0-0o377 at position 1"),
+        (
+            "\\777",
+            "octal escape value \\777 outside of range 0-0o377 at position 0",
+        ),
+        (
+            "[\\777]",
+            "octal escape value \\777 outside of range 0-0o377 at position 1",
+        ),
         ("[\\A]", "bad escape \\A at position 1"),
-        ("(?L)a", "bad inline flags: cannot use 'L' flag with a str pattern at position 3"),
-        ("(?-t:a)", "bad inline flags: cannot turn off global flag at position 4"),
-        ("(?i:a)(?x)", "global flags not at the start of the expression at position 6"),
+        (
+            "(?L)a",
+            "bad inline flags: cannot use 'L' flag with a str pattern at position 3",
+        ),
+        (
+            "(?-t:a)",
+            "bad inline flags: cannot turn off global flag at position 4",
+        ),
+        (
+            "(?i:a)(?x)",
+            "global flags not at the start of the expression at position 6",
+        ),
         ("(", "missing ), unterminated subpattern at position 0"),
         ("((a)", "missing ), unterminated subpattern at position 0"),
         ("[\\x41-\\x40]", "bad character range \\x-\\x at position 5"),
-        ("(?P<a>a)(?P=a", "missing ), unterminated name at position 12"),
+        (
+            "(?P<a>a)(?P=a",
+            "missing ), unterminated name at position 12",
+        ),
         ("(?Px)", "unknown extension ?Px at position 1"),
         ("(?<", "unexpected end of pattern at position 3"),
-        ("(a)(?<=(?(1)b|cc))", "look-behind requires fixed-width pattern"),
-        ("(?au:a)", "bad inline flags: flags 'a', 'u' and 'L' are incompatible at position 4"),
-        ("(?i-a:a)", "bad inline flags: cannot turn off flags 'a', 'u' and 'L' at position 5"),
+        (
+            "(a)(?<=(?(1)b|cc))",
+            "look-behind requires fixed-width pattern",
+        ),
+        (
+            "(?au:a)",
+            "bad inline flags: flags 'a', 'u' and 'L' are incompatible at position 4",
+        ),
+        (
+            "(?i-a:a)",
+            "bad inline flags: cannot turn off flags 'a', 'u' and 'L' at position 5",
+        ),
         ("a\\", "bad escape (end of pattern) at position 1"),
         ("(?(0)a)", "bad group number at position 3"),
         ("(?(a)b)", "unknown group name 'a' at position 3"),
         ("(?(1a)b)", "bad character in group name '1a' at position 3"),
-        ("(?x)a #c\n)", "unbalanced parenthesis at position 9 (line 2, column 1)"),
-        ("(?<=a)(?<!b)(?=c", "missing ), unterminated subpattern at position 12"),
+        (
+            "(?x)a #c\n)",
+            "unbalanced parenthesis at position 9 (line 2, column 1)",
+        ),
+        (
+            "(?<=a)(?<!b)(?=c",
+            "missing ), unterminated subpattern at position 12",
+        ),
         ("{3}", "nothing to repeat at position 0"),
         ("a|*", "nothing to repeat at position 2"),
         ("(?:", "missing ), unterminated subpattern at position 0"),
@@ -80,7 +131,11 @@ fn bad_patterns_give_the_messages_of_python() {
         ("(?x-#", "missing flag at position 4"),
         ("(?ib)", "unknown flag at position 3"),
     ] {
-        assert_eq!(compile(pattern, 986).err().as_deref(), Some(message), "{pattern:?}");
+        assert_eq!(
+            compile(pattern, 986).err().as_deref(),
+            Some(message),
+            "{pattern:?}"
+        );
     }
 }
 
@@ -264,9 +319,29 @@ fn the_search_gives_the_result_of_python() {
 
 #[test]
 fn a_deep_pattern_stops_where_python_stops() {
-    let nest = |open: &str, close: &str, count: usize| format!("{}a{}", open.repeat(count), close.repeat(count));
-    for (open, close, count, frames) in [("(", ")", 492, 986), ("(?:", ")*", 492, 986), ("(?(1)", ")", 984, 986), ("(", ")", 490, 982), ("(?(1)", ")", 980, 982)] {
-        assert_ne!(compile(&format!("(a){}", nest(open, close, count)), frames).err().as_deref(), Some(RECURSION), "{open} {count}");
-        assert_eq!(compile(&format!("(a){}", nest(open, close, count + 1)), frames).err().as_deref(), Some(RECURSION), "{open} {count}");
+    let nest = |open: &str, close: &str, count: usize| {
+        format!("{}a{}", open.repeat(count), close.repeat(count))
+    };
+    for (open, close, count, frames) in [
+        ("(", ")", 492, 986),
+        ("(?:", ")*", 492, 986),
+        ("(?(1)", ")", 984, 986),
+        ("(", ")", 490, 982),
+        ("(?(1)", ")", 980, 982),
+    ] {
+        assert_ne!(
+            compile(&format!("(a){}", nest(open, close, count)), frames)
+                .err()
+                .as_deref(),
+            Some(RECURSION),
+            "{open} {count}"
+        );
+        assert_eq!(
+            compile(&format!("(a){}", nest(open, close, count + 1)), frames)
+                .err()
+                .as_deref(),
+            Some(RECURSION),
+            "{open} {count}"
+        );
     }
 }

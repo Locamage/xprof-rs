@@ -10,27 +10,100 @@ const DEFAULT_FLOPS_PER_ELEMENT: i64 = 3;
 const IMMEDIATE_CONSTANT_MAX_ELEMENTS: i64 = 8;
 const HBM: u64 = 1;
 const PROFILE: [(&str, &[(i32, i64)]); 16] = [
-    ("divide", &[(2, 370), (3, 367), (4, 306), (5, 918), (6, 306), (7, 302), (8, 115), (9, 838), (12, 2016), (15, 687), (18, 7941)]),
-    ("power", &[(2, 392), (3, 396), (5, 601), (6, 388), (7, 399), (9, 604), (10, 975), (11, 925), (12, 5511), (15, 3351), (18, 18205)]),
+    (
+        "divide",
+        &[
+            (2, 370),
+            (3, 367),
+            (4, 306),
+            (5, 918),
+            (6, 306),
+            (7, 302),
+            (8, 115),
+            (9, 838),
+            (12, 2016),
+            (15, 687),
+            (18, 7941),
+        ],
+    ),
+    (
+        "power",
+        &[
+            (2, 392),
+            (3, 396),
+            (5, 601),
+            (6, 388),
+            (7, 399),
+            (9, 604),
+            (10, 975),
+            (11, 925),
+            (12, 5511),
+            (15, 3351),
+            (18, 18205),
+        ],
+    ),
     ("cbrt", &[(10, 925), (11, 867), (12, 6339)]),
     ("cosine", &[(10, 691), (11, 662), (12, 1717), (18, 6613)]),
-    ("exponential", &[(10, 108), (11, 86), (12, 1652), (15, 1360), (18, 4028)]),
-    ("exponential-minus-one", &[(10, 396), (11, 381), (12, 1900), (15, 1400), (18, 4161)]),
-    ("log", &[(10, 266), (11, 244), (12, 608), (15, 950), (18, 7599)]),
-    ("log-plus-one", &[(10, 284), (11, 262), (12, 2073), (15, 842), (18, 6962)]),
+    (
+        "exponential",
+        &[(10, 108), (11, 86), (12, 1652), (15, 1360), (18, 4028)],
+    ),
+    (
+        "exponential-minus-one",
+        &[(10, 396), (11, 381), (12, 1900), (15, 1400), (18, 4161)],
+    ),
+    (
+        "log",
+        &[(10, 266), (11, 244), (12, 608), (15, 950), (18, 7599)],
+    ),
+    (
+        "log-plus-one",
+        &[(10, 284), (11, 262), (12, 2073), (15, 842), (18, 6962)],
+    ),
     ("logistic", &[(10, 226), (11, 176), (12, 2412)]),
-    ("rsqrt", &[(10, 97), (11, 75), (12, 698), (15, 2383), (18, 11318)]),
-    ("sqrt", &[(10, 97), (11, 75), (12, 986), (15, 3193), (18, 15606)]),
+    (
+        "rsqrt",
+        &[(10, 97), (11, 75), (12, 698), (15, 2383), (18, 11318)],
+    ),
+    (
+        "sqrt",
+        &[(10, 97), (11, 75), (12, 986), (15, 3193), (18, 15606)],
+    ),
     ("tanh", &[(10, 212), (11, 190), (12, 1609), (18, 9939)]),
     ("sine", &[(11, 662), (12, 1789), (18, 5878)]),
     ("add", &[(12, 97), (18, 97)]),
     ("multiply", &[(12, 97), (18, 270)]),
     ("subtract", &[(12, 97), (18, 97)]),
 ];
-pub const CUBLAS_LT: [&str; 4] = ["__cublas$lt$matmul", "__cublas$lt$matmul$f8", "__cublas$lt$matmul$mx", "__cublas$lt$groupedMatmul"];
-pub const DNN_CONVOLUTION: [&str; 5] = ["__cudnn$convForward", "__cudnn$convForwardGraph", "__cudnn$convBackwardInput", "__cudnn$convBackwardFilter", "__cudnn$convBiasActivationForward"];
-const CALL_MARKERS: [&str; 2] = ["__xla_internal_call_marker_before", "__xla_internal_call_marker_after"];
-const SUBCOMPUTATIONS: [&str; 10] = ["map", "reduce", "scan", "reduce-window", "select-and-scatter", "fusion", "call", "while", "conditional", "scatter"];
+pub const CUBLAS_LT: [&str; 4] = [
+    "__cublas$lt$matmul",
+    "__cublas$lt$matmul$f8",
+    "__cublas$lt$matmul$mx",
+    "__cublas$lt$groupedMatmul",
+];
+pub const DNN_CONVOLUTION: [&str; 5] = [
+    "__cudnn$convForward",
+    "__cudnn$convForwardGraph",
+    "__cudnn$convBackwardInput",
+    "__cudnn$convBackwardFilter",
+    "__cudnn$convBiasActivationForward",
+];
+const CALL_MARKERS: [&str; 2] = [
+    "__xla_internal_call_marker_before",
+    "__xla_internal_call_marker_after",
+];
+const SUBCOMPUTATIONS: [&str; 10] = [
+    "map",
+    "reduce",
+    "scan",
+    "reduce-window",
+    "select-and-scatter",
+    "fusion",
+    "call",
+    "while",
+    "conditional",
+    "scatter",
+];
 const QUOTES: [&str; 8] = ["\"", "22", "x22", "X22", "u0022", "U0022", "u00000022", ""];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -77,7 +150,10 @@ impl Props {
     }
 
     fn nonzero(&self) -> impl Iterator<Item = (&Key, f32)> {
-        self.0.iter().filter(|(_, value)| **value != 0.0).map(|(key, value)| (key, *value))
+        self.0
+            .iter()
+            .filter(|(_, value)| **value != 0.0)
+            .map(|(key, value)| (key, *value))
     }
 
     fn merge(&mut self, other: &Self, combine: fn(f32, f32) -> f32) {
@@ -108,23 +184,43 @@ pub(crate) fn storage_bit_width(kind: i32) -> i64 {
 }
 
 fn has_layout(shape: &Shape) -> bool {
-    if shape.is_tuple() { shape.tuple_shapes.iter().all(has_layout) } else { !shape.is_array() || shape.layout.is_some() }
+    if shape.is_tuple() {
+        shape.tuple_shapes.iter().all(has_layout)
+    } else {
+        !shape.is_array() || shape.layout.is_some()
+    }
 }
 
 fn byte_size(shape: &Shape) -> i64 {
-    if shape.element_type == BUFFER { 0 } else { shape.unpadded_bytes() }
+    if shape.element_type == BUFFER {
+        0
+    } else {
+        shape.unpadded_bytes()
+    }
 }
 
 fn shape_size(shape: &Shape) -> i64 {
-    if has_layout(shape) { byte_size(shape) } else { 0 }
+    if has_layout(shape) {
+        byte_size(shape)
+    } else {
+        0
+    }
 }
 
 fn leaves(shape: &Shape) -> Vec<(Vec<i64>, &Shape)> {
-    all_subshapes(shape).into_iter().filter(|(_, subshape)| !subshape.is_tuple()).collect()
+    all_subshapes(shape)
+        .into_iter()
+        .filter(|(_, subshape)| !subshape.is_tuple())
+        .collect()
 }
 
 fn ring_shape_size(shape: &Shape, skip: Option<i64>) -> i64 {
-    leaves(shape).into_iter().filter(|(index, _)| skip.is_none_or(|skip| index.first() != Some(&skip))).filter(|(_, subshape)| subshape.is_array()).map(|(_, subshape)| byte_size(subshape)).sum()
+    leaves(shape)
+        .into_iter()
+        .filter(|(index, _)| skip.is_none_or(|skip| index.first() != Some(&skip)))
+        .filter(|(_, subshape)| subshape.is_array())
+        .map(|(_, subshape)| byte_size(subshape))
+        .sum()
 }
 
 fn memory_space(shape: &Shape) -> Option<i64> {
@@ -136,7 +232,11 @@ fn valid(cost: i64) -> i64 {
 }
 
 fn log2_floor(value: u64) -> i64 {
-    if value == 0 { -1 } else { 63 - value.leading_zeros() as i64 }
+    if value == 0 {
+        -1
+    } else {
+        63 - value.leading_zeros() as i64
+    }
 }
 
 fn adjusted(flops: f32, width: i64) -> f32 {
@@ -149,7 +249,11 @@ fn adjusted(flops: f32, width: i64) -> f32 {
 }
 
 fn profile_flops(opcode: &str, kind: i32) -> i64 {
-    PROFILE.iter().find(|entry| entry.0 == opcode).and_then(|entry| entry.1.iter().find(|entry| entry.0 == kind)).map_or(DEFAULT_FLOPS_PER_ELEMENT, |entry| entry.1)
+    PROFILE
+        .iter()
+        .find(|entry| entry.0 == opcode)
+        .and_then(|entry| entry.1.iter().find(|entry| entry.0 == kind))
+        .map_or(DEFAULT_FLOPS_PER_ELEMENT, |entry| entry.1)
 }
 
 fn quote_end(text: &str, at: usize) -> Vec<usize> {
@@ -173,7 +277,10 @@ fn quote_end(text: &str, at: usize) -> Vec<usize> {
 }
 
 fn skip_spaces(text: &str, at: usize) -> usize {
-    at + text[at..].len() - text[at..].trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c']).len()
+    at + text[at..].len()
+        - text[at..]
+            .trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+            .len()
 }
 
 fn cost_estimate(text: &str, key: &str) -> Option<i64> {
@@ -185,8 +292,13 @@ fn cost_estimate(text: &str, key: &str) -> Option<i64> {
             }
             let value_start = skip_spaces(text, separator + 1);
             for second in quote_end(text, value_start) {
-                let digits = text[second..].strip_prefix('-').map_or(&text[second..], |rest| rest);
-                let length = digits.len() - digits.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+                let digits = text[second..]
+                    .strip_prefix('-')
+                    .map_or(&text[second..], |rest| rest);
+                let length = digits.len()
+                    - digits
+                        .trim_start_matches(|c: char| c.is_ascii_digit())
+                        .len();
                 if length == 0 {
                     continue;
                 }
@@ -228,7 +340,11 @@ struct Context<'m> {
 
 impl<'m> Context<'m> {
     fn new(module: &'m Module<'m>) -> Self {
-        let (mut successors, mut entered, mut callers) = (vec![false; module.nodes.len()], vec![false; module.graphs.len()], vec![0usize; module.graphs.len()]);
+        let (mut successors, mut entered, mut callers) = (
+            vec![false; module.nodes.len()],
+            vec![false; module.graphs.len()],
+            vec![0usize; module.graphs.len()],
+        );
         for node in &module.nodes {
             for &predecessor in &node.predecessors {
                 successors[predecessor] = true;
@@ -245,9 +361,18 @@ impl<'m> Context<'m> {
                 }
             }
         }
-        let revisits = callers[module.entry] > 0 || (0..module.graphs.len()).any(|graph| entered[graph] && callers[graph] > 1);
+        let revisits = callers[module.entry] > 0
+            || (0..module.graphs.len()).any(|graph| entered[graph] && callers[graph] > 1);
         let insts = (0..module.nodes.len()).map(|_| OnceCell::new()).collect();
-        Context { module, insts, successors, elementwise_fusions: OnceCell::new(), nested: RefCell::new(vec![None; module.graphs.len()]), callers, revisits }
+        Context {
+            module,
+            insts,
+            successors,
+            elementwise_fusions: OnceCell::new(),
+            nested: RefCell::new(vec![None; module.graphs.len()]),
+            callers,
+            revisits,
+        }
     }
 
     fn inst(&self, node: usize) -> &Inst {
@@ -261,16 +386,27 @@ impl<'m> Context<'m> {
             return found;
         }
         let module = self.module;
-        let (mut wanted, mut walked, mut stack) = (FxHashSet::default(), FxHashSet::from_iter([graph]), vec![graph]);
+        let (mut wanted, mut walked, mut stack) = (
+            FxHashSet::default(),
+            FxHashSet::from_iter([graph]),
+            vec![graph],
+        );
         while let Some(current) = stack.pop() {
-            for node in module.graphs[current].nodes.iter().map(|&node| &module.nodes[node]) {
+            for node in module.graphs[current]
+                .nodes
+                .iter()
+                .map(|&node| &module.nodes[node])
+            {
                 let analyzed = SUBCOMPUTATIONS.contains(&node.opcode.as_str());
                 let calls = match node.opcode.as_str() {
                     "async-start" => &node.called[..node.called.len().min(1)],
                     _ if analyzed => &node.called[..],
                     _ => &[],
                 };
-                for &called in calls.iter().filter(|&&called| self.nested.borrow()[called].is_none()) {
+                for &called in calls
+                    .iter()
+                    .filter(|&&called| self.nested.borrow()[called].is_none())
+                {
                     if analyzed {
                         wanted.insert(called);
                     }
@@ -297,7 +433,10 @@ impl<'m> Context<'m> {
     /// Gives the properties of each node after the analysis of `top`. A later call of a graph hides all the earlier writes under that graph,
     /// so a walk from the last entry of the log back reads each graph one time.
     fn resolve<'a>(&self, top: &'a Nested, cache: &'a [Option<Cached>]) -> Vec<Option<&'a Props>> {
-        let (mut found, mut seen) = (vec![None; self.module.nodes.len()], vec![false; self.module.graphs.len()]);
+        let (mut found, mut seen) = (
+            vec![None; self.module.nodes.len()],
+            vec![false; self.module.graphs.len()],
+        );
         let mut stack = vec![(top, top.log.len())];
         while let Some((nested, position)) = stack.last_mut() {
             let Some(next) = position.checked_sub(1) else {
@@ -306,7 +445,9 @@ impl<'m> Context<'m> {
             };
             *position = next;
             match nested.log[next] {
-                Op::Node(node) => found[node] = found[node].or_else(|| nested.properties.get(&node)),
+                Op::Node(node) => {
+                    found[node] = found[node].or_else(|| nested.properties.get(&node));
+                }
                 Op::Graph(graph) if !std::mem::replace(&mut seen[graph], true) => {
                     if let Some(Ok(called)) = cache[graph].as_deref() {
                         stack.push((called, called.log.len()));
@@ -327,7 +468,11 @@ impl<'m> Context<'m> {
     }
 
     fn operand(&self, node: usize, index: usize) -> Result<usize, String> {
-        self.module.nodes[node].operands.get(index).copied().ok_or_else(|| format!("missing operand for {}", self.module.nodes[node].name))
+        self.module.nodes[node]
+            .operands
+            .get(index)
+            .copied()
+            .ok_or_else(|| format!("missing operand for {}", self.module.nodes[node].name))
     }
 
     fn operands(&self, node: usize) -> &'m [usize] {
@@ -339,7 +484,16 @@ impl<'m> Context<'m> {
     }
 
     fn called(&self, node: usize, index: usize) -> Result<usize, String> {
-        self.module.nodes[node].called.get(index).copied().ok_or_else(|| format!("missing called computation for {}", self.module.nodes[node].name))
+        self.module.nodes[node]
+            .called
+            .get(index)
+            .copied()
+            .ok_or_else(|| {
+                format!(
+                    "missing called computation for {}",
+                    self.module.nodes[node].name
+                )
+            })
     }
 
     fn root(&self, graph: usize) -> usize {
@@ -347,7 +501,11 @@ impl<'m> Context<'m> {
     }
 
     fn parameter(&self, graph: usize, index: usize) -> Result<usize, String> {
-        self.module.graphs[graph].parameters.get(index).copied().ok_or_else(|| "missing fused parameter".to_string())
+        self.module.graphs[graph]
+            .parameters
+            .get(index)
+            .copied()
+            .ok_or_else(|| "missing fused parameter".to_string())
     }
 
     fn is_elementwise(&self, node: usize) -> bool {
@@ -356,14 +514,22 @@ impl<'m> Context<'m> {
         }
         let graphs = self.elementwise_fusions.get_or_init(|| {
             let mut fused = vec![false; self.module.graphs.len()];
-            for node in self.module.nodes.iter().filter(|node| node.opcode == "fusion") {
+            for node in self
+                .module
+                .nodes
+                .iter()
+                .filter(|node| node.opcode == "fusion")
+            {
                 if let Some(&graph) = node.called.first() {
                     fused[graph] = true;
                 }
             }
             let mut graphs = Vec::with_capacity(fused.len());
             for (graph, fused) in self.module.graphs.iter().zip(fused) {
-                let elementwise = fused && graph.nodes.iter().all(|&child| self.opcode(child) == "parameter" || self.elementwise_with(child, &graphs));
+                let elementwise = fused
+                    && graph.nodes.iter().all(|&child| {
+                        self.opcode(child) == "parameter" || self.elementwise_with(child, &graphs)
+                    });
                 graphs.push(elementwise);
             }
             graphs
@@ -375,22 +541,42 @@ impl<'m> Context<'m> {
     fn elementwise_with(&self, node: usize, graphs: &[bool]) -> bool {
         let opcode = self.opcode(node);
         match opcode {
-            "bitcast-convert" => self.operands(node).first().is_some_and(|&operand| storage_bit_width(self.shape(node).element_type) == storage_bit_width(self.shape(operand).element_type)),
+            "bitcast-convert" => self.operands(node).first().is_some_and(|&operand| {
+                storage_bit_width(self.shape(node).element_type)
+                    == storage_bit_width(self.shape(operand).element_type)
+            }),
             "map" => {
                 let dimensions = &self.inst(node).dimensions;
-                dimensions.is_empty() || (dimensions.len() == self.shape(node).dimensions.len() && dimensions.iter().enumerate().all(|(position, &dimension)| dimension == position as i64))
+                dimensions.is_empty()
+                    || (dimensions.len() == self.shape(node).dimensions.len()
+                        && dimensions
+                            .iter()
+                            .enumerate()
+                            .all(|(position, &dimension)| dimension == position as i64))
             }
-            "fusion" => self.module.nodes[node].called.first().is_some_and(|&graph| graphs.get(graph) == Some(&true)),
+            "fusion" => self.module.nodes[node]
+                .called
+                .first()
+                .is_some_and(|&graph| graphs.get(graph) == Some(&true)),
             _ => ELEMENTWISE.split(' ').any(|name| name == opcode),
         }
     }
 
     fn transpose_is_bitcast(&self, node: usize) -> Result<bool, String> {
         let (input, output) = (self.shape(self.operand(node, 0)?), self.shape(node));
-        let (Some(input_layout), Some(output_layout)) = (input.layout.as_ref(), output.layout.as_ref()) else { return Ok(false) };
+        let (Some(input_layout), Some(output_layout)) =
+            (input.layout.as_ref(), output.layout.as_ref())
+        else {
+            return Ok(false);
+        };
         let mapping = &self.inst(node).dimensions;
-        let composed: Option<Vec<i64>> = output_layout.minor_to_major.iter().map(|&position| mapping.get(position as usize).copied()).collect();
-        Ok(input.element_type == output.element_type && composed.is_some_and(|composed| composed == input_layout.minor_to_major))
+        let composed: Option<Vec<i64>> = output_layout
+            .minor_to_major
+            .iter()
+            .map(|&position| mapping.get(position as usize).copied())
+            .collect();
+        Ok(input.element_type == output.element_type
+            && composed.is_some_and(|composed| composed == input_layout.minor_to_major))
     }
 }
 
@@ -425,7 +611,9 @@ impl<'c, 'm> Analysis<'c, 'm> {
     }
 
     fn property(&self, node: usize, key: &Key) -> f32 {
-        self.properties.get(&node).map_or(0.0, |props| props.get(key))
+        self.properties
+            .get(&node)
+            .map_or(0.0, |props| props.get(key))
     }
 
     fn slot(&mut self, node: usize, key: Key) -> &mut f32 {
@@ -445,7 +633,13 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 && let Some(Ok(nested)) = cache[graph].as_deref()
             {
                 nodes.extend(nested.properties.keys());
-                stack.extend(nested.log.iter().filter_map(|op| if let Op::Graph(called) = op { Some(*called) } else { None }));
+                stack.extend(nested.log.iter().filter_map(|op| {
+                    if let Op::Graph(called) = op {
+                        Some(*called)
+                    } else {
+                        None
+                    }
+                }));
             }
         }
     }
@@ -461,7 +655,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
     }
 
     fn set_operand_bytes(&mut self, operand: usize, index: &[i64], value: f32) {
-        self.current.set(Key::Operand(operand, index.to_vec()), value);
+        self.current
+            .set(Key::Operand(operand, index.to_vec()), value);
     }
 
     fn set_operand_utilization(&mut self, operand: usize, value: f32) {
@@ -472,7 +667,14 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let context = self.context;
         let module = context.module;
         let root = module.graphs[graph].root;
-        let unreachable: Vec<usize> = module.graphs[graph].nodes.iter().copied().filter(|&node| context.users(node).is_empty() && node != root && !context.successors[node]).collect();
+        let unreachable: Vec<usize> = module.graphs[graph]
+            .nodes
+            .iter()
+            .copied()
+            .filter(|&node| {
+                context.users(node).is_empty() && node != root && !context.successors[node]
+            })
+            .collect();
         for node in unreachable {
             self.dfs(node)?;
         }
@@ -481,7 +683,11 @@ impl<'c, 'm> Analysis<'c, 'm> {
 
     fn wrapped(&self, node: usize) -> Option<usize> {
         let context = self.context;
-        context.module.nodes[node].called.first().filter(|_| context.opcode(node) == "async-start").map(|&graph| context.root(graph))
+        context.module.nodes[node]
+            .called
+            .first()
+            .filter(|_| context.opcode(node) == "async-start")
+            .map(|&graph| context.root(graph))
     }
 
     /// Visits the root of the graph that an async-start wraps as its last child. When this visit does the work, the async-start keeps the state that the root leaves.
@@ -496,7 +702,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 }
                 1 => {
                     stack.pop();
-                    if self.wrapped(current).is_none_or(|wrapped| last != Some(wrapped)) {
+                    if self
+                        .wrapped(current)
+                        .is_none_or(|wrapped| last != Some(wrapped))
+                    {
                         self.preprocess(current);
                     }
                     self.visit(current)?;
@@ -509,7 +718,12 @@ impl<'c, 'm> Analysis<'c, 'm> {
             }
             self.state.insert(current, 1);
             let start = stack.len();
-            for &child in context.operands(current).iter().chain(&context.module.nodes[current].predecessors).chain(&self.wrapped(current)) {
+            for &child in context
+                .operands(current)
+                .iter()
+                .chain(&context.module.nodes[current].predecessors)
+                .chain(&self.wrapped(current))
+            {
                 match self.state.get(&child).copied().unwrap_or(0) {
                     1 => return Err(format!("cycle at {}", context.module.nodes[current].name)),
                     2 => {}
@@ -543,8 +757,17 @@ impl<'c, 'm> Analysis<'c, 'm> {
     fn postprocess(&mut self, node: usize) -> Status {
         let context = self.context;
         if context.opcode(node) != "custom-call" {
-            let width = context.operands(node).iter().map(|&operand| context.shape(operand).element_type).filter(|kind| !matches!(*kind, 0 | TUPLE | OPAQUE | TOKEN)).map(bit_width).max();
-            self.current.set(Key::Adjustment, adjusted(self.current.get(&Key::Flops), width.unwrap_or(0)));
+            let width = context
+                .operands(node)
+                .iter()
+                .map(|&operand| context.shape(operand).element_type)
+                .filter(|kind| !matches!(*kind, 0 | TUPLE | OPAQUE | TOKEN))
+                .map(bit_width)
+                .max();
+            self.current.set(
+                Key::Adjustment,
+                adjusted(self.current.get(&Key::Flops), width.unwrap_or(0)),
+            );
         }
         if self.bottleneck {
             self.current.set(Key::Optimal, 0.0);
@@ -552,7 +775,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let current = std::mem::take(&mut self.current);
         self.sum.merge(&current, |sum, value| sum + value);
         if self.properties.contains_key(&node) || self.called.1.contains(&node) {
-            return Err(format!("{} already exists in hlo_properties_", context.module.nodes[node].name));
+            return Err(format!(
+                "{} already exists in hlo_properties_",
+                context.module.nodes[node].name
+            ));
         }
         self.properties.insert(node, current);
         self.log.push(Op::Node(node));
@@ -560,7 +786,11 @@ impl<'c, 'm> Analysis<'c, 'm> {
     }
 
     fn into_nested(self) -> Nested {
-        Nested { sum: self.sum, properties: self.properties, log: self.log }
+        Nested {
+            sum: self.sum,
+            properties: self.properties,
+            log: self.log,
+        }
     }
 
     /// The log keeps the call in place of a copy of the properties under `graph`.
@@ -581,26 +811,54 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let context = self.context;
         let nodes = &context.module.graphs[graph].nodes;
         let mut cache = context.nested.borrow_mut();
-        let Some(entry) = cache[graph].as_mut() else { return };
+        let Some(entry) = cache[graph].as_mut() else {
+            return;
+        };
         if !context.revisits
             && context.callers[graph] == 1
             && let Some(Ok(nested)) = Rc::get_mut(entry)
         {
-            self.properties.extend(nodes.iter().filter_map(|node| Some((*node, nested.properties.remove(node)?))));
+            self.properties.extend(
+                nodes
+                    .iter()
+                    .filter_map(|node| Some((*node, nested.properties.remove(node)?))),
+            );
         } else if let Ok(nested) = entry.as_ref() {
-            self.properties.extend(nodes.iter().filter_map(|node| Some((*node, nested.properties.get(node)?.clone()))));
+            self.properties.extend(
+                nodes
+                    .iter()
+                    .filter_map(|node| Some((*node, nested.properties.get(node)?.clone()))),
+            );
         }
     }
 
     fn copy_scaled(&mut self, sub: &Props, factor: i64, accumulate: bool) {
-        for (key, value) in sub.nonzero().filter(|(key, _)| matches!(key, Key::Flops | Key::Transcendentals | Key::Optimal | Key::ScaleRatio | Key::NumDevices | Key::Transferred | Key::Adjustment)) {
+        for (key, value) in sub.nonzero().filter(|(key, _)| {
+            matches!(
+                key,
+                Key::Flops
+                    | Key::Transcendentals
+                    | Key::Optimal
+                    | Key::ScaleRatio
+                    | Key::NumDevices
+                    | Key::Transferred
+                    | Key::Adjustment
+            )
+        }) {
             let slot = self.current.slot(key.clone());
-            *slot = if accumulate { *slot + value * factor as f32 } else { value * factor as f32 };
+            *slot = if accumulate {
+                *slot + value * factor as f32
+            } else {
+                value * factor as f32
+            };
         }
     }
 
     fn transfers(&mut self, output: i64, operands: &[(usize, i64)]) {
-        self.current.set(Key::Bytes, (output + operands.iter().map(|operand| operand.1).sum::<i64>()) as f32);
+        self.current.set(
+            Key::Bytes,
+            (output + operands.iter().map(|operand| operand.1).sum::<i64>()) as f32,
+        );
         self.set_output(&[], output as f32);
         for &(operand, bytes) in operands {
             self.set_operand_bytes(operand, &[], bytes as f32);
@@ -626,8 +884,13 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let opcode = context.opcode(node);
         let shape = context.shape(node);
         match opcode {
-            _ if ELEMENTWISE.split(' ').any(|name| name == opcode) && !matches!(opcode, "copy" | "constant" | "rng") => {
-                self.current.set(Key::Flops, (profile_flops(opcode, shape.element_type) * shape.elements_recursive()) as f32);
+            _ if ELEMENTWISE.split(' ').any(|name| name == opcode)
+                && !matches!(opcode, "copy" | "constant" | "rng") =>
+            {
+                self.current.set(
+                    Key::Flops,
+                    (profile_flops(opcode, shape.element_type) * shape.elements_recursive()) as f32,
+                );
             }
             "parameter" | "constant" => self.zero_outputs(node, false, false),
             "get-tuple-element" => {
@@ -638,32 +901,74 @@ impl<'c, 'm> Analysis<'c, 'm> {
             "bitcast" => self.bitcast(),
             "transpose" if context.transpose_is_bitcast(node)? => self.bitcast(),
             "slice" | "dynamic-slice" | "dynamic-update-slice" => self.slicing(node, opcode)?,
-            "tuple" => self.transfers(shape_size(shape), &(0..context.operands(node).len()).map(|index| (index, 0)).collect::<Vec<_>>()),
+            "tuple" => self.transfers(
+                shape_size(shape),
+                &(0..context.operands(node).len())
+                    .map(|index| (index, 0))
+                    .collect::<Vec<_>>(),
+            ),
             "concatenate" => {
                 let dimension = context.inst(node).dimensions.first().copied().unwrap_or(0);
-                let size = context.shape(context.operand(node, 0)?).dimensions.get(dimension as usize).copied().unwrap_or(0);
-                let per_element = if dimension > 0 && size & 31 != 0 { 400 } else { 6 };
-                self.current.set(Key::Flops, (per_element * shape.elements_recursive()) as f32);
+                let size = context
+                    .shape(context.operand(node, 0)?)
+                    .dimensions
+                    .get(dimension as usize)
+                    .copied()
+                    .unwrap_or(0);
+                let per_element = if dimension > 0 && size & 31 != 0 {
+                    400
+                } else {
+                    6
+                };
+                self.current.set(
+                    Key::Flops,
+                    (per_element * shape.elements_recursive()) as f32,
+                );
             }
             "dot" | "scaled-dot" => {
-                let numbers = context.inst(node).dot_dimension_numbers.clone().unwrap_or_default();
-                self.current.set(Key::Flops, dot_flops(context.shape(context.operand(node, 0)?), shape, &numbers.lhs_contracting_dimensions) as f32);
+                let numbers = context
+                    .inst(node)
+                    .dot_dimension_numbers
+                    .clone()
+                    .unwrap_or_default();
+                self.current.set(
+                    Key::Flops,
+                    dot_flops(
+                        context.shape(context.operand(node, 0)?),
+                        shape,
+                        &numbers.lhs_contracting_dimensions,
+                    ) as f32,
+                );
             }
             "ragged-dot" => {
-                let numbers = context.inst(node).ragged_dot_dimension_numbers.clone().unwrap_or_default();
+                let numbers = context
+                    .inst(node)
+                    .ragged_dot_dimension_numbers
+                    .clone()
+                    .unwrap_or_default();
                 let mut result = shape.clone();
                 for index in 0..numbers.rhs_group_dimensions.len() {
                     if index < result.dimensions.len() {
                         result.dimensions.remove(index);
                     }
                 }
-                let lhs = numbers.dot_dimension_numbers.unwrap_or_default().lhs_contracting_dimensions;
-                self.current.set(Key::Flops, dot_flops(context.shape(context.operand(node, 0)?), &result, &lhs) as f32);
+                let lhs = numbers
+                    .dot_dimension_numbers
+                    .unwrap_or_default()
+                    .lhs_contracting_dimensions;
+                self.current.set(
+                    Key::Flops,
+                    dot_flops(context.shape(context.operand(node, 0)?), &result, &lhs) as f32,
+                );
             }
             "infeed" | "outfeed" => self.feed(node, opcode),
             "map" | "scan" => {
                 let sub = self.subcomputation(context.called(node, 0)?)?;
-                let factor = if opcode == "map" { shape.elements() } else { context.shape(context.operand(node, 1)?).elements() };
+                let factor = if opcode == "map" {
+                    shape.elements()
+                } else {
+                    context.shape(context.operand(node, 1)?).elements()
+                };
                 self.copy_scaled(&sub, factor, false);
             }
             "reduce" => self.reduce(node)?,
@@ -672,19 +977,42 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 let select = self.subcomputation(context.called(node, 0)?)?;
                 let scatter = self.subcomputation(context.called(node, 1)?)?;
                 let source = context.shape(context.operand(node, 1)?).elements();
-                let window: i64 = context.inst(node).window.as_ref().map_or(1, |window| window.dimensions.iter().map(|dimension| dimension.size).product());
+                let window: i64 = context.inst(node).window.as_ref().map_or(1, |window| {
+                    window
+                        .dimensions
+                        .iter()
+                        .map(|dimension| dimension.size)
+                        .product()
+                });
                 self.copy_scaled(&select, source * (window - 1), true);
                 self.copy_scaled(&scatter, source, true);
             }
             "convolution" => {
-                let flops = convolution_flops(context.inst(node), context.shape(context.operand(node, 0)?), context.shape(context.operand(node, 1)?), shape);
+                let flops = convolution_flops(
+                    context.inst(node),
+                    context.shape(context.operand(node, 0)?),
+                    context.shape(context.operand(node, 1)?),
+                    shape,
+                );
                 self.current.set(Key::Flops, flops as f32);
             }
             "fft" => {
                 let operand = context.shape(context.operand(node, 0)?);
-                let real = if operand.is_tuple() { operand.tuple_shapes.first().cloned().unwrap_or_default() } else { operand.clone() };
-                let factors: i64 = context.inst(node).fft_length.iter().map(|&length| log2_floor(length as u64)).product();
-                self.current.set(Key::Flops, (FMA_FLOPS * 4 * factors * real.elements()) as f32);
+                let real = if operand.is_tuple() {
+                    operand.tuple_shapes.first().cloned().unwrap_or_default()
+                } else {
+                    operand.clone()
+                };
+                let factors: i64 = context
+                    .inst(node)
+                    .fft_length
+                    .iter()
+                    .map(|&length| log2_floor(length as u64))
+                    .product();
+                self.current.set(
+                    Key::Flops,
+                    (FMA_FLOPS * 4 * factors * real.elements()) as f32,
+                );
             }
             "triangular-solve" | "cholesky" => self.dense_solver(node, opcode)?,
             "all-gather" => self.all_gather(node, None)?,
@@ -694,31 +1022,50 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 let ranks = self.num_ranks(node)?;
                 let transferred = ring_shape_size(shape, None);
                 let root = context.root(context.called(node, 0)?);
-                self.current.set(Key::Flops, (profile_flops(context.opcode(root), shape.element_type) * shape.elements_recursive()) as f32);
+                self.current.set(
+                    Key::Flops,
+                    (profile_flops(context.opcode(root), shape.element_type)
+                        * shape.elements_recursive()) as f32,
+                );
                 self.current.set(Key::Bytes, transferred as f32);
                 self.current.set(Key::Transferred, transferred as f32);
                 self.ring(ranks, 2 * (ranks - 1));
             }
             "reduce-scatter" => self.reduce_scatter(node)?,
-            "all-to-all" => self.current.set(Key::Transferred, ring_shape_size(shape, None) as f32),
-            "collective-permute" | "collective-permute-start" => *self.current.slot(Key::Transferred) += byte_size(context.shape(context.operand(node, 0)?)) as f32,
+            "all-to-all" => self
+                .current
+                .set(Key::Transferred, ring_shape_size(shape, None) as f32),
+            "collective-permute" | "collective-permute-start" => {
+                *self.current.slot(Key::Transferred) +=
+                    byte_size(context.shape(context.operand(node, 0)?)) as f32;
+            }
             "async-start" => {
                 let wrapped = context.root(context.called(node, 0)?);
                 match context.opcode(wrapped) {
                     "reduce-scatter" => self.reduce_scatter(wrapped)?,
-                    "all-to-all" => self.current.set(Key::Transferred, ring_shape_size(context.shape(wrapped), None) as f32),
+                    "all-to-all" => self.current.set(
+                        Key::Transferred,
+                        ring_shape_size(context.shape(wrapped), None) as f32,
+                    ),
                     _ => {}
                 }
             }
-            "rng" => self.current.set(Key::Transcendentals, shape.elements() as f32),
-            "rng-bit-generator" => self.current.set(Key::Transcendentals, shape.elements_recursive() as f32),
+            "rng" => self
+                .current
+                .set(Key::Transcendentals, shape.elements() as f32),
+            "rng-bit-generator" => self
+                .current
+                .set(Key::Transcendentals, shape.elements_recursive() as f32),
             "fusion" => self.fusion(node)?,
             "call" | "while" | "conditional" => self.control_flow(node, opcode)?,
             "custom-call" => self.custom_call(node)?,
             "sort" => {
                 let count = context.shape(context.operand(node, 0)?).elements();
                 let rounded = (count as u64 != 0 && !(count as u64).is_power_of_two()) as i64;
-                self.current.set(Key::Flops, (count * (log2_floor(count as u64) + rounded)) as f32);
+                self.current.set(
+                    Key::Flops,
+                    (count * (log2_floor(count as u64) + rounded)) as f32,
+                );
             }
             "gather" => self.gather(node)?,
             "scatter" => self.scatter(node)?,
@@ -730,7 +1077,11 @@ impl<'c, 'm> Analysis<'c, 'm> {
     fn slicing(&mut self, node: usize, opcode: &str) -> Status {
         let context = self.context;
         let shape = context.shape(node);
-        let operand = |index: usize| context.operand(node, index).map(|operand| context.shape(operand));
+        let operand = |index: usize| {
+            context
+                .operand(node, index)
+                .map(|operand| context.shape(operand))
+        };
         if opcode == "dynamic-update-slice" {
             let update = shape_size(operand(1)?);
             self.transfers(update, &[(0, 0), (1, update), (2, shape_size(operand(2)?))]);
@@ -744,7 +1095,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
         } else {
             self.transfers(output, &[(0, output), (1, shape_size(operand(1)?))]);
         }
-        self.set_operand_utilization(0, (shape.elements() as f64 / operand(0)?.elements() as f64) as f32);
+        self.set_operand_utilization(
+            0,
+            (shape.elements() as f64 / operand(0)?.elements() as f64) as f32,
+        );
         Ok(())
     }
 
@@ -789,7 +1143,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let (output, operand) = (shape_size(shape) as f32, shape_size(b) as f32);
         self.set_output(&[], output);
         self.set_operand_bytes(0, &[], operand);
-        self.current.set(Key::Bytes, output + shape_size(a) as f32 / 2.0 + operand);
+        self.current
+            .set(Key::Bytes, output + shape_size(a) as f32 / 2.0 + operand);
         let count = a.dimensions.last().copied().unwrap_or(0) * b.elements();
         self.current.set(Key::Flops, (FMA_FLOPS * count) as f32);
         Ok(())
@@ -828,7 +1183,14 @@ impl<'c, 'm> Analysis<'c, 'm> {
 
     fn ring(&mut self, ranks: i64, steps: i64) {
         self.current.set(Key::NumDevices, ranks as f32);
-        self.current.set(Key::ScaleRatio, if steps > 0 { ranks as f32 / steps as f32 } else { 0.0 });
+        self.current.set(
+            Key::ScaleRatio,
+            if steps > 0 {
+                ranks as f32 / steps as f32
+            } else {
+                0.0
+            },
+        );
     }
 
     #[allow(deprecated)]
@@ -839,17 +1201,37 @@ impl<'c, 'm> Analysis<'c, 'm> {
             return Err("Cannot have use_global_device_ids=true without channel_id".into());
         }
         let largest: Option<i64> = match (&inst.replica_groups[..], &inst.replica_group_list) {
-            (legacy, _) if !legacy.is_empty() => legacy.iter().map(|group| group.replica_ids.len() as i64).max(),
-            (_, Some(ReplicaGroupList::IotaCollectiveDeviceList(list))) => (list.num_replica_groups > 0).then_some(list.num_devices_per_group),
+            (legacy, _) if !legacy.is_empty() => legacy
+                .iter()
+                .map(|group| group.replica_ids.len() as i64)
+                .max(),
+            (_, Some(ReplicaGroupList::IotaCollectiveDeviceList(list))) => {
+                (list.num_replica_groups > 0).then_some(list.num_devices_per_group)
+            }
             (_, Some(ReplicaGroupList::MeshAxesReplicaGroupList(list))) => {
                 let axes = list.mesh.as_ref().map_or(&[][..], |mesh| &mesh.axes[..]);
-                let devices = axes.iter().try_fold(1i64, |product, axis| product.checked_mul(axis.size));
+                let devices = axes
+                    .iter()
+                    .try_fold(1i64, |product, axis| product.checked_mul(axis.size));
                 let size = list.axes.iter().try_fold(1i64, |product, axis| {
-                    product.checked_mul(axis.sub_axis_info.map_or_else(|| axes.get(axis.mesh_axis_index as usize).map_or(1, |mesh_axis| mesh_axis.size), |sub| sub.size))
+                    product.checked_mul(axis.sub_axis_info.map_or_else(
+                        || {
+                            axes.get(axis.mesh_axis_index as usize)
+                                .map_or(1, |mesh_axis| mesh_axis.size)
+                        },
+                        |sub| sub.size,
+                    ))
                 });
-                devices.zip(size).filter(|&(devices, size)| size > 0 && devices / size > 0).map(|(_, size)| size)
+                devices
+                    .zip(size)
+                    .filter(|&(devices, size)| size > 0 && devices / size > 0)
+                    .map(|(_, size)| size)
             }
-            (_, Some(ReplicaGroupList::CollectiveDeviceList(list))) => list.replica_groups.iter().map(|group| group.replica_ids.len() as i64).max(),
+            (_, Some(ReplicaGroupList::CollectiveDeviceList(list))) => list
+                .replica_groups
+                .iter()
+                .map(|group| group.replica_ids.len() as i64)
+                .max(),
             (_, None) => None,
         };
         if largest.is_none() && channel && global {
@@ -862,7 +1244,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let ranks = self.num_ranks(node)?;
         let transferred = ring_shape_size(self.context.shape(node), skip);
         let rank_size = transferred / ranks;
-        self.current.set(Key::Bytes, (rank_size * (2 * ranks - 1) + rank_size * ranks) as f32);
+        self.current.set(
+            Key::Bytes,
+            (rank_size * (2 * ranks - 1) + rank_size * ranks) as f32,
+        );
         self.current.set(Key::Transferred, transferred as f32);
         self.ring(ranks, ranks - 1);
         Ok(())
@@ -872,13 +1257,26 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let context = self.context;
         let ranks = self.num_ranks(node)?;
         let shape = context.shape(node);
-        let output: i64 = all_subshapes(shape).into_iter().filter(|(_, subshape)| subshape.is_array()).map(|(_, subshape)| shape_size(subshape)).sum();
-        let bytes = output + context.operands(node).iter().map(|&operand| shape_size(context.shape(operand))).sum::<i64>();
+        let output: i64 = all_subshapes(shape)
+            .into_iter()
+            .filter(|(_, subshape)| subshape.is_array())
+            .map(|(_, subshape)| shape_size(subshape))
+            .sum();
+        let bytes = output
+            + context
+                .operands(node)
+                .iter()
+                .map(|&operand| shape_size(context.shape(operand)))
+                .sum::<i64>();
         self.set_output(&[], output as f32);
         self.current.set(Key::Transferred, output as f32);
         self.current.set(Key::Bytes, bytes as f32);
         let root = context.root(context.called(node, 0)?);
-        self.current.set(Key::Flops, (profile_flops(context.opcode(root), shape.element_type) * shape.elements_recursive()) as f32);
+        self.current.set(
+            Key::Flops,
+            (profile_flops(context.opcode(root), shape.element_type) * shape.elements_recursive())
+                as f32,
+        );
         self.ring(ranks, 2 * (ranks - 1));
         Ok(())
     }
@@ -886,13 +1284,24 @@ impl<'c, 'm> Analysis<'c, 'm> {
     fn reduce_scatter(&mut self, node: usize) -> Status {
         let context = self.context;
         let ranks = self.num_ranks(node)?;
-        let transferred: i64 = context.operands(node).iter().map(|&operand| ring_shape_size(context.shape(operand), None)).sum();
+        let transferred: i64 = context
+            .operands(node)
+            .iter()
+            .map(|&operand| ring_shape_size(context.shape(operand), None))
+            .sum();
         let rank_size = transferred / ranks;
-        self.current.set(Key::Bytes, (rank_size * ranks + rank_size * (2 * ranks - 1)) as f32);
+        self.current.set(
+            Key::Bytes,
+            (rank_size * ranks + rank_size * (2 * ranks - 1)) as f32,
+        );
         self.current.set(Key::Transferred, transferred as f32);
         let root = context.root(context.called(node, 0)?);
         let shape = context.shape(node);
-        self.current.set(Key::Flops, (profile_flops(context.opcode(root), shape.element_type) * shape.elements_recursive()) as f32);
+        self.current.set(
+            Key::Flops,
+            (profile_flops(context.opcode(root), shape.element_type) * shape.elements_recursive())
+                as f32,
+        );
         self.ring(ranks, ranks - 1);
         Ok(())
     }
@@ -901,9 +1310,20 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let context = self.context;
         let sub = self.subcomputation(context.called(node, 0)?)?;
         let shape = context.shape(node);
-        let output = if shape.is_array() { shape.clone() } else { shape.tuple_shapes.first().cloned().unwrap_or_default() };
-        self.copy_scaled(&sub, context.shape(context.operand(node, 0)?).elements() - output.elements(), false);
-        let output_bytes: i64 = leaves(shape).into_iter().map(|(_, leaf)| shape_size(leaf)).sum();
+        let output = if shape.is_array() {
+            shape.clone()
+        } else {
+            shape.tuple_shapes.first().cloned().unwrap_or_default()
+        };
+        self.copy_scaled(
+            &sub,
+            context.shape(context.operand(node, 0)?).elements() - output.elements(),
+            false,
+        );
+        let output_bytes: i64 = leaves(shape)
+            .into_iter()
+            .map(|(_, leaf)| shape_size(leaf))
+            .sum();
         self.set_output(&[], output_bytes as f32);
         let inputs = context.operands(node).len() / 2;
         let mut bytes = output_bytes;
@@ -926,17 +1346,41 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let sub = self.subcomputation(context.called(node, 0)?)?;
         let shape = context.shape(node);
         let window = context.inst(node).window.clone().unwrap_or_default();
-        let mut window_elements: i64 = window.dimensions.iter().map(|dimension| dimension.size).product();
-        let output_elements = (if shape.is_array() { shape } else { shape.tuple_shapes.first().unwrap_or(shape) }).elements();
+        let mut window_elements: i64 = window
+            .dimensions
+            .iter()
+            .map(|dimension| dimension.size)
+            .product();
+        let output_elements = (if shape.is_array() {
+            shape
+        } else {
+            shape.tuple_shapes.first().unwrap_or(shape)
+        })
+        .elements();
         let mut count = (window_elements - 1) * output_elements;
-        let reducing = window.dimensions.iter().filter(|dimension| dimension.size != 1).count();
-        let padded = window.dimensions.iter().filter(|dimension| dimension.padding_low != 0 || dimension.padding_high != 0).count();
+        let reducing = window
+            .dimensions
+            .iter()
+            .filter(|dimension| dimension.size != 1)
+            .count();
+        let padded = window
+            .dimensions
+            .iter()
+            .filter(|dimension| dimension.padding_low != 0 || dimension.padding_high != 0)
+            .count();
         if reducing == 1 && padded == 1 && shape.is_array() {
             let found = window.dimensions.iter().position(|dimension| {
-                dimension.size != 1 && dimension.padding_low != 0 && dimension.padding_high != 0 && dimension.padding_low == dimension.padding_high && dimension.size == 2 * dimension.padding_low + 1
+                dimension.size != 1
+                    && dimension.padding_low != 0
+                    && dimension.padding_high != 0
+                    && dimension.padding_low == dimension.padding_high
+                    && dimension.size == 2 * dimension.padding_low + 1
             });
             if let Some(position) = found
-                && let Some(&dimension) = shape.dimensions.get(position).filter(|&&dimension| dimension != 0)
+                && let Some(&dimension) = shape
+                    .dimensions
+                    .get(position)
+                    .filter(|&&dimension| dimension != 0)
                 && dimension.checked_sub(1) == Some(window.dimensions[position].padding_low)
             {
                 window_elements = dimension;
@@ -951,8 +1395,18 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let context = self.context;
         let shape = context.shape(node);
         let output = shape_size(shape);
-        self.transfers(output, &[(0, output), (1, shape_size(context.shape(context.operand(node, 1)?)))]);
-        self.set_operand_utilization(0, (shape.elements() as f64 / context.shape(context.operand(node, 0)?).elements() as f64) as f32);
+        self.transfers(
+            output,
+            &[
+                (0, output),
+                (1, shape_size(context.shape(context.operand(node, 1)?))),
+            ],
+        );
+        self.set_operand_utilization(
+            0,
+            (shape.elements() as f64 / context.shape(context.operand(node, 0)?).elements() as f64)
+                as f32,
+        );
         Ok(())
     }
 
@@ -971,7 +1425,11 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.current.set(Key::Bytes, (total * 3 + indices) as f32);
         self.set_output(&[], total as f32);
         let sub = self.subcomputation(context.called(node, 0)?)?;
-        self.copy_scaled(&sub, context.shape(context.operand(node, count + 1)?).elements(), false);
+        self.copy_scaled(
+            &sub,
+            context.shape(context.operand(node, count + 1)?).elements(),
+            false,
+        );
         Ok(())
     }
 
@@ -980,32 +1438,57 @@ impl<'c, 'm> Analysis<'c, 'm> {
         let inst = context.inst(node);
         let target = inst.custom_call_target.as_str();
         let shape = context.shape(node);
-        let output = if shape.is_tuple() { shape.tuple_shapes.first().cloned().unwrap_or_default() } else { shape.clone() };
+        let output = if shape.is_tuple() {
+            shape.tuple_shapes.first().cloned().unwrap_or_default()
+        } else {
+            shape.clone()
+        };
         if CUBLAS_LT.contains(&target) {
             let config = context.module.backend_config(inst).unwrap_or_default();
             let lhs = if config.is_empty() {
                 Vec::new()
             } else {
-                let value: serde_json::Value = serde_json::from_slice(&config).map_err(|error| error.to_string())?;
+                let value: serde_json::Value =
+                    serde_json::from_slice(&config).map_err(|error| error.to_string())?;
                 let dimensions = value["gemm_backend_config"]["dot_dimension_numbers"]["lhs_contracting_dimensions"].as_array();
-                dimensions.map_or_else(Vec::new, |items| items.iter().filter_map(|item| item.as_i64().or_else(|| item.as_str().and_then(|text| text.parse().ok()))).collect())
+                dimensions.map_or_else(Vec::new, |items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            item.as_i64()
+                                .or_else(|| item.as_str().and_then(|text| text.parse().ok()))
+                        })
+                        .collect()
+                })
             };
             let operand = context.shape(context.operand(node, 0)?);
             let flops = dot_flops(operand, &output, &lhs) as f32;
             self.current.set(Key::Flops, flops);
             self.replace_output(byte_size(&output) as f32);
-            self.current.set(Key::Adjustment, adjusted(flops, bit_width(operand.element_type)));
+            self.current.set(
+                Key::Adjustment,
+                adjusted(flops, bit_width(operand.element_type)),
+            );
             return Ok(());
         }
         if DNN_CONVOLUTION.contains(&target) {
-            let flops = convolution_flops(inst, context.shape(context.operand(node, 0)?), context.shape(context.operand(node, 1)?), &output);
+            let flops = convolution_flops(
+                inst,
+                context.shape(context.operand(node, 0)?),
+                context.shape(context.operand(node, 1)?),
+                &output,
+            );
             self.current.set(Key::Flops, flops as f32);
             if shape.is_tuple() {
                 self.replace_output(byte_size(&output) as f32);
             }
             return Ok(());
         }
-        let value = if CALL_MARKERS.contains(&target) { 0.0 } else { -1.0 };
+        let value = if CALL_MARKERS.contains(&target) {
+            0.0
+        } else {
+            -1.0
+        };
         self.current.set(Key::Optimal, value);
         self.current.set(Key::Bytes, value);
         self.set_output(&[], value);
@@ -1014,7 +1497,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
         }
         self.current.set(Key::Flops, value);
         self.bottleneck = false;
-        let raw = String::from_utf8_lossy(&context.module.backend_config(inst).unwrap_or_default()).into_owned();
+        let raw = String::from_utf8_lossy(&context.module.backend_config(inst).unwrap_or_default())
+            .into_owned();
         if raw.contains("cost_estimate_json") {
             if let Some(flops) = cost_estimate(&raw, "flops").filter(|value| *value >= 0) {
                 self.current.set(Key::Flops, flops as f32);
@@ -1044,9 +1528,12 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.fusion_outputs(node, graph)?;
         self.fusion_utilizations(graph)?;
         for &child in &context.module.graphs[graph].nodes {
-            if context.opcode(child) == "constant" && context.shape(child).elements() > IMMEDIATE_CONSTANT_MAX_ELEMENTS {
+            if context.opcode(child) == "constant"
+                && context.shape(child).elements() > IMMEDIATE_CONSTANT_MAX_ELEMENTS
+            {
                 let utilization = (self.property(child, &Key::Utilization) as f64).min(1.0) as f32;
-                *self.current.slot(Key::Bytes) += shape_size(context.shape(child)) as f32 * utilization;
+                *self.current.slot(Key::Bytes) +=
+                    shape_size(context.shape(child)) as f32 * utilization;
             }
         }
         for index in 0..context.module.graphs[graph].parameters.len() {
@@ -1056,7 +1543,10 @@ impl<'c, 'm> Analysis<'c, 'm> {
                 for (shape_index, _) in leaves(context.shape(parameter)) {
                     let mut current = parameter;
                     for &sub in &shape_index {
-                        if let Some(&user) = context.users(current).iter().find(|&&user| context.opcode(user) == "get-tuple-element" && context.inst(user).tuple_index == sub) {
+                        if let Some(&user) = context.users(current).iter().find(|&&user| {
+                            context.opcode(user) == "get-tuple-element"
+                                && context.inst(user).tuple_index == sub
+                        }) {
                             current = user;
                         }
                     }
@@ -1138,7 +1628,11 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.current.set(Key::Flops, 0.0);
         self.current.set(Key::IrSize, 0.0);
         for &instruction in &instructions {
-            let roots = self.use_roots.get(&instruction).cloned().unwrap_or_default();
+            let roots = self
+                .use_roots
+                .get(&instruction)
+                .cloned()
+                .unwrap_or_default();
             for &used in &roots {
                 let utilization = self.root_utilizations.get(&used).copied().unwrap_or(0.0);
                 let size = ir_sizes.get(&used).copied().unwrap_or(0);
@@ -1151,26 +1645,53 @@ impl<'c, 'm> Analysis<'c, 'm> {
             *self.current.slot(Key::Flops) += utilization * flops;
             *self.current.slot(Key::IrSize) += emitted;
             let opcode = context.opcode(instruction);
-            let layout =
-                |shape: &Shape| shape.layout.as_ref().map(|layout| (layout.minor_to_major.clone(), layout.tiles.iter().map(|tile| tile.dimensions.clone()).collect::<Vec<_>>(), layout.memory_space));
+            let layout = |shape: &Shape| {
+                shape.layout.as_ref().map(|layout| {
+                    (
+                        layout.minor_to_major.clone(),
+                        layout
+                            .tiles
+                            .iter()
+                            .map(|tile| tile.dimensions.clone())
+                            .collect::<Vec<_>>(),
+                        layout.memory_space,
+                    )
+                })
+            };
             let same = |left: &Shape, right: &Shape| {
-                left.dimensions == right.dimensions && left.is_dynamic_dimension == right.is_dynamic_dimension && left.is_array() == right.is_array() && layout(left) == layout(right)
+                left.dimensions == right.dimensions
+                    && left.is_dynamic_dimension == right.is_dynamic_dimension
+                    && left.is_array() == right.is_array()
+                    && layout(left) == layout(right)
             };
             let passes = context.is_elementwise(instruction)
-                || (opcode == "bitcast" && same(context.shape(context.operand(instruction, 0)?), context.shape(instruction)))
+                || (opcode == "bitcast"
+                    && same(
+                        context.shape(context.operand(instruction, 0)?),
+                        context.shape(instruction),
+                    ))
                 || opcode == "tuple"
                 || opcode == "get-tuple-element";
             for (index, &operand) in context.operands(instruction).iter().enumerate() {
                 let entry = self.use_roots.entry(operand).or_default();
-                for &used in if passes { &roots[..] } else { std::slice::from_ref(&operand) } {
+                for &used in if passes {
+                    &roots[..]
+                } else {
+                    std::slice::from_ref(&operand)
+                } {
                     if !entry.contains(&used) {
                         entry.push(used);
                     }
                 }
                 if !passes {
-                    let mut operand_utilization = utilization * self.property(instruction, &Key::OperandUtilization(index));
+                    let mut operand_utilization =
+                        utilization * self.property(instruction, &Key::OperandUtilization(index));
                     let count = context.shape(operand).elements_recursive();
-                    operand_utilization = if count == 0 { 0.0 } else { (operand_utilization * count as f32).ceil() / count as f32 };
+                    operand_utilization = if count == 0 {
+                        0.0
+                    } else {
+                        (operand_utilization * count as f32).ceil() / count as f32
+                    };
                     *self.root_utilizations.entry(operand).or_insert(0.0) += operand_utilization;
                     let size = ir_sizes.entry(operand).or_insert(0);
                     *size = (*size as f32 + emitted) as i64;
@@ -1187,18 +1708,40 @@ impl<'c, 'm> Analysis<'c, 'm> {
 }
 
 fn dot_flops(lhs: &Shape, result: &Shape, contracting: &[i64]) -> i64 {
-    let width: i64 = contracting.iter().map(|&dimension| lhs.dimensions.get(dimension as usize).copied().unwrap_or(1)).product();
+    let width: i64 = contracting
+        .iter()
+        .map(|&dimension| lhs.dimensions.get(dimension as usize).copied().unwrap_or(1))
+        .product();
     FMA_FLOPS * result.elements() * width
 }
 
 fn convolution_flops(inst: &Inst, lhs: &Shape, rhs: &Shape, result: &Shape) -> i64 {
-    let numbers = inst.convolution_dimension_numbers.clone().unwrap_or_default();
-    let dimension = |shape: &Shape, index: i64| shape.dimensions.get(index as usize).copied().unwrap_or(0);
-    let (input_feature, output_feature, batch) = (dimension(lhs, numbers.input_feature_dimension), dimension(result, numbers.output_feature_dimension), dimension(lhs, numbers.input_batch_dimension));
-    let mut window = inst.window.as_deref().cloned().unwrap_or_default().dimensions;
+    let numbers = inst
+        .convolution_dimension_numbers
+        .clone()
+        .unwrap_or_default();
+    let dimension =
+        |shape: &Shape, index: i64| shape.dimensions.get(index as usize).copied().unwrap_or(0);
+    let (input_feature, output_feature, batch) = (
+        dimension(lhs, numbers.input_feature_dimension),
+        dimension(result, numbers.output_feature_dimension),
+        dimension(lhs, numbers.input_batch_dimension),
+    );
+    let mut window = inst
+        .window
+        .as_deref()
+        .cloned()
+        .unwrap_or_default()
+        .dimensions;
     let (mut kernels, mut outputs, mut inputs) = (Vec::new(), Vec::new(), Vec::new());
     if window.is_empty() {
-        window.push(crate::hlo::xla::WindowDimension { size: 1, stride: 1, window_dilation: 1, base_dilation: 1, ..Default::default() });
+        window.push(crate::hlo::xla::WindowDimension {
+            size: 1,
+            stride: 1,
+            window_dilation: 1,
+            base_dilation: 1,
+            ..Default::default()
+        });
         (kernels, outputs, inputs) = (vec![1], vec![1], vec![1]);
     } else {
         for spatial in 0..window.len() {
@@ -1222,7 +1765,14 @@ fn convolution_flops(inst: &Inst, lhs: &Shape, rhs: &Shape, result: &Shape) -> i
             positions.push(input);
             continue;
         }
-        if input == 1 && kernel == output && window.window_dilation == 1 && window.base_dilation == 1 && window.stride == 1 && window.padding_high == output - 1 && window.padding_low == output - 1 {
+        if input == 1
+            && kernel == output
+            && window.window_dilation == 1
+            && window.base_dilation == 1
+            && window.stride == 1
+            && window.padding_high == output - 1
+            && window.padding_low == output - 1
+        {
             positions.push(output);
             continue;
         }
@@ -1234,9 +1784,17 @@ fn convolution_flops(inst: &Inst, lhs: &Shape, rhs: &Shape, result: &Shape) -> i
                 continue;
             }
             for output_index in 0..output {
-                let undilated = output_index * window.stride - window.padding_low + kernel_index * window.window_dilation;
-                let spatial_index = if window.base_dilation > 1 { undilated / window.base_dilation } else { undilated };
-                if undilated != spatial_index * window.base_dilation || spatial_index < 0 || spatial_index >= input {
+                let undilated = output_index * window.stride - window.padding_low
+                    + kernel_index * window.window_dilation;
+                let spatial_index = if window.base_dilation > 1 {
+                    undilated / window.base_dilation
+                } else {
+                    undilated
+                };
+                if undilated != spatial_index * window.base_dilation
+                    || spatial_index < 0
+                    || spatial_index >= input
+                {
                     continue;
                 }
                 count += 1;
@@ -1244,8 +1802,15 @@ fn convolution_flops(inst: &Inst, lhs: &Shape, rhs: &Shape, result: &Shape) -> i
         }
         positions.push(count);
     }
-    let (features, batches) = (inst.feature_group_count.max(1), inst.batch_group_count.max(1));
-    (input_feature / features) * output_feature * (batch / batches) * positions.iter().product::<i64>() * FMA_FLOPS
+    let (features, batches) = (
+        inst.feature_group_count.max(1),
+        inst.batch_group_count.max(1),
+    );
+    (input_feature / features)
+        * output_feature
+        * (batch / batches)
+        * positions.iter().product::<i64>()
+        * FMA_FLOPS
 }
 
 pub fn costs(module: &Module) -> Option<Vec<Cost>> {
@@ -1275,14 +1840,23 @@ pub fn costs(module: &Module) -> Option<Vec<Cost>> {
                             }
                         }
                     }
-                    let written: i64 = leaves(&module.nodes[node].shape).into_iter().filter(|(_, leaf)| memory_space(leaf) == Some(0)).map(|(index, _)| get(Key::Output(index)) as i64).sum();
+                    let written: i64 = leaves(&module.nodes[node].shape)
+                        .into_iter()
+                        .filter(|(_, leaf)| memory_space(leaf) == Some(0))
+                        .map(|(index, _)| get(Key::Output(index)) as i64)
+                        .sum();
                     for (is_read, value) in [(true, valid(read)), (false, valid(written))] {
                         if value > 0 {
                             memory.push((is_read, HBM, value));
                         }
                     }
                 }
-                Cost { model_flops: valid(flops), device_flops: valid(flops - get(Key::Adjustment) as i64), bytes_accessed, memory }
+                Cost {
+                    model_flops: valid(flops),
+                    device_flops: valid(flops - get(Key::Adjustment) as i64),
+                    bytes_accessed,
+                    memory,
+                }
             })
             .collect(),
     )

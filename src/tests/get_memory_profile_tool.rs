@@ -20,10 +20,16 @@ fn test_get_memory_profile() {
             r#"[{"peakMemoryUsageMiB": "4096.0"}]"#,
             r#"{"memory_capacity_gib": -1.0, "peak_memory_usage_gib": 4.0, "peak_usage_details": {"stack_reservation_gib": -1.0, "heap_allocation_gib": -1.0, "free_memory_gib": -1.0, "fragmentation_percent": -1.0, "utilization_percent": -1.0}}"#,
         ),
-        (r#"[{"memoryProfileSummary": {"memoryCapacity": "0", "peakStats": {"peakBytesUsageHbm": "0"}}}]"#, UNSET),
+        (
+            r#"[{"memoryProfileSummary": {"memoryCapacity": "0", "peakStats": {"peakBytesUsageHbm": "0"}}}]"#,
+            UNSET,
+        ),
     ];
     for (response, expected) in cases {
-        let result = json(get_memory_profile(&Fake::fixed(response).with_hosts(&[]), &args("test_session", &[])));
+        let result = json(get_memory_profile(
+            &Fake::fixed(response).with_hosts(&[]),
+            &args("test_session", &[]),
+        ));
         assert!(!result.has("error"));
         assert_eq!(result, parse(expected), "{response}");
     }
@@ -32,7 +38,10 @@ fn test_get_memory_profile() {
 #[test]
 fn test_get_memory_profile_no_data() {
     let fake = Fake::tools(|_| None).with_hosts(&[]);
-    assert_eq!(json(get_memory_profile(&fake, &args("test_session", &[]))), parse(UNSET));
+    assert_eq!(
+        json(get_memory_profile(&fake, &args("test_session", &[]))),
+        parse(UNSET)
+    );
 }
 
 #[test]
@@ -56,14 +65,24 @@ fn test_get_memory_profile_fallback() {
     let host = |name: &str| ("host".to_string(), name.to_string());
     let expected = vec![
         ("memory_profile.json".to_string(), vec![format.clone()]),
-        ("memory_profile.json".to_string(), vec![format.clone(), host("host-primary")]),
-        ("memory_profile.json".to_string(), vec![format, host("host-secondary")]),
+        (
+            "memory_profile.json".to_string(),
+            vec![format.clone(), host("host-primary")],
+        ),
+        (
+            "memory_profile.json".to_string(),
+            vec![format, host("host-secondary")],
+        ),
     ];
     assert_eq!(*fake.calls.borrow(), expected);
 }
 
 #[test]
 fn test_get_memory_profile_invalid_json() {
-    let error = get_memory_profile(&Fake::fixed("invalid json data").with_hosts(&[]), &args("test_session", &[])).unwrap_err();
+    let error = get_memory_profile(
+        &Fake::fixed("invalid json data").with_hosts(&[]),
+        &args("test_session", &[]),
+    )
+    .unwrap_err();
     assert_eq!(error.kind, Kind::Value);
 }

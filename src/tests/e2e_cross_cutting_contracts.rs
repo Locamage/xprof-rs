@@ -11,7 +11,12 @@ const SPILL_EVENTS: i64 = 80_000;
 fn test_x01_four_input_forms() {
     let dir = scratch("x01");
     let path = session(&dir, "host.xplane.pb", &training_trace(TRAINING_STEP_PS));
-    let step = |target: &std::path::Path| parse(&run(&["get_overview", target.to_str().unwrap()]).1).at("performance_summary").at("steptime_ms_average").clone();
+    let step = |target: &std::path::Path| {
+        parse(&run(&["get_overview", target.to_str().unwrap()]).1)
+            .at("performance_summary")
+            .at("steptime_ms_average")
+            .clone()
+    };
     assert_eq!(step(&path), step(path.parent().unwrap()));
     assert_eq!(step(&path).str(), Some("20.00"));
 }
@@ -20,7 +25,14 @@ fn test_x01_four_input_forms() {
 fn test_x05_truncation_contract() {
     let dir = scratch("x05");
     let path = session(&dir, "host.xplane.pb", &training_trace(TRAINING_STEP_PS));
-    let result = parse(&run(&["list_xplane_events", path.to_str().unwrap(), "--max_events=5"]).1);
+    let result = parse(
+        &run(&[
+            "list_xplane_events",
+            path.to_str().unwrap(),
+            "--max_events=5",
+        ])
+        .1,
+    );
     for key in ["events", "returned", "total_matched", "truncated"] {
         assert!(result.has(key), "{key}");
     }
@@ -35,17 +47,32 @@ fn test_x06_volume_guard_spill_to_file() {
     let mut space = XSpace::default();
     let plane = space.plane("/host:CPU");
     for index in 0..SPILL_EVENTS {
-        plane.event(0, "a_reasonably_long_event_name_for_volume", index * 10, 5, &[]);
+        plane.event(
+            0,
+            "a_reasonably_long_event_name_for_volume",
+            index * 10,
+            5,
+            &[],
+        );
     }
     let path = session(&dir, "host.xplane.pb", &space.encode_to_vec());
-    let (code, out, _) = run(&["list_xplane_events", path.to_str().unwrap(), "--max_events=0"]);
+    let (code, out, _) = run(&[
+        "list_xplane_events",
+        path.to_str().unwrap(),
+        "--max_events=0",
+    ]);
     let result = parse(&out);
     assert_eq!(code, 0);
     assert_eq!(result.at("status").str(), Some("SAVED_TO_FILE"));
     let spilled = std::path::PathBuf::from(result.at("file_path").str().unwrap());
     assert!(spilled.exists());
     assert!(result.at("size_bytes").int().unwrap() > 10 * 1024 * 1024);
-    assert_eq!(parse(&std::fs::read_to_string(&spilled).unwrap()).at("returned").int(), Some(i128::from(SPILL_EVENTS)));
+    assert_eq!(
+        parse(&std::fs::read_to_string(&spilled).unwrap())
+            .at("returned")
+            .int(),
+        Some(i128::from(SPILL_EVENTS))
+    );
     std::fs::remove_file(spilled).unwrap();
 }
 
@@ -83,6 +110,8 @@ fn test_x09_registry_integrity() {
 
 #[test]
 fn test_x10_unknown_tool_raises_value_error() {
-    let error = Local::default().fetch("nonexistent_tool_xyz", "dummy", &[]).unwrap_err();
+    let error = Local::default()
+        .fetch("nonexistent_tool_xyz", "dummy", &[])
+        .unwrap_err();
     assert_eq!(error.kind, Kind::Value);
 }

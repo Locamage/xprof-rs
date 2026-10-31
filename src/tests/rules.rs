@@ -1,6 +1,7 @@
 use super::mock_tool_data_provider::{
-    MockToolDataProvider as P, apply, event_time_fractions, generate_suggestion, generic_step_time_breakdown, input_pipeline_analysis, meets_conditions, memory_profile, op_profile_with_async_done,
-    overview_page, step_sequence, tpu_step_time_breakdown,
+    MockToolDataProvider as P, apply, event_time_fractions, generate_suggestion,
+    generic_step_time_breakdown, input_pipeline_analysis, meets_conditions, memory_profile,
+    op_profile_with_async_done, overview_page, step_sequence, tpu_step_time_breakdown,
 };
 
 #[derive(Clone, Copy)]
@@ -30,11 +31,19 @@ fn check(rule: &str, provider: &P, expect: Expect) {
 macro_rules! rules { ($($module:ident = $rule:literal { $($name:ident: $provider:expr => $expect:expr,)* } $({ $($extra:item)* })?)*) => { $(mod $module { use super::*; $(#[test] fn $name() { check($rule, &$provider, $expect) })* $($($extra)*)? })* } }
 
 fn offload(all_reduce_raw_time: f64, peak_bytes_in_use: f64) -> P {
-    P { op_profile: op_profile_with_async_done(1000.0, "all-reduce.0", all_reduce_raw_time), memory_profile: memory_profile(peak_bytes_in_use, 200.0), ..Default::default() }
+    P {
+        op_profile: op_profile_with_async_done(1000.0, "all-reduce.0", all_reduce_raw_time),
+        memory_profile: memory_profile(peak_bytes_in_use, 200.0),
+        ..Default::default()
+    }
 }
 
 fn tpu(tc_idle: f64, sc_step: f64, utilization: f64) -> P {
-    P { input_pipeline_analysis: tpu_step_time_breakdown(100.0, tc_idle, sc_step), overview_page: overview_page(utilization, utilization), ..Default::default() }
+    P {
+        input_pipeline_analysis: tpu_step_time_breakdown(100.0, tc_idle, sc_step),
+        overview_page: overview_page(utilization, utilization),
+        ..Default::default()
+    }
 }
 
 rules! {

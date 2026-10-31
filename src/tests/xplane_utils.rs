@@ -22,6 +22,10 @@ fn partially_grouped_x_space() {
 fn test_fully_grouped_x_space() {
     let mut space = XSpace::default();
     plane_with_events(&mut space, "/host:CPU", &[(1, "group_id")]);
-    plane_with_events(&mut space, "/device:TPU", &[(1, "group_id"), (2, "non_group_id")]);
+    plane_with_events(
+        &mut space,
+        "/device:TPU",
+        &[(1, "group_id"), (2, "non_group_id")],
+    );
     assert!(is_grouped(&space.parsed().1));
 }

@@ -8,8 +8,7 @@ fn decompressed(compressed: &[u8]) -> std::io::Result<String> {
 
 #[test]
 fn compress_and_decompress_successfully() {
-    let original =
-        "Hello, Zstd! This is a test string to be compressed. Repeating it makes it more compressible... Repeating it makes it more compressible... Repeating it makes it more compressible...";
+    let original = "Hello, Zstd! This is a test string to be compressed. Repeating it makes it more compressible... Repeating it makes it more compressible... Repeating it makes it more compressible...";
     let result = compressed(original);
     assert!(!result.is_empty());
     assert_eq!(decompressed(&result).unwrap(), original);

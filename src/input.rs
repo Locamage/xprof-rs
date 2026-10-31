@@ -18,7 +18,12 @@ impl std::ops::Deref for Input {
         match self {
             Self::Owned(bytes) => bytes,
             #[cfg(target_os = "linux")]
-            Self::Mapped(mapping) => unsafe { std::slice::from_raw_parts(std::ptr::with_exposed_provenance(mapping.start), mapping.len) },
+            Self::Mapped(mapping) => unsafe {
+                std::slice::from_raw_parts(
+                    std::ptr::with_exposed_provenance(mapping.start),
+                    mapping.len,
+                )
+            },
         }
     }
 }
@@ -35,21 +40,47 @@ pub fn map(file: File, len: u64) -> Result<Input, File> {
     use std::os::fd::AsRawFd;
     let fd = file.as_raw_fd();
     let mut info: libc::statfs = unsafe { std::mem::zeroed() };
-    let local = unsafe { libc::fstatfs(fd, &raw mut info) } == 0 && [libc::TMPFS_MAGIC, libc::EXT4_SUPER_MAGIC, libc::XFS_SUPER_MAGIC, libc::BTRFS_SUPER_MAGIC].contains(&info.f_type);
+    let local = unsafe { libc::fstatfs(fd, &raw mut info) } == 0
+        && [
+            libc::TMPFS_MAGIC,
+            libc::EXT4_SUPER_MAGIC,
+            libc::XFS_SUPER_MAGIC,
+            libc::BTRFS_SUPER_MAGIC,
+        ]
+        .contains(&info.f_type);
     if len < MAP_BYTES || !local || !*LISTENING {
         return Err(file);
     }
     // The lock makes sure that the thread sees the lease break of a new mapping.
     let mut leases = LEASES.lock().unwrap();
-    if unsafe { libc::fcntl(fd, libc::F_SETLEASE, libc::F_RDLCK) } != 0 || !file.metadata().is_ok_and(|meta| meta.len() == len) {
+    if unsafe { libc::fcntl(fd, libc::F_SETLEASE, libc::F_RDLCK) } != 0
+        || !file.metadata().is_ok_and(|meta| meta.len() == len)
+    {
         return Err(file);
     }
-    let start = unsafe { libc::mmap(std::ptr::null_mut(), len as usize, libc::PROT_READ, libc::MAP_SHARED, fd, 0) };
+    let start = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            len as usize,
+            libc::PROT_READ,
+            libc::MAP_SHARED,
+            fd,
+            0,
+        )
+    };
     if start == libc::MAP_FAILED {
         return Err(file);
     }
-    let mapping = Mapping { start: start.expose_provenance(), len: len as usize, _file: file };
-    leases.push(Lease { fd, start: mapping.start, len: mapping.len });
+    let mapping = Mapping {
+        start: start.expose_provenance(),
+        len: len as usize,
+        _file: file,
+    };
+    leases.push(Lease {
+        fd,
+        start: mapping.start,
+        len: mapping.len,
+    });
     Ok(Input::Mapped(mapping))
 }
 
@@ -91,14 +122,33 @@ struct Lease {
 impl Lease {
     /// Puts a private copy of the bytes at the same address, then gives back the lease. Readers see the same bytes during the change.
     fn copy(&self) -> bool {
-        let copy = unsafe { libc::mmap(std::ptr::null_mut(), self.len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0) };
+        let copy = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                self.len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
         if copy == libc::MAP_FAILED {
             return false;
         }
         unsafe {
-            std::ptr::copy_nonoverlapping(std::ptr::with_exposed_provenance::<u8>(self.start), copy.cast::<u8>(), self.len);
+            std::ptr::copy_nonoverlapping(
+                std::ptr::with_exposed_provenance::<u8>(self.start),
+                copy.cast::<u8>(),
+                self.len,
+            );
             libc::mprotect(copy, self.len, libc::PROT_READ);
-            libc::mremap(copy, self.len, self.len, libc::MREMAP_MAYMOVE | libc::MREMAP_FIXED, std::ptr::with_exposed_provenance_mut::<libc::c_void>(self.start));
+            libc::mremap(
+                copy,
+                self.len,
+                self.len,
+                libc::MREMAP_MAYMOVE | libc::MREMAP_FIXED,
+                std::ptr::with_exposed_provenance_mut::<libc::c_void>(self.start),
+            );
             libc::fcntl(self.fd, libc::F_SETLEASE, libc::F_UNLCK);
         }
         true
@@ -116,19 +166,27 @@ static WAKE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1
 #[cfg(target_os = "linux")]
 static LISTENING: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
     let mut pipe = [0; 2];
-    if unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) } != 0 || unsafe { libc::fcntl(pipe[1], libc::F_SETFL, libc::O_NONBLOCK) } != 0 {
+    if unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) } != 0
+        || unsafe { libc::fcntl(pipe[1], libc::F_SETFL, libc::O_NONBLOCK) } != 0
+    {
         return false;
     }
     WAKE.store(pipe[1], std::sync::atomic::Ordering::Relaxed);
     let listen = move || loop {
         let mut byte = 0u8;
-        if unsafe { libc::read(pipe[0], (&raw mut byte).cast(), 1) } < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+        if unsafe { libc::read(pipe[0], (&raw mut byte).cast(), 1) } < 0
+            && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+        {
             return;
         }
         // During a lease break, `F_GETLEASE` gives `F_UNLCK`. A lease that the thread cannot copy stays, and the writer waits for the lease break time of the system.
         LEASES.lock().unwrap().retain(|lease| unsafe { libc::fcntl(lease.fd, libc::F_GETLEASE) } == libc::F_RDLCK || !lease.copy());
     };
-    if std::thread::Builder::new().name("leases".into()).spawn(listen).is_err() {
+    if std::thread::Builder::new()
+        .name("leases".into())
+        .spawn(listen)
+        .is_err()
+    {
         return false;
     }
     let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
@@ -142,7 +200,11 @@ extern "C" fn wake(_: libc::c_int) {
     let byte = 0u8;
     unsafe {
         let errno = *libc::__errno_location();
-        libc::write(WAKE.load(std::sync::atomic::Ordering::Relaxed), (&raw const byte).cast(), 1);
+        libc::write(
+            WAKE.load(std::sync::atomic::Ordering::Relaxed),
+            (&raw const byte).cast(),
+            1,
+        );
         *libc::__errno_location() = errno;
     }
 }

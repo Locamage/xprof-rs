@@ -17,7 +17,13 @@ pub struct Fake {
 
 impl Fake {
     pub fn new(fetch: impl Fn(&str, &Params) -> Result<Option<Vec<u8>>, Error> + 'static) -> Self {
-        Self { fetch: Box::new(fetch), hosts: None, dir: PathBuf::new(), logdir: None, calls: RefCell::default() }
+        Self {
+            fetch: Box::new(fetch),
+            hosts: None,
+            dir: PathBuf::new(),
+            logdir: None,
+            calls: RefCell::default(),
+        }
     }
 
     pub fn tools(answer: impl Fn(&str) -> Option<String> + 'static) -> Self {
@@ -30,7 +36,10 @@ impl Fake {
     }
 
     pub fn with_hosts(mut self, hosts: &[&str]) -> Self {
-        self.hosts = Some(Ok(hosts.iter().map(std::string::ToString::to_string).collect()));
+        self.hosts = Some(Ok(hosts
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect()));
         self
     }
 
@@ -45,13 +54,23 @@ impl Fake {
     }
 
     pub fn fetched(&self) -> Vec<String> {
-        self.calls.borrow().iter().map(|(tool, _)| tool.clone()).collect()
+        self.calls
+            .borrow()
+            .iter()
+            .map(|(tool, _)| tool.clone())
+            .collect()
     }
 }
 
 impl Client for Fake {
     fn fetch(&self, tool: &str, _: &str, params: &Params) -> Result<Option<Vec<u8>>, Error> {
-        self.calls.borrow_mut().push((tool.to_string(), params.iter().map(|(key, value)| (key.to_string(), value.clone())).collect()));
+        self.calls.borrow_mut().push((
+            tool.to_string(),
+            params
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.clone()))
+                .collect(),
+        ));
         (self.fetch)(tool, params)
     }
 
@@ -68,14 +87,21 @@ impl Client for Fake {
             hosts.clone()
         } else {
             let paths = self.xspace_paths(&self.run_dir(session)?)?;
-            Ok(paths.iter().map(|path| crate::cli::client::host(path)).collect())
+            Ok(paths
+                .iter()
+                .map(|path| crate::cli::client::host(path))
+                .collect())
         }
     }
 }
 
 pub fn args(session: &str, pairs: &[(&str, J)]) -> Args {
     let mut values = vec![("session_id".to_string(), J::from(session))];
-    values.extend(pairs.iter().map(|(key, value)| (key.to_string(), value.clone())));
+    values.extend(
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.clone())),
+    );
     Args { values }
 }
 
@@ -116,8 +142,21 @@ pub fn scratch(name: &str) -> PathBuf {
 
 pub fn same(left: &J, right: &J) -> bool {
     match (left, right) {
-        (J::Map(left), J::Map(right)) => left.len() == right.len() && left.iter().all(|(key, value)| right.iter().any(|(other, item)| other == key && same(value, item))),
-        (J::List(left), J::List(right)) => left.len() == right.len() && left.iter().zip(right).all(|(left, right)| same(left, right)),
+        (J::Map(left), J::Map(right)) => {
+            left.len() == right.len()
+                && left.iter().all(|(key, value)| {
+                    right
+                        .iter()
+                        .any(|(other, item)| other == key && same(value, item))
+                })
+        }
+        (J::List(left), J::List(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| same(left, right))
+        }
         (J::Int(_) | J::Float(_), J::Int(_) | J::Float(_)) => left.float() == right.float(),
         _ => left == right,
     }

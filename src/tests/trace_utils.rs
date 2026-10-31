@@ -11,7 +11,9 @@ fn is_tpu_core_device_name_test() {
 
 #[test]
 fn maybe_tpu_host_interface_device_name_test() {
-    assert!(maybe_tpu_non_core_device_name("#Chip TPU v2 Host Interface"));
+    assert!(maybe_tpu_non_core_device_name(
+        "#Chip TPU v2 Host Interface"
+    ));
     assert!(!maybe_tpu_non_core_device_name("#Chip TPU v2"));
 }
 
@@ -30,8 +32,12 @@ fn is_tpu_ici_router_device_name_test() {
 #[test]
 fn maybe_tpu_non_core_device_name_test() {
     assert!(maybe_tpu_non_core_device_name("#Chip TPU Non-Core HBM"));
-    assert!(maybe_tpu_non_core_device_name("#Chip TPU Non-Core Host Interface"));
-    assert!(maybe_tpu_non_core_device_name("#Chip TPU Non-Core ICI Router"));
+    assert!(maybe_tpu_non_core_device_name(
+        "#Chip TPU Non-Core Host Interface"
+    ));
+    assert!(maybe_tpu_non_core_device_name(
+        "#Chip TPU Non-Core ICI Router"
+    ));
     assert!(!maybe_tpu_non_core_device_name("TPU v2"));
     assert!(!maybe_tpu_non_core_device_name("TPU Non-Core Other"));
 }

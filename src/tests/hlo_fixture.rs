@@ -9,13 +9,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
     let mut pool = DescriptorPool::global();
-    pool.decode_file_descriptor_set(&include_bytes!("../data/hlo_descriptors.pb")[..]).unwrap();
+    pool.decode_file_descriptor_set(&include_bytes!("../data/hlo_descriptors.pb")[..])
+        .unwrap();
     pool
 });
 static DIRS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn hlo_proto(text: &str) -> HloProto {
-    let message = DynamicMessage::parse_text_format(POOL.get_message_by_name("xla.HloProto").unwrap(), text).unwrap();
+    let message =
+        DynamicMessage::parse_text_format(POOL.get_message_by_name("xla.HloProto").unwrap(), text)
+            .unwrap();
     HloProto::decode(&message.encode_to_vec()[..]).unwrap()
 }
 
@@ -24,11 +27,19 @@ pub fn module(proto: &HloProto) -> Module<'static> {
 }
 
 pub fn session_dir(name: &str) -> PathBuf {
-    let dir = crate::tests::temp_dir().join(format!("xprof-rs-{name}-{}-{}", std::process::id(), DIRS.fetch_add(1, Ordering::Relaxed)));
+    let dir = crate::tests::temp_dir().join(format!(
+        "xprof-rs-{name}-{}-{}",
+        std::process::id(),
+        DIRS.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
 pub fn write_module(dir: &std::path::Path, name: &str, proto: &HloProto) {
-    std::fs::write(dir.join(format!("{name}.hlo_proto.pb")), proto.encode_to_vec()).unwrap();
+    std::fs::write(
+        dir.join(format!("{name}.hlo_proto.pb")),
+        proto.encode_to_vec(),
+    )
+    .unwrap();
 }

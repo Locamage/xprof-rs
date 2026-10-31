@@ -11,7 +11,10 @@ fn found(names: &[&str], prefix: &str) -> Vec<(String, usize)> {
     let mut keys: Vec<(String, usize)> = Vec::new();
     for index in trace.search(prefix, false) {
         let event = &trace.events[index as usize];
-        keys.push((trace.names[event.name as usize].to_string(), event.ts as usize / 10));
+        keys.push((
+            trace.names[event.name as usize].to_string(),
+            event.ts as usize / 10,
+        ));
     }
     keys.sort();
     keys
@@ -22,7 +25,10 @@ fn with_data(prefix: &str) -> Vec<(String, usize)> {
 }
 
 fn expected(keys: &[(&str, usize)]) -> Vec<(String, usize)> {
-    let mut keys: Vec<(String, usize)> = keys.iter().map(|&(key, id)| (key.to_string(), id)).collect();
+    let mut keys: Vec<(String, usize)> = keys
+        .iter()
+        .map(|&(key, id)| (key.to_string(), id))
+        .collect();
     keys.sort();
     keys
 }
@@ -39,7 +45,10 @@ fn prefix_search_on_trie_with_single_key() {
 
 #[test]
 fn prefix_search_on_trie_with_multiple_keys_matching_prefix() {
-    assert_eq!(with_data("abc"), expected(&[("abc", 0), ("abcd", 1), ("abcd", 4), ("abce", 2)]));
+    assert_eq!(
+        with_data("abc"),
+        expected(&[("abc", 0), ("abcd", 1), ("abcd", 4), ("abce", 2)])
+    );
 }
 
 #[test]
@@ -49,7 +58,17 @@ fn prefix_search_on_trie_with_multiple_keys_prefix_not_found() {
 
 #[test]
 fn prefix_search_on_trie_with_multiple_keys_empty_prefix() {
-    assert_eq!(with_data(""), expected(&[("abc", 0), ("abcd", 1), ("abcd", 4), ("abce", 2), ("a", 3), ("def", 5)]));
+    assert_eq!(
+        with_data(""),
+        expected(&[
+            ("abc", 0),
+            ("abcd", 1),
+            ("abcd", 4),
+            ("abce", 2),
+            ("a", 3),
+            ("def", 5)
+        ])
+    );
 }
 
 #[test]

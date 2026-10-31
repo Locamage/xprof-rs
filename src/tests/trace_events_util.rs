@@ -23,7 +23,10 @@ fn empty_trace_sets_bounds() {
 #[test]
 fn larger_span_expands_bounds() {
     assert_eq!(bounds(&[(10, 20), (5, 25)]), (5, 25));
-    assert_eq!(bounds(&[(10, 20), (5, 25), (5, BAD_TIMESTAMP)]), (5, BAD_TIMESTAMP as u64));
+    assert_eq!(
+        bounds(&[(10, 20), (5, 25), (5, BAD_TIMESTAMP)]),
+        (5, BAD_TIMESTAMP as u64)
+    );
 }
 
 #[test]
@@ -33,6 +36,16 @@ fn smaller_span_does_not_change_bounds() {
 
 #[test]
 fn bad_timestamps_are_ignored() {
-    assert_eq!(bounds(&[(10, 20), (5, BAD_TIMESTAMP.wrapping_add(1))]), (5, 20));
-    assert_eq!(bounds(&[(10, 20), (5, BAD_TIMESTAMP.wrapping_add(1)), (BAD_TIMESTAMP.wrapping_add(1), 25)]), (5, 20));
+    assert_eq!(
+        bounds(&[(10, 20), (5, BAD_TIMESTAMP.wrapping_add(1))]),
+        (5, 20)
+    );
+    assert_eq!(
+        bounds(&[
+            (10, 20),
+            (5, BAD_TIMESTAMP.wrapping_add(1)),
+            (BAD_TIMESTAMP.wrapping_add(1), 25)
+        ]),
+        (5, 20)
+    );
 }

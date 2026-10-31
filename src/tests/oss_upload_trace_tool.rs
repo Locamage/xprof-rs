@@ -16,27 +16,50 @@ fn setup(name: &str) -> (PathBuf, PathBuf) {
 }
 
 fn upload(logdir: Option<&Path>, file: &Path, run_name: Option<&str>) -> Result<Out, Error> {
-    let mut values = vec![("file_path".to_string(), J::from(file.to_string_lossy().into_owned()))];
+    let mut values = vec![(
+        "file_path".to_string(),
+        J::from(file.to_string_lossy().into_owned()),
+    )];
     values.extend(run_name.map(|run| ("run_name".to_string(), J::from(run))));
-    upload_trace(&Local { logdir: logdir.map(Path::to_path_buf), ..Default::default() }, &Args { values })
+    upload_trace(
+        &Local {
+            logdir: logdir.map(Path::to_path_buf),
+            ..Default::default()
+        },
+        &Args { values },
+    )
 }
 
 #[test]
 fn test_upload_trace_success_with_custom_run_name() {
     let (logdir, source) = setup("custom");
-    let result = json(upload(Some(&logdir), &source.join("test_trace.xplane.pb"), Some("my_custom_run")));
+    let result = json(upload(
+        Some(&logdir),
+        &source.join("test_trace.xplane.pb"),
+        Some("my_custom_run"),
+    ));
     assert_eq!(result.at("status").str(), Some("success"));
     assert_eq!(result.at("run_name").str(), Some("my_custom_run"));
-    assert_eq!(std::fs::read(logdir.join("plugins/profile/my_custom_run/test_trace.xplane.pb")).unwrap(), TRACE);
+    assert_eq!(
+        std::fs::read(logdir.join("plugins/profile/my_custom_run/test_trace.xplane.pb")).unwrap(),
+        TRACE
+    );
 }
 
 #[test]
 fn test_upload_trace_default_run_name() {
     let (logdir, source) = setup("default");
-    let result = json(upload(Some(&logdir), &source.join("test_trace.xplane.pb"), None));
+    let result = json(upload(
+        Some(&logdir),
+        &source.join("test_trace.xplane.pb"),
+        None,
+    ));
     assert_eq!(result.at("status").str(), Some("success"));
     assert_eq!(result.at("run_name").str(), Some("imported_trace"));
-    assert_eq!(std::fs::read(logdir.join("plugins/profile/imported_trace/test_trace.xplane.pb")).unwrap(), TRACE);
+    assert_eq!(
+        std::fs::read(logdir.join("plugins/profile/imported_trace/test_trace.xplane.pb")).unwrap(),
+        TRACE
+    );
 }
 
 #[test]
@@ -50,7 +73,12 @@ fn test_upload_trace_missing_logdir_raises_value_error() {
 #[test]
 fn test_upload_trace_nonexistent_file_raises_file_not_found() {
     let (logdir, source) = setup("missing");
-    let error = upload(Some(&logdir), &source.join("does_not_exist.xplane.pb"), Some("test_run")).unwrap_err();
+    let error = upload(
+        Some(&logdir),
+        &source.join("does_not_exist.xplane.pb"),
+        Some("test_run"),
+    )
+    .unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
     assert!(error.message.contains("does not exist"));
 }
@@ -70,17 +98,36 @@ fn test_upload_trace_invalid_extension_rejected() {
 fn test_upload_trace_valid_xspace_pb_accepted() {
     let (logdir, source) = setup("xspace");
     std::fs::write(source.join("trace.xspace.pb"), b"mock_xspace_binary_data").unwrap();
-    let result = json(upload(Some(&logdir), &source.join("trace.xspace.pb"), Some("xspace_run")));
+    let result = json(upload(
+        Some(&logdir),
+        &source.join("trace.xspace.pb"),
+        Some("xspace_run"),
+    ));
     assert_eq!(result.at("status").str(), Some("success"));
     assert_eq!(result.at("run_name").str(), Some("xspace_run"));
-    assert!(logdir.join("plugins/profile/xspace_run/trace.xspace.pb").exists());
+    assert!(
+        logdir
+            .join("plugins/profile/xspace_run/trace.xspace.pb")
+            .exists()
+    );
 }
 
 #[test]
 fn test_upload_trace_path_traversal_rejected() {
     let (logdir, source) = setup("traversal");
-    for run in ["/tmp/ESCAPED", "../../ESCAPED", "nested/sub_run", r"nested\sub_run", ".."] {
-        let error = upload(Some(&logdir), &source.join("test_trace.xplane.pb"), Some(run)).unwrap_err();
+    for run in [
+        "/tmp/ESCAPED",
+        "../../ESCAPED",
+        "nested/sub_run",
+        r"nested\sub_run",
+        "..",
+    ] {
+        let error = upload(
+            Some(&logdir),
+            &source.join("test_trace.xplane.pb"),
+            Some(run),
+        )
+        .unwrap_err();
         assert_eq!(error.kind, Kind::Value, "{run}");
         assert!(error.message.contains("Invalid run_name"), "{run}");
     }
@@ -90,17 +137,37 @@ fn test_upload_trace_path_traversal_rejected() {
 fn test_upload_trace_copy_failure_raises_os_error() {
     let (logdir, source) = setup("copyfail");
     std::fs::create_dir_all(logdir.join("plugins/profile")).unwrap();
-    std::fs::write(logdir.join("plugins/profile/fail_run"), b"a file, not a directory").unwrap();
-    let error = upload(Some(&logdir), &source.join("test_trace.xplane.pb"), Some("fail_run")).unwrap_err();
+    std::fs::write(
+        logdir.join("plugins/profile/fail_run"),
+        b"a file, not a directory",
+    )
+    .unwrap();
+    let error = upload(
+        Some(&logdir),
+        &source.join("test_trace.xplane.pb"),
+        Some("fail_run"),
+    )
+    .unwrap_err();
     assert_eq!(error.kind, Kind::Os);
 }
 
 #[test]
 fn test_upload_trace_ignores_extra_kwargs() {
     let (logdir, source) = setup("kwargs");
-    let file = source.join("test_trace.xplane.pb").to_string_lossy().into_owned();
+    let file = source
+        .join("test_trace.xplane.pb")
+        .to_string_lossy()
+        .into_owned();
     let logdir_flag = format!("--logdir={}", logdir.display());
-    let (code, out, _) = run(&["upload_trace", &file, &logdir_flag, "--ttl=3600", "--tag=tag1", "--run_name=tagged_run", "--extra_param=ignored_value"]);
+    let (code, out, _) = run(&[
+        "upload_trace",
+        &file,
+        &logdir_flag,
+        "--ttl=3600",
+        "--tag=tag1",
+        "--run_name=tagged_run",
+        "--extra_param=ignored_value",
+    ]);
     assert_eq!(code, 0, "{out}");
     let result = J::parse(&out).unwrap();
     assert_eq!(result.at("status").str(), Some("success"));
@@ -113,8 +180,20 @@ fn test_upload_trace_onto_itself_keeps_the_file() {
     let run = logdir.join("plugins/profile/same_run");
     std::fs::create_dir_all(&run).unwrap();
     std::fs::write(run.join("test_trace.xplane.pb"), TRACE).unwrap();
-    let error = upload(Some(&logdir), &run.join("test_trace.xplane.pb"), Some("same_run")).unwrap_err();
+    let error = upload(
+        Some(&logdir),
+        &run.join("test_trace.xplane.pb"),
+        Some("same_run"),
+    )
+    .unwrap_err();
     assert_eq!(error.kind, Kind::Os);
-    assert!(error.message.ends_with("are the same file"), "{}", error.message);
-    assert_eq!(std::fs::read(run.join("test_trace.xplane.pb")).unwrap(), TRACE);
+    assert!(
+        error.message.ends_with("are the same file"),
+        "{}",
+        error.message
+    );
+    assert_eq!(
+        std::fs::read(run.join("test_trace.xplane.pb")).unwrap(),
+        TRACE
+    );
 }

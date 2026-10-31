@@ -108,23 +108,61 @@ pub(crate) struct Response {
 
 pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
     let mut response = Response::default();
-    let offset = if full_dma.is_some() { 0 } else { HOST_PID_STRIDE };
+    let offset = if full_dma.is_some() {
+        0
+    } else {
+        HOST_PID_STRIDE
+    };
     let processes = devices(views).into_iter().map(|(pid, device)| {
-        let threads = device.resources.iter().map(|(&id, name)| Thread { name: name.clone(), id, sort_index: Some(id) }).collect();
-        Process { name: device.name.clone(), id: pid - offset, sort_index: Some(pid - offset), threads }
+        let threads = device
+            .resources
+            .iter()
+            .map(|(&id, name)| Thread {
+                name: name.clone(),
+                id,
+                sort_index: Some(id),
+            })
+            .collect();
+        Process {
+            name: device.name.clone(),
+            id: pid - offset,
+            sort_index: Some(pid - offset),
+            threads,
+        }
     });
-    response.metadata = Some(Metadata { processes: processes.collect() });
+    response.metadata = Some(Metadata {
+        processes: processes.collect(),
+    });
     let tpu = views.iter().any(|view| !view.trace.tpu_devices.is_empty());
     if let Some(full_dma) = full_dma {
-        response.details.push(Detail { name: "mpmd_pipeline_view".into(), value: false });
+        response.details.push(Detail {
+            name: "mpmd_pipeline_view".into(),
+            value: false,
+        });
         if tpu {
-            response.details.push(Detail { name: "full_dma".into(), value: full_dma });
+            response.details.push(Detail {
+                name: "full_dma".into(),
+                value: full_dma,
+            });
         }
     }
-    response.full_timespan_start_ps = views.iter().filter(|view| !view.trace.events.is_empty()).map(|view| view.trace.min_ps).min();
-    response.full_timespan_end_ps = views.iter().filter(|view| !view.trace.events.is_empty()).map(|view| view.trace.max_ps).max();
+    response.full_timespan_start_ps = views
+        .iter()
+        .filter(|view| !view.trace.events.is_empty())
+        .map(|view| view.trace.min_ps)
+        .min();
+    response.full_timespan_end_ps = views
+        .iter()
+        .filter(|view| !view.trace.events.is_empty())
+        .map(|view| view.trace.max_ps)
+        .max();
     let ordered = ordered(views);
-    let track = |&(host, index): &(u32, u32)| (host, views[host as usize].trace.events[index as usize].track);
+    let track = |&(host, index): &(u32, u32)| {
+        (
+            host,
+            views[host as usize].trace.events[index as usize].track,
+        )
+    };
     // The series hold the indices of the trace names and of the context types. The interned IDs come after, in the order of the series.
     let mut built: Vec<(u32, u32, Series)> = ordered
         .par_chunk_by(|left, right| track(left) == track(right))
@@ -132,10 +170,25 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
             let (host, view) = (run[0].0, &views[run[0].0 as usize]);
             let first = &view.trace.events[run[0].1 as usize];
             let unbound = first.unbound;
-            let tag = if unbound { 2 + u32::from(first.flow != NONE_FLOW) } else { 1 };
-            let (thread_id, name_ref) = if unbound { (0, first.name) } else { (view.trace.resource(first), 0) };
+            let tag = if unbound {
+                2 + u32::from(first.flow != NONE_FLOW)
+            } else {
+                1
+            };
+            let (thread_id, name_ref) = if unbound {
+                (0, first.name)
+            } else {
+                (view.trace.resource(first), 0)
+            };
             let process_id = view.trace.device(first) + (host + 1) * HOST_PID_STRIDE - offset;
-            let mut series = Series { metadata: Some(SeriesMetadata { process_id, thread_id, name_ref }), ..Default::default() };
+            let mut series = Series {
+                metadata: Some(SeriesMetadata {
+                    process_id,
+                    thread_id,
+                    name_ref,
+                }),
+                ..Default::default()
+            };
             let mut last = 0;
             for &(_, index) in run {
                 let event = &view.trace.events[index as usize];
@@ -143,7 +196,11 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
                 last = event.ts;
                 let mut metadata = EventMetadata::default();
                 if tag == 2 {
-                    metadata.counter_value = match view.planes[event.plane as usize].named_stats(view.map, event.meta, event.raw).next().map(|stat| stat.2.value) {
+                    metadata.counter_value = match view.planes[event.plane as usize]
+                        .named_stats(view.map, event.meta, event.raw)
+                        .next()
+                        .map(|stat| stat.2.value)
+                    {
                         Some(Value::Double(value)) => Some(CounterValue::Double(value)),
                         Some(Value::Uint(value)) => Some(CounterValue::Uint(value)),
                         _ => None,
@@ -155,12 +212,20 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
                     }
                     if event.flow != NONE_FLOW {
                         metadata.flow_id = view.trace.flow_ids[event.flow as usize] as u32;
-                        metadata.flow_category = if matches!(event.flow_cat(), 0 | 1) { 0 } else { u32::from(event.flow_cat()) };
+                        metadata.flow_category = if matches!(event.flow_cat(), 0 | 1) {
+                            0
+                        } else {
+                            u32::from(event.flow_cat())
+                        };
                     }
                     if event.group != NONE_GROUP {
                         metadata.group_id = event.group as u32;
                     }
-                    metadata.serial = if full_dma.is_some() { view.trace.serial(index as usize) } else { 0 };
+                    metadata.serial = if full_dma.is_some() {
+                        view.trace.serial(index as usize)
+                    } else {
+                        0
+                    };
                 }
                 series.event_metadata.push(metadata);
             }
@@ -169,7 +234,10 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
         .collect();
     let mut interner = crate::trace::Interner::default();
     interner.intern("");
-    let mut ids: Vec<Vec<u32>> = views.iter().map(|view| vec![u32::MAX; view.trace.names.len()]).collect();
+    let mut ids: Vec<Vec<u32>> = views
+        .iter()
+        .map(|view| vec![u32::MAX; view.trace.names.len()])
+        .collect();
     for (host, tag, series) in &mut built {
         let mut name = |interner: &mut crate::trace::Interner, name: &mut u32| {
             let id = &mut ids[*host as usize][*name as usize];
@@ -179,14 +247,22 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
             *name = *id;
         };
         if *tag != 1 {
-            name(&mut interner, &mut series.metadata.as_mut().unwrap().name_ref);
+            name(
+                &mut interner,
+                &mut series.metadata.as_mut().unwrap().name_ref,
+            );
         }
         for (index, metadata) in series.event_metadata.iter_mut().enumerate() {
             if let Some(slot) = series.name_refs.get_mut(index) {
                 name(&mut interner, slot);
             }
             if metadata.flow_category != 0 {
-                metadata.flow_category = interner.intern(CONTEXT_TYPES.split('|').nth(metadata.flow_category as usize).unwrap_or(""));
+                metadata.flow_category = interner.intern(
+                    CONTEXT_TYPES
+                        .split('|')
+                        .nth(metadata.flow_category as usize)
+                        .unwrap_or(""),
+                );
             }
         }
     }

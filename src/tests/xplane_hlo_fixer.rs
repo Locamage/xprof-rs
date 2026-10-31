@@ -7,7 +7,10 @@ const HLO: &[u8] = b"\x0a\x03\x0a\x01m";
 
 fn hlo_protos(space: &XSpace) -> Vec<(u64, Vec<u8>)> {
     let (map, planes) = space.parsed();
-    protos(&planes, &map).into_iter().map(|(id, body)| (id, body.to_vec())).collect()
+    protos(&planes, &map)
+        .into_iter()
+        .map(|(id, body)| (id, body.to_vec()))
+        .collect()
 }
 
 #[test]
@@ -49,24 +52,39 @@ fn fixes_metadata_with_a_display_name() {
 #[test]
 fn skips_if_no_hlo_stat_in_event() {
     let mut space = XSpace::default();
-    space.plane(METADATA).metadata_stats(EVENT_NAME, &[("Other Stat", V::Str("value".into()))]);
+    space
+        .plane(METADATA)
+        .metadata_stats(EVENT_NAME, &[("Other Stat", V::Str("value".into()))]);
     assert!(hlo_protos(&space).is_empty());
 }
 
 #[test]
 fn skips_a_proto_that_does_not_parse() {
-    for body in [&b"hlo_content"[..], b"\x0a\x03\x0a\x01\xff", b"\x0a\x02\x1a\x05", b"\x0b\x0c\x0a\x01m"] {
+    for body in [
+        &b"hlo_content"[..],
+        b"\x0a\x03\x0a\x01\xff",
+        b"\x0a\x02\x1a\x05",
+        b"\x0b\x0c\x0a\x01m",
+    ] {
         let mut space = XSpace::default();
-        space.plane(METADATA).metadata_stats(EVENT_NAME, &[("Hlo Proto", V::Bytes(body.to_vec()))]);
+        space
+            .plane(METADATA)
+            .metadata_stats(EVENT_NAME, &[("Hlo Proto", V::Bytes(body.to_vec()))]);
         assert!(hlo_protos(&space).is_empty(), "{body:?}");
     }
 }
 
 #[test]
 fn keeps_a_proto_with_unknown_fields_and_groups() {
-    for body in [&b"\x0a\x03\x0a\x01m\xf8\x01\x07"[..], b"\x0a\x03\x0a\x01m\xfb\x01\x08\x01\xfc\x01", b"\x0a\x02\x10\x01"] {
+    for body in [
+        &b"\x0a\x03\x0a\x01m\xf8\x01\x07"[..],
+        b"\x0a\x03\x0a\x01m\xfb\x01\x08\x01\xfc\x01",
+        b"\x0a\x02\x10\x01",
+    ] {
         let mut space = XSpace::default();
-        space.plane(METADATA).metadata_stats(EVENT_NAME, &[("Hlo Proto", V::Bytes(body.to_vec()))]);
+        space
+            .plane(METADATA)
+            .metadata_stats(EVENT_NAME, &[("Hlo Proto", V::Bytes(body.to_vec()))]);
         assert_eq!(hlo_protos(&space), [(12345, body.to_vec())], "{body:?}");
     }
 }

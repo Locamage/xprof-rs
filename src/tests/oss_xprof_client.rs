@@ -4,25 +4,45 @@ use crate::cli::client::{Client, Local};
 use std::path::PathBuf;
 
 fn listing(dir: &std::path::Path) -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().path()).collect();
+    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
     found.sort();
     found
 }
 
 #[test]
 fn test_set_logdir_none() {
-    assert!(Local { logdir: None, ..Default::default() }.logdir().is_none());
+    assert!(
+        Local {
+            logdir: None,
+            ..Default::default()
+        }
+        .logdir()
+        .is_none()
+    );
 }
 
 #[test]
 fn test_set_logdir_str() {
-    assert!(Local { logdir: Some(PathBuf::from("/tmp/test")), ..Default::default() }.logdir().is_some());
+    assert!(
+        Local {
+            logdir: Some(PathBuf::from("/tmp/test")),
+            ..Default::default()
+        }
+        .logdir()
+        .is_some()
+    );
 }
 
 #[test]
 fn test_get_run_dir_with_direct_dir() {
     let dir = scratch("client-direct");
-    assert_eq!(Local::default().run_dir(&dir.to_string_lossy()).unwrap(), dir);
+    assert_eq!(
+        Local::default().run_dir(&dir.to_string_lossy()).unwrap(),
+        dir
+    );
 }
 
 #[test]
@@ -34,7 +54,9 @@ fn test_get_xspace_paths_single_file() {
 
 #[test]
 fn test_fetch_unknown_tool_raises_value_error() {
-    let error = Local::default().fetch("non_existent_tool", "test_session", &[]).unwrap_err();
+    let error = Local::default()
+        .fetch("non_existent_tool", "test_session", &[])
+        .unwrap_err();
     assert_eq!(error.kind, Kind::Value);
     assert!(error.message.contains("Unknown XProf tool name"));
 }
@@ -59,9 +81,15 @@ fn test_compute_fingerprint_uses_exact_xspace_paths() {
 fn test_compute_fingerprint_no_trace_inputs_sentinel() {
     let empty = scratch("client-empty").join("empty");
     std::fs::create_dir_all(&empty).unwrap();
-    assert_eq!(Local::default().xspace_paths(&empty).unwrap_err().kind, Kind::FileNotFound);
+    assert_eq!(
+        Local::default().xspace_paths(&empty).unwrap_err().kind,
+        Kind::FileNotFound
+    );
     std::fs::write(empty.join("notes.txt"), "not a trace").unwrap();
-    assert_eq!(Local::default().xspace_paths(&empty).unwrap_err().kind, Kind::FileNotFound);
+    assert_eq!(
+        Local::default().xspace_paths(&empty).unwrap_err().kind,
+        Kind::FileNotFound
+    );
 }
 
 #[test]
@@ -70,7 +98,12 @@ fn test_external_atomic_fingerprint_storage() {
     std::fs::create_dir_all(&run).unwrap();
     std::fs::write(run.join("host.xplane.pb"), b"trace_data").unwrap();
     let before = listing(&run);
-    assert_eq!(Local::default().fetch("overview_page.json", &run.to_string_lossy(), &[]).unwrap(), None);
+    assert_eq!(
+        Local::default()
+            .fetch("overview_page.json", &run.to_string_lossy(), &[])
+            .unwrap(),
+        None
+    );
     assert_eq!(listing(&run), before);
 }
 

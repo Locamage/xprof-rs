@@ -9,7 +9,12 @@ async fn invalid_argument() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn process_session_json_success() {
-    let (status, headers, body) = served("unified-json", &[("test_host", Vec::new())], "tag=trace_viewer&host=test_host").await;
+    let (status, headers, body) = served(
+        "unified-json",
+        &[("test_host", Vec::new())],
+        "tag=trace_viewer&host=test_host",
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[header::CONTENT_TYPE], "application/json");
     assert!(!body.is_empty());
@@ -17,7 +22,12 @@ async fn process_session_json_success() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn process_session_pb_success() {
-    let (status, headers, body) = served("unified-pb", &[("test_host", Vec::new())], "tag=trace_viewer&host=test_host&format=pb").await;
+    let (status, headers, body) = served(
+        "unified-pb",
+        &[("test_host", Vec::new())],
+        "tag=trace_viewer&host=test_host&format=pb",
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[header::CONTENT_TYPE], "application/octet-stream");
     assert!(!body.is_empty());
@@ -25,6 +35,11 @@ async fn process_session_pb_success() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn streaming_registration() {
-    let (status, _, _) = served("unified-streaming", &[("test_host", Vec::new())], "tag=trace_viewer@&host=test_host").await;
+    let (status, _, _) = served(
+        "unified-streaming",
+        &[("test_host", Vec::new())],
+        "tag=trace_viewer@&host=test_host",
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
 }

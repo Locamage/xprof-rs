@@ -13,7 +13,12 @@ fn top(fake: &Fake, pairs: &[(&str, J)]) -> J {
 }
 
 fn names(result: &J, key: &str) -> Vec<String> {
-    result.at(key).items().iter().map(|op| op.at("name").text()).collect()
+    result
+        .at(key)
+        .items()
+        .iter()
+        .map(|op| op.at("name").text())
+        .collect()
 }
 
 #[test]
@@ -23,7 +28,13 @@ fn test_get_top_hlo_ops_by_time() {
     assert!(!result.has("error"));
     assert_eq!(names(&result, "top_by_time"), ["root/Op1", "root/Op2"]);
     let calls = fake.calls.borrow();
-    assert_eq!(calls.last().unwrap(), &("op_profile".to_string(), vec![("format".to_string(), "pb".to_string())]));
+    assert_eq!(
+        calls.last().unwrap(),
+        &(
+            "op_profile".to_string(),
+            vec![("format".to_string(), "pb".to_string())]
+        )
+    );
 }
 
 #[test]
@@ -35,12 +46,18 @@ fn test_get_top_hlo_ops_by_flops() {
 #[test]
 fn test_get_top_hlo_ops_by_bytes() {
     let result = top(&Fake::fixed(PROFILE), &[("limit", J::Int(2))]);
-    assert_eq!(names(&result, "top_by_bytes_accessed"), ["root/Op3", "root/Op1"]);
+    assert_eq!(
+        names(&result, "top_by_bytes_accessed"),
+        ["root/Op3", "root/Op1"]
+    );
 }
 
 #[test]
 fn test_get_top_hlo_ops_no_ops() {
-    let result = top(&Fake::fixed(r#"{"byCategory": {"metrics": {"rawTime": 0}}}"#), &[]);
+    let result = top(
+        &Fake::fixed(r#"{"byCategory": {"metrics": {"rawTime": 0}}}"#),
+        &[],
+    );
     assert_eq!(result.at("top_by_time"), &J::List(Vec::new()));
     assert_eq!(result.at("total_matched"), &J::Int(0));
 }
@@ -56,7 +73,13 @@ fn test_get_top_hlo_ops_source_info() {
 
 #[test]
 fn test_get_top_hlo_ops_category_filter() {
-    let result = top(&Fake::fixed(PROFILE), &[("limit", J::Int(10)), ("category_filter", J::from("Convolution"))]);
+    let result = top(
+        &Fake::fixed(PROFILE),
+        &[
+            ("limit", J::Int(10)),
+            ("category_filter", J::from("Convolution")),
+        ],
+    );
     assert_eq!(names(&result, "top_by_time"), ["root/Op2"]);
 }
 
@@ -70,7 +93,11 @@ fn test_get_top_hlo_ops_custom_call_provenance() {
 
 #[test]
 fn test_missing_hlo_returns_clean_diagnostic() {
-    let error = get_top_hlo_ops(&Fake::new(|_, _| Ok(None)), &args("session_without_hlo", &[])).unwrap_err();
+    let error = get_top_hlo_ops(
+        &Fake::new(|_, _| Ok(None)),
+        &args("session_without_hlo", &[]),
+    )
+    .unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
     assert!(error.message.contains("No HLO op_profile found in trace"));
 }
