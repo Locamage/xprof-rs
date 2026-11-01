@@ -480,6 +480,24 @@ fn test_multi_host_logdir_session_remote_and_help() {
     let overview = run(&["get_overview", &a]).1;
     assert_eq!(run(&["get_overview", &logdir, "a"]).1, overview);
     assert_ne!(run(&["get_overview", &logdir, "b"]).1, overview);
+    let invalid_logdir = scratch("multi-host-invalid");
+    let invalid_session = invalid_logdir.join("plugins/profile/a");
+    std::fs::create_dir_all(&invalid_session).unwrap();
+    for host in ["h0", "h1"] {
+        std::fs::copy(
+            format!("{a}/{host}.xplane.pb"),
+            invalid_session.join(format!("{host}.xplane.pb")),
+        )
+        .unwrap();
+    }
+    std::fs::File::create(invalid_session.join("a-empty.xplane.pb")).unwrap();
+    let invalid_logdir = invalid_logdir.to_string_lossy();
+    for command in ["check_host_boundness", "get_overview", "get_avg_step_time"] {
+        let expected = run(&[command, "a", &format!("--logdir={logdir}")]);
+        assert_eq!(expected.0, 0, "{command}: {}", expected.1);
+        let actual = run(&[command, "a", &format!("--logdir={invalid_logdir}")]);
+        assert_eq!((actual.0, actual.1), (expected.0, expected.1), "{command}");
+    }
     let (expected_code, expected_out, _) =
         run(&["get_overview", &logdir, "--include_command=True"]);
     let (code, out, _) = run(&["get_overview", &logdir, "True"]);

@@ -223,9 +223,11 @@ impl Local {
             .iter()
             .map(|path| {
                 let stats = loaded.entry(path.clone()).or_insert_with(|| {
-                    let (stats, found) =
-                        load_kept(crate::read_file(path).ok()?, fused || self.fused, part)
-                            .ok()??;
+                    let map = crate::read_file(path).ok()?;
+                    if map.is_empty() || !crate::tools::counters::valid_space(&map) {
+                        return None;
+                    }
+                    let (stats, found) = load_kept(map, fused || self.fused, part).ok()??;
                     kept.insert(path.clone(), found);
                     Some(stats)
                 });
@@ -239,6 +241,7 @@ impl Local {
                 }
                 stats.clone()
             })
+            .filter(|stats| stats.is_some())
             .collect();
         OpStats::combine(&all)
     }
@@ -296,12 +299,16 @@ impl Client for Local {
     }
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
-        let path = self
-            .xspace_paths(&self.run_dir(session).ok()?)
-            .ok()?
-            .into_iter()
-            .min_by_key(|path| host(path))?;
-        self.prepared(&path, crate::trace::legacy::barrier_durations)
+        let mut paths = self.xspace_paths(&self.run_dir(session).ok()?).ok()?;
+        paths.sort_by_key(|path| host(path));
+        paths.into_iter().find_map(|path| {
+            self.prepared(&path, |planes, map| {
+                (crate::tools::counters::valid_space(map)
+                    && planes.iter().any(|plane| plane.name.starts_with("/device:")))
+                .then(|| crate::trace::legacy::barrier_durations(planes, map))
+            })
+            .flatten()
+        })
     }
 
     fn run_dir(&self, session: &str) -> Result<PathBuf, Error> {
@@ -398,8 +405,15 @@ impl Client for Local {
                     None => crate::tools::memory_profile::load(path).ok().flatten(),
                 }
             }
-            "overview_page" => stats(false, Part::All)
-                .map(|stats| crate::tools::overview_page::json(&stats, &paths)),
+            "overview_page" => stats(false, Part::All).map(|stats| {
+                let loaded = self.loaded.lock().expect("lock poisoned");
+                let paths = paths
+                    .iter()
+                    .filter(|path| loaded.get(*path).is_some_and(Option::is_some))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                crate::tools::overview_page::json(&stats, &paths)
+            }),
             "input_pipeline_analyzer" => stats(false, Part::All)
                 .map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
             "framework_op_stats" => {
