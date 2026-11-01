@@ -209,6 +209,41 @@ fn tf_name_scope_maintains_order() {
 }
 
 #[test]
+fn instant_op_at_the_end_of_a_scope_expands_it() {
+    let mut space = XSpace::default();
+    let plane = space.tpu(0, "TPU V4", 0.0, 0.0, None);
+    for (name, offset, duration, tf_op) in [
+        ("op1", 0, 10000, "a/b/mul:Mul"),
+        ("op2", 10000, 20000, "c/d/add:Add"),
+        ("op3", 10000, 0, "a/b/mul:Mul"),
+        ("op4", 30000, 10000, "c/e/add:Add"),
+    ] {
+        plane.event(0, name, offset, duration, &[("tf_op", tf_op.into())]);
+    }
+    let (_, planes) = generate(&space, &[]);
+    let spans = |name: &str| {
+        let line = planes[0].lines.iter().find(|line| line.name == name).unwrap();
+        names_and_spans(&planes[0], line)
+    };
+    let expected = [("a", 0, 10000), ("b", 0, 9000), ("c", 10000, 30000), ("d", 10000, 20000)];
+    assert_eq!(
+        spans("Framework Name Scope"),
+        expected
+            .into_iter()
+            .chain([("e", 30000, 10000)])
+            .map(|(name, ts, dur)| (name.to_string(), ts, dur))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        spans("Framework Ops"),
+        [("a/b/mul:Mul".to_string(), 0, 10000), ("c/d/add:Add".to_string(), 10000, 20000)]
+            .into_iter()
+            .chain([("c/e/add:Add".to_string(), 30000, 10000)])
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn only_derived_events_from_all_lines() {
     let first = "stream1scope1/stream1scope2/mul:Mul1";
     let second = "stream2scope1/stream2scope2/mul:Mul2";

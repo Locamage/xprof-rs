@@ -155,7 +155,7 @@ struct Derived {
 /// The op, the source and whether the event is asynchronous.
 type Tags = (String, String, u64);
 /// The start, the duration, the line and the index of an event.
-type Position = (u64, Reverse<u64>, u32, u32);
+type Position = (u64, u64, u32, u32);
 
 #[derive(Clone)]
 struct Parsed {
@@ -451,11 +451,7 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
             } else {
                 event.group
             };
-            Some((
-                (event.ts, Reverse(event.dur), line_index as u32, index as u32),
-                group,
-                own.is_some(),
-            ))
+            Some(((event.ts, event.dur, line_index as u32, index as u32), group, own.is_some()))
         }));
     }
     // The events of each line are usually in order, and a merge sort uses these runs.
@@ -473,7 +469,7 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
     let mut cache: FxHashMap<(&str, &str), Parsed> = FxHashMap::default();
     // Most events have the texts of their metadata, thus `by_meta` keeps the parse of the texts of each metadata.
     let mut by_meta: Vec<Option<Parsed>> = vec![None; tags.len()];
-    for &((start, Reverse(dur), line_index, index), group, own) in &order {
+    for &((start, dur, line_index, index), group, own) in &order {
         let meta = event(line_index, index).meta as usize;
         let (tf_op, source, is_async) = &tags[meta];
         let parsed = match own.then(|| &owns[&(line_index, index)]) {
