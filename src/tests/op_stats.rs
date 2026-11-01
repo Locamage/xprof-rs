@@ -464,6 +464,23 @@ fn construct_hc_duty_cycle_tracker_from_custom_call() {
 }
 
 #[test]
+fn construct_hc_duty_cycle_tracker_reads_custom_call_flops_as_int() {
+    let (busy, idle) = custom_call_duty_cycle(
+        &[
+            ("custom_call_negative_low_bits", "custom-call", 10, &[("flops", (1i64 << 31).into())]),
+            (
+                "custom_call_positive_low_bits",
+                "custom-call",
+                20,
+                &[("flops", (1u64 << 32 | 5).into())],
+            ),
+        ],
+        50,
+    );
+    assert_eq!((busy[1], idle[1]), (10, 40));
+}
+
+#[test]
 fn construct_hc_duty_cycle_tracker_from_custom_call_with_ici() {
     let (busy, idle) = custom_call_duty_cycle(
         &[

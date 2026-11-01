@@ -512,7 +512,7 @@ fn device_lines(
                     let (meta, meta_category) = &metas[event.meta as usize];
                     own_category.as_deref().or(meta_category.as_deref()) == Some("custom-call")
                         && (FLOPS..CATEGORY)
-                            .all(|index| own[index].or(meta[index]).unwrap_or(0) <= 0)
+                            .all(|index| own[index].or(meta[index]).unwrap_or(0) as i32 <= 0)
                 };
                 for (intervals, _) in
                     active.iter_mut().zip([!off, !(off || custom_off)]).filter(|(_, keep)| *keep)
