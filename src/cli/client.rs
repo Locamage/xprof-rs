@@ -219,7 +219,7 @@ impl Local {
     fn stats(&self, paths: &[PathBuf], fused: bool, part: Part) -> Option<Arc<OpStats>> {
         let (mut loaded, mut kept) =
             (self.loaded.lock().expect("lock poisoned"), self.kept.write().expect("lock poisoned"));
-        let all: Vec<_> = paths
+        let mut all: Vec<_> = paths
             .iter()
             .map(|path| {
                 let stats = loaded.entry(path.clone()).or_insert_with(|| {
@@ -241,8 +241,8 @@ impl Local {
                 }
                 stats.clone()
             })
-            .filter(|stats| stats.is_some())
             .collect();
+        all.retain(Option::is_some);
         OpStats::combine(&all)
     }
 

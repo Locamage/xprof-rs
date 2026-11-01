@@ -1181,10 +1181,11 @@ fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     }
     let session = args.session();
     let dir = client.run_dir(&session)?;
-    if let Some(host) = args.text("host").filter(|host| !host.is_empty()) {
-        if !client.xspace_paths(&dir)?.iter().any(|path| client::host(path) == host) {
+    match args.text("host").filter(|host| !host.is_empty()) {
+        Some(host) if client.xspace_paths(&dir)?.iter().all(|path| client::host(path) != host) => {
             return Err(xplane::missing_host(&session, &host));
         }
+        _ => {}
     }
     let mut params = HashMap::from([
         ("tag".to_string(), tool),
