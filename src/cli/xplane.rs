@@ -989,22 +989,44 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
     Ok(Out::Text(text))
 }
 
+fn invalid_llo_host(host: &str, hosts: &[String]) -> Error {
+    Error::new(
+        Kind::Value,
+        format!(
+            "Invalid host: '{host}'. Available hosts: [{}]",
+            hosts.iter().map(|host| py_repr(host)).collect::<Vec<_>>().join(", ")
+        ),
+    )
+}
+
 fn llo(client: &dyn Client, args: &Args, failure: &str) -> Result<Out, Error> {
     let session = args.session();
     let path_like = Path::new(&session).exists()
         || session.starts_with(['/', '.', '\\'])
         || TRACE_SUFFIXES.iter().any(|suffix| session.ends_with(suffix));
+    let requested_host = args.string("host", "");
     let compute = || -> Result<(), Error> {
         if path_like {
+            if !requested_host.is_empty() {
+                let mut hosts = traces(Path::new(&session))
+                    .iter()
+                    .map(|path| super::client::host(path))
+                    .collect::<Vec<_>>();
+                hosts.sort();
+                hosts.dedup();
+                if !hosts.contains(&requested_host) {
+                    return Err(invalid_llo_host(&requested_host, &hosts));
+                }
+            }
             return Ok(());
         }
         let hosts = client.hosts(&session)?;
-        let host = match args.string("host", "") {
-            host if host.is_empty() => hosts.first().cloned().unwrap_or_default(),
-            host if !hosts.contains(&host) => {
-                return Err(missing_host(&session, &host));
+        let host = match requested_host.as_str() {
+            "" => hosts.first().cloned().unwrap_or_default(),
+            host if !hosts.iter().any(|available| available == host) => {
+                return Err(invalid_llo_host(host, &hosts));
             }
-            host => host,
+            host => host.to_string(),
         };
         serialized(client, &session, &host).map(drop)
     };

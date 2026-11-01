@@ -429,18 +429,31 @@ fn test_multi_host_logdir_session_remote_and_help() {
     }
     let (code, out, _) = run(&["get_xspace_proto", "a", &format!("--logdir={logdir}")]);
     assert_ne!(code, 0, "{out}");
-    let error = J::parse(&out).unwrap().at("error").text();
-    assert!(error.contains("Session 'a' has 2 hosts: h0, h1. Pass --host=<name>."), "{out}");
+    let session_error = J::parse(&out).unwrap().at("error").text();
+    assert!(
+        session_error.contains("Session 'a' has 2 hosts: h0, h1. Pass --host=<name>."),
+        "{out}"
+    );
     let logdir_arg = format!("--logdir={logdir}");
     let missing_host = run(&["get_xspace_proto", "a", "--host=missing", &logdir_arg]);
     assert_eq!(missing_host.0, 3, "{}", missing_host.1);
-    for args in [
-        vec!["get_tool_data", "a", "--tool=overview_page", "--host=missing", &logdir_arg],
-        vec!["get_llo_analysis", "a", "--host=missing", &logdir_arg],
-        vec!["get_llo_debug_string", "a", "--host=missing", &logdir_arg],
-    ] {
-        let (code, out, _) = run(&args);
-        assert_eq!((code, out), (missing_host.0, missing_host.1.clone()), "{args:?}");
+    let tool_error =
+        run(&["get_tool_data", "a", "--tool=overview_page", "--host=missing", &logdir_arg]);
+    assert_eq!((tool_error.0, tool_error.1), (missing_host.0, missing_host.1));
+    let expected = "Invalid host: 'missing'. Available hosts: ['h0', 'h1']";
+    let xspace_trace = xspace_dir.join("h0.xspace.pb").to_string_lossy().into_owned();
+    for command in ["get_llo_analysis", "get_llo_debug_string"] {
+        let named = error(&[command, "a", "--host=missing", &logdir_arg], 4, "INVALID_VALUE");
+        assert_eq!(named.at("error").text(), expected);
+        let path = error(&[command, &a, "--host=missing"], 4, "INVALID_VALUE");
+        assert_eq!(path.at("error").text(), expected);
+        let file = error(&[command, &xspace_trace, "--host=missing"], 4, "INVALID_VALUE");
+        assert_eq!(file.at("error").text(), "Invalid host: 'missing'. Available hosts: ['h0']");
+        let (no_host_code, no_host, _) = run(&[command, &a]);
+        assert_eq!(no_host_code, 0, "{no_host}");
+        let (valid_host_code, valid_host, _) = run(&[command, &a, "--host=h0"]);
+        assert_eq!(valid_host_code, 0, "{valid_host}");
+        assert_eq!(valid_host, no_host);
     }
     let output = scratch("multi-host-xspace").join("h0.xplane.pb");
     let (code, out, _) = run(&[
