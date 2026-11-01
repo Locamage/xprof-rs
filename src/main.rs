@@ -216,6 +216,11 @@ impl<T: Clone + Send + Sync + 'static> Memo<T> {
         Arc::new(Self { cache, flights: Flights::new() })
     }
 
+    async fn free(&self) -> u64 {
+        self.cache.run_pending_tasks().await;
+        BUDGET_BYTES.saturating_sub(self.cache.weighted_size() << 10)
+    }
+
     async fn get(
         self: &Arc<Self>,
         path: PathBuf,
@@ -1737,20 +1742,30 @@ async fn prefetch(state: Shared) {
                     .unwrap_or(SystemTime::UNIX_EPOCH),
             )
         });
-        let watched: Vec<(PathBuf, Stamp)> = found
+        let watched: Vec<Vec<(PathBuf, Stamp)>> = found
             .into_iter()
             .take(WATCHED_SESSIONS)
-            .flat_map(|(_, dir)| xplanes(&dir))
-            .filter_map(|file| Stamp::of(&file).map(|stamp| (file, stamp)))
-            .filter(|(_, stamp)| {
-                stamp.len > 0
-                    && stamp.len < (*MEMORY / 32).min(*BUDGET_BYTES)
-                    && stamp.older_than(POLL)
+            .map(|(_, dir)| {
+                xplanes(&dir)
+                    .into_iter()
+                    .filter_map(|file| Stamp::of(&file).map(|stamp| (file, stamp)))
+                    .filter(|(_, stamp)| {
+                        stamp.len > 0
+                            && stamp.len < (*MEMORY / 32).min(*BUDGET_BYTES)
+                            && stamp.older_than(POLL)
+                    })
+                    .collect()
             })
             .collect();
-        attempted.retain(|key| watched.contains(key));
-        for key in watched {
-            if !attempted.contains(&key) {
+        attempted.retain(|key| watched.iter().flatten().any(|watched| watched == key));
+        for session in watched {
+            let new: Vec<_> = session.into_iter().filter(|key| !attempted.contains(key)).collect();
+            if new.iter().map(|(_, stamp)| stamp.len).sum::<u64>()
+                > state.stats.free().await.min(state.hosts.free().await)
+            {
+                break;
+            }
+            for key in new {
                 attempted.push(key.clone());
                 quiet().await;
                 _ = state.stats.get(key.0.clone(), &permits, tools::opstats::load).await;
