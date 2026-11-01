@@ -775,10 +775,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
         }
     }
 
-    fn zero_outputs(&mut self, node: usize, bottleneck: bool, operands: bool) {
-        if !bottleneck {
-            self.bottleneck = false;
-        }
+    fn zero_outputs(&mut self, node: usize, operands: bool) {
+        self.bottleneck = false;
         self.current.set(Key::Bytes, 0.0);
         self.set_output(&[], 0.0);
         if operands {
@@ -802,12 +800,12 @@ impl<'c, 'm> Analysis<'c, 'm> {
                     (profile_flops(opcode, shape.element_type) * shape.elements_recursive()) as f32,
                 );
             }
-            "parameter" | "constant" => self.zero_outputs(node, false, false),
+            "parameter" | "constant" => self.zero_outputs(node, false),
             "get-tuple-element" => {
-                self.zero_outputs(node, false, false);
+                self.zero_outputs(node, false);
                 self.set_operand_bytes(0, &[], 0.0);
             }
-            "domain" | "after-all" | "add-dependency" => self.zero_outputs(node, false, true),
+            "domain" | "after-all" | "add-dependency" => self.zero_outputs(node, true),
             "bitcast" => self.bitcast(),
             "transpose" if context.transpose_is_bitcast(node)? => self.bitcast(),
             "slice" | "dynamic-slice" | "dynamic-update-slice" => self.slicing(node, opcode)?,

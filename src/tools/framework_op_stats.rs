@@ -2,7 +2,7 @@ use crate::tools::hlo_stats::roofline;
 use crate::tools::opstats::{Db, IDLE, OpStats, add, pico_to_micro, safe_divide};
 use crate::tools::table::{Cell, Table};
 use crate::xplane::derive::is_derived;
-use crate::xplane::{Ev, Line, Plane, event_stats};
+use crate::xplane::{Ev, HOST_PLANE, Line, Plane, event_stats};
 use arcstr::ArcStr;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -11,7 +11,6 @@ use std::borrow::Cow;
 const MAX_OPS: usize = 500;
 /// The events of a host line that the threads decode before one thread adds their activities.
 const HOST_BLOCK: usize = 1 << 16;
-const HOST_PLANE: &str = "/host:CPU";
 const UNKNOWN: &str = "Unknown";
 const COLUMNS: [(&str, &str, &str); 19] = [
     ("rank", "number", "Rank"),
@@ -304,7 +303,7 @@ fn table(stats: &OpStats, host: &Db, device: &Db, exclude_idle: bool) -> String 
             if exclude_idle && metrics.category == IDLE {
                 continue;
             }
-            let roof = roofline(metrics, stats, false);
+            let roof = roofline(metrics, stats);
             let total_time = pico_to_micro(metrics.time_ps);
             let self_time = pico_to_micro(metrics.self_time_ps);
             let fraction = safe_divide(self_time, total_us);

@@ -10,7 +10,7 @@ use crate::xplane::steps::{
     DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_HOST, HOST_TO_DEVICE, Span, UNKNOWN_TIME,
     non_overlapped,
 };
-use crate::xplane::{self, Plane, Value, event_group, event_stat, slice, stats};
+use crate::xplane::{self, HOST_PLANE, Plane, Value, event_group, event_stat, slice, stats};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
@@ -18,7 +18,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::once;
 use std::path::PathBuf;
 
-const HOST_PLANE: &str = "/host:CPU";
 const TFSTREAMZ_PLANE: &str = "/host:tfstreamz";
 const XLA_MODULES: &str = "XLA Modules";
 const REQUEST_EVENTS: [&[u8]; 7] = [

@@ -1,13 +1,12 @@
 use crate::hlo::general;
 use crate::server::run_tools::{python_string, python_string_into};
 use crate::tools::table::repr_into;
-use crate::xplane::{Ev, Line, NONE_GROUP, Plane, Value, slice};
+use crate::xplane::{Ev, HOST_PLANE, Line, NONE_GROUP, Plane, Value, slice};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-const HOST_THREADS: &str = "/host:CPU";
 const HOST_DEVICE_ID: i64 = 701;
 const PLANE_PREFIXES: [&str; 3] = ["/device:GPU:", "/device:TPU:", "/device:CUSTOM:"];
 const ASYNC_OPS_LINE: &str = "Async XLA Ops";
@@ -233,7 +232,7 @@ fn cut(lines: &[(&Plane, &Line)], limit: usize) -> Option<(u64, usize)> {
 
 fn jobs(planes: &[Plane]) -> Vec<(i64, &Plane)> {
     let host =
-        planes.iter().find(|plane| plane.name == HOST_THREADS).map(|host| (HOST_DEVICE_ID, host));
+        planes.iter().find(|plane| plane.name == HOST_PLANE).map(|host| (HOST_DEVICE_ID, host));
     let prefixed = PLANE_PREFIXES
         .iter()
         .map(|prefix| {
@@ -251,7 +250,7 @@ fn collect(planes: &[Plane], map: &[u8], limit: usize) -> (Devices, Vec<Event>) 
         let resources = devices.entry(device).or_default();
         resources.0.clone_from(&plane.name);
         for line in
-            plane.lines.iter().filter(|line| plane.name == HOST_THREADS || !line.events.is_empty())
+            plane.lines.iter().filter(|line| plane.name == HOST_PLANE || !line.events.is_empty())
         {
             resources.1.insert(
                 line.resource_id(),

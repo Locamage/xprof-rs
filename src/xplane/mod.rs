@@ -41,6 +41,8 @@ fn known(name: &[u8]) -> (bool, [u8; ROLES]) {
 }
 
 pub const NONE_GROUP: i64 = i64::MIN;
+pub const TPU_PREFIX: &str = "/device:TPU:";
+pub const HOST_PLANE: &str = "/host:CPU";
 const EPOCH_NS: i64 = 1_000_000_000_000_000;
 const INTERNAL_EVENTS: &str = "MemoryAllocation MemoryDeallocation PrefetchProduce PrefetchConsume ParallelInterleaveProduce ParallelInterleaveConsume ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce MapAndBatchConsume ParseExampleProduce ParseExampleConsume";
 const QUEUE_CONSUMERS: &str = "RunProgramRequest HostCallbackRequest TransferH2DRequest TransferPreprocessedH2DRequest TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti OnDeviceRecvRequestMulti PjrtAsyncWait";
@@ -387,8 +389,11 @@ pub fn nested(data: &[u8], wanted: u32) -> impl Iterator<Item = &[u8]> {
 }
 
 pub fn event_stat(raw: &[u8], id: Option<usize>) -> Option<Value<'_>> {
-    let id = id?;
-    stats(raw, 4, |stat| stat == id).next().map(|stat| stat.value)
+    stat_value(raw, 4, id?)
+}
+
+pub fn stat_value(raw: &[u8], field: u32, id: usize) -> Option<Value<'_>> {
+    stats(raw, field, |stat| stat == id).next().map(|stat| stat.value)
 }
 
 /// For each id, the same value as `event_stat`, from one pass over the stats.
@@ -868,10 +873,8 @@ impl Plane {
         id: Option<usize>,
     ) -> Option<Value<'a>> {
         let id = id?;
-        let find = |raw: (u32, u32), field: u32| {
-            stats(slice(map, raw), field, |stat| stat == id).next().map(|stat| stat.value)
-        };
-        find(raw, 4).or_else(|| find(self.meta[meta as usize].raw, 5))
+        stat_value(slice(map, raw), 4, id)
+            .or_else(|| stat_value(slice(map, self.meta[meta as usize].raw), 5, id))
     }
 
     pub fn stat<'a>(

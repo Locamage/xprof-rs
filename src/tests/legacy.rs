@@ -1742,7 +1742,7 @@ fn non_streaming_trace_viewer_matches_xprofs_json_stream() {
     let dir = logdir("legacy-trace");
     let file = dir.join("run/plugins/profile/s/tpu-vm-demo-host-0.xplane.pb");
     std::fs::write(&file, include_bytes!("../../tests/data/demo.xplane.pb")).unwrap();
-    let (map, planes) = prepare(&file, true).unwrap();
+    let (map, planes) = prepare(&file).unwrap();
     let mut golden = String::new();
     flate2::read::GzDecoder::new(
         &include_bytes!("../../tests/data/trace_viewer_legacy.json.gz")[..],

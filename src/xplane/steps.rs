@@ -7,8 +7,8 @@ use crate::tools::roofline::accumulate;
 use crate::xplane::derive::{STEP_LINE, is_derived, is_tensor_core};
 use crate::xplane::group::is_sparse_core;
 use crate::xplane::{
-    Ev, Field, Line, NONE_GROUP, Own, Plane, Value, event_stats, fields, lossy, nested, slice,
-    stats,
+    Ev, Field, HOST_PLANE, Line, NONE_GROUP, Own, Plane, TPU_PREFIX, Value, event_stats, fields,
+    lossy, nested, slice, stats,
 };
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -34,8 +34,6 @@ pub const DEVICE_COMPUTE_16: u32 = 150;
 pub const DEVICE_WAIT_DEVICE: u32 = 160;
 pub const DEVICE_WAIT_HOST: u32 = 170;
 const LAST_EVENT_TYPE: usize = 170;
-const TPU_PREFIX: &str = "/device:TPU:";
-const HOST_PLANE: &str = "/host:CPU";
 const OFF_DUTY: [&str; 8] = [
     "infeed",
     "outfeed",

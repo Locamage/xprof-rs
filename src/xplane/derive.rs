@@ -1,7 +1,9 @@
 use crate::hlo::xla::HloInstructionMeta;
 use crate::tools::framework_op_stats::{is_jax_op_type, is_tf_op_name, is_tf_op_type};
 use crate::xplane::gpu;
-use crate::xplane::{Ev, GROUP, Line, NONE_GROUP, Plane, Value, event_group, slice, stats};
+use crate::xplane::{
+    Ev, GROUP, HOST_PLANE, Line, NONE_GROUP, Plane, Value, event_group, slice, stats,
+};
 use prost::Message;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -120,7 +122,6 @@ const STREAM_LINES: [(i64, &str, &[usize]); 5] = [
     (5, "Source code", &[]),
 ];
 const PS_PER_NS: u64 = 1000;
-const HOST: &str = "/host:CPU";
 pub const STEP_LINE: i64 = 0xdead_beef;
 const LAUNCH_LINE: i64 = STEP_LINE + 1;
 const DEVICE_DERIVED: i64 = STEP_LINE + 290;
@@ -755,7 +756,7 @@ fn launch_lines(
     devices: usize,
     names: &HashMap<i64, String>,
 ) -> Vec<(usize, Line)> {
-    let Some(plane) = planes.iter().find(|plane| plane.name == HOST) else {
+    let Some(plane) = planes.iter().find(|plane| plane.name == HOST_PLANE) else {
         return Vec::new();
     };
     let ids = ["device_id", "correlation_id", "group_id"].map(|name| plane.id(name));

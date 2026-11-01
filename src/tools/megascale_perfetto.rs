@@ -1,11 +1,10 @@
 use crate::hlo::memory::std_sort;
 use crate::trace::Interner;
-use crate::xplane::{Field, Plane, Value as Raw, fields, slice};
+use crate::xplane::{Field, Plane, TPU_PREFIX, Value as Raw, fields, slice};
 use rustc_hash::FxHashMap as HashMap;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Write;
 
-const TPU_PLANE: &str = "/device:TPU:";
 const MEGASCALE_PLANE: &str = "/device:CUSTOM:Megascale Trace";
 const TPU_LINES: [&str; 4] = ["Steps", "XLA Modules", "XLA Ops", "XLA TraceMe"];
 const SKIPPED_STATS: [&str; 13] = [
@@ -332,7 +331,7 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
     for plane in planes {
         let Some(tpu) = plane
             .name
-            .strip_prefix(TPU_PLANE)
+            .strip_prefix(TPU_PREFIX)
             .filter(|id| !id.is_empty() && digits(id) == id.len())
             .and_then(|id| id.parse::<i64>().ok())
         else {

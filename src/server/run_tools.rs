@@ -1,4 +1,5 @@
 use crate::tools::counters::{checked, events, first, planes, pretty};
+use crate::xplane::{HOST_PLANE, TPU_PREFIX};
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -44,9 +45,7 @@ const BASE_TOOLS: [&str; 8] = [
     "roofline_model",
 ];
 const GPU_PREFIX: &str = "/device:GPU:";
-const TPU_PREFIX: &str = "/device:TPU:";
 const METADATA_PLANE: &str = "/host:metadata";
-const HOST_PLANE: &str = "/host:CPU";
 const MEGASCALE_PREFIX: &[u8] = b"MegaScale:";
 const HLO_PROTO: &str = "Hlo Proto";
 const COUNTER_VALUE: &str = "counter_value";

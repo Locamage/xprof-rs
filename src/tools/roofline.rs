@@ -97,7 +97,7 @@ fn is_infeed_or_outfeed(category: &str) -> bool {
 }
 
 fn row(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], metrics: &Metrics, place: &Placement) {
-    let roof = roofline(metrics, stats, false);
+    let roof = roofline(metrics, stats);
     let occurrences = metrics.occurrences as f64;
     let (mut total_time, mut self_time) =
         (pico_to_micro(metrics.time_ps), pico_to_micro(metrics.self_time_ps));

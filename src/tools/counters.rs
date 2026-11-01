@@ -1,6 +1,6 @@
 use crate::tools::table::{Cell, Table, number, string};
 use crate::tools::utilization::{Device, Metric, compute};
-use crate::xplane::{Field, Value, fields, lossy, nested, stats, varint};
+use crate::xplane::{Field, TPU_PREFIX, Value, fields, lossy, nested, stats, varint};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use serde_json::{Value as Json, json};
@@ -8,7 +8,6 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-const TPU_PREFIX: &str = "/device:TPU:";
 const GPU_PREFIX: &str = "/device:GPU:";
 const PERF_COLUMNS: &str = r#"{"cols":[{"id":"Host","label":"Host","type":"string"},{"id":"Chip","label":"Chip","type":"number"},{"id":"Kernel","label":"Kernel","type":"string"},{"id":"Sample","label":"Sample","type":"number"},{"id":"Counter","label":"Counter","type":"string"},{"id":"Value","label":"Value (Hex)","type":"number"},{"id":"Description","label":"Description","type":"string"},{"id":"Set","label":"Set","type":"string"}],"rows":["#;
 const UTILIZATION_COLUMNS: [(&str, &str, &str); 8] = [
@@ -113,57 +112,39 @@ pub fn valid_besides_events(buf: &[u8]) -> bool {
 fn valid(buf: &[u8], message: Message, split: bool, events: bool) -> bool {
     const SPLIT: usize = 1 << 16;
     let split = split && events && matches!(message, Message::Line);
-    let (mut pos, mut start, mut children) = (0, 0, Vec::new());
-    while pos < buf.len() {
-        let Some(key) = varint(buf, &mut pos) else {
-            return false;
-        };
-        let field = key >> 3;
-        if field == 0 || field >= 1 << 29 {
-            return false;
-        }
-        let complete = match key & 7 {
-            0 => varint(buf, &mut pos).is_some(),
-            1 | 5 => {
-                pos += if key & 7 == 1 { 8 } else { 4 };
-                pos <= buf.len()
-            }
-            2 => {
-                let Some(length) =
-                    varint(buf, &mut pos).filter(|&length| length <= (buf.len() - pos) as u64)
-                else {
-                    return false;
-                };
-                let body = &buf[pos..pos + length as usize];
-                pos += length as usize;
-                match slot(message, field) {
-                    Slot::Message(child) if matches!(message, Message::Space | Message::Plane) => {
-                        children.push((body, child, true));
-                        true
-                    }
-                    Slot::Message(_) if split => true,
-                    Slot::Message(Message::Event) => {
-                        !events || walk(body, |field, stat| field != 4 || valid_stat(stat))
-                    }
-                    Slot::Message(child) => valid(body, child, false, events),
-                    Slot::Text => std::str::from_utf8(body).is_ok(),
-                    Slot::Packed => {
-                        let mut at = 0;
-                        while at < body.len() && varint(body, &mut at).is_some() {}
-                        at == body.len()
-                    }
-                    Slot::Other => true,
+    let (mut parts, mut start, mut children) = (fields(buf), 0, Vec::new());
+    while let Some((field, value)) = parts.next() {
+        let complete = match value {
+            Field::Num(_) => true,
+            Field::Bytes(_, body) => match slot(message, field.into()) {
+                Slot::Message(child) if matches!(message, Message::Space | Message::Plane) => {
+                    children.push((body, child, true));
+                    true
                 }
-            }
-            _ => false,
+                Slot::Message(_) if split => true,
+                Slot::Message(Message::Event) => {
+                    !events || walk(body, |field, stat| field != 4 || valid_stat(stat))
+                }
+                Slot::Message(child) => valid(body, child, false, events),
+                Slot::Text => std::str::from_utf8(body).is_ok(),
+                Slot::Packed => {
+                    let mut at = 0;
+                    while at < body.len() && varint(body, &mut at).is_some() {}
+                    at == body.len()
+                }
+                Slot::Other => true,
+            },
         };
         if !complete {
             return false;
         }
-        if split && pos - start >= SPLIT {
-            children.push((&buf[start..pos], message, false));
-            start = pos;
+        if split && parts.pos - start >= SPLIT {
+            children.push((&buf[start..parts.pos], message, false));
+            start = parts.pos;
         }
+    }
+    if !parts.complete() {
+        return false;
     }
     if split {
         children.push((&buf[start..], message, false));
@@ -178,38 +159,12 @@ pub fn valid_stat(buf: &[u8]) -> bool {
 
 /// Checks the keys and the lengths of the fields. `body` checks each field that has a length.
 #[inline(always)]
-fn walk(buf: &[u8], mut body: impl FnMut(u64, &[u8]) -> bool) -> bool {
-    let mut pos = 0;
-    while pos < buf.len() {
-        let Some(key) = varint(buf, &mut pos) else {
-            return false;
-        };
-        let field = key >> 3;
-        if field == 0 || field >= 1 << 29 {
-            return false;
-        }
-        let complete = match key & 7 {
-            0 => varint(buf, &mut pos).is_some(),
-            1 | 5 => {
-                pos += if key & 7 == 1 { 8 } else { 4 };
-                pos <= buf.len()
-            }
-            2 => {
-                let Some(length) =
-                    varint(buf, &mut pos).filter(|&length| length <= (buf.len() - pos) as u64)
-                else {
-                    return false;
-                };
-                pos += length as usize;
-                body(field, &buf[pos - length as usize..pos])
-            }
-            _ => false,
-        };
-        if !complete {
-            return false;
-        }
-    }
-    true
+fn walk(buf: &[u8], mut body: impl FnMut(u32, &[u8]) -> bool) -> bool {
+    let mut parts = fields(buf);
+    parts.by_ref().all(|(field, value)| match value {
+        Field::Bytes(_, bytes) => body(field, bytes),
+        Field::Num(_) => true,
+    }) && parts.complete()
 }
 
 fn unsigned(value: &Value) -> u64 {

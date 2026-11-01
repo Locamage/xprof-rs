@@ -267,7 +267,7 @@ impl Local {
             kept.finish(true);
             return Some(read(&kept.planes, kept.map()));
         }
-        let (map, planes) = crate::prepare(path, true).ok()?;
+        let (map, planes) = crate::prepare(path).ok()?;
         Some(read(&planes, &map))
     }
 }
