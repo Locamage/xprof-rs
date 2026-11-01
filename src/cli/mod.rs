@@ -1190,6 +1190,7 @@ fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let mut params = HashMap::from([
         ("tag".to_string(), tool),
         ("run".to_string(), dir.file_name().unwrap_or_default().to_string_lossy().into_owned()),
+        ("resolution".to_string(), "0".to_string()),
     ]);
     if let Some(host) = args.text("host") {
         params.insert("host".into(), host);
