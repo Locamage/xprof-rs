@@ -536,6 +536,17 @@ fn load_host(path: &Path) -> anyhow::Result<Host> {
     let begin = Instant::now();
     let (map, mut planes) = prepare(path, true)?;
     let name = host_name(path);
+    let plane_bytes = planes
+        .iter()
+        .map(|plane| {
+            plane.lines.capacity() * std::mem::size_of::<xplane::Line>()
+                + plane
+                    .lines
+                    .iter()
+                    .map(|line| line.events.capacity() * std::mem::size_of::<xplane::Ev>())
+                    .sum::<usize>()
+        })
+        .sum::<usize>();
     let start = Instant::now();
     let trace = Trace::build(&mut planes, &name, &map);
     eprintln!(
@@ -544,12 +555,8 @@ fn load_host(path: &Path) -> anyhow::Result<Host> {
         start.elapsed(),
         begin.elapsed()
     );
-    Ok(Host {
-        bytes: (map.len() + trace.events.len() * std::mem::size_of::<trace::Event>()) as u64,
-        map,
-        planes,
-        trace,
-    })
+    let bytes = map.len() + trace.events.len() * std::mem::size_of::<trace::Event>() + plane_bytes;
+    Ok(Host { bytes: bytes as u64, map, planes, trace })
 }
 
 fn shared_host(path: &Path) -> anyhow::Result<Arc<Host>> {

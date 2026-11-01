@@ -631,6 +631,10 @@ fn demo_trace_matches_xprof_outputs() {
     std::fs::write(&path, demo).unwrap();
     let host = load_host(&path).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        host.bytes as usize
+            > host.map.len() + host.trace.events.len() * std::mem::size_of::<crate::trace::Event>()
+    );
     let view = View {
         trace: &host.trace,
         map: &host.map,
