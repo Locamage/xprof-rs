@@ -19,6 +19,7 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, he
 use axum::response::Response;
 use axum::routing::any;
 use cli::json::py_repr;
+use futures_util::StreamExt;
 use futures_util::future::{BoxFuture, FutureExt, Shared as Joined, try_join_all};
 use rayon::prelude::*;
 use server::remote::Remote;
@@ -56,6 +57,7 @@ const CONCURRENT_PREFETCHES: usize = 1;
 /// The prefetch starts a load only after this time without requests. A load at the same time as a request makes the request slow.
 const QUIET: Duration = Duration::from_secs(1);
 const GZIP_CHUNK: usize = 1 << 20;
+const GZIP_BATCH: usize = 64;
 const GZIP_HEADER: [u8; 10] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
 const READ_CHUNK: usize = 16 << 20;
 const MAX_THREADS: usize = 32;
@@ -875,51 +877,83 @@ fn accepts_gzip(headers: &HeaderMap) -> bool {
     weight("gzip").or_else(|| weight("*")).is_some_and(|weight| weight > 0.0)
 }
 
-/// The gzip of `body`, from parts of `GZIP_CHUNK` bytes that compress in parallel, and the end of each part.
-fn gzip(body: &[u8]) -> (Bytes, Arc<[usize]>) {
-    let chunks = body.len().div_ceil(GZIP_CHUNK).max(1);
-    let parts: Vec<(Vec<u8>, crc32fast::Hasher)> = (0..chunks)
-        .into_par_iter()
-        .map(|index| {
-            let chunk = &body
-                [(index * GZIP_CHUNK).min(body.len())..((index + 1) * GZIP_CHUNK).min(body.len())];
-            let flush = if index + 1 == chunks {
-                flate2::FlushCompress::Finish
-            } else {
-                flate2::FlushCompress::Sync
-            };
-            let (mut deflate, mut out) = (
-                flate2::Compress::new(flate2::Compression::fast(), false),
-                Vec::with_capacity(chunk.len() / 2 + 128),
-            );
-            // The writer of flate2 can stop a sync flush when its buffer is full. This loop gives more space until the flush is complete.
-            loop {
-                let consumed = deflate.total_in() as usize;
-                let status = deflate
-                    .compress_vec(&chunk[consumed..], &mut out, flush)
-                    .expect("response body can be compressed");
-                if status == flate2::Status::StreamEnd
-                    || (deflate.total_in() as usize == chunk.len() && out.len() < out.capacity())
-                {
-                    break;
-                }
-                out.reserve(out.capacity() / 2 + 1024);
-            }
-            let mut crc = crc32fast::Hasher::new();
-            crc.update(chunk);
-            (out, crc)
-        })
-        .collect();
-    let (mut packed, mut ends) = (GZIP_HEADER.to_vec(), Vec::with_capacity(chunks));
-    let mut crc = crc32fast::Hasher::new();
-    for (deflated, part) in &parts {
-        packed.extend_from_slice(deflated);
-        ends.push(packed.len());
-        crc.combine(part);
+/// A gzip body from parts of `GZIP_CHUNK` bytes that compress in parallel, and the end of each part. It compresses the body as it comes, `GZIP_BATCH` parts at a time, and keeps the last part until `finish`, because only the last part ends the stream.
+struct Gzip {
+    pending: Vec<u8>,
+    packed: Vec<u8>,
+    ends: Vec<usize>,
+    crc: crc32fast::Hasher,
+    len: usize,
+}
+
+impl Gzip {
+    fn new() -> Self {
+        let (pending, packed, ends) = (Vec::new(), GZIP_HEADER.to_vec(), Vec::new());
+        Self { pending, packed, ends, crc: crc32fast::Hasher::new(), len: 0 }
     }
-    packed.extend_from_slice(&crc.finalize().to_le_bytes());
-    packed.extend_from_slice(&(body.len() as u32).to_le_bytes());
-    (Bytes::from(packed), ends.into())
+
+    fn write(&mut self, data: Bytes) {
+        if self.pending.is_empty() {
+            self.pending = data.into();
+        } else {
+            self.pending.extend_from_slice(&data);
+        }
+        let full = self.pending.len().saturating_sub(1) / GZIP_CHUNK;
+        if full >= GZIP_BATCH {
+            self.deflate(full * GZIP_CHUNK, false);
+        }
+    }
+
+    fn finish(mut self) -> (Bytes, Arc<[usize]>) {
+        self.deflate(self.pending.len(), true);
+        self.packed.extend_from_slice(&self.crc.finalize().to_le_bytes());
+        self.packed.extend_from_slice(&(self.len as u32).to_le_bytes());
+        (Bytes::from(self.packed), self.ends.into())
+    }
+
+    fn deflate(&mut self, end: usize, last: bool) {
+        let (body, chunks) = (&self.pending[..end], end.div_ceil(GZIP_CHUNK).max(1));
+        let parts: Vec<(Vec<u8>, crc32fast::Hasher)> = (0..chunks)
+            .into_par_iter()
+            .map(|index| {
+                let chunk = &body[(index * GZIP_CHUNK).min(body.len())
+                    ..((index + 1) * GZIP_CHUNK).min(body.len())];
+                let flush = if last && index + 1 == chunks {
+                    flate2::FlushCompress::Finish
+                } else {
+                    flate2::FlushCompress::Sync
+                };
+                let (mut deflate, mut out) = (
+                    flate2::Compress::new(flate2::Compression::fast(), false),
+                    Vec::with_capacity(chunk.len() / 2 + 128),
+                );
+                // The writer of flate2 can stop a sync flush when its buffer is full. This loop gives more space until the flush is complete.
+                loop {
+                    let consumed = deflate.total_in() as usize;
+                    let status = deflate
+                        .compress_vec(&chunk[consumed..], &mut out, flush)
+                        .expect("response body can be compressed");
+                    if status == flate2::Status::StreamEnd
+                        || (deflate.total_in() as usize == chunk.len()
+                            && out.len() < out.capacity())
+                    {
+                        break;
+                    }
+                    out.reserve(out.capacity() / 2 + 1024);
+                }
+                let mut crc = crc32fast::Hasher::new();
+                crc.update(chunk);
+                (out, crc)
+            })
+            .collect();
+        for (deflated, part) in &parts {
+            self.packed.extend_from_slice(deflated);
+            self.ends.push(self.packed.len());
+            self.crc.combine(part);
+        }
+        self.len += end;
+        self.pending.drain(..end);
+    }
 }
 
 async fn cached(
@@ -946,16 +980,23 @@ async fn cached(
         let (cache, stored) = (state.rendered.clone(), key.clone());
         let flight = state.renders.join(key, move || async move {
             let (parts, body) = render.await.into_parts();
-            let body = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
             if parts.status != StatusCode::OK {
                 return Rendered {
                     status: parts.status,
                     headers: parts.headers,
-                    body,
+                    body: axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default(),
                     gzipped: None,
                 };
             }
-            let (body, ends) = blocking(move || gzip(&body)).await;
+            let (mut gzip, mut frames) = (Gzip::new(), body.into_data_stream());
+            while let Some(Ok(frame)) = frames.next().await {
+                gzip = blocking(move || {
+                    gzip.write(frame);
+                    gzip
+                })
+                .await;
+            }
+            let (body, ends) = blocking(move || gzip.finish()).await;
             let rendered = Rendered {
                 status: parts.status,
                 headers: parts.headers,
@@ -1497,21 +1538,42 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
                 ),
             };
         }
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(32);
         let rendered = blocking(move || {
             let map = read_file(&file)?;
-            let json = tools::counters::checked(&map, |map| {
+            let planes = tools::counters::checked(&map, |map| {
                 let mut planes = xplane::parse(map)?;
                 finish(&mut planes, map, true);
-                anyhow::Ok(trace::legacy::render_owned(planes, map))
+                anyhow::Ok(planes)
+            });
+            let rendered = planes.map(|planes| {
+                planes.map(|planes| {
+                    let emit = &mut |part| _ = sender.blocking_send(part);
+                    trace::legacy::render_owned(planes, &map, emit);
+                })
             });
             release(map);
-            anyhow::Ok(json)
+            anyhow::Ok(rendered)
         });
-        return match rendered.await {
-            Ok(None) => not_found(),
-            Ok(Some(Ok(json))) => response(StatusCode::OK, "application/json", json),
-            Ok(Some(Err(error))) | Err(error) => internal(&error.to_string()),
+        let rendered = tokio::spawn(rendered);
+        let Some(head) = receiver.recv().await else {
+            return match rendered
+                .await
+                .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
+            {
+                Ok(None | Some(Ok(()))) => not_found(),
+                Ok(Some(Err(error))) | Err(error) => internal(&error.to_string()),
+            };
         };
+        let rest = futures_util::stream::unfold(receiver, |mut receiver| async move {
+            receiver.recv().await.map(|part| (part, receiver))
+        });
+        let parts = futures_util::stream::iter([head]).chain(rest);
+        return response(
+            StatusCode::OK,
+            "application/json",
+            Body::from_stream(parts.map(Ok::<_, std::convert::Infallible>)),
+        );
     }
     if tag != "trace_viewer@" {
         return not_found();

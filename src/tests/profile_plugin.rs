@@ -1,6 +1,6 @@
 use super::legacy::{bytes, fetch, number, settle};
 use crate::{Settings, Shared, app, state};
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::http::{StatusCode, header};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -579,11 +579,19 @@ async fn static_files_are_gzip_only_for_clients_that_accept_gzip() {
 
 #[tokio::test]
 async fn cached_gzip_parts_decode_alone_and_as_one_stream() {
-    let large: Vec<u8> = (0..crate::GZIP_CHUNK * 5 / 2)
+    let large: Vec<u8> = (0..crate::GZIP_CHUNK * (2 * crate::GZIP_BATCH + 1) + 12345)
         .map(|index| ((index as u32).wrapping_mul(2_654_435_761) >> 24) as u8 % 7 + b'a')
         .collect();
+    let gzip = |frames: Vec<&[u8]>| {
+        let mut gzip = crate::Gzip::new();
+        for frame in frames {
+            gzip.write(Bytes::copy_from_slice(frame));
+        }
+        gzip.finish()
+    };
     for body in [large, Vec::new()] {
-        let (packed, ends) = crate::gzip(&body);
+        let (packed, ends) = gzip(vec![&body]);
+        assert_eq!(gzip(body.chunks(3_000_001).collect()), (packed.clone(), ends.clone()));
         assert_eq!(ends.len(), body.len().div_ceil(crate::GZIP_CHUNK).max(1));
         let mut whole = Vec::new();
         std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&packed[..]), &mut whole)

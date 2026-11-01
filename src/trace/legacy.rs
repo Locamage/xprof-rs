@@ -377,19 +377,23 @@ pub fn render(planes: &[Plane], map: &[u8]) -> String {
     render_within(planes, map, MAX_EVENTS)
 }
 
-/// The trace of `render`. It frees the planes before it writes the text, because the text uses only the events that it takes from them.
-pub fn render_owned(planes: Vec<Plane>, map: &[u8]) -> String {
+/// The text of `render`, in parts. It frees the planes before it writes the text, because the text uses only the events that it takes from them.
+pub fn render_owned(planes: Vec<Plane>, map: &[u8], emit: &mut impl FnMut(Vec<u8>)) {
     let collected = collect(&planes, map, MAX_EVENTS);
     crate::release(planes);
-    text(collected)
+    text(collected, emit);
 }
 
 /// The trace with the first `limit` events in time.
 pub fn render_within(planes: &[Plane], map: &[u8], limit: usize) -> String {
-    text(collect(planes, map, limit))
+    let mut parts = Vec::new();
+    text(collect(planes, map, limit), &mut |part| parts.push(part));
+    let pieces: Vec<&[u8]> = parts.iter().map(Vec::as_slice).collect();
+    String::from_utf8(crate::concat(&pieces)).expect("The pieces are text")
 }
 
-fn text((devices, events): (Devices, Vec<Event>)) -> String {
+/// Writes the parts of the text in order. It renders one chunk per thread at a time, so that only a few parts are in memory.
+fn text((devices, events): (Devices, Vec<Event>), emit: &mut impl FnMut(Vec<u8>)) {
     let mut out = String::from(
         "{\"displayTimeUnit\":\"ns\",\"metadata\":{\"highres-ticks\":true},\n\"traceEvents\":[\n",
     );
@@ -419,52 +423,53 @@ fn text((devices, events): (Devices, Vec<Event>)) -> String {
             );
         }
     }
-    let lines: Vec<String> = events
-        .par_chunks(EVENTS_PER_CHUNK)
-        .map(|chunk| {
-            let mut part = String::new();
-            for event in chunk {
-                part.push('{');
-                if !event.args.is_empty() {
-                    part.push_str("\"args\": {");
-                    for (index, (key, value)) in event.args.iter().enumerate() {
-                        part.push_str(if index > 0 { ", " } else { "" });
-                        python_string_into(&mut part, key);
-                        part.push_str(": ");
-                        python_string_into(&mut part, value);
+    emit(out.into_bytes());
+    for batch in events.chunks(EVENTS_PER_CHUNK * rayon::current_num_threads()) {
+        let parts: Vec<String> = batch
+            .par_chunks(EVENTS_PER_CHUNK)
+            .map(|chunk| {
+                let mut part = String::new();
+                for event in chunk {
+                    part.push('{');
+                    if !event.args.is_empty() {
+                        part.push_str("\"args\": {");
+                        for (index, (key, value)) in event.args.iter().enumerate() {
+                            part.push_str(if index > 0 { ", " } else { "" });
+                            python_string_into(&mut part, key);
+                            part.push_str(": ");
+                            python_string_into(&mut part, value);
+                        }
+                        part.push_str("}, ");
                     }
-                    part.push_str("}, ");
+                    if event.dur != 0 {
+                        part.push_str("\"dur\": ");
+                        repr_into(&mut part, event.dur as f64 / 1e6);
+                        part.push_str(", ");
+                    }
+                    part.push_str("\"name\": ");
+                    python_string_into(&mut part, &event.name);
+                    let _ = write!(
+                        part,
+                        ", \"ph\": {}, \"pid\": {}, ",
+                        if event.dur != 0 { "\"X\"" } else { "\"i\"" },
+                        event.device
+                    );
+                    if event.dur == 0 {
+                        part.push_str("\"s\": \"t\", ");
+                    }
+                    let _ = write!(part, "\"tid\": {}, \"ts\": ", event.resource);
+                    repr_into(&mut part, event.ts as f64 / 1e6);
+                    part.push_str("},\n");
                 }
-                if event.dur != 0 {
-                    part.push_str("\"dur\": ");
-                    repr_into(&mut part, event.dur as f64 / 1e6);
-                    part.push_str(", ");
-                }
-                part.push_str("\"name\": ");
-                python_string_into(&mut part, &event.name);
-                let _ = write!(
-                    part,
-                    ", \"ph\": {}, \"pid\": {}, ",
-                    if event.dur != 0 { "\"X\"" } else { "\"i\"" },
-                    event.device
-                );
-                if event.dur == 0 {
-                    part.push_str("\"s\": \"t\", ");
-                }
-                let _ = write!(part, "\"tid\": {}, \"ts\": ", event.resource);
-                repr_into(&mut part, event.ts as f64 / 1e6);
-                part.push_str("},\n");
-            }
-            part
-        })
-        .collect();
+                part
+            })
+            .collect();
+        for part in parts {
+            emit(part.into_bytes());
+        }
+    }
     crate::release(events);
-    let pieces: Vec<&[u8]> = [out.as_bytes()]
-        .into_iter()
-        .chain(lines.iter().map(String::as_bytes))
-        .chain([&b"{}]}\n"[..]])
-        .collect();
-    String::from_utf8(crate::concat(&pieces)).expect("The pieces are text")
+    emit(b"{}]}\n".to_vec());
 }
 
 #[cfg(test)]
