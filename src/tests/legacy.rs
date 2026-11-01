@@ -1054,6 +1054,13 @@ async fn module_list_extracts_hlo_protos_from_a_profile_with_hostnames() {
     let state = state(&Settings { logdir: dir.clone(), ..Default::default() });
     let (status, _, modules) = fetch(&state, "/data/plugin/profile/module_list?run=run/s").await;
     assert_eq!(status, StatusCode::OK, "{modules}");
+    let (status, _, mapped) = fetch(
+        &state,
+        "/data/plugin/profile/module_list?run=s&run_path=run/plugins/profile&tag=graph_viewer",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{mapped}");
+    assert_eq!(mapped, modules);
     let module = modules.split(',').next().unwrap().to_string();
     assert!(module.starts_with("jit_"), "{modules}");
     let query = |tool: &str| {

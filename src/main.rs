@@ -1290,15 +1290,7 @@ async fn counter_tool(dir: &Path, tag: &str, params: &Params) -> Option<Response
 }
 
 async fn module_list(State(state): State<Shared>, Query(params): Query<Params>) -> Response {
-    let Some(run) = params
-        .get("run")
-        .filter(|_| !params.contains_key("session_path") && !params.contains_key("run_path"))
-    else {
-        return not_found();
-    };
-    let Some(dir) = run_dir(&state, run) else {
-        return failure(outside());
-    };
+    let dir = or_fail!(session(&state, &params));
     let mut names = hlo::modules(&dir);
     let files = xplanes(&dir);
     if names.is_empty() && !files.is_empty() {
