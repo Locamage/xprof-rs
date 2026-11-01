@@ -4,7 +4,6 @@ use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round};
 use crate::obj;
 use rayon::prelude::*;
 use regex::Regex;
-use std::cmp::Ordering;
 use std::sync::LazyLock;
 
 const VIEWS: [&str; 5] = ["grouped", "category", "summary", "flat", "tree"];
@@ -96,10 +95,6 @@ fn present(node: &J, name: &str) -> bool {
     *field(node, name) != J::Null
 }
 
-fn descending<T>(items: &mut [T], key: impl Fn(&T) -> f64) {
-    items.sort_by(|left, right| key(right).partial_cmp(&key(left)).unwrap_or(Ordering::Equal));
-}
-
 /// Frees the profile on another thread, so the caller does not wait for it.
 struct Parsed(J);
 
@@ -171,7 +166,7 @@ pub fn get_profile_summary(client: &dyn Client, args: &Args) -> Result<Out, Erro
         }
         pending.extend(children(node).iter().rev());
     }
-    descending(&mut nodes, |node| number(node, "raw_time"));
+    super::descending(&mut nodes, |node| number(node, "raw_time"));
     for node in nodes {
         let name = label(node, "Unknown");
         let time = number(node, "raw_time");
@@ -249,7 +244,7 @@ fn tree(node: &J, depth: i64, limit: f64, prefix: &str) -> J {
     let name = label(node, "root");
     let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
     let mut sorted: Vec<&J> = children(node).iter().collect();
-    descending(&mut sorted, |child| number(child, "raw_time"));
+    super::descending(&mut sorted, |child| number(child, "raw_time"));
     let built: Vec<J> = if (depth as f64) < limit {
         sorted
             .into_iter()
@@ -356,7 +351,7 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
     };
     let sorted = |ops: &[J]| {
         let mut ops = ops.to_vec();
-        descending(&mut ops, key);
+        super::descending(&mut ops, key);
         ops
     };
     let top_name = |ops: &[J]| {
@@ -383,7 +378,7 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         "bytes" => "bytes_accessed",
         _ => "total_self_time_ms",
     };
-    descending(&mut summary, |entry| entry.at(summary_key).float().unwrap_or(0.0));
+    super::descending(&mut summary, |entry| entry.at(summary_key).float().unwrap_or(0.0));
     let available: Vec<String> = summary.iter().map(|entry| entry.at("category").text()).collect();
     let ops_of = |category: &str| groups.get(category).map_or(&[][..], Vec::as_slice);
     let with_fraction = |ops: Vec<J>, whole: f64| -> Vec<J> {
@@ -642,7 +637,7 @@ pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     }
     let top = |key: &str| {
         let mut ops: Vec<&J> = flat.iter().collect();
-        descending(&mut ops, |op| op.at(key).float().unwrap_or(0.0));
+        super::descending(&mut ops, |op| op.at(key).float().unwrap_or(0.0));
         if limit > 0.0 {
             ops.truncate(limit as usize);
         }
@@ -782,7 +777,7 @@ pub fn get_hlo_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         "bandwidth" => "measured_memory_bw_gbs",
         _ => "total_self_time_us",
     };
-    descending(&mut records, |record| record.at(key).float().unwrap_or(0.0));
+    super::descending(&mut records, |record| record.at(key).float().unwrap_or(0.0));
     let limit = args.compared("limit", 20.0, ">")?;
     if limit > 0.0 && matches!(args.raw("limit"), Some(J::Float(_))) {
         return fail(Kind::Type, super::SLICE);

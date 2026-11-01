@@ -5,7 +5,7 @@ use crate::obj;
 use indexmap::IndexMap;
 use regex::Regex;
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 const SUFFIX: &str = ".hlo_proto.pb";
@@ -358,14 +358,7 @@ pub fn get_hlo_text(client: &dyn Client, args: &Args) -> Result<Out, Error> {
             let J::Str(path) = path else {
                 return fail(Kind::Type, "expected str, bytes or os.PathLike object");
             };
-            let path = PathBuf::from(path);
-            path.parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-                .map(std::fs::create_dir_all)
-                .transpose()
-                .map_err(|error| Error::new(Kind::Os, error.to_string()))?;
-            std::fs::write(&path, &text)
-                .map_err(|error| Error::new(Kind::Os, error.to_string()))?;
+            super::write_file(Path::new(path), text.as_bytes())?;
         }
         Ok(text)
     };
@@ -481,13 +474,8 @@ fn buffers(
             kept.push((instruction, size));
         }
     }
-    let descending = |items: &mut Vec<(String, f64)>| {
-        items.sort_by(|left, right| {
-            right.1.partial_cmp(&left.1).unwrap_or(std::cmp::Ordering::Equal)
-        });
-    };
     if !aggregate {
-        descending(&mut kept);
+        super::descending(&mut kept, |item| item.1);
         return Ok(kept);
     }
     let mut groups: IndexMap<(String, u64), Vec<String>> = IndexMap::new();
@@ -518,7 +506,7 @@ fn buffers(
     if others > 0.0 {
         aggregated.push((format!("Others (< {} MiB)", threshold.text()), others));
     }
-    descending(&mut aggregated);
+    super::descending(&mut aggregated, |item| item.1);
     Ok(aggregated)
 }
 
@@ -581,9 +569,7 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
         ));
     }
     let total = modules.len();
-    modules.sort_by(|left, right| {
-        right.1.float().partial_cmp(&left.1.float()).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    super::descending(&mut modules, |module| module.1.float());
     let limit = args.compared("limit", 10.0, ">")?;
     if let Some(message) = super::nlargest_float(args.raw("limit"), limit, total) {
         return fail(Kind::Type, message);

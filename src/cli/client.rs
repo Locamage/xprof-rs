@@ -35,11 +35,7 @@ pub trait Client {
     }
 
     fn hosts(&self, session: &str) -> Result<Vec<String>, Error> {
-        let paths = self.xspace_paths(&self.run_dir(session)?)?;
-        let mut hosts: Vec<String> = paths.iter().map(|path| host(path)).collect();
-        hosts.sort();
-        hosts.dedup();
-        Ok(hosts)
+        Ok(host_names(&self.xspace_paths(&self.run_dir(session)?)?))
     }
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
@@ -128,6 +124,23 @@ pub trait Client {
             None => self.fetch_text(second, session, params),
         }
     }
+}
+
+pub fn tool_name(tool: &str) -> Result<&str, Error> {
+    let name = tool.strip_suffix(".json").unwrap_or(tool);
+    let name = if name == "hlo_op_profile" { "op_profile" } else { name };
+    if crate::XPLANE_TOOLS.contains(&name) {
+        Ok(name)
+    } else {
+        fail(Kind::Value, format!("Unknown XProf tool name: {}", py_repr(tool)))
+    }
+}
+
+pub fn host_names(paths: &[PathBuf]) -> Vec<String> {
+    let mut hosts: Vec<String> = paths.iter().map(|path| host(path)).collect();
+    hosts.sort();
+    hosts.dedup();
+    hosts
 }
 
 pub fn host(path: &Path) -> String {
@@ -369,11 +382,7 @@ impl Client for Local {
     }
 
     fn fetch(&self, tool: &str, session: &str, params: &Params) -> Result<Option<Vec<u8>>, Error> {
-        let name = tool.strip_suffix(".json").unwrap_or(tool);
-        let name = if name == "hlo_op_profile" { "op_profile" } else { name };
-        if !crate::XPLANE_TOOLS.contains(&name) {
-            return fail(Kind::Value, format!("Unknown XProf tool name: {}", py_repr(tool)));
-        }
+        let name = tool_name(tool)?;
         let paths = self.xspace_paths(&self.run_dir(session)?)?;
         let flag = |key: &str, value: &str| {
             if matches!(key, "show_metadata" | "merge_fusion") {
@@ -416,21 +425,9 @@ impl Client for Local {
             }),
             "input_pipeline_analyzer" => stats(false, Part::All)
                 .map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
-            "framework_op_stats" => {
-                stats(false, Part::All).map(|stats| crate::tools::framework_op_stats::json(&stats))
-            }
-            "kernel_stats" => stats(false, Part::Device)
-                .map(|stats| crate::xplane::gpu::kernel_stats_json(&stats)),
             "pod_viewer" => {
                 stats(false, Part::All).map(|stats| crate::tools::pod_viewer::json(&stats))
             }
-            "op_profile" => stats(true, Part::Device).map(|stats| {
-                crate::tools::op_profile::json_trees(
-                    &stats,
-                    Some(option("group_by").unwrap_or("program")),
-                    false,
-                )
-            }),
             "hlo_stats" => {
                 stats(false, Part::Device).map(|stats| crate::tools::hlo_stats::json(&stats))
             }
@@ -464,9 +461,6 @@ impl Client for Local {
                     crate::read_file(&path).ok().and_then(|map| kernel_utilization(&map, option))
                 })
             }
-            "trace_viewer" => <[PathBuf; 1]>::try_from(paths.clone())
-                .ok()
-                .and_then(|[path]| self.prepared(&path, crate::trace::legacy::render)),
             _ => None,
         };
         Ok(rendered.map(String::into_bytes))

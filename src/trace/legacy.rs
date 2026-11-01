@@ -373,11 +373,12 @@ pub fn barriers_within(planes: &[Plane], map: &[u8], limit: usize) -> Vec<f64> {
     durations.iter().map(|event| event.1 as f64 / 1e6).collect()
 }
 
+#[cfg(test)]
 pub fn render(planes: &[Plane], map: &[u8]) -> String {
     render_within(planes, map, MAX_EVENTS)
 }
 
-/// The text of `render`, in parts. It frees the planes before it writes the text, because the text uses only the events that it takes from them.
+/// The trace, in parts. It frees the planes before it writes the text, because the text uses only the events that it takes from them.
 pub fn render_owned(planes: Vec<Plane>, map: &[u8], emit: &mut impl FnMut(Vec<u8>)) {
     let collected = collect(&planes, map, MAX_EVENTS);
     crate::release(planes);
@@ -385,6 +386,7 @@ pub fn render_owned(planes: Vec<Plane>, map: &[u8], emit: &mut impl FnMut(Vec<u8
 }
 
 /// The trace with the first `limit` events in time.
+#[cfg(test)]
 pub fn render_within(planes: &[Plane], map: &[u8], limit: usize) -> String {
     let mut parts = Vec::new();
     text(collect(planes, map, limit), &mut |part| parts.push(part));
