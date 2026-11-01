@@ -1956,9 +1956,14 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
     };
     let result = entry.result.lock().expect("lock poisoned").clone();
     match result {
-        Some(Err(_)) => {
+        Some(Err(error)) => {
             remove_staging(&state, uri, &entry);
-            response(StatusCode::OK, "application/json", r#"{"state":"failed"}"#)
+            response(
+                StatusCode::OK,
+                "application/json",
+                serde_json::json!({"state":"failed","error":format!("profile staging failed: {error}")})
+                    .to_string(),
+            )
         }
         Some(Ok(profile)) => response(
             StatusCode::OK,

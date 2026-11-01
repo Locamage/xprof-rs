@@ -24,7 +24,9 @@ async function update() {
     const progress = await response.json();
     if (progress.state === 'ready') { window.location.replace(progress.location); return; }
     if (progress.state === 'failed') {
-      status.textContent = 'Download failed. Reload this page to try again.';
+      status.textContent = progress.error
+        ? `Download failed: ${progress.error}. Reload this page to try again.`
+        : 'Download failed. Reload this page to try again.';
       return;
     }
     if (progress.state === 'downloading') {

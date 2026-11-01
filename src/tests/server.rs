@@ -140,6 +140,9 @@ fn loading_page_matches_full_body_for_escaped_uri_and_tool() {
             "__XPROF_PROGRESS_URL__",
             r#""./progress?uri=file%3A%2F%2Fhost%2Fa%26%3C%3E%22%27&tool=trace_viewer""#,
         );
+    assert!(
+        expected.contains("Download failed: ${progress.error}. Reload this page to try again.")
+    );
     assert_eq!(crate::loading_page(uri, "trace_viewer").as_bytes(), expected.as_bytes());
 }
 
@@ -257,6 +260,45 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
         .await
         .unwrap();
     assert_eq!(post.status(), StatusCode::METHOD_NOT_ALLOWED);
+}
+
+#[tokio::test]
+async fn progress_reports_staging_failure_reason() {
+    let root = crate::tests::legacy::logdir("progress-no-traces-store");
+    let profile = root.join("run/plugins/profile/s");
+    std::fs::create_dir_all(&profile).unwrap();
+    std::fs::write(profile.join("README"), b"no trace").unwrap();
+    let uri = format!("file://{}", root.join("run").display());
+    let state = crate::state(&Settings {
+        open_uri_pattern: Some("file://.*".into()),
+        ..Default::default()
+    });
+    let progress_uri = format!(
+        "/progress?uri={}",
+        url::form_urlencoded::byte_serialize(uri.as_bytes()).collect::<String>()
+    );
+    let failed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let reply = crate::tests::legacy::fetch(&state, &progress_uri).await;
+            assert_eq!(reply.0, axum::http::StatusCode::OK, "{}", reply.2);
+            let value: serde_json::Value = serde_json::from_str(&reply.2).unwrap();
+            if value["state"] == "failed" {
+                break value;
+            }
+            assert!(matches!(value["state"].as_str(), Some("starting" | "downloading")), "{value}");
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        failed,
+        serde_json::json!({
+            "state": "failed",
+            "error": format!("profile staging failed: no XPlane protobuf files found under {uri}")
+        })
+    );
+    assert!(!state.staging.lock().unwrap().contains_key(&uri));
 }
 
 #[tokio::test]
