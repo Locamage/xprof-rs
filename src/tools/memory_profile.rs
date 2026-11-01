@@ -300,14 +300,14 @@ pub fn json(planes: &[Plane], map: &[u8]) -> String {
         return String::new();
     };
     let mut allocators = generate(host, map);
-    for allocator in allocators.values_mut() {
-        process(allocator);
-    }
     let memory_ids: Vec<String> = allocators
         .iter()
         .filter(|(_, allocator)| !allocator.snapshots.is_empty())
         .map(|(id, _)| id.clone())
         .collect();
+    for allocator in allocators.values_mut() {
+        process(allocator);
+    }
     let hlo_modules = planes
         .iter()
         .filter(|plane| plane.name.starts_with(TPU_PREFIX))

@@ -101,6 +101,33 @@ fn one_allocator_multi_activities_test() {
 }
 
 #[test]
+fn memory_ids_keep_an_allocator_without_active_snapshots() {
+    let mut space = XSpace::default();
+    let host = space.host();
+    for (name, offset, step) in [("MemoryAllocation", 100, 1), ("MemoryDeallocation", 200, 2)] {
+        host.event(
+            0,
+            name,
+            offset,
+            10,
+            &[
+                ("allocator_name", "GPU_0_bfc".into()),
+                ("bytes_allocated", 256.into()),
+                ("allocation_bytes", 256.into()),
+                ("addr", 1.into()),
+                ("group_id", step.into()),
+            ],
+        );
+    }
+    let (map, planes, _) = grouped(&space);
+    let profile: Value =
+        serde_json::from_str(&crate::tools::memory_profile::json(&planes, &map)).unwrap();
+    let snapshots = &profile["memoryProfilePerAllocator"]["GPU_0_bfc"]["memoryProfileSnapshots"];
+    assert!(snapshots.as_array().is_none_or(Vec::is_empty));
+    assert_eq!(profile["memoryIds"], serde_json::json!(["GPU_0_bfc"]));
+}
+
+#[test]
 fn memory_events_with_a_display_name() {
     let mut space = XSpace::default();
     let host = space.host();
