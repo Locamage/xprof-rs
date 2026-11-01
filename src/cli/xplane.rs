@@ -495,14 +495,7 @@ fn serialized(
     if !host.is_empty() {
         paths.retain(|path| super::client::host(path) == host);
         if paths.is_empty() {
-            return fail(
-                Kind::FileNotFound,
-                format!(
-                    "No traces found for host {} in session {}",
-                    py_repr(host),
-                    py_repr(session)
-                ),
-            );
+            return Err(missing_host(session, host));
         }
     }
     match paths.as_slice() {
@@ -527,6 +520,13 @@ fn serialized(
             "Multi-host XSpace serialization is not supported in OSS because xplane_pb2 is not exposed.",
         ),
     }
+}
+
+pub(super) fn missing_host(session: &str, host: &str) -> Error {
+    Error::new(
+        Kind::FileNotFound,
+        format!("No traces found for host {} in session {}", py_repr(host), py_repr(session)),
+    )
 }
 
 pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -1002,13 +1002,7 @@ fn llo(client: &dyn Client, args: &Args, failure: &str) -> Result<Out, Error> {
         let host = match args.string("host", "") {
             host if host.is_empty() => hosts.first().cloned().unwrap_or_default(),
             host if !hosts.contains(&host) => {
-                return fail(
-                    Kind::Value,
-                    format!(
-                        "Invalid host: '{host}'. Available hosts: [{}]",
-                        hosts.iter().map(|host| py_repr(host)).collect::<Vec<_>>().join(", ")
-                    ),
-                );
+                return Err(missing_host(&session, &host));
             }
             host => host,
         };

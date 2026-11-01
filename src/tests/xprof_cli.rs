@@ -431,6 +431,17 @@ fn test_multi_host_logdir_session_remote_and_help() {
     assert_ne!(code, 0, "{out}");
     let error = J::parse(&out).unwrap().at("error").text();
     assert!(error.contains("Session 'a' has 2 hosts: h0, h1. Pass --host=<name>."), "{out}");
+    let logdir_arg = format!("--logdir={logdir}");
+    let missing_host = run(&["get_xspace_proto", "a", "--host=missing", &logdir_arg]);
+    assert_eq!(missing_host.0, 3, "{}", missing_host.1);
+    for args in [
+        vec!["get_tool_data", "a", "--tool=overview_page", "--host=missing", &logdir_arg],
+        vec!["get_llo_analysis", "a", "--host=missing", &logdir_arg],
+        vec!["get_llo_debug_string", "a", "--host=missing", &logdir_arg],
+    ] {
+        let (code, out, _) = run(&args);
+        assert_eq!((code, out), (missing_host.0, missing_host.1.clone()), "{args:?}");
+    }
     let output = scratch("multi-host-xspace").join("h0.xplane.pb");
     let (code, out, _) = run(&[
         "get_xspace_proto",

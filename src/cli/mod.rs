@@ -1179,7 +1179,13 @@ fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     if !crate::XPLANE_TOOLS.contains(&name) {
         return fail(Kind::Value, format!("Unknown XProf tool name: {}", json::py_repr(&tool)));
     }
-    let dir = client.run_dir(&args.session())?;
+    let session = args.session();
+    let dir = client.run_dir(&session)?;
+    if let Some(host) = args.text("host").filter(|host| !host.is_empty()) {
+        if !client.xspace_paths(&dir)?.iter().any(|path| client::host(path) == host) {
+            return Err(xplane::missing_host(&session, &host));
+        }
+    }
     let mut params = HashMap::from([
         ("tag".to_string(), tool),
         ("run".to_string(), dir.file_name().unwrap_or_default().to_string_lossy().into_owned()),
