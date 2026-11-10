@@ -50,12 +50,7 @@ fn rendered(space: &XSpace) -> String {
         trace: &trace,
         map: &map,
         planes: &planes,
-        events: trace.load(&Options {
-            start_ms: 0.0,
-            end_ms: 0.0,
-            resolution: 0.0,
-            full_dma: false,
-        }),
+        events: trace.load(&Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false }),
     };
     String::from_utf8(render(&[view], false, crate::trace::json::Args::Brief)).unwrap()
 }
@@ -78,22 +73,9 @@ fn picos_to_micros_test() {
         assert_eq!(out.parse::<f64>().unwrap(), expected);
     }
     let mut state = 0x9e37_79b9_7f4a_7c15u64;
-    let edges = [
-        0,
-        1,
-        99,
-        100,
-        101,
-        999_999,
-        1_000_000,
-        660_215_418_571,
-        999_999_999_999_999_999,
-        10u64.pow(19),
-        u64::MAX,
-    ];
+    let edges = [0, 1, 99, 100, 101, 999_999, 1_000_000, 660_215_418_571, 999_999_999_999_999_999, 10u64.pow(19), u64::MAX];
     let random = (0..200_000).map(|index| {
-        state =
-            state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
         state >> (index % 64)
     });
     for ps in edges.into_iter().chain(random) {
@@ -118,10 +100,7 @@ fn json_escape_test() {
 
 #[test]
 fn json_event_counter_test() {
-    let json = rendered(&counter_space(&[
-        ("counter_a", "arg1", 1_000_000, 1),
-        ("counter_b", "arg1", 2_000_000, 2),
-    ]));
+    let json = rendered(&counter_space(&[("counter_a", "arg1", 1_000_000, 1), ("counter_b", "arg1", 2_000_000, 2)]));
     assert!(json.ends_with("\"totalCounterEvents\":2}"), "{json}");
 }
 
@@ -129,10 +108,7 @@ fn json_event_counter_test() {
 fn write_details_test() {
     let mut space = XSpace::default();
     space.plane("/device:TPU:0").event(1, "op", 0, 1, &[]);
-    assert!(rendered(&space).contains(concat!(
-        r#""details":[{"name":"mpmd_pipeline_view","value":false},{"name":"full_dma","#,
-        r#""value":false}],"#,
-    )));
+    assert!(rendered(&space).contains(r#""details":[{"name":"mpmd_pipeline_view","value":false},{"name":"full_dma","value":false}],"#));
 }
 
 #[test]
@@ -176,16 +152,7 @@ fn write_stack_frames_test() {
 fn complete_event_test() {
     let trace = trace_of(&["complete_event"], &[]);
     let out = written(&trace, &event(false, 1_000_000, 500_000, NONE_FLOW, 0));
-    assert!(
-        same(
-            &json(&out),
-            &json(concat!(
-                r#"{"pid":1,"tid":2,"name":"complete_event","ts":1,"dur":0.5,"ph":"X","#,
-                r#""args":{"uid":0}}"#,
-            ))
-        ),
-        "{out}"
-    );
+    assert!(same(&json(&out), &json(r#"{"pid":1,"tid":2,"name":"complete_event","ts":1,"dur":0.5,"ph":"X","args":{"uid":0}}"#)), "{out}");
 }
 
 #[test]
@@ -207,37 +174,19 @@ fn complete_event_with_flow_test() {
 #[test]
 fn counter_event_test() {
     let json = rendered(&counter_space(&[("counter_event", "arg1", 1_000_000, 100)]));
-    assert!(
-        json.contains(concat!(
-            r#"{"pid":1001,"name":"counter_event","ph":"C","event_stats":"arg1","entries":[[1,"#,
-            r#"100]]}"#,
-        )),
-        "{json}"
-    );
+    assert!(json.contains(r#"{"pid":1001,"name":"counter_event","ph":"C","event_stats":"arg1","entries":[[1,100]]}"#), "{json}");
 }
 
 #[test]
 fn async_event_test() {
     let trace = trace_of(&["async_event"], &[456]);
     let out = written(&trace, &event(true, 1_000_000, 0, 0, FLOW_START));
-    assert!(
-        same(
-            &json(&out),
-            &json(concat!(
-                r#"{"pid":1,"name":"async_event","ts":1,"id":456,"cat":"","ph":"b","#,
-                r#""args":{"uid":0}}"#,
-            ))
-        ),
-        "{out}"
-    );
+    assert!(same(&json(&out), &json(r#"{"pid":1,"name":"async_event","ts":1,"id":456,"cat":"","ph":"b","args":{"uid":0}}"#)), "{out}");
 }
 
 #[test]
 fn is_matching_last_counter_event_test() {
-    let json = rendered(&counter_space(&[
-        ("counter_event", "arg1", 1_000_000, 100),
-        ("counter_event", "arg1", 2_000_000, 200),
-    ]));
+    let json = rendered(&counter_space(&[("counter_event", "arg1", 1_000_000, 100), ("counter_event", "arg1", 2_000_000, 200)]));
     assert_eq!(json.matches(r#""name":"counter_event","ph":"C""#).count(), 1, "{json}");
     let mut space = counter_space(&[("counter_event", "arg1", 1_000_000, 100)]);
     space.plane("/device:GPU:1").named_line(1, "_counters_");
@@ -248,10 +197,7 @@ fn is_matching_last_counter_event_test() {
 #[test]
 fn write_event_flows() {
     let trace = trace_of(&["flow_event"], &[100]);
-    let start = written(
-        &trace,
-        &Event { flow_kind: FLOW_START | 1 << 2, ..event(false, 1_000_000, 1000, 0, FLOW_START) },
-    );
+    let start = written(&trace, &Event { flow_kind: FLOW_START | 1 << 2, ..event(false, 1_000_000, 1000, 0, FLOW_START) });
     assert!(start.contains(r#""flow_out":true"#) && start.contains(r#""bind_id":100"#), "{start}");
     let mid = written(&trace, &event(false, 2_000_000, 1000, 0, FLOW_MID));
     assert!(mid.contains(r#""flow_in":true"#) && mid.contains(r#""flow_out":true"#), "{mid}");
@@ -285,15 +231,7 @@ fn write_event_args() {
     let trace = Trace::build(&mut planes, "localhost", &map);
     let (mut out, mut frames) = (String::new(), Vec::new());
     let args_event = Event { group: 10, ..trace.events[0] };
-    write_event(
-        &mut out,
-        &trace,
-        &args_event,
-        123_456,
-        1,
-        Some((&planes[0], &map, &mut frames, None, false)),
-        None,
-    );
+    write_event(&mut out, &trace, &args_event, 123_456, 1, Some((&planes[0], &map, &mut frames, None, false)), None);
     for expected in [
         r#""args":{"#,
         r#""group_id":10"#,
@@ -312,10 +250,7 @@ fn write_event_args() {
 
 #[test]
 fn counter_events_grouping_test() {
-    let json = rendered(&counter_space(&[
-        ("counter", "val", 1_000_000, 10),
-        ("counter", "val", 2_000_000, 20),
-    ]));
+    let json = rendered(&counter_space(&[("counter", "val", 1_000_000, 10), ("counter", "val", 2_000_000, 20)]));
     assert!(json.contains(r#""ph":"C""#), "{json}");
     assert!(json.contains(r#""entries":[[1,10],[2,20]]}"#), "{json}");
 }

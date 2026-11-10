@@ -26,10 +26,7 @@ pub trait Client {
     fn xspace_paths(&self, dir: &Path) -> Result<Vec<PathBuf>, Error> {
         let found = traces(dir);
         if found.is_empty() {
-            return fail(
-                Kind::FileNotFound,
-                format!("No .xplane.pb or .xspace.pb files found in {}", dir.display()),
-            );
+            return fail(Kind::FileNotFound, format!("No .xplane.pb or .xspace.pb files found in {}", dir.display()));
         }
         Ok(found)
     }
@@ -53,25 +50,14 @@ pub trait Client {
     /// The op profile of a session, as the JSON reader gives it.
     fn op_profile(&self, session: &str, params: &Params) -> Result<Option<J>, Error>;
 
-    fn fetch_text(
-        &self,
-        tool: &str,
-        session: &str,
-        params: &Params,
-    ) -> Result<Option<String>, Error> {
-        Ok(self.fetch(tool, session, params)?.filter(|data| !data.is_empty()).map(|data| {
-            String::from_utf8(data)
-                .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
-        }))
+    fn fetch_text(&self, tool: &str, session: &str, params: &Params) -> Result<Option<String>, Error> {
+        Ok(self
+            .fetch(tool, session, params)?
+            .filter(|data| !data.is_empty())
+            .map(|data| String::from_utf8(data).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())))
     }
 
-    fn fetch_either(
-        &self,
-        first: &str,
-        second: &str,
-        session: &str,
-        params: &Params,
-    ) -> Result<Option<String>, Error> {
+    fn fetch_either(&self, first: &str, second: &str, session: &str, params: &Params) -> Result<Option<String>, Error> {
         match self.fetch_text(first, session, params)? {
             Some(data) => Ok(Some(data)),
             None => self.fetch_text(second, session, params),
@@ -82,11 +68,7 @@ pub trait Client {
 pub fn tool_name(tool: &str) -> Result<&str, Error> {
     let name = tool.strip_suffix(".json").unwrap_or(tool);
     let name = if name == "hlo_op_profile" { "op_profile" } else { name };
-    if crate::XPLANE_TOOLS.contains(&name) {
-        Ok(name)
-    } else {
-        fail(Kind::Value, format!("Unknown XProf tool name: {}", py_repr(tool)))
-    }
+    if crate::XPLANE_TOOLS.contains(&name) { Ok(name) } else { fail(Kind::Value, format!("Unknown XProf tool name: {}", py_repr(tool))) }
 }
 
 pub fn host_names(paths: &[PathBuf]) -> Vec<String> {
@@ -98,27 +80,16 @@ pub fn host_names(paths: &[PathBuf]) -> Vec<String> {
 
 pub fn host(path: &Path) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
-    TRACE_SUFFIXES
-        .iter()
-        .find_map(|suffix| name.strip_suffix(suffix))
-        .unwrap_or(&name)
-        .rsplit('.')
-        .next()
-        .unwrap_or_default()
-        .to_string()
+    TRACE_SUFFIXES.iter().find_map(|suffix| name.strip_suffix(suffix)).unwrap_or(&name).rsplit('.').next().unwrap_or_default().to_string()
 }
 
 pub fn find(dir: &Path, suffixes: &[&str], recursive: bool) -> Vec<PathBuf> {
     let (mut found, mut pending) = (Vec::new(), vec![dir.to_path_buf()]);
     while let Some(next) = pending.pop() {
-        for path in
-            std::fs::read_dir(&next).into_iter().flatten().flatten().map(|entry| entry.path())
-        {
+        for path in std::fs::read_dir(&next).into_iter().flatten().flatten().map(|entry| entry.path()) {
             if path.is_dir() {
                 pending.extend(recursive.then_some(path));
-            } else if suffixes.iter().any(|suffix| {
-                path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(suffix))
-            }) {
+            } else if suffixes.iter().any(|suffix| path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(suffix))) {
                 found.push(path);
             }
         }
@@ -138,22 +109,14 @@ pub fn traces(dir: &Path) -> Vec<PathBuf> {
     find(dir, &TRACE_SUFFIXES, true)
 }
 
-pub fn kernel_utilization<'a>(
-    map: &[u8],
-    option: impl Fn(&str) -> Option<&'a str>,
-) -> Option<String> {
+pub fn kernel_utilization<'a>(map: &[u8], option: impl Fn(&str) -> Option<&'a str>) -> Option<String> {
     let filter = crate::tools::counters::Filter {
         kernel: option("kernel").or(option("kernel_name")).unwrap_or_default().to_string(),
-        duration_us: option("duration_us")
-            .and_then(|value| value.trim().parse().ok())
-            .unwrap_or(0.0),
-        force: option("force_duration")
-            .is_some_and(|value| matches!(value, "True" | "true" | "1" | "yes" | "t" | "y")),
+        duration_us: option("duration_us").and_then(|value| value.trim().parse().ok()).unwrap_or(0.0),
+        force: option("force_duration").is_some_and(|value| matches!(value, "True" | "true" | "1" | "yes" | "t" | "y")),
         device: option("device_id").and_then(|value| value.trim().parse().ok()).unwrap_or(-1),
     };
-    crate::tools::counters::checked(map, |map| {
-        crate::tools::counters::kernel_utilization(map, &filter)
-    })
+    crate::tools::counters::checked(map, |map| crate::tools::counters::kernel_utilization(map, &filter))
 }
 
 pub fn temp_dir() -> PathBuf {
@@ -186,8 +149,7 @@ impl Local {
     /// The op statistics of all the hosts. The process loads each file one time and extends it when
     /// a tool needs more.
     fn stats(&self, paths: &[PathBuf], fused: bool, part: Part) -> Option<Arc<OpStats>> {
-        let (mut loaded, mut kept) =
-            (self.loaded.lock().expect("lock poisoned"), self.kept.write().expect("lock poisoned"));
+        let (mut loaded, mut kept) = (self.loaded.lock().expect("lock poisoned"), self.kept.write().expect("lock poisoned"));
         let mut all: Vec<_> = paths
             .iter()
             .map(|path| {
@@ -218,9 +180,13 @@ impl Local {
     /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU
     /// plane needs the trace derivation.
     fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> Option<T> {
-        if let Some(kept) = self.kept.write().expect("lock poisoned").get_mut(path).filter(|kept| {
-            !kept.planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))
-        }) {
+        if let Some(kept) = self
+            .kept
+            .write()
+            .expect("lock poisoned")
+            .get_mut(path)
+            .filter(|kept| !kept.planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX)))
+        {
             kept.finish(true);
             return Some(read(&kept.planes, kept.map()));
         }
@@ -236,13 +202,8 @@ impl Client for Local {
 
     fn op_profile(&self, session: &str, params: &Params) -> Result<Option<J>, Error> {
         let paths = self.xspace_paths(&self.run_dir(session)?)?;
-        let group_by = params
-            .iter()
-            .find(|(key, _)| *key == "group_by")
-            .map_or("program", |(_, value)| value.as_str());
-        Ok(self
-            .stats(&paths, true, Part::Device)
-            .map(|stats| crate::tools::op_profile::value_trees(&stats, Some(group_by))))
+        let group_by = params.iter().find(|(key, _)| *key == "group_by").map_or("program", |(_, value)| value.as_str());
+        Ok(self.stats(&paths, true, Part::Device).map(|stats| crate::tools::op_profile::value_trees(&stats, Some(group_by))))
     }
 
     fn shared(&self) -> Option<&(dyn Client + Sync)> {
@@ -255,14 +216,11 @@ impl Client for Local {
 
     fn roofline_properties(&self, session: &str, _: &Params) -> Result<Option<String>, Error> {
         let paths = self.xspace_paths(&self.run_dir(session)?)?;
-        Ok(self
-            .stats(&paths, false, Part::Device)
-            .map(|stats| crate::tools::roofline::json_rows(&stats, Rows::None)))
+        Ok(self.stats(&paths, false, Part::Device).map(|stats| crate::tools::roofline::json_rows(&stats, Rows::None)))
     }
 
     fn category_times(&self, session: &str, _: &Params) -> Option<[f64; 3]> {
-        let stats =
-            self.stats(&self.xspace_paths(&self.run_dir(session).ok()?).ok()?, true, Part::Device)?;
+        let stats = self.stats(&self.xspace_paths(&self.run_dir(session).ok()?).ok()?, true, Part::Device)?;
         Some(crate::tools::op_profile::category_times(&stats, super::steps::time_class))
     }
 
@@ -271,9 +229,8 @@ impl Client for Local {
         paths.sort_by_key(|path| host(path));
         paths.into_iter().find_map(|path| {
             self.prepared(&path, |planes, map| {
-                (crate::tools::counters::valid_space(map)
-                    && planes.iter().any(|plane| plane.name.starts_with("/device:")))
-                .then(|| crate::trace::legacy::barrier_durations(planes, map))
+                (crate::tools::counters::valid_space(map) && planes.iter().any(|plane| plane.name.starts_with("/device:")))
+                    .then(|| crate::trace::legacy::barrier_durations(planes, map))
             })
             .flatten()
         })
@@ -283,11 +240,7 @@ impl Client for Local {
         if !session.is_empty() {
             let path = super::expand(session);
             if path.is_file() {
-                return Ok(path
-                    .parent()
-                    .filter(|parent| !parent.as_os_str().is_empty())
-                    .unwrap_or(Path::new("."))
-                    .to_path_buf());
+                return Ok(path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf());
             }
             if path.is_dir() {
                 return Ok(latest_run(&path).unwrap_or(path));
@@ -322,16 +275,7 @@ impl Client for Local {
             .filter(|path| path.exists());
         let fallback = Some(logdir.join(session)).filter(|path| path.exists());
         formatted.or(fallback).map_or_else(
-            || {
-                fail(
-                    Kind::FileNotFound,
-                    format!(
-                        "Run directory not found for session {} in {}",
-                        py_repr(session),
-                        logdir.display()
-                    ),
-                )
-            },
+            || fail(Kind::FileNotFound, format!("Run directory not found for session {} in {}", py_repr(session), logdir.display())),
             Ok,
         )
     }
@@ -346,8 +290,7 @@ impl Client for Local {
                 value.to_string()
             }
         };
-        let options: HashMap<String, String> =
-            params.iter().map(|(key, value)| (key.to_string(), flag(key, value))).collect();
+        let options: HashMap<String, String> = params.iter().map(|(key, value)| (key.to_string(), flag(key, value))).collect();
         let option = |key: &str| options.get(key).map(String::as_str);
         let dir = paths[0].parent().map(Path::to_path_buf).unwrap_or_default();
         let stats = |fused: bool, part: Part| self.stats(&paths, fused, part);
@@ -356,8 +299,7 @@ impl Client for Local {
                 return fail(Kind::Assertion, "");
             }
             "memory_profile" => {
-                let path =
-                    paths.iter().find(|path| option("host").is_none_or(|name| host(path) == name));
+                let path = paths.iter().find(|path| option("host").is_none_or(|name| host(path) == name));
                 let Some(path) = path else {
                     return fail(Kind::Assertion, "");
                 };
@@ -371,27 +313,14 @@ impl Client for Local {
             }
             "overview_page" => stats(false, Part::All).map(|stats| {
                 let loaded = self.loaded.lock().expect("lock poisoned");
-                let paths = paths
-                    .iter()
-                    .filter(|path| loaded.get(*path).is_some_and(Option::is_some))
-                    .cloned()
-                    .collect::<Vec<_>>();
+                let paths = paths.iter().filter(|path| loaded.get(*path).is_some_and(Option::is_some)).cloned().collect::<Vec<_>>();
                 crate::tools::overview_page::json(&stats, &paths)
             }),
-            "input_pipeline_analyzer" => stats(false, Part::All)
-                .map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
-            "pod_viewer" => {
-                stats(false, Part::All).map(|stats| crate::tools::pod_viewer::json(&stats))
-            }
-            "hlo_stats" => {
-                stats(false, Part::Device).map(|stats| crate::tools::hlo_stats::json(&stats))
-            }
-            "roofline_model" => stats(false, Part::Programs).map(|stats| {
-                crate::tools::roofline::json_rows(
-                    &stats,
-                    if option(TOTAL_ONLY).is_some() { Rows::Total } else { Rows::All },
-                )
-            }),
+            "input_pipeline_analyzer" => stats(false, Part::All).map(|stats| crate::tools::input_pipeline_analyzer::json(&stats)),
+            "pod_viewer" => stats(false, Part::All).map(|stats| crate::tools::pod_viewer::json(&stats)),
+            "hlo_stats" => stats(false, Part::Device).map(|stats| crate::tools::hlo_stats::json(&stats)),
+            "roofline_model" => stats(false, Part::Programs)
+                .map(|stats| crate::tools::roofline::json_rows(&stats, if option(TOTAL_ONLY).is_some() { Rows::Total } else { Rows::All })),
             "memory_viewer" => crate::hlo::memory::serve(&dir, &options).map(|(body, _)| body),
             "graph_viewer" => {
                 return crate::hlo::graph::serve(&dir, &options)
@@ -412,11 +341,9 @@ impl Client for Local {
                     .flatten();
                 known.or_else(|| crate::tools::counters::serve(name, &paths))
             }
-            "kernel_utilization" => {
-                <[PathBuf; 1]>::try_from(paths.clone()).ok().and_then(|[path]| {
-                    crate::read_file(&path).ok().and_then(|map| kernel_utilization(&map, option))
-                })
-            }
+            "kernel_utilization" => <[PathBuf; 1]>::try_from(paths.clone())
+                .ok()
+                .and_then(|[path]| crate::read_file(&path).ok().and_then(|map| kernel_utilization(&map, option))),
             _ => None,
         };
         Ok(rendered.map(String::into_bytes))

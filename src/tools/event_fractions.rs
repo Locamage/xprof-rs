@@ -22,10 +22,7 @@ fn plane_steps(plane: &Plane, map: &[u8]) -> HashMap<i64, u64> {
     let mut ops: HashSet<i64> = HashSet::new();
     let reader = EventReader::new(plane);
     for line in &plane.lines {
-        if line.id as i32 == STEP_LINE as i32
-            || (tensor && line.name == "Steps")
-            || (sparse && line.name == "Sparse Core Steps")
-        {
+        if line.id as i32 == STEP_LINE as i32 || (tensor && line.name == "Steps") || (sparse && line.name == "Sparse Core Steps") {
             markers = HashMap::new();
             for event in &line.events {
                 if let Some(step) = event_group(slice(map, event.raw), event.group, group_id) {
@@ -35,16 +32,13 @@ fn plane_steps(plane: &Plane, map: &[u8]) -> HashMap<i64, u64> {
             }
         } else if is_derived(line.id) {
         } else if tensor || sparse {
-            if (tensor && OP_LINES.contains(&line.name.as_str()))
-                || (sparse && line.name == "Sparse Core Ops")
-            {
+            if (tensor && OP_LINES.contains(&line.name.as_str())) || (sparse && line.name == "Sparse Core Ops") {
                 ops = line
                     .events
                     .iter()
                     .filter_map(|event| {
                         if event.group == NONE_GROUP {
-                            event_stat(slice(map, event.raw), group_id)
-                                .map(|value| value.int().unwrap_or(0))
+                            event_stat(slice(map, event.raw), group_id).map(|value| value.int().unwrap_or(0))
                         } else {
                             Some(event.group)
                         }
@@ -53,10 +47,8 @@ fn plane_steps(plane: &Plane, map: &[u8]) -> HashMap<i64, u64> {
             }
         } else {
             for event in &line.events {
-                let correlation = event_stat(slice(map, event.raw), correlation_id)
-                    .map_or(-1, |value| value.signed());
-                let step =
-                    event_stat(slice(map, event.raw), group_id).map_or(-1, |value| value.signed());
+                let correlation = event_stat(slice(map, event.raw), correlation_id).map_or(-1, |value| value.signed());
+                let step = event_stat(slice(map, event.raw), group_id).map_or(-1, |value| value.signed());
                 if correlation >= 0 && step >= 0 {
                     ops.insert(step);
                 }
@@ -73,21 +65,13 @@ fn plane_steps(plane: &Plane, map: &[u8]) -> HashMap<i64, u64> {
 pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fractions {
     let mut fractions: BTreeMap<i64, BTreeMap<String, f64>> = BTreeMap::new();
     let mut durations: HashMap<i64, u64> = HashMap::new();
-    let steps: HashMap<&str, HashMap<i64, u64>> =
-        planes.iter().map(|plane| (plane.name.as_str(), plane_steps(plane, map))).collect();
+    let steps: HashMap<&str, HashMap<i64, u64>> = planes.iter().map(|plane| (plane.name.as_str(), plane_steps(plane, map))).collect();
     for plane in planes {
         let plane_steps = &steps[plane.name.as_str()];
-        let wanted: HashSet<u32> = (0..plane.meta.len())
-            .filter(|&meta| plane.meta[meta].full_name(map).contains(target))
-            .map(|meta| meta as u32)
-            .collect();
+        let wanted: HashSet<u32> =
+            (0..plane.meta.len()).filter(|&meta| plane.meta[meta].full_name(map).contains(target)).map(|meta| meta as u32).collect();
         let (group_id, duration_id) = (plane.id("group_id"), plane.id("device_duration_ps"));
-        for event in plane
-            .lines
-            .iter()
-            .flat_map(|line| &line.events)
-            .filter(|event| wanted.contains(&event.meta))
-        {
+        for event in plane.lines.iter().flat_map(|line| &line.events).filter(|event| wanted.contains(&event.meta)) {
             let Some(step) = event_group(slice(map, event.raw), event.group, group_id) else {
                 continue;
             };
@@ -102,8 +86,7 @@ pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fr
                 continue;
             }
             let portion = (event_ps as f64 / step_ps as f64) as f32;
-            *fractions.entry(step).or_default().entry(plane.name.clone()).or_default() +=
-                f64::from(portion);
+            *fractions.entry(step).or_default().entry(plane.name.clone()).or_default() += f64::from(portion);
             durations.insert(step, step_ps);
         }
     }
@@ -111,10 +94,8 @@ pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fr
         fractions.pop_first();
         fractions.pop_last();
     } else if fractions.len() == 2 {
-        let (first, second) = (
-            *fractions.keys().next().expect("iterator is non-empty"),
-            *fractions.keys().last().expect("iterator is non-empty"),
-        );
+        let (first, second) =
+            (*fractions.keys().next().expect("iterator is non-empty"), *fractions.keys().last().expect("iterator is non-empty"));
         let (first_ps, second_ps) = (durations[&first] as f64, durations[&second] as f64);
         if second_ps < STEP_DURATION_RATIO * first_ps {
             fractions.remove(&second);

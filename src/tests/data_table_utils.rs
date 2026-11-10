@@ -43,21 +43,14 @@ fn to_json() {
     assert_eq!(parsed["rows"].as_array().unwrap().len(), 3);
     for (index, (id, kind, label)) in COLUMNS.iter().enumerate() {
         assert_eq!(
-            (
-                &parsed["cols"][index]["id"],
-                &parsed["cols"][index]["label"],
-                &parsed["cols"][index]["type"]
-            ),
+            (&parsed["cols"][index]["id"], &parsed["cols"][index]["label"], &parsed["cols"][index]["type"]),
             (&serde_json::json!(id), &serde_json::json!(label), &serde_json::json!(kind))
         );
     }
     for (row, expected) in test_rows().as_array().unwrap().iter().enumerate() {
         for (column, value) in expected.as_array().unwrap().iter().enumerate() {
             let cell = &parsed["rows"][row]["c"][column]["v"];
-            assert!(
-                cell == value || cell.as_f64() == value.as_f64() && value.is_number(),
-                "{cell} {value}"
-            );
+            assert!(cell == value || cell.as_f64() == value.as_f64() && value.is_number(), "{cell} {value}");
         }
     }
 }

@@ -103,18 +103,14 @@ impl J {
     pub fn object_depth(&self) -> usize {
         match self {
             Self::List(items) => items.iter().map(Self::object_depth).max().unwrap_or(0),
-            Self::Map(entries) => {
-                1 + entries.iter().map(|(_, value)| value.object_depth()).max().unwrap_or(0)
-            }
+            Self::Map(entries) => 1 + entries.iter().map(|(_, value)| value.object_depth()).max().unwrap_or(0),
             _ => 0,
         }
     }
 
     pub fn get(&self, key: &str) -> Option<&Self> {
         match self {
-            Self::Map(entries) => {
-                entries.iter().find(|(name, _)| name == key).map(|(_, value)| value)
-            }
+            Self::Map(entries) => entries.iter().find(|(name, _)| name == key).map(|(_, value)| value),
             _ => None,
         }
     }
@@ -199,11 +195,7 @@ impl J {
             }
             Self::Map(entries) => format!(
                 "{{{}}}",
-                entries
-                    .iter()
-                    .map(|(key, value)| format!("{}: {}", py_repr(key), value.repr()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                entries.iter().map(|(key, value)| format!("{}: {}", py_repr(key), value.repr())).collect::<Vec<_>>().join(", ")
             ),
             Self::Tuple(items) if items.len() == 1 => format!("({},)", items[0].repr()),
             Self::Tuple(items) => {
@@ -214,11 +206,7 @@ impl J {
             }
             Self::Dict(entries) => format!(
                 "{{{}}}",
-                entries
-                    .iter()
-                    .map(|(key, value)| format!("{}: {}", key.repr(), value.repr()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                entries.iter().map(|(key, value)| format!("{}: {}", key.repr(), value.repr())).collect::<Vec<_>>().join(", ")
             ),
         }
     }
@@ -232,17 +220,12 @@ impl J {
         };
         match (self, other) {
             (Self::Float(left), Self::Float(right)) => left == right,
-            (Self::Float(float), number) | (number, Self::Float(float))
-                if whole(number).is_some() =>
-            {
-                float.fract() == 0.0
-                    && float.abs() < 1e38
-                    && *float as i128 == whole(number).unwrap_or_default()
+            (Self::Float(float), number) | (number, Self::Float(float)) if whole(number).is_some() => {
+                float.fract() == 0.0 && float.abs() < 1e38 && *float as i128 == whole(number).unwrap_or_default()
             }
             _ if whole(self).is_some() && whole(other).is_some() => whole(self) == whole(other),
             (Self::List(left), Self::List(right)) | (Self::Tuple(left), Self::Tuple(right)) => {
-                left.len() == right.len()
-                    && left.iter().zip(right).all(|(left, right)| left.equals(right))
+                left.len() == right.len() && left.iter().zip(right).all(|(left, right)| left.equals(right))
             }
             _ => self == other,
         }
@@ -340,8 +323,7 @@ impl J {
                 out.push('}');
             }
             Self::Dict(entries) => {
-                Self::Map(entries.iter().map(|(key, value)| (key.text(), value.clone())).collect())
-                    .write(out, depth, ascii);
+                Self::Map(entries.iter().map(|(key, value)| (key.text(), value.clone())).collect()).write(out, depth, ascii);
             }
         }
     }
@@ -365,11 +347,7 @@ pub fn py_int(text: &str) -> Option<i128> {
 
 fn py_number<T: std::str::FromStr>(text: &str) -> Option<T> {
     let trimmed = text.trim();
-    trimmed
-        .replace('_', "")
-        .parse()
-        .ok()
-        .filter(|_| !trimmed.starts_with('_') && !trimmed.ends_with('_') && !trimmed.contains("__"))
+    trimmed.replace('_', "").parse().ok().filter(|_| !trimmed.starts_with('_') && !trimmed.ends_with('_') && !trimmed.contains("__"))
 }
 
 /// The ranges of `str.isdigit` in Python 3.12 (Unicode 15.0).
@@ -398,11 +376,7 @@ const DIGITS: [(u32, u32); 83] = [
 /// `str.isdigit` of Python.
 pub fn py_isdigit(text: &str) -> bool {
     !text.is_empty()
-        && text.chars().all(|c| {
-            DIGITS
-                .get(DIGITS.partition_point(|&(_, high)| high < c as u32))
-                .is_some_and(|&(low, _)| low <= c as u32)
-        })
+        && text.chars().all(|c| DIGITS.get(DIGITS.partition_point(|&(_, high)| high < c as u32)).is_some_and(|&(low, _)| low <= c as u32))
 }
 
 pub fn py_repr(text: &str) -> String {
@@ -453,17 +427,8 @@ fn backslashes_before(bytes: &[u8], index: usize) -> usize {
 
 /// The commas in `bytes[start..end]` at the lowest depth the range reaches, the depth change, and
 /// that lowest depth.
-fn chunk_commas(
-    bytes: &[u8],
-    start: usize,
-    end: usize,
-    inside: bool,
-) -> Option<(Vec<usize>, isize, isize)> {
-    let mut index = if inside {
-        string_end(bytes, start - backslashes_before(bytes, start) - 1)?
-    } else {
-        start
-    };
+fn chunk_commas(bytes: &[u8], start: usize, end: usize, inside: bool) -> Option<(Vec<usize>, isize, isize)> {
+    let mut index = if inside { string_end(bytes, start - backslashes_before(bytes, start) - 1)? } else { start };
     let (mut depth, mut lowest, mut commas) = (0isize, 0isize, Vec::new());
     while index < end {
         match bytes[index] {
@@ -577,10 +542,7 @@ impl Drop for Level {
 fn split_parse(text: &str, level: usize) -> Option<J> {
     let text = trim(text);
     let (open, close) = (*text.as_bytes().first()?, *text.as_bytes().last()?);
-    if text.len() < SPLIT
-        || level == SPLIT_LEVELS
-        || !matches!((open, close), (b'[', b']') | (b'{', b'}'))
-    {
+    if text.len() < SPLIT || level == SPLIT_LEVELS || !matches!((open, close), (b'[', b']') | (b'{', b'}')) {
         return whole(text);
     }
     let parts = parts(&text[1..text.len() - 1])?;
@@ -590,21 +552,14 @@ fn split_parse(text: &str, level: usize) -> Option<J> {
         return Some(if open == b'[' { J::List(Vec::new()) } else { J::Map(Vec::new()) });
     }
     if open == b'[' {
-        return parts
-            .into_par_iter()
-            .map(|part| split_parse(part, level + 1))
-            .collect::<Option<_>>()
-            .map(J::List);
+        return parts.into_par_iter().map(|part| split_parse(part, level + 1)).collect::<Option<_>>().map(J::List);
     }
     let members: Vec<(String, J)> = parts
         .into_par_iter()
         .map(|part| {
             let part = trim(part);
             let end = string_end(part.as_bytes(), 0).filter(|_| part.starts_with('"'))?;
-            Some((
-                serde_json::from_str(&part[..end]).ok()?,
-                split_parse(trim(&part[end..]).strip_prefix(':')?, level + 1)?,
-            ))
+            Some((serde_json::from_str(&part[..end]).ok()?, split_parse(trim(&part[end..]).strip_prefix(':')?, level + 1)?))
         })
         .collect::<Option<_>>()?;
     let mut entries = Vec::with_capacity(members.len());

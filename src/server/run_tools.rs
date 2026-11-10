@@ -53,38 +53,28 @@ const COUNTER_VALUE: &str = "counter_value";
 pub fn tools(map: &[u8]) -> Option<Vec<&'static str>> {
     checked(map, |map| -> Vec<&'static str> {
         let planes = planes(map, |_| true);
-        let counters =
-            planes.par_iter().filter(|plane| plane.name.starts_with(TPU_PREFIX)).any(|plane| {
-                let id = plane.stat_id(COUNTER_VALUE);
-                id.is_some()
-                    && plane.lines.par_iter().any(|line| {
-                        events(line).any(|event| first(event.raw, 4, [id])[0].is_some())
-                    })
-            });
+        let counters = planes.par_iter().filter(|plane| plane.name.starts_with(TPU_PREFIX)).any(|plane| {
+            let id = plane.stat_id(COUNTER_VALUE);
+            id.is_some() && plane.lines.par_iter().any(|line| events(line).any(|event| first(event.raw, 4, [id])[0].is_some()))
+        });
         let found: [(bool, &[&str]); 4] = [
             (planes.iter().any(|plane| plane.name.starts_with(GPU_PREFIX)), &["kernel_stats"]),
             (
-                planes.iter().any(|plane| {
-                    plane.name == METADATA_PLANE && plane.stat_id(HLO_PROTO).is_some()
-                }),
+                planes.iter().any(|plane| plane.name == METADATA_PLANE && plane.stat_id(HLO_PROTO).is_some()),
                 &["memory_viewer", "graph_viewer"],
             ),
             (
-                planes.iter().find(|plane| plane.name == HOST_PLANE).is_some_and(|plane| {
-                    plane.metadata.values().any(|(name, _)| name.starts_with(MEGASCALE_PREFIX))
-                }),
+                planes
+                    .iter()
+                    .find(|plane| plane.name == HOST_PLANE)
+                    .is_some_and(|plane| plane.metadata.values().any(|(name, _)| name.starts_with(MEGASCALE_PREFIX))),
                 &["megascale_stats"],
             ),
             (counters, &["perf_counters", "utilization_viewer", "kernel_utilization"]),
         ];
         BASE_TOOLS
             .into_iter()
-            .chain(
-                found
-                    .into_iter()
-                    .filter(|(present, _)| *present)
-                    .flat_map(|(_, names)| names.iter().copied()),
-            )
+            .chain(found.into_iter().filter(|(present, _)| *present).flat_map(|(_, names)| names.iter().copied()))
             .collect()
     })
 }
@@ -94,11 +84,7 @@ pub fn sorted<'a>(tools: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     if set.contains("trace_viewer@") {
         set.remove("trace_viewer");
     }
-    let mut out: Vec<String> = SORT_ORDER
-        .iter()
-        .filter(|tool| set.contains(*tool))
-        .map(std::string::ToString::to_string)
-        .collect();
+    let mut out: Vec<String> = SORT_ORDER.iter().filter(|tool| set.contains(*tool)).map(std::string::ToString::to_string).collect();
     out.extend(set.into_iter().filter(|tool| !SORT_ORDER.contains(tool)).map(String::from));
     out
 }
@@ -108,18 +94,12 @@ fn file_states(dir: &Path) -> Option<BTreeMap<String, String>> {
     for entry in std::fs::read_dir(dir).ok()? {
         let name = entry.ok()?.file_name().to_string_lossy().into_owned();
         if name.starts_with('.')
-            || !XPLANE_EXTENSIONS.iter().any(|extension| {
-                name.len() > extension.len() && name.ends_with(&format!(".{extension}"))
-            })
+            || !XPLANE_EXTENSIONS.iter().any(|extension| name.len() > extension.len() && name.ends_with(&format!(".{extension}")))
         {
             continue;
         }
         let meta = std::fs::metadata(dir.join(&name)).ok()?;
-        let seconds = meta
-            .modified()
-            .ok()?
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |elapsed| elapsed.as_secs());
+        let seconds = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
         states.insert(name, format!("{seconds}-{}", meta.len()));
     }
     Some(states)
@@ -128,20 +108,13 @@ fn file_states(dir: &Path) -> Option<BTreeMap<String, String>> {
 pub fn cache_path(dir: &Path) -> PathBuf {
     let text = dir.to_string_lossy();
     let demo = text.match_indices("demo/plugins/profile").any(|(at, matched)| {
-        (at == 0 || text.as_bytes()[at - 1] == b'/')
-            && matches!(text.as_bytes().get(at + matched.len()), None | Some(b'/'))
+        (at == 0 || text.as_bytes()[at - 1] == b'/') && matches!(text.as_bytes().get(at + matched.len()), None | Some(b'/'))
     });
     if !demo {
         return dir.join(CACHE_FILE);
     }
-    let key: String = Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>()[..16]
-        .to_string();
-    let Ok(folder) = crate::private_dir(
-        &crate::cli::client::temp_dir().join(format!("xprof_{}", unsafe { libc::getuid() })),
-    ) else {
+    let key: String = Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>()[..16].to_string();
+    let Ok(folder) = crate::private_dir(&crate::cli::client::temp_dir().join(format!("xprof_{}", unsafe { libc::getuid() }))) else {
         return dir.join(CACHE_FILE);
     };
     folder.join(format!("xprof_{key}_{CACHE_FILE}"))
@@ -194,11 +167,7 @@ pub(crate) fn python_value(value: &Value) -> String {
         }
         Value::Object(entries) => format!(
             "{{{}}}",
-            entries
-                .iter()
-                .map(|(key, value)| format!("{}: {}", python_string(key), python_value(value)))
-                .collect::<Vec<_>>()
-                .join(", ")
+            entries.iter().map(|(key, value)| format!("{}: {}", python_string(key), python_value(value))).collect::<Vec<_>>().join(", ")
         ),
         other => other.to_string(),
     }
@@ -219,9 +188,7 @@ fn load(cache: &Path, dir: &Path) -> Option<Vec<Value>> {
     let files_match = current.as_ref().is_some_and(|current| match data.get("files") {
         Some(Value::Object(files)) => {
             files.len() == current.len()
-                && current.iter().all(|(name, state)| {
-                    files.get(name).and_then(Value::as_str) == Some(state.as_str())
-                })
+                && current.iter().all(|(name, state)| files.get(name).and_then(Value::as_str) == Some(state.as_str()))
         }
         _ => false,
     });
@@ -231,12 +198,8 @@ fn load(cache: &Path, dir: &Path) -> Option<Vec<Value>> {
     }
     match data.get("tools")? {
         Value::Array(items) => Some(items.clone()),
-        Value::String(text) => {
-            Some(text.chars().map(|character| Value::String(character.to_string())).collect())
-        }
-        Value::Object(entries) => {
-            Some(entries.keys().map(|key| Value::String(key.clone())).collect())
-        }
+        Value::String(text) => Some(text.chars().map(|character| Value::String(character.to_string())).collect()),
+        Value::Object(entries) => Some(entries.keys().map(|key| Value::String(key.clone())).collect()),
         _ => None,
     }
 }
@@ -246,36 +209,24 @@ fn save(cache: &Path, dir: &Path, tools: &[String]) {
         return;
     };
     let mut out = String::new();
-    pretty(
-        &mut out,
-        &json!({"files": states, "tools": tools, "version": CACHE_VERSION}),
-        0,
-        python_string_into,
-    );
+    pretty(&mut out, &json!({"files": states, "tools": tools, "version": CACHE_VERSION}), 0, python_string_into);
     _ = std::fs::write(cache, out);
 }
 
 fn generate(dir: &Path) -> Option<Vec<String>> {
-    let files: Vec<String> = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(|entry| {
-            entry.ok().map(|entry| entry.file_name().to_string_lossy().into_owned())
-        })
-        .collect();
+    let files: Vec<String> =
+        std::fs::read_dir(dir).ok()?.filter_map(|entry| entry.ok().map(|entry| entry.file_name().to_string_lossy().into_owned())).collect();
     if files.is_empty() {
         return None;
     }
     let extension = |name: &str| {
-        TOOL_EXTENSIONS.into_iter().find(|extension| {
-            name == *extension
-                || name.strip_suffix(extension).is_some_and(|host| host.ends_with('.'))
-        })
+        TOOL_EXTENSIONS
+            .into_iter()
+            .find(|extension| name == *extension || name.strip_suffix(extension).is_some_and(|host| host.ends_with('.')))
     };
     let xspaces: Vec<PathBuf> = files
         .iter()
-        .filter(|name| {
-            extension(name).is_some_and(|extension| XPLANE_EXTENSIONS.contains(&extension))
-        })
+        .filter(|name| extension(name).is_some_and(|extension| XPLANE_EXTENSIONS.contains(&extension)))
         .map(|name| dir.join(name))
         .collect();
     if xspaces.is_empty() {
@@ -283,12 +234,10 @@ fn generate(dir: &Path) -> Option<Vec<String>> {
     }
     let extracted = files.iter().any(|name| name.ends_with(HLO_SUFFIX));
     let scan = |path: &PathBuf| {
-        let map =
-            crate::read_file(path).ok().filter(|_| path.to_string_lossy().ends_with(".pb"))?;
+        let map = crate::read_file(path).ok().filter(|_| path.to_string_lossy().ends_with(".pb"))?;
         tools(&map)
     };
-    let found: Option<Vec<Vec<&str>>> =
-        xspaces.iter().take(if extracted { 1 } else { xspaces.len() }).map(scan).collect();
+    let found: Option<Vec<Vec<&str>>> = xspaces.iter().take(if extracted { 1 } else { xspaces.len() }).map(scan).collect();
     let found = found.filter(|_| extracted || crate::hlo::extracted(dir, &xspaces).is_some());
     Some(found.map_or_else(Vec::new, |found| sorted(found[0].iter().copied())))
 }

@@ -13,20 +13,13 @@ fn event(meta: u64, offset: u64, duration: u64, group: u64, device_ps: Option<u6
 }
 
 fn tpu_plane(name: &str, op: &str, steps: &[(u64, u64)], ops: &[(u64, u64, u64)]) -> Vec<u8> {
-    let step_line = [
-        number(1, 0),
-        bytes(2, b"Steps"),
-        steps.iter().flat_map(|&(group, duration)| event(1, 0, duration, group, None)).collect(),
-    ]
-    .concat();
+    let step_line =
+        [number(1, 0), bytes(2, b"Steps"), steps.iter().flat_map(|&(group, duration)| event(1, 0, duration, group, None)).collect()]
+            .concat();
     let op_line = [
         number(1, 1),
         bytes(2, b"XLA Ops"),
-        ops.iter()
-            .flat_map(|&(group, offset, duration)| {
-                event(2, offset, duration, group, Some(duration))
-            })
-            .collect(),
+        ops.iter().flat_map(|&(group, offset, duration)| event(2, offset, duration, group, Some(duration))).collect(),
     ]
     .concat();
     let body = [
@@ -51,16 +44,7 @@ fn edge_steps_are_trimmed() {
     let steps: Vec<(u64, u64)> = (1..=4).map(|step| (step, 1000)).collect();
     let fractions = run(&tpu_plane("/device:TPU:0", "fusion", &steps, &ops), "h", "fusion");
     assert_eq!(fractions.chips["/device:TPU:0"], [0.02f32, 0.03]);
-    let short = run(
-        &tpu_plane(
-            "/device:TPU:0",
-            "fusion",
-            &[(1, 100_000), (2, 900)],
-            &[(1, 0, 1000), (2, 5000, 90)],
-        ),
-        "h",
-        "fusion",
-    );
+    let short = run(&tpu_plane("/device:TPU:0", "fusion", &[(1, 100_000), (2, 900)], &[(1, 0, 1000), (2, 5000, 90)]), "h", "fusion");
     assert_eq!(short.chips["/device:TPU:0"], [0.01f32]);
     let unmarked = run(&tpu_plane("/device:TPU:0", "fusion", &[], &[(1, 0, 1000)]), "h", "fusion");
     assert!(unmarked.chips.is_empty() && unmarked.hosts["h"].is_empty());
@@ -70,10 +54,6 @@ fn edge_steps_are_trimmed() {
 fn planes_with_the_same_name_share_the_steps_of_the_last_plane() {
     let ops: Vec<(u64, u64, u64)> = (1..=4).map(|step| (step, step * 1000, step * 10)).collect();
     let steps: Vec<(u64, u64)> = (1..=4).map(|step| (step, 1000)).collect();
-    let space = [
-        tpu_plane("/device:TPU:0", "fusion", &steps, &ops),
-        tpu_plane("/device:TPU:0", "fusion", &[], &[]),
-    ]
-    .concat();
+    let space = [tpu_plane("/device:TPU:0", "fusion", &steps, &ops), tpu_plane("/device:TPU:0", "fusion", &[], &[])].concat();
     assert!(run(&space, "h", "fusion").chips.is_empty());
 }

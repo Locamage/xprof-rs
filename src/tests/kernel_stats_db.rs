@@ -13,11 +13,7 @@ fn multi_kernels() {
         1000,
         &[
             ("tf_op", "mul_786".into()),
-            (
-                "kernel_details",
-                "regs:16\nstatic_shared:0\ndynamic_shared:0\ngrid:1,1,1\nblock:1,1,1\nocc_pct:50.0"
-                    .into(),
-            ),
+            ("kernel_details", "regs:16\nstatic_shared:0\ndynamic_shared:0\ngrid:1,1,1\nblock:1,1,1\nocc_pct:50.0".into()),
             ("equation", "".into()),
         ],
     );
@@ -28,12 +24,7 @@ fn multi_kernels() {
         2000,
         &[
             ("tf_op", "Conv2D".into()),
-            (
-                "kernel_details",
-                "regs:32\nstatic_shared:0\n\
-                    dynamic_shared:16384\ngrid:2,1,1\nblock:32,1,1\nocc_pct=13.0"
-                    .into(),
-            ),
+            ("kernel_details", "regs:32\nstatic_shared:0\ndynamic_shared:16384\ngrid:2,1,1\nblock:32,1,1\nocc_pct=13.0".into()),
             ("equation", "".into()),
         ],
     );
@@ -44,12 +35,7 @@ fn multi_kernels() {
         3000,
         &[
             ("tf_op", "Einsum_80".into()),
-            (
-                "kernel_details",
-                "regs:32\nstatic_shared:0\n\
-                    dynamic_shared:16384\ngrid:3,1,1\nblock:64,1,1\nocc_pct:25.0"
-                    .into(),
-            ),
+            ("kernel_details", "regs:32\nstatic_shared:0\ndynamic_shared:16384\ngrid:3,1,1\nblock:64,1,1\nocc_pct:25.0".into()),
             ("equation", "".into()),
         ],
     );
@@ -57,18 +43,7 @@ fn multi_kernels() {
     let kernel_stats = top_kernels(device_plane(&planes[0], &map, &Infos::default(), 0).1);
     assert_eq!(kernel_stats.len(), 3);
     let expected = [
-        (
-            "volta_fp16_s884gemm_fp16_128x128_ldg8_f2f_tn",
-            32,
-            0,
-            16384,
-            [3, 1, 1],
-            [64, 1, 1],
-            3,
-            true,
-            true,
-            "Einsum_80",
-        ),
+        ("volta_fp16_s884gemm_fp16_128x128_ldg8_f2f_tn", 32, 0, 16384, [3, 1, 1], [64, 1, 1], 3, true, true, "Einsum_80"),
         ("kernel_name_middle", 32, 0, 16384, [2, 1, 1], [32, 1, 1], 2, false, true, "Conv2D"),
         ("kernel_name_shortest", 16, 0, 0, [1, 1, 1], [1, 1, 1], 1, false, false, "mul_786"),
     ];

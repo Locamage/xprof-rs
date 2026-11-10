@@ -3,8 +3,8 @@ use crate::hlo::proto_text::json_string;
 use crate::obj;
 use crate::tools::input_pipeline_analyzer::{HARDWARE, hardware};
 use crate::tools::opstats::{
-    GIBI_IN_GIGA, HBM, IDLE, Metrics, OpStats, READ, SPARSE_CORE, Source, WRITE, add,
-    combine_memory, giga_to_gibi, pico_to_nano, safe_divide,
+    GIBI_IN_GIGA, HBM, IDLE, Metrics, OpStats, READ, SPARSE_CORE, Source, WRITE, add, combine_memory, giga_to_gibi, pico_to_nano,
+    safe_divide,
 };
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -21,11 +21,8 @@ const PROVENANCE: usize = 2;
 const PROVENANCE_NODE: u8 = 0;
 const CATEGORY_NODE: u8 = 1;
 const DEDUPLICATED_NODE: u8 = 2;
-const GROUPINGS: [(&str, &str, i32); 3] = [
-    ("by_program", "byProgram", 2),
-    ("by_category", "byCategory", 1),
-    ("by_provenance", "byProvenance", 100),
-];
+const GROUPINGS: [(&str, &str, i32); 3] =
+    [("by_program", "byProgram", 2), ("by_category", "byCategory", 1), ("by_provenance", "byProvenance", 100)];
 
 #[derive(Clone, Default)]
 struct Xla<'a> {
@@ -87,16 +84,7 @@ fn update(child: &Metrics, parent: &mut Acc) {
 }
 
 fn combine(source: &Metrics, destination: &mut Acc) {
-    add!(
-        destination,
-        source,
-        occurrences,
-        time_ps,
-        self_time_ps,
-        normalized_time_ps,
-        flops_v2,
-        model_flops_v2
-    );
+    add!(destination, source, occurrences, time_ps, self_time_ps, normalized_time_ps, flops_v2, model_flops_v2);
     combine_memory(&source.memory, &mut destination.memory);
 }
 
@@ -117,17 +105,13 @@ fn hlo_unescape(text: &str) -> Option<String> {
 }
 
 fn kernel_metadata(expression: &str) -> String {
-    let Some(start) =
-        expression.find("kernel_metadata=").filter(|_| expression.contains("xprof_metadata"))
-    else {
+    let Some(start) = expression.find("kernel_metadata=").filter(|_| expression.contains("xprof_metadata")) else {
         return String::new();
     };
     let rest = &expression[start + "kernel_metadata=".len()..];
     let metadata: Option<serde_json::Value> = match rest.chars().next() {
         Some('"') => hlo_unescape(&rest[1..]).and_then(|value| serde_json::from_str(&value).ok()),
-        Some('{') => {
-            serde_json::Deserializer::from_str(rest).into_iter().next().and_then(Result::ok)
-        }
+        Some('{') => serde_json::Deserializer::from_str(rest).into_iter().next().and_then(Result::ok),
         _ => None,
     };
     let xprof = match metadata.as_ref().and_then(|metadata| metadata.get("xprof_metadata")) {
@@ -223,18 +207,13 @@ impl<'a> Builder<'a> {
             let next = self.nodes.len();
             let node = *self.programs.entry(metrics.module).or_insert(next);
             if node == next {
-                let name = self.names.get(&metrics.module).map_or_else(
-                    || "main".to_string(),
-                    |name| format!("{name}({})", metrics.module),
-                );
+                let name = self.names.get(&metrics.module).map_or_else(|| "main".to_string(), |name| format!("{name}({})", metrics.module));
                 self.add_child(ROOT, Cow::Owned(name));
             }
             update(metrics, &mut self.nodes[node].metrics);
             program = Some(node);
         }
-        if children_time(metrics) > 0
-            && !metrics.children.metrics.iter().any(|child| child.core_type == SPARSE_CORE)
-        {
+        if children_time(metrics) > 0 && !metrics.children.metrics.iter().any(|child| child.core_type == SPARSE_CORE) {
             return;
         }
         let grouping = if idle {
@@ -242,17 +221,12 @@ impl<'a> Builder<'a> {
         } else {
             let mut parent = program.unwrap_or(ROOT);
             if self.grouping == PROVENANCE && !metrics.provenance.is_empty() {
-                let parts: Vec<&str> =
-                    metrics.provenance.split('/').filter(|part| !part.is_empty()).collect();
+                let parts: Vec<&str> = metrics.provenance.split('/').filter(|part| !part.is_empty()).collect();
                 for (position, part) in parts.iter().enumerate() {
                     parent = self.child(
                         PROVENANCE_NODE,
                         parent,
-                        if position + 1 == parts.len() {
-                            part.split(':').next().expect("iterator is non-empty")
-                        } else {
-                            part
-                        },
+                        if position + 1 == parts.len() { part.split(':').next().expect("iterator is non-empty") } else { part },
                     );
                     update(metrics, &mut self.nodes[parent].metrics);
                 }
@@ -261,11 +235,7 @@ impl<'a> Builder<'a> {
             let deduplicated = self.child(
                 DEDUPLICATED_NODE,
                 category,
-                if metrics.deduplicated_name.is_empty() {
-                    &metrics.name
-                } else {
-                    &metrics.deduplicated_name
-                },
+                if metrics.deduplicated_name.is_empty() { &metrics.name } else { &metrics.deduplicated_name },
             );
             vec![category, deduplicated, self.add_leaf(metrics, deduplicated)]
         };
@@ -293,9 +263,7 @@ impl<'a> Builder<'a> {
     }
 
     fn prune(&mut self, k: usize, level: i32, node: usize) {
-        for child in
-            self.nodes[node].fused.take().map_or(&[][..], |metrics| &metrics.children.metrics)
-        {
+        for child in self.nodes[node].fused.take().map_or(&[][..], |metrics| &metrics.children.metrics) {
             let index = self.add_child(node, Cow::Borrowed(&child.name));
             self.nodes[index].xla = Some(symbol(child));
             self.nodes[index].fused = Some(child);
@@ -307,13 +275,9 @@ impl<'a> Builder<'a> {
         if children.len() > 1 {
             let nodes = &self.nodes;
             if self.nodes[node].xla.as_ref().is_some_and(|xla| is_fusion(xla.category)) {
-                partial_sort(&mut children, kept, |a, b| {
-                    nodes[a].metrics.model_flops_v2 > nodes[b].metrics.model_flops_v2
-                });
+                partial_sort(&mut children, kept, |a, b| nodes[a].metrics.model_flops_v2 > nodes[b].metrics.model_flops_v2);
             } else {
-                partial_sort(&mut children, kept, |a, b| {
-                    nodes[a].metrics.time_ps as f64 > nodes[b].metrics.time_ps as f64
-                });
+                partial_sort(&mut children, kept, |a, b| nodes[a].metrics.time_ps as f64 > nodes[b].metrics.time_ps as f64);
             }
             children.truncate(kept);
         }
@@ -324,10 +288,7 @@ impl<'a> Builder<'a> {
         let mut pending = vec![root];
         while let Some(node) = pending.pop() {
             let children = &self.nodes[node].children;
-            if children.is_empty()
-                || self.nodes[node].xla.is_some()
-                || children.iter().any(|&child| self.nodes[child].xla.is_none())
-            {
+            if children.is_empty() || self.nodes[node].xla.is_some() || children.iter().any(|&child| self.nodes[child].xla.is_none()) {
                 pending.extend(children.iter().rev());
             } else if let [only] = children[..] {
                 self.nodes[node] = std::mem::take(&mut self.nodes[only]);
@@ -404,34 +365,24 @@ impl<'a> Builder<'a> {
         let uncapped = safe_divide(rate, self.peak_gigaflops);
         let fraction = safe_divide(metrics.time_ps as f64, self.total_time_ps as f64);
         let bytes = |on_chip: bool, operation: u8| {
-            metrics
-                .memory
-                .iter()
-                .filter(|entry| entry.0 == operation && (entry.1 == HBM) != on_chip)
-                .map(|entry| entry.2)
-                .sum::<u64>() as f64
+            metrics.memory.iter().filter(|entry| entry.0 == operation && (entry.1 == HBM) != on_chip).map(|entry| entry.2).sum::<u64>()
+                as f64
         };
         let gibibytes = [
-            giga_to_gibi(safe_divide(bytes(false, READ), time_ns))
-                + giga_to_gibi(safe_divide(bytes(false, WRITE), time_ns)),
+            giga_to_gibi(safe_divide(bytes(false, READ), time_ns)) + giga_to_gibi(safe_divide(bytes(false, WRITE), time_ns)),
             giga_to_gibi(safe_divide(bytes(true, READ), time_ns)),
             giga_to_gibi(safe_divide(bytes(true, WRITE), time_ns)),
         ];
         let peak = |index: usize| self.peak_bandwidths.get(index).copied().unwrap_or(0.0);
         let average = safe_divide(metrics.time_ps as f64, metrics.occurrences as f64);
-        let bandwidths: [f64; 3] =
-            std::array::from_fn(|index| safe_divide(gibibytes[index], peak(index)).min(1.0));
+        let bandwidths: [f64; 3] = std::array::from_fn(|index| safe_divide(gibibytes[index], peak(index)).min(1.0));
         let one = |value: f64| [value, 0.0, 0.0];
         [
             ("flops", one(uncapped.min(1.0) * fraction), 1),
             ("bandwidthUtils", bandwidths, 3),
             ("rawTime", one(metrics.time_ps as f64), 1),
             ("rawFlops", one(metrics.model_flops_v2), 1),
-            (
-                "rawBytesAccessedArray",
-                gibibytes.map(|gibibytes| gibibytes * GIBI_IN_GIGA * time_ns),
-                3,
-            ),
+            ("rawBytesAccessedArray", gibibytes.map(|gibibytes| gibibytes * GIBI_IN_GIGA * time_ns), 3),
             ("occurrences", one(metrics.occurrences as u32 as f64), 1),
             ("avgTimePs", one(average), 1),
             ("bf16Flops", one(metrics.flops_v2), 1),
@@ -476,13 +427,10 @@ impl<'a> Builder<'a> {
             }
             let _ = write!(
                 out,
-                ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\
-                    \"sourceInfo\":{{\"fileName\":",
+                ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\"sourceInfo\":{{\"fileName\":",
                 xla.program_id
             );
-            let (file, line, stack) = xla
-                .source
-                .map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
+            let (file, line, stack) = xla.source.map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
             json_string(out, file);
             let _ = write!(out, ",\"lineNumber\":{line},\"stackFrame\":");
             json_string(out, stack);
@@ -522,25 +470,16 @@ impl<'a> Builder<'a> {
                 ("provenance", xla.provenance.into()),
                 ("category", xla.category.into()),
             ];
-            fields
-                .extend(xla.layout.then(|| ("layout", obj! {"dimensions" => J::List(Vec::new())})));
-            let (file, line, stack) = xla
-                .source
-                .map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
+            fields.extend(xla.layout.then(|| ("layout", obj! {"dimensions" => J::List(Vec::new())})));
+            let (file, line, stack) = xla.source.map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
             fields.extend([
                 ("computationPrimitiveSize", J::Int(0)),
                 ("fingerprint", "0".into()),
                 ("programId", xla.program_id.to_string().into()),
-                (
-                    "sourceInfo",
-                    obj! {"fileName" => file, "lineNumber" => line, "stackFrame" => stack},
-                ),
+                ("sourceInfo", obj! {"fileName" => file, "lineNumber" => line, "stackFrame" => stack}),
                 ("xprofKernelMetadata", kernel_metadata(xla.expression).into()),
             ]);
-            entries.push((
-                "xla".into(),
-                J::Map(fields.into_iter().map(|(key, value)| (key.to_string(), value)).collect()),
-            ));
+            entries.push(("xla".into(), J::Map(fields.into_iter().map(|(key, value)| (key.to_string(), value)).collect())));
         }
         entries.push(("numChildren".into(), node.num_children.into()));
         J::Map(entries)
@@ -596,8 +535,7 @@ pub fn category_times(stats: &OpStats, class: impl Fn(&str, &str) -> usize + Cop
         let node = &nodes[index];
         let mut times = [0.0; 3];
         if node.children.is_empty() && node.metrics.occurrences as u32 > 0 {
-            times[class(&node.name, node.xla.as_ref().map_or("", |xla| xla.category))] +=
-                node.metrics.time_ps as f64;
+            times[class(&node.name, node.xla.as_ref().map_or("", |xla| xla.category))] += node.metrics.time_ps as f64;
         }
         for &child in &node.children {
             let child = walk(nodes, child, class);
@@ -620,18 +558,11 @@ fn build(stats: &OpStats, grouping: usize, exclude_idle: bool) -> Option<Builder
         children: FxHashMap::with_capacity_and_hasher(2 * db.metrics.len(), Default::default()),
         names: &stats.programs,
         peak_gigaflops: stats.perf.peak_tera_flops * 1e3,
-        peak_bandwidths: stats
-            .perf
-            .bandwidths
-            .iter()
-            .map(|&bandwidth| giga_to_gibi(bandwidth))
-            .collect(),
+        peak_bandwidths: stats.perf.bandwidths.iter().map(|&bandwidth| giga_to_gibi(bandwidth)).collect(),
         total_time_ps: if exclude_idle { db.total_op_time_ps } else { db.total_time_ps },
     };
     builder.nodes.push(Node { name: Cow::Borrowed(GROUPINGS[grouping].0), ..Default::default() });
-    for metrics in db.metrics.iter().filter(|metrics| {
-        !(metrics.name.starts_with("region") || exclude_idle && metrics.category == IDLE)
-    }) {
+    for metrics in db.metrics.iter().filter(|metrics| !(metrics.name.starts_with("region") || exclude_idle && metrics.category == IDLE)) {
         builder.add(metrics);
     }
     builder.nodes[ROOT].metrics.time_ps = builder.total_time_ps;
@@ -665,31 +596,20 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
             if with_busy { tree(stats, grouping, true) } else { Vec::new() }
         },
     );
-    let mut pieces = vec![if grouping == PROVENANCE {
-        format!("{{\"deviceType\":\"{device}\",\"{key}\":")
-    } else {
-        format!("{{\"{key}\":")
-    }];
+    let mut pieces =
+        vec![if grouping == PROVENANCE { format!("{{\"deviceType\":\"{device}\",\"{key}\":") } else { format!("{{\"{key}\":") }];
     pieces.extend(all);
-    let mut out = if grouping == PROVENANCE {
-        String::new()
-    } else {
-        format!(",\"deviceType\":\"{device}\"")
-    };
+    let mut out = if grouping == PROVENANCE { String::new() } else { format!(",\"deviceType\":\"{device}\"") };
     if with_busy {
         let _ = write!(out, ",\"{key}ExcludeIdle\":");
         pieces.push(std::mem::take(&mut out));
         pieces.extend(busy);
     }
     out.push_str(",\"aggDvfsTimeScaleMultiplier\":");
-    proto_double(
-        &mut out,
-        safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64),
-    );
+    proto_double(&mut out, safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64));
     out.push('}');
     pieces.push(out);
-    String::from_utf8(crate::concat(&pieces.iter().map(String::as_bytes).collect::<Vec<_>>()))
-        .expect("The pieces are text")
+    String::from_utf8(crate::concat(&pieces.iter().map(String::as_bytes).collect::<Vec<_>>())).expect("The pieces are text")
 }
 
 /// The value that the JSON reader gives for `json_trees` without the tree for the busy time.
@@ -699,16 +619,12 @@ pub fn value_trees(stats: &OpStats, group_by: Option<&str>) -> J {
         || obj! {"name" => "", "children" => J::List(Vec::new()), "numChildren" => 0},
         |builder| builder.value(ROOT, PARALLEL_LEVELS),
     );
-    let device =
-        ("deviceType".to_string(), J::from(HARDWARE[hardware(&stats.extra.device_type) as usize]));
+    let device = ("deviceType".to_string(), J::from(HARDWARE[hardware(&stats.extra.device_type) as usize]));
     let mut entries = vec![(GROUPINGS[grouping].1.to_string(), tree)];
     entries.insert(usize::from(grouping != PROVENANCE), device);
     entries.push((
         "aggDvfsTimeScaleMultiplier".into(),
-        proto_value(safe_divide(
-            stats.db.normalized_total_op_time_ps as f64,
-            stats.db.total_op_time_ps as f64,
-        )),
+        proto_value(safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64)),
     ));
     J::Map(entries)
 }

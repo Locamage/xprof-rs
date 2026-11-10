@@ -1,6 +1,5 @@
 use crate::tools::input_pipeline_analyzer::{
-    HOST_TRANSFER, SC_COMPUTE, SCV0_COMPUTE, SCV0_INFEED, TC_COMPUTE, TC_IDLE, TC_INFEED,
-    TC_OUTFEED, tpu_step_details,
+    HOST_TRANSFER, SC_COMPUTE, SCV0_COMPUTE, SCV0_INFEED, TC_COMPUTE, TC_IDLE, TC_INFEED, TC_OUTFEED, tpu_step_details,
 };
 use crate::tools::opstats::{Db, IDLE, Metrics};
 use crate::xplane::steps::{Breakdown, Core, Extra, SPARSE_CORE_START, StepInfo, StepRecord, fix};
@@ -14,9 +13,7 @@ fn step_info(begin_ps: u64, duration_ps: u64, category_ps: &[(&str, u64)]) -> St
         name: String::new(),
         begin: begin_ps,
         duration: duration_ps,
-        breakdown: Breakdown::Categories(
-            category_ps.iter().map(|(name, ps)| (name.to_string(), *ps)).collect(),
-        ),
+        breakdown: Breakdown::Categories(category_ps.iter().map(|(name, ps)| (name.to_string(), *ps)).collect()),
     }
 }
 
@@ -36,16 +33,7 @@ fn may_fix_tpu_step_analysis(
         .remove(0)
         .cores
         .into_iter()
-        .map(|(core, info)| {
-            (
-                core,
-                if let Breakdown::Categories(categories) = info.breakdown {
-                    categories
-                } else {
-                    BTreeMap::new()
-                },
-            )
-        })
+        .map(|(core, info)| (core, if let Breakdown::Categories(categories) = info.breakdown { categories } else { BTreeMap::new() }))
         .collect()
 }
 
@@ -61,17 +49,7 @@ fn sparse_core_step(duration_ps: u64, idle_ps: u64) -> (StepRecord, BTreeMap<u32
 
 #[test]
 fn attribute_host_input_time_to_tc_when_infeed_missing() {
-    let sir = step_info(
-        40,
-        1000,
-        &[
-            (IDLE, 300),
-            ("multiply", 300),
-            ("all-gather", 300),
-            ("async-start", 50),
-            ("async-done", 50),
-        ],
-    );
+    let sir = step_info(40, 1000, &[(IDLE, 300), ("multiply", 300), ("all-gather", 300), ("async-start", 50), ("async-done", 50)]);
     let updated = may_fix_tpu_step_analysis(&Db::default(), BTreeMap::from([(2, sir)]));
     assert_eq!(updated[&2][IDLE], 90);
     assert_eq!(updated[&2]["infeed"], 210);
@@ -79,28 +57,8 @@ fn attribute_host_input_time_to_tc_when_infeed_missing() {
 
 #[test]
 fn attribute_host_input_time_to_tc_when_infeed_missing_multi_core() {
-    let sir = step_info(
-        40,
-        1000,
-        &[
-            (IDLE, 300),
-            ("multiply", 300),
-            ("all-gather", 300),
-            ("async-start", 50),
-            ("async-done", 50),
-        ],
-    );
-    let sir2 = step_info(
-        45,
-        900,
-        &[
-            (IDLE, 250),
-            ("multiply", 300),
-            ("all-gather", 250),
-            ("async-start", 50),
-            ("async-done", 50),
-        ],
-    );
+    let sir = step_info(40, 1000, &[(IDLE, 300), ("multiply", 300), ("all-gather", 300), ("async-start", 50), ("async-done", 50)]);
+    let sir2 = step_info(45, 900, &[(IDLE, 250), ("multiply", 300), ("all-gather", 250), ("async-start", 50), ("async-done", 50)]);
     let updated = may_fix_tpu_step_analysis(&Db::default(), BTreeMap::from([(2, sir), (1, sir2)]));
     assert_eq!(updated[&2][IDLE], 48);
     assert_eq!(updated[&2]["infeed"], 252);
@@ -110,15 +68,8 @@ fn attribute_host_input_time_to_tc_when_infeed_missing_multi_core() {
 
 #[test]
 fn skip_may_fix_tpu_step_analysis_when_infeed_exists() {
-    let sir = step_info(
-        40,
-        1000,
-        &[(IDLE, 300), ("multiply", 300), ("all-gather", 300), ("async-start", 50), ("infeed", 50)],
-    );
-    let device_op_metrics_db = Db {
-        metrics: vec![Metrics { category: "infeed".into(), ..Default::default() }],
-        ..Default::default()
-    };
+    let sir = step_info(40, 1000, &[(IDLE, 300), ("multiply", 300), ("all-gather", 300), ("async-start", 50), ("infeed", 50)]);
+    let device_op_metrics_db = Db { metrics: vec![Metrics { category: "infeed".into(), ..Default::default() }], ..Default::default() };
     let updated = may_fix_tpu_step_analysis(&device_op_metrics_db, BTreeMap::from([(2, sir)]));
     assert_eq!(updated[&2][IDLE], 300);
     assert_eq!(updated[&2]["infeed"], 50);
@@ -132,12 +83,9 @@ fn ensure_sparse_core_steps_set_step_number() {
 
 #[test]
 fn compute_tpu_per_step_data_across_cores_sparse_core_only() {
-    let (per_core_step_info, core_details_map) =
-        sparse_core_step(1_000_000_000_000, 200_000_000_000);
+    let (per_core_step_info, core_details_map) = sparse_core_step(1_000_000_000_000, 200_000_000_000);
     let per_step_data = tpu_step_details(&per_core_step_info, &core_details_map);
-    for field in
-        [TC_COMPUTE, TC_INFEED, TC_OUTFEED, TC_IDLE, SCV0_COMPUTE, SCV0_INFEED, HOST_TRANSFER]
-    {
+    for field in [TC_COMPUTE, TC_INFEED, TC_OUTFEED, TC_IDLE, SCV0_COMPUTE, SCV0_INFEED, HOST_TRANSFER] {
         assert_eq!(per_step_data.fields[field], 0.0);
     }
     assert_eq!(per_step_data.all_reduce_ms, [0.0, 0.0]);

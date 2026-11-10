@@ -72,25 +72,10 @@ fn add_op_metric() {
         ("m3", "display_name3", &[("symbol_id", 1)]),
     ] {
         plane.event_metadata(name).display_name = display.into();
-        plane.metadata_stats(
-            name,
-            &ids.iter().map(|&(key, value)| (key, value.into())).collect::<Vec<_>>(),
-        );
+        plane.metadata_stats(name, &ids.iter().map(|&(key, value)| (key, value.into())).collect::<Vec<_>>());
     }
-    plane.event(
-        0,
-        "m1",
-        0,
-        100,
-        &[("Time Scale Multiplier", 0.5.into()), ("vdd_energy_j", 10.0.into())],
-    );
-    plane.event(
-        0,
-        "m1",
-        100,
-        100,
-        &[("Time Scale Multiplier", 1.0.into()), ("vdd_energy_j", 20.0.into())],
-    );
+    plane.event(0, "m1", 0, 100, &[("Time Scale Multiplier", 0.5.into()), ("vdd_energy_j", 10.0.into())]);
+    plane.event(0, "m1", 100, 100, &[("Time Scale Multiplier", 1.0.into()), ("vdd_energy_j", 20.0.into())]);
     plane.event(0, "m2", 0, 100, &[("Time Scale Multiplier", 2.0.into())]);
     plane.event(0, "m3", 0, 100, &[]);
     let mut db = build(&space, true);
@@ -137,7 +122,6 @@ fn time_scale_multiplier_that_is_not_a_double_is_zero() {
     plane.event(0, "m1", 0, 100, &[("Time Scale Multiplier", 2i64.into())]);
     plane.event(0, "m2", 100, 100, &[]);
     let db = build(&space, true);
-    let normalized: Vec<(&str, u64)> =
-        db.metrics.iter().map(|metrics| (&*metrics.name, metrics.normalized_time_ps)).collect();
+    let normalized: Vec<(&str, u64)> = db.metrics.iter().map(|metrics| (&*metrics.name, metrics.normalized_time_ps)).collect();
     assert_eq!(normalized, [("m1", 0), ("m2", 100)]);
 }

@@ -77,20 +77,12 @@ fn test_get_utilization_viewer() {
                 r#"Rd+Wr (per chip)": 50.0}}"#,
             ),
         ),
-        (
-            "no_data_none",
-            None,
-            vec![],
-            r#"{"status": "NO_DATA", "message": "No data returned for session test-session"}"#,
-        ),
+        ("no_data_none", None, vec![], r#"{"status": "NO_DATA", "message": "No data returned for session test-session"}"#),
         (
             "no_data_empty_datatable",
             Some(r#"{"cols": [], "rows": []}"#.into()),
             vec![],
-            concat!(
-                r#"{"status": "NO_DATA", "message": "No hardware performance counter events "#,
-                r#"found in trace"}"#,
-            ),
+            r#"{"status": "NO_DATA", "message": "No hardware performance counter events found in trace"}"#,
         ),
         (
             "no_node0_data",
@@ -124,11 +116,7 @@ fn test_get_utilization_viewer() {
         ),
         (
             "missing_node_column_warning",
-            Some(
-                "Host,Device,Sample,Name,Achieved,Peak,Unit\n0,0,0,Vector \
-                    ALUs,1.0,2.0,instructions\n"
-                    .into(),
-            ),
+            Some("Host,Device,Sample,Name,Achieved,Peak,Unit\n0,0,0,Vector ALUs,1.0,2.0,instructions\n".into()),
             vec![("node", J::Int(1))],
             concat!(
                 r#"{"vector_alu_utilization_percent": 50.0, "idleness_percent": 100.0, "#,
@@ -138,8 +126,7 @@ fn test_get_utilization_viewer() {
         ),
     ];
     for (name, payload, flags, expected) in cases {
-        let fake =
-            Fake::new(move |_, _| Ok(Some(payload.clone().unwrap_or_default().into_bytes())));
+        let fake = Fake::new(move |_, _| Ok(Some(payload.clone().unwrap_or_default().into_bytes())));
         let result = json(get_utilization_viewer(&fake, &args("test-session", &flags)));
         assert!(same(&result, &parse(expected)), "{name}: {}", result.dumps());
     }

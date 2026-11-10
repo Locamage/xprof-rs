@@ -13,9 +13,7 @@ fn kpi_fake(memory: Result<Option<&'static str>, Error>) -> Fake {
             )
             .into(),
         )),
-        "memory_profile.json" => {
-            memory.clone().map(|data| data.map(|data| data.as_bytes().to_vec()))
-        }
+        "memory_profile.json" => memory.clone().map(|data| data.map(|data| data.as_bytes().to_vec())),
         _ => Ok(None),
     })
 }
@@ -45,10 +43,7 @@ fn test_get_kpi_metrics_overview_error() {
 
 #[test]
 fn test_get_kpi_metrics_memory_error() {
-    let result = json(get_kpi_metrics(
-        &kpi_fake(Err(Error::new(Kind::Runtime, "Fetch failed"))),
-        &args("test_session", &[]),
-    ));
+    let result = json(get_kpi_metrics(&kpi_fake(Err(Error::new(Kind::Runtime, "Fetch failed"))), &args("test_session", &[])));
     assert!(!result.has("error"));
     assert_eq!(result.at("step_time_ms").str(), Some("10.5"));
     assert_eq!(result.at("peak_hbm_gib").str(), Some("N/A"));

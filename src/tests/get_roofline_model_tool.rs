@@ -35,10 +35,7 @@ fn test_get_roofline_model_success() {
         r#"0.0001}, {"v": 0.1631}, {"v": "12345"}, {"v": "<div "#,
         r#"title='file.py:10'>file.py:10</div>"}]}"#,
     ));
-    let parsed = json(get_roofline_model(
-        &Fake::fixed(&data),
-        &args("test_session", &[("top_n", J::Int(5))]),
-    ));
+    let parsed = json(get_roofline_model(&Fake::fixed(&data), &args("test_session", &[("top_n", J::Int(5))])));
     let program = parsed.at("program");
     assert_eq!(program.at("bound_by").str(), Some("HBM"));
     assert_eq!(program.at("roofline_efficiency_percent").str(), Some("13.49%"));
@@ -72,10 +69,7 @@ fn test_get_roofline_model_custom_call_opaque() {
         r#"0.0}, {"v": "Unknown"}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": "12345"}, "#,
         r#"{"v": ""}]}"#,
     ));
-    let parsed = json(get_roofline_model(
-        &Fake::fixed(&data),
-        &args("test_session", &[("top_n", J::Int(5))]),
-    ));
+    let parsed = json(get_roofline_model(&Fake::fixed(&data), &args("test_session", &[("top_n", J::Int(5))])));
     assert_eq!(parsed.at("program").at("bound_by").str(), Some("CustomCall (opaque)"));
     let operations = parsed.at("top_operations").items();
     assert_eq!(operations.len(), 1);
@@ -91,16 +85,17 @@ fn test_get_roofline_model_no_data() {
 
 #[test]
 fn test_get_roofline_model_invalid_data() {
-    assert_eq!(
-        get_roofline_model(&Fake::fixed("{}"), &args("test_session", &[])).unwrap_err().kind,
-        Kind::Value
-    );
+    assert_eq!(get_roofline_model(&Fake::fixed("{}"), &args("test_session", &[])).unwrap_err().kind, Kind::Value);
 }
 
 #[test]
 fn test_get_roofline_model_bypass_cache() {
     let fake = Fake::tools(|_| None);
     get_roofline_model(&fake, &args("test_session", &[("bypass_cache", J::Bool(true))])).unwrap();
-    assert!(fake.calls.borrow().iter().any(|(tool, params)| tool == "roofline_model.json"
-        && *params == [("bypass_cache".to_string(), "True".to_string())]));
+    assert!(
+        fake.calls
+            .borrow()
+            .iter()
+            .any(|(tool, params)| tool == "roofline_model.json" && *params == [("bypass_cache".to_string(), "True".to_string())])
+    );
 }

@@ -2,9 +2,7 @@ use crate::hlo::general;
 use crate::hlo::memory::std_sort;
 use crate::tools::framework_op_stats::device_tf_db;
 use crate::tools::inference_profile::InferenceStats;
-use crate::tools::input_pipeline_analyzer::{
-    Analysis, BOTTLENECK_PREFIXES, HARDWARE, analyze, diagnostics_table, fixed, hardware,
-};
+use crate::tools::input_pipeline_analyzer::{Analysis, BOTTLENECK_PREFIXES, HARDWARE, analyze, diagnostics_table, fixed, hardware};
 use crate::tools::opstats::{Db, IDLE, OpStats, safe_divide};
 use crate::tools::table::{Cell, Table};
 use crate::xplane::gpu::by_op_name;
@@ -12,9 +10,8 @@ use crate::xplane::steps::{Extra, GPU, TPU};
 use std::path::PathBuf;
 
 const TOP_OPS: usize = 10;
-const NO_DEVICE_TRACE: &str = "No TensorCore device trace was collected. This might happen if your \
-    job hadn't been run on the device when sampling was turned on. You could try the sampling \
-    again later.";
+const NO_DEVICE_TRACE: &str = "No TensorCore device trace was collected. This might happen if your job hadn't been run on the device \
+    when sampling was turned on. You could try the sampling again later.";
 const TOP_COLUMNS: [(&str, &str, &str); 5] = [
     ("selfTimePercent", "number", "Time (%)"),
     ("cumulativeTimePercent", "number", "Cumulative time (%)"),
@@ -56,13 +53,9 @@ pub fn inference_latency(stats: &InferenceStats) -> Vec<LatencyBreakdown> {
         .values()
         .flat_map(|model| &model.request_details)
         .map(|request| {
-            let total_latency_us =
-                request.end_time_ps.wrapping_sub(request.start_time_ps) as f64 / 1e6;
+            let total_latency_us = request.end_time_ps.wrapping_sub(request.start_time_ps) as f64 / 1e6;
             let device_latency_us = request.device_time_ps as f64 / 1e6;
-            let communication_latency_us =
-                request.read_from_device_time_ps.wrapping_add(request.write_to_device_time_ps)
-                    as f64
-                    / 1e6;
+            let communication_latency_us = request.read_from_device_time_ps.wrapping_add(request.write_to_device_time_ps) as f64 / 1e6;
             LatencyBreakdown {
                 total_latency_us,
                 host_latency_us: total_latency_us - device_latency_us - communication_latency_us,
@@ -86,9 +79,7 @@ pub fn inference_latency(stats: &InferenceStats) -> Vec<LatencyBreakdown> {
     };
     let mut order: Vec<usize> = (0..sessions.len()).collect();
     std_sort(&mut order, &|a, b| sessions[a].total_latency_us < sessions[b].total_latency_us);
-    let percentiles = LATENCY_PERCENTILES
-        .iter()
-        .map(|percentile| sessions[order[(percentile / 100.0 * sessions.len() as f64) as usize]]);
+    let percentiles = LATENCY_PERCENTILES.iter().map(|percentile| sessions[order[(percentile / 100.0 * sessions.len() as f64) as usize]]);
     std::iter::once(average).chain(percentiles).collect()
 }
 
@@ -114,15 +105,13 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
             Cell::Number(safe_divide(op.flops_v2, op.time_ps as f64 / 1e3)),
         ];
         if generic {
-            let (eligible, _, tensor_core_ns) =
-                kernels.get(op.name.as_str()).copied().unwrap_or_default();
+            let (eligible, _, tensor_core_ns) = kernels.get(op.name.as_str()).copied().unwrap_or_default();
             row.extend([Cell::Boolean(eligible), Cell::Boolean(tensor_core_ns != 0)]);
         }
         analysis_table.rows.push(row);
     }
     let [compute_32, compute_16] = extra.precision.map(|ps| ps as f64);
-    let precision_percent =
-        |part: f64| percentage(100.0 * safe_divide(part, compute_16 + compute_32));
+    let precision_percent = |part: f64| percentage(100.0 * safe_divide(part, compute_16 + compute_32));
     let host = &stats.host;
     let counts = |db: &Db| {
         let busy = |eager: bool| {
@@ -134,36 +123,19 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
         };
         (db.metrics.iter().map(|metrics| metrics.occurrences).sum::<u64>(), busy(false), busy(true))
     };
-    let ((host_ops, host_busy, host_eager), (device_ops, device_busy, device_eager)) =
-        (counts(host), counts(&ops));
+    let ((host_ops, host_busy, host_eager), (device_ops, device_busy, device_eager)) = (counts(host), counts(&ops));
     let all_ops = host_ops + device_ops;
     let tpu_only = |value: f64| percentage(if device_hardware == TPU { value } else { 0.0 });
     let duty = |index: usize| {
-        tpu_only(
-            safe_divide(
-                extra.busy_ps[index] as f64,
-                extra.busy_ps[index].wrapping_add(extra.idle_ps[index]) as f64,
-            ) * 100.0,
-        )
+        tpu_only(safe_divide(extra.busy_ps[index] as f64, extra.busy_ps[index].wrapping_add(extra.idle_ps[index]) as f64) * 100.0)
     };
-    let idle = |db: &Db| {
-        tpu_only((1.0 - safe_divide(db.total_op_time_ps as f64, db.total_time_ps as f64)) * 100.0)
-    };
+    let idle = |db: &Db| tpu_only((1.0 - safe_divide(db.total_op_time_ps as f64, db.total_time_ps as f64)) * 100.0);
     let common = [
         ("host_trace_level", "0".to_string()),
         ("host_tf_op_percent", percentage(100.0 * safe_divide(host_ops as f64, all_ops as f64))),
-        (
-            "device_tf_op_percent",
-            percentage(100.0 * safe_divide(device_ops as f64, all_ops as f64)),
-        ),
-        (
-            "host_op_time_eager_percent",
-            percentage(100.0 * safe_divide(host_eager as f64, host_busy as f64)),
-        ),
-        (
-            "device_op_time_eager_percent",
-            percentage(100.0 * safe_divide(device_eager as f64, device_busy as f64)),
-        ),
+        ("device_tf_op_percent", percentage(100.0 * safe_divide(device_ops as f64, all_ops as f64))),
+        ("host_op_time_eager_percent", percentage(100.0 * safe_divide(host_eager as f64, host_busy as f64))),
+        ("device_op_time_eager_percent", percentage(100.0 * safe_divide(device_eager as f64, device_busy as f64))),
         ("remark_text", String::new()),
         ("remark_color", String::new()),
         ("mxu_utilization_percent", percentage(extra.mxu)),
@@ -194,9 +166,7 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
 }
 
 fn environment_table(extra: &Extra) -> Table {
-    let mut environment = Table::new(
-        &["host_id", "command_line", "start_time", "bns_address"].map(|id| (id, "string", id)),
-    );
+    let mut environment = Table::new(&["host_id", "command_line", "start_time", "bns_address"].map(|id| (id, "string", id)));
     let hosts = extra.hostnames.len() as i32;
     environment.prop("host_count", hosts.to_string());
     environment.prop(
@@ -216,44 +186,29 @@ fn environment_table(extra: &Extra) -> Table {
 fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8) -> Table {
     let [compute_32, compute_16] = extra.precision.map(|ps| ps as f64);
     let bottleneck = &analysis.bottleneck;
-    let mut recommendation =
-        Table::new(&["tip_type", "link", "description"].map(|id| (id, "string", id)));
+    let mut recommendation = Table::new(&["tip_type", "link", "description"].map(|id| (id, "string", id)));
     let device_name = HARDWARE[device_hardware as usize];
-    let (timeline, tool) = if device_hardware == TPU {
-        ("TPU core", "op_profile")
-    } else {
-        (device_name, "framework_op_stats")
-    };
+    let (timeline, tool) = if device_hardware == TPU { ("TPU core", "op_profile") } else { (device_name, "framework_op_stats") };
     let tips = [
         ("faq", "Refer to the TF2 Profiler FAQ".to_string(), "Tool troubleshooting / FAQ"),
         (
             "host",
-            "input_pipeline_analyzer (especially Section 3 for the breakdown of input \
-                operations on the Host)"
-                .into(),
+            "input_pipeline_analyzer (especially Section 3 for the breakdown of input operations on the Host)".into(),
             "Next steps for reducing the Host time",
         ),
         (
             "host",
-            "trace_viewer (look at the activities on the timeline of each Host Thread near \
-                the bottom of the trace view)"
-                .into(),
+            "trace_viewer (look at the activities on the timeline of each Host Thread near the bottom of the trace view)".into(),
             "Next steps for reducing the Host time",
         ),
         (
             "device",
-            format!(
-                "{tool} (identify the time-consuming operations executed on the \
-                    {device_name})"
-            ),
+            format!("{tool} (identify the time-consuming operations executed on the {device_name})"),
             "Next steps for reducing the Device time",
         ),
         (
             "device",
-            format!(
-                "trace_viewer (look at the activities on the timeline of each \
-                    {timeline} in the trace view)"
-            ),
+            format!("trace_viewer (look at the activities on the timeline of each {timeline} in the trace view)"),
             "Next steps for reducing the Device time",
         ),
         (
@@ -267,34 +222,27 @@ fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8)
         ),
         (
             "doc",
-            concat!(
-                r#"<a href="https://www.tensorflow.org/guide/data_performance" "#,
-                r#"target="_blank">Better performance with the tf.data API</a>"#,
-            )
-            .into(),
+            r#"<a href="https://www.tensorflow.org/guide/data_performance" target="_blank">Better performance with the tf.data API</a>"#
+                .into(),
             "Other useful resources",
         ),
     ];
     recommendation.rows = tips
         .into_iter()
-        .map(|(kind, link, description)| {
-            vec![Cell::Text(kind.into()), Cell::Text(link), Cell::Text(description.into())]
-        })
+        .map(|(kind, link, description)| vec![Cell::Text(kind.into()), Cell::Text(link), Cell::Text(description.into())])
         .collect();
     for ((kind, statement), prefix) in bottleneck.iter().zip(BOTTLENECK_PREFIXES) {
         recommendation.prop(&format!("{prefix}bottleneck"), kind.clone());
         recommendation.prop(&format!("{prefix}statement"), statement.clone());
     }
     let percent_16 = 100.0 * compute_16 / (compute_16 + compute_32);
-    let low_precision =
-        extra.precision.iter().sum::<u64>() > 0 && percent_16 < LOW_PRECISION_PERCENT;
+    let low_precision = extra.precision.iter().sum::<u64>() > 0 && percent_16 < LOW_PRECISION_PERCENT;
     recommendation.prop(
         "precision_statement",
         if low_precision {
             format!(
-                "Only {}% of device computation is 16 bit. So you might want to replace more \
-                    32-bit Ops by 16-bit Ops to improve performance (if the reduced accuracy is \
-                    acceptable).",
+                "Only {}% of device computation is 16 bit. So you might want to replace more 32-bit Ops by 16-bit Ops to improve \
+                    performance (if the reduced accuracy is acceptable).",
                 fixed(percent_16, 1)
             )
         } else {
@@ -312,23 +260,14 @@ fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8)
 
 fn latency_json(extra: &Extra, paths: &[PathBuf]) -> String {
     let mut latency = Table::new(&LATENCY_COLUMNS);
-    let breakdowns = if extra.training {
-        Vec::new()
-    } else {
-        inference_latency(&crate::tools::inference_profile::load(paths).unwrap_or_default())
-    };
-    let labels = std::iter::once("Avg".to_string())
-        .chain(LATENCY_PERCENTILES.iter().map(|percentile| format!("{}%", fixed(*percentile, 1))));
+    let breakdowns =
+        if extra.training { Vec::new() } else { inference_latency(&crate::tools::inference_profile::load(paths).unwrap_or_default()) };
+    let labels =
+        std::iter::once("Avg".to_string()).chain(LATENCY_PERCENTILES.iter().map(|percentile| format!("{}%", fixed(*percentile, 1))));
     for (label, breakdown) in labels.zip(breakdowns) {
-        let times = [
-            breakdown.host_latency_us,
-            breakdown.device_latency_us,
-            breakdown.communication_latency_us,
-            breakdown.total_latency_us,
-        ];
-        latency.row().extend(
-            std::iter::once(Cell::Text(label)).chain(times.map(|us| Cell::Number(us / 1e3))),
-        );
+        let times =
+            [breakdown.host_latency_us, breakdown.device_latency_us, breakdown.communication_latency_us, breakdown.total_latency_us];
+        latency.row().extend(std::iter::once(Cell::Text(label)).chain(times.map(|us| Cell::Number(us / 1e3))));
     }
     latency.json()
 }

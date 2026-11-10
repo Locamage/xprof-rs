@@ -17,13 +17,7 @@ pub struct Fake {
 
 impl Fake {
     pub fn new(fetch: impl Fn(&str, &Params) -> Result<Option<Vec<u8>>, Error> + 'static) -> Self {
-        Self {
-            fetch: Box::new(fetch),
-            hosts: None,
-            dir: PathBuf::new(),
-            logdir: None,
-            calls: RefCell::default(),
-        }
+        Self { fetch: Box::new(fetch), hosts: None, dir: PathBuf::new(), logdir: None, calls: RefCell::default() }
     }
 
     pub fn tools(answer: impl Fn(&str) -> Option<String> + 'static) -> Self {
@@ -57,10 +51,7 @@ impl Fake {
 
 impl Client for Fake {
     fn fetch(&self, tool: &str, _: &str, params: &Params) -> Result<Option<Vec<u8>>, Error> {
-        self.calls.borrow_mut().push((
-            tool.to_string(),
-            params.iter().map(|(key, value)| (key.to_string(), value.clone())).collect(),
-        ));
+        self.calls.borrow_mut().push((tool.to_string(), params.iter().map(|(key, value)| (key.to_string(), value.clone())).collect()));
         (self.fetch)(tool, params)
     }
 
@@ -73,31 +64,21 @@ impl Client for Fake {
     }
 
     fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
-        let mut params =
-            vec![("trace_filter_config", r#"{"device_regexes": ["TPU:0", "GPU:0"]}"#.to_string())];
+        let mut params = vec![("trace_filter_config", r#"{"device_regexes": ["TPU:0", "GPU:0"]}"#.to_string())];
         params.extend(self.hosts(session).ok()?.first().map(|host| ("hosts", host.clone())));
-        let trace = serde_json::from_slice::<serde_json::Value>(
-            &self.fetch("trace_viewer.json", session, &params).ok().flatten()?,
-        )
-        .ok()?;
+        let trace = serde_json::from_slice::<serde_json::Value>(&self.fetch("trace_viewer.json", session, &params).ok().flatten()?).ok()?;
         let events = trace.get("traceEvents")?.as_array()?;
         Some(
             events
                 .iter()
-                .filter(|event| {
-                    event.get("name").and_then(|name| name.as_str()) == Some("barrier-cores")
-                })
+                .filter(|event| event.get("name").and_then(|name| name.as_str()) == Some("barrier-cores"))
                 .map(|event| event.get("dur").and_then(serde_json::Value::as_f64).unwrap_or(0.0))
                 .collect(),
         )
     }
 
     fn category_times(&self, session: &str, params: &Params) -> Option<[f64; 3]> {
-        let profile = self
-            .fetch_text("hlo_op_profile.json", session, params)
-            .ok()
-            .flatten()
-            .and_then(|raw| J::parse(&raw));
+        let profile = self.fetch_text("hlo_op_profile.json", session, params).ok().flatten().and_then(|raw| J::parse(&raw));
         let times = profile
             .as_ref()
             .map(|profile| crate::cli::ops::field(profile, "by_category"))
@@ -112,20 +93,14 @@ impl Client for Fake {
     }
 
     fn roofline_total(&self, session: &str) -> Option<String> {
-        self.fetch_text("roofline_model.json", session, &[])
-            .ok()?
-            .or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
+        self.fetch_text("roofline_model.json", session, &[]).ok()?.or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
     }
 
     fn op_profile(&self, session: &str, params: &Params) -> Result<Option<J>, Error> {
         let data = self.fetch_either("op_profile", "hlo_op_profile.json", session, params)?;
         data.map(|data| {
-            J::parse(&data).ok_or_else(|| {
-                Error::new(
-                    crate::cli::Kind::Value,
-                    "Failed to parse op_profile proto: ParseError('Failed to load JSON')",
-                )
-            })
+            J::parse(&data)
+                .ok_or_else(|| Error::new(crate::cli::Kind::Value, "Failed to parse op_profile proto: ParseError('Failed to load JSON')"))
         })
         .transpose()
     }
@@ -184,15 +159,9 @@ pub fn scratch(name: &str) -> PathBuf {
 pub fn same(left: &J, right: &J) -> bool {
     match (left, right) {
         (J::Map(left), J::Map(right)) => {
-            left.len() == right.len()
-                && left.iter().all(|(key, value)| {
-                    right.iter().any(|(other, item)| other == key && same(value, item))
-                })
+            left.len() == right.len() && left.iter().all(|(key, value)| right.iter().any(|(other, item)| other == key && same(value, item)))
         }
-        (J::List(left), J::List(right)) => {
-            left.len() == right.len()
-                && left.iter().zip(right).all(|(left, right)| same(left, right))
-        }
+        (J::List(left), J::List(right)) => left.len() == right.len() && left.iter().zip(right).all(|(left, right)| same(left, right)),
         (J::Int(_) | J::Float(_), J::Int(_) | J::Float(_)) => left.float() == right.float(),
         _ => left == right,
     }
@@ -206,10 +175,7 @@ pub fn hlo_times(node: &J) -> [f64; 3] {
     if children.is_empty() && metrics.at("occurrences").float().unwrap_or(0.0) > 0.0 {
         let category = node.at("xla").get("category").map_or(String::new(), J::text);
         times[crate::cli::steps::time_class(&node.at("name").text(), &category)] +=
-            Some(metrics.at("rawTime"))
-                .filter(|value| value.truthy())
-                .and_then(J::float)
-                .unwrap_or(0.0);
+            Some(metrics.at("rawTime")).filter(|value| value.truthy()).and_then(J::float).unwrap_or(0.0);
     }
     for child in children.iter().filter(|child| matches!(child, J::Map(_))) {
         let child = hlo_times(child);

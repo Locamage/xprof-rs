@@ -4,14 +4,7 @@ use crate::tools::opstats::{Db, IDLE, convert_tensor_core, templates};
 
 const NS: i64 = 1000;
 
-fn tensor_flow_op_event(
-    plane: &mut XPlane,
-    line: i64,
-    tf_op_fullname: &str,
-    start_ns: i64,
-    duration_ns: i64,
-    kernel: Option<&str>,
-) {
+fn tensor_flow_op_event(plane: &mut XPlane, line: i64, tf_op_fullname: &str, start_ns: i64, duration_ns: i64, kernel: Option<&str>) {
     let name = kernel.unwrap_or(tf_op_fullname);
     let stats = kernel.map(|_| vec![("tf_op", V::Ref(tf_op_fullname.into()))]).unwrap_or_default();
     plane.event(line, name, start_ns * NS, duration_ns * NS, &stats);
@@ -20,14 +13,7 @@ fn tensor_flow_op_event(
 fn summary(db: &Db) -> Vec<(String, String, u64, u64)> {
     db.metrics
         .iter()
-        .map(|metrics| {
-            (
-                metrics.name.to_string(),
-                metrics.category.to_string(),
-                metrics.occurrences,
-                metrics.time_ps,
-            )
-        })
+        .map(|metrics| (metrics.name.to_string(), metrics.category.to_string(), metrics.occurrences, metrics.time_ps))
         .collect()
 }
 
@@ -43,16 +29,10 @@ fn host_op_metrics_db() {
     assert_eq!(db.metrics.len(), 3);
     assert_eq!(db.total_op_time_ps, ((8000 * 2 + 10000) * NS) as u64);
     assert_eq!(db.total_time_ps, ((110000 - 100000 + 10000 + 8000) * NS) as u64);
-    let expected =
-        [("TfOp1", "TfOp1", 2, 8000 * 2), (IDLE, IDLE, 0, 2000), ("TfOp2", "TfOp2", 1, 10000)];
+    let expected = [("TfOp1", "TfOp1", 2, 8000 * 2), (IDLE, IDLE, 0, 2000), ("TfOp2", "TfOp2", 1, 10000)];
     assert_eq!(
         summary(&db),
-        expected.map(|(name, category, occurrences, ns)| (
-            name.to_string(),
-            category.to_string(),
-            occurrences,
-            (ns * NS) as u64
-        ))
+        expected.map(|(name, category, occurrences, ns)| (name.to_string(), category.to_string(), occurrences, (ns * NS) as u64))
     );
 }
 
@@ -68,8 +48,7 @@ fn device_op_metrics_db() {
     let (map, planes) = space.parsed();
     let gpus = crate::xplane::gpu::devices(&planes);
     let infos = crate::xplane::gpu::infos(&planes, &map, &gpus);
-    let (db, _) =
-        crate::xplane::gpu::device_plane(gpus[0], &map, &infos, crate::xplane::origin_ns(&planes));
+    let (db, _) = crate::xplane::gpu::device_plane(gpus[0], &map, &infos, crate::xplane::origin_ns(&planes));
     assert_eq!(db.metrics.len(), 4);
     let total_op = ((8000 * 2 + 10000 * 2 + 10000) * NS) as u64;
     assert_eq!(db.total_op_time_ps, total_op);
@@ -82,12 +61,7 @@ fn device_op_metrics_db() {
     ];
     assert_eq!(
         summary(&db),
-        expected.map(|(name, category, occurrences, ns)| (
-            name.to_string(),
-            category.to_string(),
-            occurrences,
-            (ns * NS) as u64
-        ))
+        expected.map(|(name, category, occurrences, ns)| (name.to_string(), category.to_string(), occurrences, (ns * NS) as u64))
     );
 }
 
@@ -111,9 +85,7 @@ fn tensor_core_device_op_metrics_db() {
             ("program_id", 1.into()),
         ],
     );
-    plane
-        .event(10, "MatMul", 0, 10 * NS, &[("Time Scale Multiplier", 2.0.into())])
-        .set_num_occurrences(2);
+    plane.event(10, "MatMul", 0, 10 * NS, &[("Time Scale Multiplier", 2.0.into())]).set_num_occurrences(2);
     let (map, planes) = space.parsed();
     assert_db(
         &convert_tensor_core(&planes[0], &map, &templates(&planes[0], &map), None, false).0,
@@ -190,13 +162,7 @@ fn host_x_plane_with_input_pipeline_traceme_ops() {
         ("ShuffleMapDataset", 120000000, 10000000, 3),
         ("MapMapDataset", 120000000, 8000000, 4),
     ] {
-        host.event(
-            10,
-            name,
-            offset,
-            duration,
-            &[("_ipl_stage_id", stage.into()), ("_ipl_stage_cat", "preprocessing".into())],
-        );
+        host.event(10, name, offset, duration, &[("_ipl_stage_id", stage.into()), ("_ipl_stage_cat", "preprocessing".into())]);
     }
     let (map, planes) = space.parsed();
     let mut db = host_db(&planes, &map).0;

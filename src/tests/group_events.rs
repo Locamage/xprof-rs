@@ -11,11 +11,7 @@ fn groups(plane: &Plane) -> Vec<(String, Option<i64>)> {
     plane
         .lines
         .iter()
-        .flat_map(|line| {
-            line.events.iter().map(move |event| {
-                (format!("{} {}", line.name, name(plane, event)), group_id(event))
-            })
-        })
+        .flat_map(|line| line.events.iter().map(move |event| (format!("{} {}", line.name, name(plane, event)), group_id(event))))
         .collect()
 }
 
@@ -24,20 +20,8 @@ fn gpu_trace(root: &str, root_stats: &[(&str, V)]) -> XSpace {
     let host = space.host();
     host.set_pid_if_not_set(1);
     host.event(0, root, 0, 100, root_stats);
-    host.event(
-        0,
-        "FunctionRun",
-        10,
-        90,
-        &[("id", 0.into()), ("_pt", TF_EXECUTOR.into()), ("_p", 0.into())],
-    );
-    host.event(
-        1,
-        "ExecutorState::Process",
-        20,
-        80,
-        &[("id", 0.into()), ("_ct", TF_EXECUTOR.into()), ("_c", 0.into())],
-    );
+    host.event(0, "FunctionRun", 10, 90, &[("id", 0.into()), ("_pt", TF_EXECUTOR.into()), ("_p", 0.into())]);
+    host.event(1, "ExecutorState::Process", 20, 80, &[("id", 0.into()), ("_ct", TF_EXECUTOR.into()), ("_c", 0.into())]);
     host.event(1, "matmul", 30, 70, &[("correlation_id", 100.into())]);
     space.add_plane().event(0, "matmul", 200, 300, &[("correlation_id", 100.into())]);
     space
@@ -45,8 +29,7 @@ fn gpu_trace(root: &str, root_stats: &[(&str, V)]) -> XSpace {
 
 #[test]
 fn group_gpu_trace_legacy_root_test() {
-    let space =
-        gpu_trace("TraceContext", &[("graph_type", "train".into()), ("step_num", 123.into())]);
+    let space = gpu_trace("TraceContext", &[("graph_type", "train".into()), ("step_num", 123.into())]);
     let (_, planes, names) = grouped(&space);
     let kernel = &planes[1].lines[0].events[0];
     assert_eq!((group_id(kernel), kernel.eager.is_some()), (Some(0), true));
@@ -67,14 +50,7 @@ fn group_tensor_flow_loop_test() {
     let mut space = XSpace::default();
     let host = space.host();
     host.set_pid_if_not_set(1);
-    let consumer = |iter: i64| {
-        [
-            ("id", V::from(0)),
-            ("iter_num", iter.into()),
-            ("_ct", TF_EXECUTOR.into()),
-            ("_c", 0.into()),
-        ]
-    };
+    let consumer = |iter: i64| [("id", V::from(0)), ("iter_num", iter.into()), ("_ct", TF_EXECUTOR.into()), ("_c", 0.into())];
     host.event(0, "ExecutorState::Process", 5, 10, &consumer(10));
     host.event(0, "ExecutorState::Process", 20, 80, &consumer(10));
     host.event(0, "matmul", 30, 70, &[("correlation_id", 100.into())]);
@@ -93,21 +69,14 @@ fn group_multiple_tensor_flow_loops_test() {
     let mut space = XSpace::default();
     let host = space.host();
     host.set_pid_if_not_set(1);
-    let consumer = |step: i64, iter: i64| {
-        [
-            ("id", V::from(step)),
-            ("iter_num", iter.into()),
-            ("_ct", TF_EXECUTOR.into()),
-            ("_c", step.into()),
-        ]
-    };
+    let consumer =
+        |step: i64, iter: i64| [("id", V::from(step)), ("iter_num", iter.into()), ("_ct", TF_EXECUTOR.into()), ("_c", step.into())];
     host.event(0, "ExecutorState::Process", 220, 80, &consumer(1, 0));
     host.event(0, "ExecutorState::Process", 320, 80, &consumer(1, 1));
     host.event(1, "ExecutorState::Process", 20, 80, &consumer(0, 10));
     host.event(1, "ExecutorState::Process", 120, 80, &consumer(0, 11));
     let (_, _, names) = grouped(&space);
-    let expected =
-        [(0, "10"), (1, "11"), (2, "0"), (3, "1")].map(|(id, name)| (id, name.to_string()));
+    let expected = [(0, "10"), (1, "11"), (2, "0"), (3, "1")].map(|(id, name)| (id, name.to_string()));
     assert_eq!(names.unwrap(), expected.into_iter().collect());
 }
 
@@ -118,20 +87,9 @@ fn eager_op_test() {
     space.add_plane();
     let (host, device) = space.planes.split_at_mut(1);
     let (host, device) = (&mut host[0], &mut device[0]);
-    let launch = |host: &mut XPlane,
-                  device: &mut XPlane,
-                  launch: &str,
-                  kernel: &str,
-                  offset: i64,
-                  correlation: i64| {
+    let launch = |host: &mut XPlane, device: &mut XPlane, launch: &str, kernel: &str, offset: i64, correlation: i64| {
         host.event(0, launch, offset + 10, offset + 90, &[("correlation_id", correlation.into())]);
-        device.event(
-            0,
-            kernel,
-            200 + offset,
-            300 + offset,
-            &[("correlation_id", correlation.into())],
-        );
+        device.event(0, kernel, 200 + offset, 300 + offset, &[("correlation_id", correlation.into())]);
     };
     launch(host, device, "tf1 matmul", "tf1_kernel_matmul", 0, 100);
     host.event(0, "EagerExecute", 100, 200, &[]);
@@ -154,17 +112,9 @@ fn eager_op_test() {
             .collect()
     };
     let (host, device) = (eager(&planes[0]), eager(&planes[1]));
-    assert_eq!(
-        (host["eager_op_cpu_kernel:Matmul"], host["eager_func_cpu_kernel:Matmul"]),
-        (true, false)
-    );
-    let kernels = [
-        "tf1_kernel_matmul",
-        "legacy_kernel_matmul",
-        "eager_op_kernel_matmul",
-        "eager_func_kernel_matmul",
-    ]
-    .map(|kernel| device[kernel]);
+    assert_eq!((host["eager_op_cpu_kernel:Matmul"], host["eager_func_cpu_kernel:Matmul"]), (true, false));
+    let kernels =
+        ["tf1_kernel_matmul", "legacy_kernel_matmul", "eager_op_kernel_matmul", "eager_func_kernel_matmul"].map(|kernel| device[kernel]);
     assert_eq!(kernels, [false, false, true, false]);
 }
 
@@ -175,20 +125,8 @@ fn function_op_test() {
     host.set_pid_if_not_set(1);
     host.event(0, "TraceContext", 0, 100, &[("step_num", 123.into())]);
     host.event(0, "EagerExecute", 10, 90, &[]);
-    host.event(
-        0,
-        "FunctionRun",
-        10,
-        90,
-        &[("id", 0.into()), ("_pt", TF_EXECUTOR.into()), ("_p", 0.into())],
-    );
-    host.event(
-        1,
-        "ExecutorState::Process",
-        20,
-        80,
-        &[("id", 0.into()), ("_ct", TF_EXECUTOR.into()), ("_c", 0.into())],
-    );
+    host.event(0, "FunctionRun", 10, 90, &[("id", 0.into()), ("_pt", TF_EXECUTOR.into()), ("_p", 0.into())]);
+    host.event(1, "ExecutorState::Process", 20, 80, &[("id", 0.into()), ("_ct", TF_EXECUTOR.into()), ("_c", 0.into())]);
     host.event(1, "matmul", 30, 30, &[("correlation_id", 100.into())]);
     host.event(1, "add:Add", 70, 20, &[]);
     space.add_plane().event(0, "matmul", 200, 300, &[("correlation_id", 100.into())]);
@@ -221,11 +159,7 @@ fn semantic_int_arg_no_match_test() {
     let found = groups(&planes[0]);
     assert_eq!(found.len(), 3);
     for (event, group) in found {
-        assert_eq!(
-            group,
-            if event.ends_with("ExecutorState::Process") { None } else { Some(0) },
-            "{event}"
-        );
+        assert_eq!(group, if event.ends_with("ExecutorState::Process") { None } else { Some(0) }, "{event}");
     }
 }
 
@@ -235,11 +169,7 @@ fn semantic_uint_arg_no_match_test() {
     let found = groups(&planes[0]);
     assert_eq!(found.len(), 3);
     for (event, group) in found {
-        assert_eq!(
-            group,
-            if event.ends_with("ExecutorState::Process") { None } else { Some(0) },
-            "{event}"
-        );
+        assert_eq!(group, if event.ends_with("ExecutorState::Process") { None } else { Some(0) }, "{event}");
     }
 }
 
@@ -252,14 +182,7 @@ fn async_event_test() {
     plane.event(0, "async", 10, 200, &[("_a", 1.into())]);
     plane.event(0, "child", 20, 80, &[]);
     let (_, planes, _) = grouped(&space);
-    assert_eq!(
-        groups(&planes[0]),
-        [
-            (" parent".to_string(), Some(0)),
-            (" async".to_string(), None),
-            (" child".to_string(), Some(0))
-        ]
-    );
+    assert_eq!(groups(&planes[0]), [(" parent".to_string(), Some(0)), (" async".to_string(), None), (" child".to_string(), Some(0))]);
 }
 
 #[test]
@@ -269,33 +192,14 @@ fn batching_session_test() {
     plane.set_pid_if_not_set(1);
     for offset in [0, 200] {
         plane.event(0, "BatchingSessionRun", offset, 100, &[("_r", 1.into())]);
-        plane.event(
-            0,
-            "Schedule",
-            offset,
-            100,
-            &[("_pt", SHARED_BATCH_SCHEDULER.into()), ("_p", 123.into())],
-        );
+        plane.event(0, "Schedule", offset, 100, &[("_pt", SHARED_BATCH_SCHEDULER.into()), ("_p", 123.into())]);
     }
-    plane.event(
-        1,
-        "ProcessBatch",
-        200,
-        100,
-        &[("_ct", SHARED_BATCH_SCHEDULER.into()), ("_c", 123.into()), ("_r", 2.into())],
-    );
+    plane.event(1, "ProcessBatch", 200, 100, &[("_ct", SHARED_BATCH_SCHEDULER.into()), ("_c", 123.into()), ("_r", 2.into())]);
     let (_, planes, names) = grouped(&space);
     assert_eq!(names.unwrap().len(), 3);
     let found = groups(&planes[0]);
     assert!(found.iter().all(|(_, group)| group.is_some()), "{found:?}");
-    assert_eq!(
-        found
-            .iter()
-            .filter(|(event, _)| event.ends_with("BatchingSessionRun")
-                || event.ends_with("ProcessBatch"))
-            .count(),
-        3
-    );
+    assert_eq!(found.iter().filter(|(event, _)| event.ends_with("BatchingSessionRun") || event.ends_with("ProcessBatch")).count(), 3);
 }
 
 fn host_with_session_root(name: &str, stats: &[(&str, V)]) -> XSpace {
@@ -312,13 +216,7 @@ fn tpu_execute_op_test() {
     let mut space = XSpace::default();
     let host = space.host();
     host.set_pid_if_not_set(1);
-    host.event(
-        0,
-        "ExecutorState::Process",
-        20,
-        50,
-        &[("id", 123.into()), ("iter_num", 456.into())],
-    );
+    host.event(0, "ExecutorState::Process", 20, 50, &[("id", 123.into()), ("iter_num", 456.into())]);
     let (_, planes, names) = grouped(&space);
     assert_eq!(names.unwrap().len(), 1);
     assert!(groups(&planes[0]).iter().all(|(_, group)| group.is_some()));
@@ -326,10 +224,8 @@ fn tpu_execute_op_test() {
 
 #[test]
 fn tpu_request_test() {
-    let (_, planes, names) = grouped(&host_with_session_root(
-        "EnqueueRequestLocked",
-        &[("queue_addr", 123.into()), ("request_id", 456.into())],
-    ));
+    let (_, planes, names) =
+        grouped(&host_with_session_root("EnqueueRequestLocked", &[("queue_addr", 123.into()), ("request_id", 456.into())]));
     assert_eq!(names.unwrap().len(), 1);
     assert!(groups(&planes[0]).iter().all(|(_, group)| group.is_some()));
 }
@@ -346,22 +242,11 @@ fn tpu_program_callback_test() {
 
 #[test]
 fn connection_stat_that_is_not_an_int_is_zero() {
-    let launch = |core_type: V| {
-        [
-            ("run_id", V::from(1)),
-            ("queue_id", 0.into()),
-            ("device_ordinal", 0.into()),
-            ("core_type", core_type),
-        ]
-    };
+    let launch = |core_type: V| [("run_id", V::from(1)), ("queue_id", 0.into()), ("device_ordinal", 0.into()), ("core_type", core_type)];
     let mut space = host_with_session_root("DoEnqueueProgram", &launch(0.into()));
     space.planes[0].event(1, "CompleteCallbacks", 200, 10, &launch("7".into()));
     let (_, planes, _) = grouped(&space);
-    assert!(
-        groups(&planes[0]).iter().all(|(_, group)| group.is_some()),
-        "{:?}",
-        groups(&planes[0])
-    );
+    assert!(groups(&planes[0]).iter().all(|(_, group)| group.is_some()), "{:?}", groups(&planes[0]));
 }
 
 #[test]
@@ -371,13 +256,7 @@ fn module_root_event_test() {
     device.named_line(0, "Steps");
     device.event(0, "1", 100, 200, &[("step_num", 1.into())]);
     device.named_line(1, "XLA Modules");
-    device.event(
-        1,
-        "module",
-        105,
-        194,
-        &[("run_id", 123.into()), ("queue_id", 0.into()), ("device_ordinal", 0.into())],
-    );
+    device.event(1, "module", 105, 194, &[("run_id", 123.into()), ("queue_id", 0.into()), ("device_ordinal", 0.into())]);
     device.named_line(2, "XLA Ops");
     device.event(2, "matmul", 110, 190, &[]);
     let (_, planes, _) = grouped(&space);
@@ -402,9 +281,7 @@ fn offload_consumer(id: i64) -> [(&'static str, V); 2] {
 fn device_step_span(planes: &[Plane], plane: usize, line: &str) -> Vec<(u64, u64, (u64, u64))> {
     let line = planes[plane].lines.iter().find(|candidate| candidate.name == line).unwrap();
     let stat = |index: usize, key: &str| {
-        line.steps.get(&index).and_then(|step| {
-            step.stats.iter().find(|(name, _)| *name == key).map(|(_, value)| *value)
-        })
+        line.steps.get(&index).and_then(|step| step.stats.iter().find(|(name, _)| *name == key).map(|(_, value)| *value))
     };
     line.events
         .iter()
@@ -415,9 +292,7 @@ fn device_step_span(planes: &[Plane], plane: usize, line: &str) -> Vec<(u64, u64
                 event.ts + event.dur,
                 stat(index, "device_offset_ps")
                     .zip(stat(index, "device_duration_ps"))
-                    .map_or((event.ts, event.ts + event.dur), |(offset, duration)| {
-                        (offset as u64, (offset + duration) as u64)
-                    }),
+                    .map_or((event.ts, event.ts + event.dur), |(offset, duration)| (offset as u64, (offset + duration) as u64)),
             )
         })
         .collect()
@@ -443,13 +318,7 @@ fn merge_host_steps_test() {
     let device = space.tpu(0, "TPUv4", 0.0, 0.0, None);
     device.named_line(0, "XLA Modules");
     for ((offset, duration), run) in spans.into_iter().zip(2..) {
-        device.event(
-            0,
-            "jit_something(1)",
-            offset,
-            duration,
-            &[("run_id", run.into()), ("queue_id", 0.into())],
-        );
+        device.event(0, "jit_something(1)", offset, duration, &[("run_id", run.into()), ("queue_id", 0.into())]);
     }
     device.named_line(1, "Steps");
     for (index, (offset, duration)) in spans.into_iter().enumerate() {
@@ -464,13 +333,7 @@ fn merge_host_steps_test() {
     device.named_line(2, "XLA Ops");
     let events = spans.into_iter().zip([5, 95, 45, 20]).enumerate();
     for (index, ((offset, _), done)) in events {
-        device.event(
-            2,
-            "offload.start.1",
-            offset,
-            5,
-            &offload_start(index as i64, index as i64 + 1, 1),
-        );
+        device.event(2, "offload.start.1", offset, 5, &offload_start(index as i64, index as i64 + 1, 1));
         device.event(2, "offload.done.1", offset + 5, done, &[]);
     }
     let sparse = space.tpu(0, "TPUv4", 0.0, 0.0, Some(0));
@@ -478,13 +341,7 @@ fn merge_host_steps_test() {
     sparse.named_line(1, "Sparse Core Steps");
     sparse.named_line(2, "Sparse Core Ops");
     for (index, (offset, duration)) in spans.into_iter().enumerate() {
-        sparse.event(
-            0,
-            "offloaded(1)",
-            offset + 1,
-            duration - 2,
-            &[("tc_offload_start_id", 1.into())],
-        );
+        sparse.event(0, "offloaded(1)", offset + 1, duration - 2, &[("tc_offload_start_id", 1.into())]);
         sparse.event(1, &format!("sc step {index}"), offset, duration, &[]);
         sparse.event(2, "sc_op_1", offset + 1, duration - 2, &offload_consumer(index as i64 + 1));
     }
@@ -501,13 +358,7 @@ fn merge_offloaded_sc_steps() {
     core.named_line(0, "XLA Modules");
     core.event(0, "jit_tc_module", 1010, 980, &[("run_id", 1.into())]);
     core.named_line(1, "Steps");
-    core.event(
-        1,
-        "tc step 0",
-        1000,
-        1000,
-        &[("device_offset_ps", 1000.into()), ("device_duration_ps", 1000.into())],
-    );
+    core.event(1, "tc step 0", 1000, 1000, &[("device_offset_ps", 1000.into()), ("device_duration_ps", 1000.into())]);
     core.named_line(2, "XLA Ops");
     core.event(2, "offload.start.1", 1050, 50, &offload_start(0, 1, 1));
     core.event(2, "offload.done.1", 1100, 400, &[]);
@@ -529,19 +380,9 @@ fn merge_offloaded_sc_steps() {
     let expected = *names.keys().next().unwrap();
     for plane in &planes {
         let found = groups(plane);
-        assert!(
-            found.iter().all(|(_, group)| *group == Some(expected)),
-            "{}: {found:?}",
-            plane.name
-        );
+        assert!(found.iter().all(|(_, group)| *group == Some(expected)), "{}: {found:?}", plane.name);
     }
-    assert_eq!(
-        device_step_span(&planes, 1, "Sparse Core Steps")
-            .iter()
-            .map(|span| (span.0, span.1))
-            .collect::<Vec<_>>(),
-        [(1100, 2000)]
-    );
+    assert_eq!(device_step_span(&planes, 1, "Sparse Core Steps").iter().map(|span| (span.0, span.1)).collect::<Vec<_>>(), [(1100, 2000)]);
 }
 
 fn offloaded_sparse_core(space: &mut XSpace, module: (i64, i64), copy: (i64, i64, i64)) {
@@ -552,12 +393,7 @@ fn offloaded_sparse_core(space: &mut XSpace, module: (i64, i64), copy: (i64, i64
         "jit(123)",
         module.0,
         module.1,
-        &[
-            ("run_id", 1.into()),
-            ("queue_id", 0.into()),
-            ("replica_id", 0.into()),
-            ("core_type", 0.into()),
-        ],
+        &[("run_id", 1.into()), ("queue_id", 0.into()), ("replica_id", 0.into()), ("core_type", 0.into())],
     );
     core.named_line(1, "Steps");
     core.event(1, "tc step 0", 1000, 1000, &[]);
@@ -586,13 +422,7 @@ fn group_offloaded_sparse_core_modules_host_loop_test() {
         "DoEnqueueProgram",
         100,
         10,
-        &[
-            ("run_id", 1.into()),
-            ("queue_id", 0.into()),
-            ("replica_id", 0.into()),
-            ("device_ordinal", 0.into()),
-            ("core_type", 0.into()),
-        ],
+        &[("run_id", 1.into()), ("queue_id", 0.into()), ("replica_id", 0.into()), ("device_ordinal", 0.into()), ("core_type", 0.into())],
     );
     offloaded_sparse_core(&mut space, (1000, 1000), (10, 1120, 180));
     let (_, planes, names) = grouped(&space);
@@ -602,11 +432,7 @@ fn group_offloaded_sparse_core_modules_host_loop_test() {
     assert_eq!(groups(&planes[0]).len(), 2);
     for plane in &planes {
         let found = groups(plane);
-        assert!(
-            found.iter().all(|(_, group)| *group == Some(expected)),
-            "{}: {found:?}",
-            plane.name
-        );
+        assert!(found.iter().all(|(_, group)| *group == Some(expected)), "{}: {found:?}", plane.name);
     }
 }
 
@@ -617,32 +443,15 @@ fn group_offloaded_sparse_core_modules_device_loop_test() {
     host.set_pid_if_not_set(1);
     host.named_line(0, "main");
     host.event(0, "ExecutorState::Process", 100, 10, &[("id", 1.into()), ("iter_num", 99.into())]);
-    host.event(
-        0,
-        "tpu::System::Execute",
-        100,
-        9,
-        &[("_pt", TFRT_TPU_RUNTIME.into()), ("_p", 1.into())],
-    );
+    host.event(0, "tpu::System::Execute", 100, 9, &[("_pt", TFRT_TPU_RUNTIME.into()), ("_p", 1.into())]);
     host.named_line(1, "tf_enqueue");
-    host.event(
-        1,
-        "tpu::System::Execute=>IssueSequencedEvent",
-        102,
-        10,
-        &[("_ct", TFRT_TPU_RUNTIME.into()), ("_c", 1.into())],
-    );
+    host.event(1, "tpu::System::Execute=>IssueSequencedEvent", 102, 10, &[("_ct", TFRT_TPU_RUNTIME.into()), ("_c", 1.into())]);
     host.event(
         1,
         "DoEnqueueProgram",
         103,
         8,
-        &[
-            ("run_id", 1.into()),
-            ("queue_id", 0.into()),
-            ("core_type", 0.into()),
-            ("device_ordinal", 0.into()),
-        ],
+        &[("run_id", 1.into()), ("queue_id", 0.into()), ("core_type", 0.into()), ("device_ordinal", 0.into())],
     );
     offloaded_sparse_core(&mut space, (900, 1200), (100, 1300, 100));
     let (_, planes, names) = grouped(&space);
@@ -653,10 +462,7 @@ fn group_offloaded_sparse_core_modules_device_loop_test() {
     for plane in &planes[1..] {
         let found = groups(plane);
         assert!(
-            found
-                .iter()
-                .filter(|(event, _)| !event.starts_with("XLA Modules "))
-                .all(|(_, group)| *group == Some(1)),
+            found.iter().filter(|(event, _)| !event.starts_with("XLA Modules ")).all(|(_, group)| *group == Some(1)),
             "{}: {found:?}",
             plane.name
         );
@@ -688,11 +494,10 @@ fn named_groups(planes: &[Plane]) -> BTreeMap<String, i64> {
     planes
         .iter()
         .flat_map(|plane| {
-            plane.lines.iter().flat_map(move |line| {
-                line.events.iter().filter_map(move |event| {
-                    Some((name(plane, event).to_string(), group_id(event)?))
-                })
-            })
+            plane
+                .lines
+                .iter()
+                .flat_map(move |line| line.events.iter().filter_map(move |event| Some((name(plane, event).to_string(), group_id(event)?))))
         })
         .collect()
 }
@@ -700,23 +505,20 @@ fn named_groups(planes: &[Plane]) -> BTreeMap<String, i64> {
 #[test]
 fn subprocess_grouping_test() {
     let (_, planes, _) = grouped(&subprocess_space(Some(1000)));
-    let expected = [("root1", 0), ("root2", 1), ("producer", 1), ("consumer", 1)]
-        .map(|(name, group)| (name.to_string(), group));
+    let expected = [("root1", 0), ("root2", 1), ("producer", 1), ("consumer", 1)].map(|(name, group)| (name.to_string(), group));
     assert_eq!(named_groups(&planes), expected.into_iter().collect());
 }
 
 #[test]
 fn producer_and_consumer_ids_that_are_not_ints_are_zero() {
     let (_, planes, _) = grouped(&subprocess_space_with(Some(1000), "a".into(), "b".into()));
-    let expected = [("root1", 0), ("root2", 1), ("producer", 1), ("consumer", 1)]
-        .map(|(name, group)| (name.to_string(), group));
+    let expected = [("root1", 0), ("root2", 1), ("producer", 1), ("consumer", 1)].map(|(name, group)| (name.to_string(), group));
     assert_eq!(named_groups(&planes), expected.into_iter().collect());
 }
 
 #[test]
 fn subprocess_grouping_no_match_test() {
     let (_, planes, _) = grouped(&subprocess_space(None));
-    let expected = [("root1", 0), ("root2", 1), ("producer", 1)]
-        .map(|(name, group)| (name.to_string(), group));
+    let expected = [("root1", 0), ("root2", 1), ("producer", 1)].map(|(name, group)| (name.to_string(), group));
     assert_eq!(named_groups(&planes), expected.into_iter().collect());
 }

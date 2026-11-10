@@ -4,8 +4,7 @@ use crate::tools::counters::{kernel_utilization, utilization_viewer};
 use prost::Message;
 use serde_json::Value;
 
-const V7X_CYCLES: &str =
-    "VF_CHIP_DIE0_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT";
+const V7X_CYCLES: &str = "VF_CHIP_DIE0_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT";
 const V7X_TC: &str = "VF_CHIP_DIE0_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_";
 const V6E_TC: &str = "VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_";
 
@@ -31,13 +30,7 @@ fn device(space: &mut XSpace, name: &str, device_id: Option<i64>, device_type: &
 }
 
 fn counter(plane: &mut XPlane, line: i64, name: &str, id: u64, value: f64, duration_ns: i64) {
-    plane.event(
-        line,
-        name,
-        0,
-        duration_ns * 1000,
-        &[("performance_counter_id", id.into()), ("counter_value", V::Double(value))],
-    );
+    plane.event(line, name, 0, duration_ns * 1000, &[("performance_counter_id", id.into()), ("counter_value", V::Double(value))]);
 }
 
 fn tpu(device_type: &str, line_name: &str, counters: &[(&str, u64, f64)]) -> XSpace {
@@ -64,47 +57,23 @@ fn basic_tpu_v7x() {
     let json_str = utilization(&tpu(
         "TPU v7x",
         "",
-        &[
-            ("CYCLES", v7x(V7X_CYCLES), 1000.0),
-            ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), 500.0),
-        ],
+        &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), 500.0)],
     ));
-    assert!(
-        json_str.contains("Scalar Unit") && json_str.contains("1000") && json_str.contains("500"),
-        "{json_str}"
-    );
+    assert!(json_str.contains("Scalar Unit") && json_str.contains("1000") && json_str.contains("500"), "{json_str}");
 }
 
 #[test]
 fn vpu_util_tpu_v7x() {
-    let json_str = utilization(&tpu(
-        "TPU v7x",
-        "",
-        &[
-            ("CYCLES", v7x(V7X_CYCLES), 1000.0),
-            ("VPU_FADD_0", v7x_tc("VPU_VALU_FADD_OPS_0"), 250.0),
-        ],
-    ));
-    assert!(
-        json_str.contains("VPU Util") && json_str.contains("250") && json_str.contains("4000"),
-        "{json_str}"
-    );
+    let json_str =
+        utilization(&tpu("TPU v7x", "", &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("VPU_FADD_0", v7x_tc("VPU_VALU_FADD_OPS_0"), 250.0)]));
+    assert!(json_str.contains("VPU Util") && json_str.contains("250") && json_str.contains("4000"), "{json_str}");
 }
 
 #[test]
 fn vpu_util_tpu_v6_e() {
-    let json_str = utilization(&tpu(
-        "TPU v6 Lite",
-        "",
-        &[
-            ("CYCLES", v6e_tc("CYCLES"), 1000.0),
-            ("VPU_FADD_0", v6e_tc("VPU_VALU_FADD_OPS_0"), 250.0),
-        ],
-    ));
-    assert!(
-        json_str.contains("VPU Util") && json_str.contains("250") && json_str.contains("4000"),
-        "{json_str}"
-    );
+    let json_str =
+        utilization(&tpu("TPU v6 Lite", "", &[("CYCLES", v6e_tc("CYCLES"), 1000.0), ("VPU_FADD_0", v6e_tc("VPU_VALU_FADD_OPS_0"), 250.0)]));
+    assert!(json_str.contains("VPU Util") && json_str.contains("250") && json_str.contains("4000"), "{json_str}");
 }
 
 #[test]
@@ -118,12 +87,7 @@ fn counter_value_out_of_bounds_of_uint64() {
             ("SCALAR_ALU_1", v7x_tc("SCALAR_ALU_INSTRUCTION_1"), 2.0e19),
         ],
     ));
-    assert!(
-        json_str.contains("Scalar Unit")
-            && json_str.contains("1.84467")
-            && json_str.contains("e+19"),
-        "{json_str}"
-    );
+    assert!(json_str.contains("Scalar Unit") && json_str.contains("1.84467") && json_str.contains("e+19"), "{json_str}");
 }
 
 #[test]
@@ -138,10 +102,7 @@ fn na_n_counter_value_handled_safely() {
     let json_str = utilization(&tpu(
         "TPU v7x",
         "",
-        &[
-            ("CYCLES", v7x(V7X_CYCLES), 1000.0),
-            ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), f64::NAN),
-        ],
+        &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), f64::NAN)],
     ));
     assert!(json_str.contains("Scalar Unit") && json_str.contains('0'), "{json_str}");
 }
@@ -205,13 +166,7 @@ fn multi_core_other_metrics_aggregation_tpu_v7x() {
         "counters_multicore_kernel",
         &[
             ("DIE0_CYCLES", v7x(V7X_CYCLES), 1000.0),
-            (
-                "DIE1_CYCLES",
-                v7x(
-                    "VF_CHIP_DIE1_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT",
-                ),
-                1000.0,
-            ),
+            ("DIE1_CYCLES", v7x("VF_CHIP_DIE1_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT"), 1000.0),
             ("VPU_FADD_0", v7x_tc("VPU_VALU_FADD_OPS_0"), 250.0),
         ],
     ));
@@ -246,27 +201,9 @@ fn multi_core_hbm_bandwidth_aggregation_tpu_v7x() {
         &[
             ("DIE0_CYCLES", v7x(V7X_CYCLES), 10000.0),
             ("DIE0_MISC_CYCLES", v7x_tc("CYCLES"), 10000.0),
-            (
-                "DIE1_CYCLES",
-                v7x(
-                    "VF_CHIP_DIE1_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT",
-                ),
-                10000.0,
-            ),
-            (
-                "DIE1_MISC_CYCLES",
-                v7x(
-                    "VF_CHIP_DIE1_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES",
-                ),
-                10000.0,
-            ),
-            (
-                "HBM_WR",
-                v7x(
-                    "VF_CHIP_DIE0_HBM_0_SS_HBMC_0_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_WR_REQ_PS0",
-                ),
-                50000.0,
-            ),
+            ("DIE1_CYCLES", v7x("VF_CHIP_DIE1_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT"), 10000.0),
+            ("DIE1_MISC_CYCLES", v7x("VF_CHIP_DIE1_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES"), 10000.0),
+            ("HBM_WR", v7x("VF_CHIP_DIE0_HBM_0_SS_HBMC_0_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_WR_REQ_PS0"), 50000.0),
         ],
     ));
     assert_eq!(result["status"], "SUCCESS");

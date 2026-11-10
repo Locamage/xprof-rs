@@ -1,6 +1,5 @@
 use crate::tools::opstats::{
-    CMEM, HBM, Metrics, OpStats, READ, SPARSE_CORE, TENSOR_CORE, VMEM, WRITE, giga_to_gibi,
-    pico_to_micro, pico_to_nano, safe_divide,
+    CMEM, HBM, Metrics, OpStats, READ, SPARSE_CORE, TENSOR_CORE, VMEM, WRITE, giga_to_gibi, pico_to_micro, pico_to_nano, safe_divide,
 };
 use crate::tools::table::{Cell, Table};
 use crate::xplane::steps::GPU;
@@ -38,8 +37,7 @@ const COLUMNS: [(&str, &str, &str); 29] = [
     ("vdd_energy", "number", "VDD Energy (J)"),
 ];
 
-const MEMORIES: [(&str, usize); 5] =
-    [("HBM", 0), ("CMEM Read", 3), ("CMEM Write", 4), ("VMEM Read", 5), ("VMEM Write", 6)];
+const MEMORIES: [(&str, usize); 5] = [("HBM", 0), ("CMEM Read", 3), ("CMEM Write", 4), ("VMEM Read", 5), ("VMEM Write", 6)];
 
 #[derive(Default)]
 pub struct Roofline {
@@ -74,8 +72,7 @@ pub fn roofline(metrics: &Metrics, stats: &OpStats) -> Roofline {
     if metrics.memory.is_empty() {
         bytes[0] = metrics.bytes_accessed;
     }
-    let bandwidths: [f64; MEMORIES.len()] =
-        std::array::from_fn(|slot| giga_to_gibi(safe_divide(bytes[slot] as f64, time_ns)));
+    let bandwidths: [f64; MEMORIES.len()] = std::array::from_fn(|slot| giga_to_gibi(safe_divide(bytes[slot] as f64, time_ns)));
     let peak = |index: usize| perf.bandwidths.get(index).copied().unwrap_or(0.0);
     let out = Roofline {
         measured_flop_rate: safe_divide(metrics.flops_v2, time_ns),
@@ -91,16 +88,10 @@ pub fn roofline(metrics: &Metrics, stats: &OpStats) -> Roofline {
         ..Default::default()
     };
     let compute = safe_divide(out.measured_flop_rate, perf.peak_tera_flops * 1e3);
-    let mut bound = if 0.0 < compute {
-        ("Compute", compute, out.operational_intensity)
-    } else {
-        ("Unknown", 0.0, 0.0)
-    };
+    let mut bound = if 0.0 < compute { ("Compute", compute, out.operational_intensity) } else { ("Unknown", 0.0, 0.0) };
     for (slot, &(name, index)) in MEMORIES.iter().enumerate() {
         let candidate = safe_divide(bandwidths[slot], giga_to_gibi(peak(index)));
-        if (slot == 0 || (stats.tpu && bytes[slot] != 0 && peak(index) != 0.0))
-            && bound.1 < candidate
-        {
+        if (slot == 0 || (stats.tpu && bytes[slot] != 0 && peak(index) != 0.0)) && bound.1 < candidate {
             bound = (name, candidate, safe_divide(metrics.flops_v2, bytes[slot] as f64));
         }
     }
@@ -112,11 +103,7 @@ pub fn roofline(metrics: &Metrics, stats: &OpStats) -> Roofline {
 }
 
 fn escape_html(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
 }
 
 pub fn source_text(metrics: &Metrics) -> String {
@@ -141,13 +128,7 @@ struct Record<'a> {
     cumulative: f64,
 }
 
-fn collect<'a>(
-    out: &mut Vec<Record<'a>>,
-    metrics: &'a Metrics,
-    previous: &mut Option<(u64, f64)>,
-    total_us: f64,
-    parent: &'a str,
-) {
+fn collect<'a>(out: &mut Vec<Record<'a>>, metrics: &'a Metrics, previous: &mut Option<(u64, f64)>, total_us: f64, parent: &'a str) {
     if metrics.occurrences == 0 {
         return;
     }
@@ -199,15 +180,11 @@ pub fn json(stats: &OpStats) -> String {
         .map(|record| {
             let metrics = record.metrics;
             let roof = roofline(metrics, stats);
-            let long =
-                if metrics.long_name.is_empty() { &metrics.name } else { &metrics.long_name };
+            let long = if metrics.long_name.is_empty() { &metrics.name } else { &metrics.long_name };
             let text = |text: &str| Cell::Text(text.to_string());
             let yes_no = |flag: bool| text(if flag { "Yes" } else { "No" });
-            let (total_time, self_time, occurrences) = (
-                pico_to_micro(metrics.time_ps),
-                pico_to_micro(metrics.self_time_ps),
-                metrics.occurrences as f64,
-            );
+            let (total_time, self_time, occurrences) =
+                (pico_to_micro(metrics.time_ps), pico_to_micro(metrics.self_time_ps), metrics.occurrences as f64);
             let mut row = vec![
                 Cell::Number(record.rank as f64),
                 Cell::Text(metrics.module.to_string()),
@@ -239,19 +216,13 @@ pub fn json(stats: &OpStats) -> String {
             row.extend([
                 text(roof.bound_by),
                 yes_no(
-                    metrics
-                        .long_name
-                        .split('=')
-                        .next()
-                        .expect("iterator is non-empty")
-                        .contains(".remat")
+                    metrics.long_name.split('=').next().expect("iterator is non-empty").contains(".remat")
                         || metrics.provenance.contains("rematted_computation"),
                 ),
                 yes_no(
                     metrics.provenance.ends_with(":XlaSendToHost")
                         || metrics.provenance.ends_with(":XlaRecvFromHost")
-                        || (metrics.long_name.contains("send-done")
-                            && metrics.long_name.contains("is_host_transfer=true")),
+                        || (metrics.long_name.contains("send-done") && metrics.long_name.contains("is_host_transfer=true")),
                 ),
                 yes_no(metrics.autotuned),
                 Cell::Text(source_text(metrics)),

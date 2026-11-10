@@ -9,8 +9,7 @@ use std::sync::LazyLock;
 
 const VIEWS: [&str; 7] = ["graph", "json", "pb", "pbtxt", "short_txt", "long_txt", "adj_nodes"];
 const DOWNLOAD: &str = "application/octet-stream";
-const ACTIVATION_MODES: [&str; 9] =
-    ["none", "sigmoid", "relu", "relu6", "reluX", "tanh", "bandpass", "elu", "leakyrelu"];
+const ACTIVATION_MODES: [&str; 9] = ["none", "sigmoid", "relu", "relu6", "reluX", "tanh", "bandpass", "elu", "leakyrelu"];
 
 static GPU_BACKEND_CONFIG: LazyLock<MessageDescriptor> = LazyLock::new(|| {
     DescriptorPool::decode(&include_bytes!("../data/gpu_backend_descriptors.pb")[..])
@@ -19,20 +18,16 @@ static GPU_BACKEND_CONFIG: LazyLock<MessageDescriptor> = LazyLock::new(|| {
         .expect("required value is present")
 });
 const GRAPH_HTML: &str = include_str!("../data/graph.html");
-const TRIVIAL: &str = "add=add multiply=multiply minimum=min maximum=max xor=xor and=and or=or \
-    LE=less-or-equal GE=greater-or-equal GT=greater-than LT=less-than EQ=equal-to NE=not-equal-to";
-const SCHEMES: &str = "blue:filled:#bbdefb:#8aacc8:black brown:filled:#bcaaa4:#8c7b75:black \
-    dark_blue:filled:#1565c0:#003c8f:white dark_green:filled:#2e7d32:#005005:white \
-    dark_orange:filled:#ffb74d:#c88719:black dark_red:filled:#b71c1c:#7f0000:white \
-    gray:filled:#cfd8dc:#9ea7aa:black green:filled:#c8e6c9:#97b498:black \
-    orange:filled:#ffe0b2:#cbae82:black purple:filled:#e1bee7:#af8eb5:black \
-    red:filled:#ffcdd2:#cb9ca1:black white:filled:white:#9e9e9e:black \
+const TRIVIAL: &str = "add=add multiply=multiply minimum=min maximum=max xor=xor and=and or=or LE=less-or-equal GE=greater-or-equal \
+    GT=greater-than LT=less-than EQ=equal-to NE=not-equal-to";
+const SCHEMES: &str = "blue:filled:#bbdefb:#8aacc8:black brown:filled:#bcaaa4:#8c7b75:black dark_blue:filled:#1565c0:#003c8f:white \
+    dark_green:filled:#2e7d32:#005005:white dark_orange:filled:#ffb74d:#c88719:black dark_red:filled:#b71c1c:#7f0000:white \
+    gray:filled:#cfd8dc:#9ea7aa:black green:filled:#c8e6c9:#97b498:black orange:filled:#ffe0b2:#cbae82:black \
+    purple:filled:#e1bee7:#af8eb5:black red:filled:#ffcdd2:#cb9ca1:black white:filled:white:#9e9e9e:black \
     yellow:filled:#fff9c4:#cbc693:black";
-const STATISTIC_FILLS: &str =
-    "#f7d4cc #f8b2a3 #f9a28f #fa917b #fb8066 #fc7052 #fd5f3d #fd4e29 #fe3e14 #ff2d00";
-const BROWN: &str = "all-gather all-gather-start all-gather-done all-reduce reduce-scatter \
-    all-reduce-start all-reduce-done all-to-all collective-broadcast collective-reduce \
-    collective-permute collective-permute-start collective-permute-done infeed outfeed \
+const STATISTIC_FILLS: &str = "#f7d4cc #f8b2a3 #f9a28f #fa917b #fb8066 #fc7052 #fd5f3d #fd4e29 #fe3e14 #ff2d00";
+const BROWN: &str = "all-gather all-gather-start all-gather-done all-reduce reduce-scatter all-reduce-start all-reduce-done all-to-all \
+    collective-broadcast collective-reduce collective-permute collective-permute-start collective-permute-done infeed outfeed \
     partition-id ragged-all-to-all recv recv-done send send-done replica-id";
 
 /// The template literal gets the DOT text without changes, as in the original tool. When the text
@@ -52,9 +47,7 @@ pub fn wrap_dot_html(dot: &str, engine: &str) -> String {
         match character {
             '\\' | '`' => escaped.push('\\'),
             '$' if rest.starts_with(b"{") => escaped.push('\\'),
-            '<' if rest.starts_with(b"!--")
-                || rest.get(..7).is_some_and(|tag| tag.eq_ignore_ascii_case(b"/script")) =>
-            {
+            '<' if rest.starts_with(b"!--") || rest.get(..7).is_some_and(|tag| tag.eq_ignore_ascii_case(b"/script")) => {
                 escaped.push_str("<\\");
                 continue;
             }
@@ -68,11 +61,7 @@ pub fn wrap_dot_html(dot: &str, engine: &str) -> String {
 fn adjacent(module: &Module, name: &str) -> Option<String> {
     fn walk(module: &Module, node: usize, forward: bool, out: &mut Vec<String>) {
         let next = |node: usize| {
-            if forward {
-                module.nodes[node].users.iter()
-            } else {
-                module.nodes[node].operands.iter()
-            }
+            if forward { module.nodes[node].users.iter() } else { module.nodes[node].operands.iter() }
         };
         let mut stack = vec![next(node)];
         while let Some(top) = stack.last_mut() {
@@ -99,37 +88,19 @@ fn adjacent(module: &Module, name: &str) -> Option<String> {
     ))
 }
 
-pub fn serve(
-    dir: &Path,
-    params: &HashMap<String, String>,
-) -> Result<(Vec<u8>, &'static str), String> {
+pub fn serve(dir: &Path, params: &HashMap<String, String>) -> Result<(Vec<u8>, &'static str), String> {
     let text = |key: &str| params.get(key).map(String::as_str).filter(|value| !value.is_empty());
     let kind = params.get("type").map(String::as_str);
     let positional = matches!(kind, Some("graph" | "adj_nodes"));
     let node = if positional { text("node_name").unwrap_or("") } else { "" };
-    let unparsable = |module: &str| {
-        format!(
-            "Can't parse {} as binary proto",
-            dir.join(format!("{module}.hlo_proto.pb")).display()
-        )
-    };
+    let unparsable = |module: &str| format!("Can't parse {} as binary proto", dir.join(format!("{module}.hlo_proto.pb")).display());
     let missing = || match (text("module_name"), text("program_id")) {
-        (Some(module), _) if dir.join(format!("{module}.hlo_proto.pb")).is_file() => {
-            unparsable(module)
-        }
-        (Some(module), _) => format!(
-            "{}; No such file or directory",
-            dir.join(format!("{module}.hlo_proto.pb")).display()
-        ),
-        (None, Some(program)) => {
-            match hlo::modules(dir).into_iter().find(|module| module.contains(program)) {
-                Some(module) => unparsable(&module),
-                None => format!(
-                    "HLO proto file containing program ID {program} not found in {}",
-                    dir.display()
-                ),
-            }
-        }
+        (Some(module), _) if dir.join(format!("{module}.hlo_proto.pb")).is_file() => unparsable(module),
+        (Some(module), _) => format!("{}; No such file or directory", dir.join(format!("{module}.hlo_proto.pb")).display()),
+        (None, Some(program)) => match hlo::modules(dir).into_iter().find(|module| module.contains(program)) {
+            Some(module) => unparsable(&module),
+            None => format!("HLO proto file containing program ID {program} not found in {}", dir.display()),
+        },
         (None, None) => "Can not load hlo proto from options.".into(),
     };
     let module = if let Some(module) = hlo::by_options(dir, params) {
@@ -143,9 +114,7 @@ pub fn serve(
             .iter()
             .filter_map(|module| hlo::load(dir, module))
             .find(|module| (0..module.nodes.len()).any(|index| module.inst(index).name == node));
-        by_node.ok_or_else(|| {
-            format!("HLO proto file containing node name {node} not found in {}", dir.display())
-        })?
+        by_node.ok_or_else(|| format!("HLO proto file containing node name {node} not found in {}", dir.display()))?
     };
     let kind = kind.ok_or("Graph viewer must provide a type option.")?;
     if !VIEWS.contains(&kind) {
@@ -155,16 +124,12 @@ pub fn serve(
     let not_found = || format!("Couldn't find HloInstruction or HloComputation named {node}.");
     match kind {
         "pb" => Ok((module.data.to_vec(), DOWNLOAD)),
-        "pbtxt" => crate::hlo::proto_text::print_hlo(&module.data)
-            .map(|out| (out.into_bytes(), DOWNLOAD))
-            .ok_or_else(missing),
+        "pbtxt" => crate::hlo::proto_text::print_hlo(&module.data).map(|out| (out.into_bytes(), DOWNLOAD)).ok_or_else(missing),
         "json" => Err("Not implemented".into()),
         _ if !module.valid => Err(module.error()),
         "short_txt" | "long_txt" => {
             let style = if kind == "short_txt" { Style::Short } else { Style::Long };
-            let text = Printer::new(&module, style, flag("show_metadata"))
-                .module_text()
-                .ok_or("Unsupported HLO instruction")?;
+            let text = Printer::new(&module, style, flag("show_metadata")).module_text().ok_or("Unsupported HLO instruction")?;
             Ok((text.into_bytes(), DOWNLOAD))
         }
         "graph" | "adj_nodes" if node.is_empty() => Err("node_name should not be empty".into()),
@@ -176,14 +141,7 @@ pub fn serve(
             if module.find_graph(node).is_none() && module.find(node).is_none() {
                 return Err(not_found());
             }
-            render(
-                &module,
-                node,
-                width,
-                flag("show_metadata"),
-                !flag("merge_fusion"),
-                params.get("format").map_or("url", String::as_str),
-            )
+            render(&module, node, width, flag("show_metadata"), !flag("merge_fusion"), params.get("format").map_or("url", String::as_str))
         }
         _ => {
             if module.find(node).is_none() {
@@ -193,10 +151,7 @@ pub fn serve(
                     not_found()
                 });
             }
-            Ok((
-                adjacent(&module, node).ok_or("Unsupported HLO instruction")?.into_bytes(),
-                "text/plain",
-            ))
+            Ok((adjacent(&module, node).ok_or("Unsupported HLO instruction")?.into_bytes(), "text/plain"))
         }
     }
 }
@@ -231,33 +186,20 @@ fn sanitize_html(text: &str) -> String {
 }
 
 fn statistic_attributes(scheme: &str, statistic: Option<(&str, &str)>) -> String {
-    let entry = SCHEMES
-        .split(' ')
-        .find(|entry| entry.split(':').next() == Some(scheme))
-        .unwrap_or("dashed:filled,dashed:white:#757575:#757575");
+    let entry =
+        SCHEMES.split(' ').find(|entry| entry.split(':').next() == Some(scheme)).unwrap_or("dashed:filled,dashed:white:#757575:#757575");
     let parts: Vec<&str> = entry.split(':').collect();
-    let (fill, stroke, font) =
-        statistic.map_or((parts[2], parts[3], parts[4]), |(fill, font)| (fill, "#c2c2c2", font));
-    format!(
-        "style=\"{}\", fontcolor=\"{font}\", color=\"{stroke}\", fillcolor=\"{fill}\"",
-        parts[1]
-    )
+    let (fill, stroke, font) = statistic.map_or((parts[2], parts[3], parts[4]), |(fill, font)| (fill, "#c2c2c2", font));
+    format!("style=\"{}\", fontcolor=\"{font}\", color=\"{stroke}\", fillcolor=\"{fill}\"", parts[1])
 }
 
 fn statistic_colors(viz: &crate::hlo::xla::StatisticsViz) -> Option<(&'static str, &'static str)> {
     if viz.statistics.is_empty() {
         return (viz.stat_index_to_visualize == -1).then_some(("#f5f5f5", "black"));
     }
-    let value = usize::try_from(viz.stat_index_to_visualize)
-        .ok()
-        .and_then(|index| viz.statistics.get(index))?
-        .stat_val;
+    let value = usize::try_from(viz.stat_index_to_visualize).ok().and_then(|index| viz.statistics.get(index))?.stat_val;
     let step = (0..9u8).find(|&step| value < f64::from(step + 1) * 10.0).map_or(9, usize::from);
-    let fill = if value == 0.0 {
-        "#f5f5f5"
-    } else {
-        STATISTIC_FILLS.split(' ').nth(step).unwrap_or_default()
-    };
+    let fill = if value == 0.0 { "#f5f5f5" } else { STATISTIC_FILLS.split(' ').nth(step).unwrap_or_default() };
     Some((fill, if value < 60.0 { "black" } else { "white" }))
 }
 
@@ -266,8 +208,7 @@ fn effective_scalar(shape: &Shape) -> bool {
 }
 
 fn has_type(shape: &Shape, kinds: &[i32]) -> bool {
-    kinds.contains(&shape.element_type)
-        || shape.tuple_shapes.iter().any(|element| has_type(element, kinds))
+    kinds.contains(&shape.element_type) || shape.tuple_shapes.iter().any(|element| has_type(element, kinds))
 }
 
 fn is_small(module: &Module, node: usize) -> bool {
@@ -291,11 +232,7 @@ impl Dumper<'_> {
         if let Some(&result) = filter.get(&node) {
             return result;
         }
-        if self.module.nodes[node].computation != self.computation && !self.acf_parameter(node) {
-            Show::Normal
-        } else {
-            Show::Hide
-        }
+        if self.module.nodes[node].computation != self.computation && !self.acf_parameter(node) { Show::Normal } else { Show::Hide }
     }
 
     fn shown(&self, node: usize) -> bool {
@@ -303,10 +240,7 @@ impl Dumper<'_> {
     }
 
     fn fusion_of(&self, graph: usize) -> Option<usize> {
-        self.callers[graph]
-            .iter()
-            .copied()
-            .find(|&caller| self.module.nodes[caller].opcode == "fusion")
+        self.callers[graph].iter().copied().find(|&caller| self.module.nodes[caller].opcode == "fusion")
     }
 
     fn fused(&self, node: usize) -> bool {
@@ -323,32 +257,25 @@ impl Dumper<'_> {
         let module = self.module;
         let entry = &module.nodes[node];
         let graph = entry.computation;
-        let Some(operand) = self.fusion_operand(node).filter(|&operand| {
-            entry.users.len() == 1 && module.nodes[operand].opcode == "get-tuple-element"
-        }) else {
+        let Some(operand) =
+            self.fusion_operand(node).filter(|&operand| entry.users.len() == 1 && module.nodes[operand].opcode == "get-tuple-element")
+        else {
             return false;
         };
-        let Some(&tuple) = module.nodes[operand]
-            .operands
-            .first()
-            .filter(|&&tuple| module.nodes[tuple].opcode == "fusion")
-        else {
+        let Some(&tuple) = module.nodes[operand].operands.first().filter(|&&tuple| module.nodes[tuple].opcode == "fusion") else {
             return false;
         };
         let Some(&fused) = module.nodes[tuple].called.first() else {
             return false;
         };
         let source = module.graphs[fused].root;
-        let custom_call = |node: usize, target: &str| {
-            module.nodes[node].opcode == "custom-call"
-                && module.inst(node).custom_call_target == target
-        };
+        let custom_call =
+            |node: usize, target: &str| module.nodes[node].opcode == "custom-call" && module.inst(node).custom_call_target == target;
         let user = entry.users[0];
         (module.graphs[graph].name.starts_with("async_collective_fusion")
             && custom_call(source, "AsyncCollectiveStart")
             && user == module.graphs[graph].root)
-            || (custom_call(user, "AsyncCollectiveDone")
-                && module.graphs[fused].name.starts_with("async_collective_fusion"))
+            || (custom_call(user, "AsyncCollectiveDone") && module.graphs[fused].name.starts_with("async_collective_fusion"))
     }
 
     fn trivial(&self, graph: usize) -> Option<&'static str> {
@@ -367,21 +294,11 @@ impl Dumper<'_> {
                 && effective_scalar(&module.nodes[node].shape)
         };
         let (first, second) = (root.operands[0], root.operands[1]);
-        if !((parameter(first, 0) && parameter(second, 1))
-            || (parameter(first, 1) && parameter(second, 0)))
-        {
+        if !((parameter(first, 0) && parameter(second, 1)) || (parameter(first, 1) && parameter(second, 0))) {
             return None;
         }
-        let key = if root.opcode == "compare" {
-            module.inst(computation.root).comparison_direction
-        } else {
-            root.opcode.clone()
-        };
-        TRIVIAL
-            .split(' ')
-            .filter_map(|pair| pair.split_once('='))
-            .find(|(name, _)| *name == key)
-            .map(|(_, kind)| kind)
+        let key = if root.opcode == "compare" { module.inst(computation.root).comparison_direction } else { root.opcode.clone() };
+        TRIVIAL.split(' ').filter_map(|pair| pair.split_once('=')).find(|(name, _)| *name == key).map(|(_, kind)| kind)
     }
 
     fn broadcast_of_scalar_constant(&self, node: usize) -> bool {
@@ -396,10 +313,7 @@ impl Dumper<'_> {
 
     fn show_subcomputation(&self, graph: usize) -> bool {
         if let Some(fusion) = self.fusion_of(graph) {
-            if !self.shown(fusion)
-                || matches!(self.show(fusion), Show::SomeOperandsOmitted | Show::OmitOperands)
-                || !self.fusions
-            {
+            if !self.shown(fusion) || matches!(self.show(fusion), Show::SomeOperandsOmitted | Show::OmitOperands) || !self.fusions {
                 return false;
             }
         } else if self.trivial(graph).is_some() {
@@ -419,18 +333,13 @@ impl Dumper<'_> {
     fn tuple_element(&self, node: usize) -> String {
         let (module, entry) = (self.module, &self.module.nodes[node]);
         let tuple = entry.operands.first().map_or("", |&tuple| module.nodes[tuple].name.as_str());
-        format!(
-            "tuple-element {} of {tuple} {}",
-            module.inst(node).tuple_index,
-            entry.shape.text(true)
-        )
+        format!("tuple-element {} of {tuple} {}", module.inst(node).tuple_index, entry.shape.text(true))
     }
 
     fn merge_into_users(&self, node: usize) -> bool {
         let module = self.module;
         let entry = &module.nodes[node];
-        if (entry.opcode == "get-tuple-element" && node != module.graphs[entry.computation].root)
-            || self.parameter_constant(node).is_some()
+        if (entry.opcode == "get-tuple-element" && node != module.graphs[entry.computation].root) || self.parameter_constant(node).is_some()
         {
             return true;
         }
@@ -438,19 +347,12 @@ impl Dumper<'_> {
             && entry.shape.is_tuple()
             && !self.fused(node)
             && entry.users.iter().filter(|&&user| self.shown(user)).count() > 3
-            && entry
-                .users
-                .iter()
-                .all(|&user| !self.shown(user) || module.nodes[user].opcode == "get-tuple-element")
+            && entry.users.iter().all(|&user| !self.shown(user) || module.nodes[user].opcode == "get-tuple-element")
     }
 
     fn node_for_edge(&self, mut node: usize) -> usize {
         let module = self.module;
-        if let Some(&operand) = module.nodes[node]
-            .operands
-            .first()
-            .filter(|_| module.nodes[node].opcode == "get-tuple-element")
-        {
+        if let Some(&operand) = module.nodes[node].operands.first().filter(|_| module.nodes[node].opcode == "get-tuple-element") {
             node = operand;
         }
         while module.nodes[node].opcode == "fusion" && self.show_fusion(node) {
@@ -465,16 +367,14 @@ impl Dumper<'_> {
             let entry = &module.nodes[node];
             let parameter_color = if is_small(module, node) { "orange" } else { "dark_orange" };
             if entry.operands.iter().any(|&operand| {
-                module.nodes[operand].opcode == "parameter"
-                    && self.merge_into_users(operand)
-                    && self.parameter_constant(operand).is_none()
+                module.nodes[operand].opcode == "parameter" && self.merge_into_users(operand) && self.parameter_constant(operand).is_none()
             }) {
                 return parameter_color;
             }
             return match entry.opcode.as_str() {
                 "broadcast" | "dynamic-update-slice" => "yellow",
-                "concatenate" | "dynamic-slice" | "reshape" | "dynamic-reshape" | "reverse"
-                | "transpose" | "copy" | "copy-start" | "copy-done" => "green",
+                "concatenate" | "dynamic-slice" | "reshape" | "dynamic-reshape" | "reverse" | "transpose" | "copy" | "copy-start"
+                | "copy-done" => "green",
                 "bitcast" if self.fused(node) => "green",
                 "async-start" | "async-update" | "async-done" => match self.printer.wrapped(node) {
                     Some(graph) => {
@@ -483,8 +383,7 @@ impl Dumper<'_> {
                     }
                     None => "white",
                 },
-                "convolution" | "dot" | "ragged-dot" | "scaled-dot" | "fft"
-                | "triangular-solve" | "cholesky" => "dark_blue",
+                "convolution" | "dot" | "ragged-dot" | "scaled-dot" | "fft" | "triangular-solve" | "cholesky" => "dark_blue",
                 "parameter" => parameter_color,
                 "batch-norm-grad"
                 | "batch-norm-inference"
@@ -524,8 +423,7 @@ impl Dumper<'_> {
         let metadata = module.inst(node).metadata.unwrap_or_default();
         let mut lines: Vec<String> = [
             (!metadata.op_name.is_empty()).then(|| sanitize_html(&metadata.op_name)),
-            (!metadata.op_type.is_empty())
-                .then(|| format!("op_type: {}", sanitize_html(&metadata.op_type))),
+            (!metadata.op_type.is_empty()).then(|| format!("op_type: {}", sanitize_html(&metadata.op_type))),
             (!metadata.source_file.is_empty() && metadata.source_line != 0)
                 .then(|| format!("source: {}:{}", metadata.source_file, metadata.source_line)),
         ]
@@ -539,12 +437,7 @@ impl Dumper<'_> {
             let place = frames.locations[location as usize - 1];
             frame = parent;
             let column = if place[3] == 0 { String::new() } else { format!(":{}", place[3]) };
-            lines.push(format!(
-                "{}:{}:{}{column}",
-                frames.files[place[0] as usize - 1],
-                frames.functions[place[1] as usize - 1],
-                place[2]
-            ));
+            lines.push(format!("{}:{}:{}{column}", frames.files[place[0] as usize - 1], frames.functions[place[1] as usize - 1], place[2]));
         }
         lines.join("\n")
     }
@@ -552,12 +445,9 @@ impl Dumper<'_> {
     fn backend_config(&self, node: usize) -> String {
         let inst = self.module.inst(node);
         let config = self.module.backend_config(&inst).unwrap_or_default();
-        if let Some(properties) = gpu_properties(
-            &self.module.nodes[node].opcode,
-            &inst.custom_call_target,
-            self.module.nodes[node].shape.element_type,
-            &config,
-        ) {
+        if let Some(properties) =
+            gpu_properties(&self.module.nodes[node].opcode, &inst.custom_call_target, self.module.nodes[node].shape.element_type, &config)
+        {
             return properties;
         }
         if !self.backend_config || config.is_empty() {
@@ -571,11 +461,7 @@ impl Dumper<'_> {
         let entry = &module.nodes[node];
         let mut lines = Vec::new();
         let graph = entry.computation;
-        let calls: Vec<usize> = self.callers[graph]
-            .iter()
-            .copied()
-            .filter(|&caller| module.nodes[caller].opcode == "call")
-            .collect();
+        let calls: Vec<usize> = self.callers[graph].iter().copied().filter(|&caller| module.nodes[caller].opcode == "call").collect();
         if let [call] = calls[..]
             && entry.opcode == "parameter"
             && let Some(&start) = module.nodes[call].operands.get(entry.parameter as usize)
@@ -583,8 +469,7 @@ impl Dumper<'_> {
             let (mut producer, mut indices) = (start, Vec::new());
             loop {
                 let current = &module.nodes[producer];
-                let element =
-                    indices.last().and_then(|&index| current.operands.get(index as usize));
+                let element = indices.last().and_then(|&index| current.operands.get(index as usize));
                 match (current.opcode.as_str(), current.operands.first(), current.called.first()) {
                     ("bitcast" | "copy", Some(&operand), _) => producer = operand,
                     ("get-tuple-element", Some(&operand), _) => {
@@ -600,15 +485,9 @@ impl Dumper<'_> {
                 }
             }
             let parent = module.nodes[producer].computation;
-            let place = if parent == module.entry {
-                "the ENTRY computation".to_string()
-            } else {
-                sanitize_html(&module.graphs[parent].name)
-            };
-            lines.push(format!(
-                "<i>from {} in {place}</i>",
-                sanitize_html(&module.nodes[producer].name)
-            ));
+            let place =
+                if parent == module.entry { "the ENTRY computation".to_string() } else { sanitize_html(&module.graphs[parent].name) };
+            lines.push(format!("<i>from {} in {place}</i>", sanitize_html(&module.nodes[producer].name)));
         }
         let mut attributes = Vec::new();
         self.printer.extra(node, &module.inst(node), true, &mut attributes);
@@ -619,10 +498,7 @@ impl Dumper<'_> {
                     || line.starts_with("control-predecessors="))
                     && line.len() > 128
                 {
-                    sanitize_html(&format!(
-                        "{}...",
-                        String::from_utf8_lossy(&line.as_bytes()[..125])
-                    ))
+                    sanitize_html(&format!("{}...", String::from_utf8_lossy(&line.as_bytes()[..125])))
                 } else if line.starts_with("feature_group_count=") {
                     format!("<b>{}</b>", sanitize_html(&line))
                 } else {
@@ -632,8 +508,7 @@ impl Dumper<'_> {
         }
         if entry.opcode != "fusion" || !self.show_fusion(node) {
             fn multidim(shape: &Shape) -> bool {
-                (shape.is_array() && shape.dimensions.len() > 1)
-                    || shape.tuple_shapes.iter().any(multidim)
+                (shape.is_array() && shape.dimensions.len() > 1) || shape.tuple_shapes.iter().any(multidim)
             }
             let mut text = entry.shape.text(entry.opcode != "tuple" && multidim(&entry.shape));
             if text.len() > 64 {
@@ -650,22 +525,14 @@ impl Dumper<'_> {
         if shape.is_array() && shape.dimensions.contains(&0) {
             return format!("{{}} ({})", entry.shape.text(false));
         }
-        if let Some(proto) = module
-            .inst(constant)
-            .literal
-            .filter(|_| shape.is_array() && entry.shape.elements() <= 8)
-        {
+        if let Some(proto) = module.inst(constant).literal.filter(|_| shape.is_array() && entry.shape.elements() <= 8) {
             let mut literal = String::new();
             self.printer.literal(&proto, false, &mut literal);
             if literal.len() <= 64 {
                 return format!("{} {literal}", shape.text(false));
             }
         }
-        let name = if entry.name.starts_with("constant") {
-            entry.name.clone()
-        } else {
-            format!("constant {}", entry.name)
-        };
+        let name = if entry.name.starts_with("constant") { entry.name.clone() } else { format!("constant {}", entry.name) };
         format!("{name} {}", shape.text(false))
     }
 
@@ -683,9 +550,7 @@ impl Dumper<'_> {
             } else if self.merge_into_users(operand) {
                 Some(match other.opcode.as_str() {
                     "parameter" => match self.parameter_constant(operand) {
-                        Some(constant) => {
-                            self.constant_text(constant, &module.nodes[constant].shape)
-                        }
+                        Some(constant) => self.constant_text(constant, &module.nodes[constant].shape),
                         None => format!("Parameter {}", module.nodes[operand].parameter),
                     },
                     "get-tuple-element" => self.tuple_element(operand),
@@ -703,10 +568,7 @@ impl Dumper<'_> {
                 break;
             }
         }
-        if let Some(input) = self
-            .fusion_operand(node)
-            .filter(|&input| module.nodes[input].opcode == "get-tuple-element")
-        {
+        if let Some(input) = self.fusion_operand(node).filter(|&input| module.nodes[input].opcode == "get-tuple-element") {
             lines.push(self.tuple_element(input));
         }
         lines.join("<br/>")
@@ -728,14 +590,7 @@ impl Dumper<'_> {
         lines.join("<br/>")
     }
 
-    fn add_edge(
-        &mut self,
-        from: usize,
-        to: usize,
-        operand: usize,
-        control: bool,
-        operand_count: usize,
-    ) {
+    fn add_edge(&mut self, from: usize, to: usize, operand: usize, control: bool, operand_count: usize) {
         let module = self.module;
         if self.edge_counts.get(&(from, Some(to))).copied().unwrap_or(0) > 64 {
             return;
@@ -784,9 +639,7 @@ impl Dumper<'_> {
         let inlined = self.inlined_operands(node);
         let trivial = self.trivial_text(node);
         if entry.opcode == "parameter" && self.fused(node) {
-            if let Some(input) =
-                self.fusion_operand(node).filter(|_| entry.computation != self.computation)
-            {
+            if let Some(input) = self.fusion_operand(node).filter(|_| entry.computation != self.computation) {
                 self.add_edge(input, node, 0, false, entry.operands.len());
             }
         } else {
@@ -797,10 +650,7 @@ impl Dumper<'_> {
                 self.add_edge(predecessor, node, 0, true, entry.operands.len());
             }
         }
-        let mut scheme = if matches!(
-            self.show(node),
-            Show::OmitOperands | Show::SomeOperandsOmitted | Show::SomeUsersOmitted
-        ) {
+        let mut scheme = if matches!(self.show(node), Show::OmitOperands | Show::SomeOperandsOmitted | Show::SomeUsersOmitted) {
             "dashed"
         } else {
             self.color(node)
@@ -810,8 +660,7 @@ impl Dumper<'_> {
             scheme = "dark_red";
         }
         let mut body = label;
-        for part in [trivial, extra, inlined, backend_config].iter().filter(|part| !part.is_empty())
-        {
+        for part in [trivial, extra, inlined, backend_config].iter().filter(|part| !part.is_empty()) {
             let _ = write!(body, "<br/>{part}");
         }
         let statistic = statistic_colors(&module.inst(node).statistics_viz.unwrap_or_default());
@@ -845,29 +694,15 @@ impl Dumper<'_> {
         self.cluster_ids.insert(graph, self.cluster_ids.len() as i64 + 1);
         let (label, style) = if parent_entry.opcode == "fusion" {
             let category = hlo::fusion_category(&module.inst(parent).fusion_kind);
-            let mut label = format!(
-                "Fused expression for <b>{}</b><br/>{}",
-                sanitize_html(&parent_entry.name),
-                sanitize_html(category)
-            );
-            for part in [self.extra_info(parent), self.backend_config(parent)]
-                .iter()
-                .filter(|part| !part.is_empty())
-            {
+            let mut label = format!("Fused expression for <b>{}</b><br/>{}", sanitize_html(&parent_entry.name), sanitize_html(category));
+            for part in [self.extra_info(parent), self.backend_config(parent)].iter().filter(|part| !part.is_empty()) {
                 let _ = write!(label, "<br/>{part}");
             }
             let highlight = self.show(parent) == Show::Highlight;
-            let statistic =
-                statistic_colors(&module.inst(parent).statistics_viz.unwrap_or_default())
-                    .filter(|_| !highlight);
-            let (fill, stroke) = statistic.map_or(
-                if highlight { ("#ffcdd2", "#b71c1c") } else { ("#f5f5f5", "#c2c2c2") },
-                |(fill, _)| (fill, "#c2c2c2"),
-            );
-            (
-                label,
-                format!("style=\"rounded,filled,bold\"; fillcolor=\"{fill}\"; color=\"{stroke};\""),
-            )
+            let statistic = statistic_colors(&module.inst(parent).statistics_viz.unwrap_or_default()).filter(|_| !highlight);
+            let (fill, stroke) =
+                statistic.map_or(if highlight { ("#ffcdd2", "#b71c1c") } else { ("#f5f5f5", "#c2c2c2") }, |(fill, _)| (fill, "#c2c2c2"));
+            (label, format!("style=\"rounded,filled,bold\"; fillcolor=\"{fill}\"; color=\"{stroke};\""))
         } else {
             (
                 format!(
@@ -878,11 +713,7 @@ impl Dumper<'_> {
                 "style=rounded; color=black;".to_string(),
             )
         };
-        let _ = write!(
-            out,
-            "subgraph {} {{\n{style}\nlabel = <{label}>;\nlabelloc = t;\ntooltip = \" \";\n",
-            computation_id(graph)
-        );
+        let _ = write!(out, "subgraph {} {{\n{style}\nlabel = <{label}>;\nlabelloc = t;\ntooltip = \" \";\n", computation_id(graph));
         true
     }
 
@@ -918,18 +749,12 @@ impl Dumper<'_> {
     fn root_tag(&mut self) -> String {
         let module = self.module;
         let from = self.node_for_edge(module.graphs[self.computation].root);
-        if !self.shown(from)
-            || module.nodes[from].opcode == "constant"
-            || self.broadcast_of_scalar_constant(from)
-        {
+        if !self.shown(from) || module.nodes[from].opcode == "constant" || self.broadcast_of_scalar_constant(from) {
             return String::new();
         }
         let to = computation_id(self.computation);
         self.edges.push((from, None, format!("{} -> {to} [tooltip=\" \"];", instruction_id(from))));
-        format!(
-            "{to} [label=<ROOT>, shape=circle, tooltip=\" \", {}];\n",
-            statistic_attributes("brown", None)
-        )
+        format!("{to} [label=<ROOT>, shape=circle, tooltip=\" \", {}];\n", statistic_attributes("brown", None))
     }
 
     fn header(&self) -> Option<String> {
@@ -941,10 +766,7 @@ impl Dumper<'_> {
         } else if self.computation == module.entry {
             label.push_str("<br/>ENTRY computation");
         } else if !self.callers[self.computation].is_empty() {
-            let names = self.callers[self.computation]
-                .iter()
-                .map(|&caller| &module.nodes[caller].name)
-                .join(", ");
+            let names = self.callers[self.computation].iter().map(|&caller| &module.nodes[caller].name).join(", ");
             let _ = write!(label, "<br/>Caller instructions: {names}");
         }
         let mut rules = String::new();
@@ -954,10 +776,9 @@ impl Dumper<'_> {
             }
             let _ = write!(
                 rules,
-                "  %23{kind}{id}:hover ~ %23edge{edge} text {{ fill: {color}; \
-                    }}\n  %23{kind}{id}:hover ~ %23edge{edge} path {{ stroke: {color}; \
-                    stroke-width: .2em; }}\n  %23{kind}{id}:hover ~ %23edge{edge} polygon {{ fill: \
-                    {color}; stroke: {color}; stroke-width: .2em; }}\n"
+                "  %23{kind}{id}:hover ~ %23edge{edge} text {{ fill: {color}; }}\n  %23{kind}{id}:hover ~ %23edge{edge} path {{ stroke: \
+                    {color}; stroke-width: .2em; }}\n  %23{kind}{id}:hover ~ %23edge{edge} polygon {{ fill: {color}; stroke: {color}; \
+                    stroke-width: .2em; }}\n"
             );
         };
         for (index, &(from, to, _)) in self.edges.iter().enumerate() {
@@ -981,12 +802,11 @@ impl Dumper<'_> {
             }
         }
         Some(format!(
-            "digraph G {{\nrankdir = TB;\ncompound = true;\nlabel = <<b>{label}</b>>;\nlabelloc = \
-                t;\n// Disable the tooltip.  Interestingly, \"\" doesn't work!\ntooltip = \" \
-                \";\n// DOT graphs accept a stylesheet as a URI.  So naturally, an inline\n// \
-                stylesheet is a data URI!\nstylesheet=<\n  data:text/css,\n  @import \
-                url(https://fonts.googleapis.com/css?family=Roboto:400,700);\n  svg text \
-                {{\n    font-family: 'Roboto';\n    font-size: 12px;\n  }}\n\n  {rules}\n>\n\n"
+            "digraph G {{\nrankdir = TB;\ncompound = true;\nlabel = <<b>{label}</b>>;\nlabelloc = t;\n// Disable the \
+                tooltip.  Interestingly, \"\" doesn't work!\ntooltip = \" \";\n// DOT graphs accept a stylesheet as a URI.  So \
+                naturally, an inline\n// stylesheet is a data URI!\nstylesheet=<\n  data:text/css,\n  @import \
+                url(https://fonts.googleapis.com/css?family=Roboto:400,700);\n  svg text {{\n    font-family: 'Roboto';\n    font-size: \
+                12px;\n  }}\n\n  {rules}\n>\n\n"
         ))
     }
 
@@ -997,19 +817,11 @@ impl Dumper<'_> {
         if self.printer.unsupported() {
             return None;
         }
-        Some(format!(
-            "{header}{body}{root}{}\n}}",
-            self.edges.iter().map(|(_, _, text)| text).join("\n")
-        ))
+        Some(format!("{header}{body}{root}{}\n}}", self.edges.iter().map(|(_, _, text)| text).join("\n")))
     }
 }
 
-fn radius_filter(
-    module: &Module,
-    dumper: &Dumper,
-    root: usize,
-    radius: i64,
-) -> HashMap<usize, Show> {
+fn radius_filter(module: &Module, dumper: &Dumper, root: usize, radius: i64) -> HashMap<usize, Show> {
     let mut nodes: HashMap<usize, Show> = HashMap::new();
     let mut worklist = std::collections::VecDeque::from([(root, 0i64)]);
     while let Some((node, depth)) = worklist.pop_front() {
@@ -1021,12 +833,7 @@ fn radius_filter(
         if node == root || entry.opcode != "tuple" {
             for &operand in &entry.operands {
                 if !nodes.contains_key(&operand) {
-                    let next =
-                        if module.nodes[operand].opcode == "bitcast" || entry.opcode == "bitcast" {
-                            depth
-                        } else {
-                            depth + 1
-                        };
+                    let next = if module.nodes[operand].opcode == "bitcast" || entry.opcode == "bitcast" { depth } else { depth + 1 };
                     worklist.push_back((operand, next));
                 }
             }
@@ -1048,24 +855,17 @@ fn radius_filter(
         }
     }
     let root_graph = module.nodes[root].computation;
-    let displayed = |node: usize| {
-        nodes.contains_key(&node)
-            || module.nodes[node].opcode == "constant"
-            || module.nodes[node].computation != root_graph
-    };
+    let displayed =
+        |node: usize| nodes.contains_key(&node) || module.nodes[node].opcode == "constant" || module.nodes[node].computation != root_graph;
     let mut result = nodes.clone();
     for (&node, show) in &mut result {
         let operands = &module.nodes[node].operands;
-        if operands.iter().any(|&operand| displayed(operand))
-            && !operands.iter().all(|&operand| displayed(operand))
-        {
+        if operands.iter().any(|&operand| displayed(operand)) && !operands.iter().all(|&operand| displayed(operand)) {
             *show = Show::SomeOperandsOmitted;
         } else if !operands.is_empty() && !operands.iter().any(|&operand| displayed(operand)) {
             *show = Show::OmitOperands;
         }
-        if *show == Show::SomeUsersOmitted
-            && module.nodes[node].users.iter().all(|&user| displayed(user))
-        {
+        if *show == Show::SomeUsersOmitted && module.nodes[node].users.iter().all(|&user| displayed(user)) {
             *show = Show::Normal;
         }
     }
@@ -1081,19 +881,13 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
     let mut message = DynamicMessage::new(GPU_BACKEND_CONFIG.clone());
     if !config.is_empty() {
         let mut deserializer = serde_json::Deserializer::from_slice(config);
-        message =
-            DynamicMessage::deserialize(GPU_BACKEND_CONFIG.clone(), &mut deserializer).ok()?;
+        message = DynamicMessage::deserialize(GPU_BACKEND_CONFIG.clone(), &mut deserializer).ok()?;
         deserializer.end().ok()?;
     }
-    let value = |message: &DynamicMessage, name: &str| {
-        message.get_field_by_name(name).expect("field exists in the descriptor").into_owned()
-    };
-    let child = |message: &DynamicMessage, name: &str| {
-        value(message, name).as_message().expect("field has the expected type").clone()
-    };
-    let number = |message: &DynamicMessage, name: &str| {
-        value(message, name).as_f64().expect("field has the expected type")
-    };
+    let value =
+        |message: &DynamicMessage, name: &str| message.get_field_by_name(name).expect("field exists in the descriptor").into_owned();
+    let child = |message: &DynamicMessage, name: &str| value(message, name).as_message().expect("field has the expected type").clone();
+    let number = |message: &DynamicMessage, name: &str| value(message, name).as_f64().expect("field has the expected type");
     let mut properties: Vec<(&str, String)> = Vec::new();
     if convolution {
         let conv = child(&message, "cudnn_conv_backend_config");
@@ -1113,21 +907,14 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         }
         properties.push((
             "activation_mode",
-            ACTIVATION_MODES
-                .get(activation as usize)
-                .map_or_else(|| format!("unknown: {activation}"), std::string::ToString::to_string),
+            ACTIVATION_MODES.get(activation as usize).map_or_else(|| format!("unknown: {activation}"), std::string::ToString::to_string),
         ));
         let algorithm = child(&conv, "algorithm");
         let knobs: std::collections::BTreeMap<i64, i64> = value(&algorithm, "tuning_knobs")
             .as_map()
             .expect("field has the expected type")
             .iter()
-            .map(|(key, value)| {
-                (
-                    key.as_i64().expect("field has the expected type"),
-                    value.as_i64().expect("field has the expected type"),
-                )
-            })
+            .map(|(key, value)| (key.as_i64().expect("field has the expected type"), value.as_i64().expect("field has the expected type")))
             .collect();
         properties.push((
             "algo",
@@ -1139,14 +926,10 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         ));
     } else {
         let gemm = child(&message, "gemm_backend_config");
-        let (alpha_real, alpha_imag, beta) =
-            (number(&gemm, "alpha_real"), number(&gemm, "alpha_imag"), number(&gemm, "beta"));
+        let (alpha_real, alpha_imag, beta) = (number(&gemm, "alpha_real"), number(&gemm, "alpha_imag"), number(&gemm, "beta"));
         if matches!(crate::hlo::type_name(element_type), "c64" | "c128") {
             if alpha_real != 1.0 || alpha_imag != 1.0 {
-                properties.extend([
-                    ("alpha_real", hlo::general(alpha_real, 6)),
-                    ("alpha_imag", hlo::general(alpha_real, 6)),
-                ]);
+                properties.extend([("alpha_real", hlo::general(alpha_real, 6)), ("alpha_imag", hlo::general(alpha_real, 6))]);
             }
         } else if alpha_real != 1.0 {
             properties.push(("alpha", hlo::general(alpha_real, 6)));
@@ -1174,16 +957,9 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         }
         properties.push(("", parts.join("<br/>")));
         if gemm.has_field_by_name("selected_algorithm") {
-            properties.push((
-                "algorithm",
-                value(&gemm, "selected_algorithm")
-                    .as_i64()
-                    .expect("field has the expected type")
-                    .to_string(),
-            ));
+            properties.push(("algorithm", value(&gemm, "selected_algorithm").as_i64().expect("field has the expected type").to_string()));
         }
-        let epilogue =
-            value(&gemm, "epilogue").as_enum_number().expect("field has the expected type");
+        let epilogue = value(&gemm, "epilogue").as_enum_number().expect("field has the expected type");
         if epilogue != 0 {
             let name = gemm
                 .descriptor()
@@ -1197,10 +973,8 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
             properties.push(("epilogue", name));
         }
     }
-    let joined: Vec<String> = properties
-        .iter()
-        .map(|(key, value)| if key.is_empty() { value.clone() } else { format!("{key}={value}") })
-        .collect();
+    let joined: Vec<String> =
+        properties.iter().map(|(key, value)| if key.is_empty() { value.clone() } else { format!("{key}={value}") }).collect();
     Some(format!("{}{}", if properties.len() > 1 { "<br/>" } else { "" }, joined.join("<br/>")))
 }
 
@@ -1228,15 +1002,11 @@ fn render(
     let instruction = module.find(node_name);
     let (computation, label, root) = match (graph, instruction) {
         (Some(graph), _) => (graph, String::new(), None),
-        (None, Some(node)) => (
-            module.nodes[node].computation,
-            format!("Neighborhood of {radius} nodes around {}", module.nodes[node].name),
-            Some(node),
-        ),
+        (None, Some(node)) => {
+            (module.nodes[node].computation, format!("Neighborhood of {radius} nodes around {}", module.nodes[node].name), Some(node))
+        }
         (None, None) => {
-            return Err(format!(
-                "Couldn't find HloInstruction or HloComputation named {node_name}."
-            ));
+            return Err(format!("Couldn't find HloInstruction or HloComputation named {node_name}."));
         }
     };
     let mut dumper = Dumper {

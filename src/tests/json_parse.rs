@@ -11,15 +11,10 @@ impl Random {
 
 fn value(random: &mut Random, depth: usize, out: &mut String) {
     match random.below(if depth == 0 { 4 } else { 7 }) {
-        0 => out.push_str(
-            ["null", "true", "-0", "12345678901234567890123", "1.5e300", "-7"][random.below(6)],
-        ),
+        0 => out.push_str(["null", "true", "-0", "12345678901234567890123", "1.5e300", "-7"][random.below(6)]),
         1..=3 => {
             let text: String = (0..random.below(12))
-                .map(|_| {
-                    ["\\", "\"", "\\\\\\", "\"\\\"", ",", "[", "}", ":", "é", "\n", "a"]
-                        [random.below(11)]
-                })
+                .map(|_| ["\\", "\"", "\\\\\\", "\"\\\"", ",", "[", "}", ":", "é", "\n", "a"][random.below(11)])
                 .collect();
             out.push_str(&serde_json::to_string(&text).unwrap());
         }

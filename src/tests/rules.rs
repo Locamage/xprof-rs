@@ -1,7 +1,6 @@
 use super::mock_tool_data_provider::{
-    MockToolDataProvider as P, apply, event_time_fractions, generate_suggestion,
-    generic_step_time_breakdown, input_pipeline_analysis, meets_conditions, memory_profile,
-    op_profile_with_async_done, overview_page, step_sequence, tpu_step_time_breakdown,
+    MockToolDataProvider as P, apply, event_time_fractions, generate_suggestion, generic_step_time_breakdown, input_pipeline_analysis,
+    meets_conditions, memory_profile, op_profile_with_async_done, overview_page, step_sequence, tpu_step_time_breakdown,
 };
 
 #[derive(Clone, Copy)]
@@ -147,8 +146,7 @@ rules! {
             P { overview_page: overview_page(51.0, 71.0), ..Default::default() } => Nothing,
     }
     sparse_core_bound_rule = "SparseCoreBoundRule" {
-        meets_conditions: tpu(0.0, 11.0, 49.0) => Text(&["11.0% of the total step time </b> is \
-            spent on SparseCore"]),
+        meets_conditions: tpu(0.0, 11.0, 49.0) => Text(&["11.0% of the total step time </b> is spent on SparseCore"]),
         idle_time_too_low: tpu(0.0, 9.0, 49.0) => Nothing,
         no_tpu_step_time_breakdown_field:
             P { input_pipeline_analysis: generic_step_time_breakdown(100.0), ..Default::default() }
@@ -159,12 +157,11 @@ rules! {
         meets_conditions: offload(110.0, 80.0) => Meets(true),
         async_done_too_low: offload(90.0, 80.0) => Meets(false),
         memory_utilization_too_high: offload(110.0, 120.0) => Meets(false),
-        generate_suggestion: offload(110.0, 80.0) => Text(&["11.0%</b> of time is spent on \
-            async-done operations with low memory utilization of <b>40.0%</b>"]),
+        generate_suggestion: offload(110.0, 80.0) => Text(&["11.0%</b> of time is spent on async-done operations with low memory \
+            utilization of <b>40.0%</b>"]),
     }
     tensor_core_idle_bound_rule = "TensorCoreIdleBoundRule" {
-        meets_conditions: tpu(11.0, 0.0, 49.0) => Text(&["High TensorCore idle time percentage of \
-            <b>11.0%</b>"]),
+        meets_conditions: tpu(11.0, 0.0, 49.0) => Text(&["High TensorCore idle time percentage of <b>11.0%</b>"]),
         idle_time_too_low: tpu(9.0, 0.0, 49.0) => Nothing,
         no_tpu_step_time_breakdown_field:
             P { input_pipeline_analysis: generic_step_time_breakdown(100.0), ..Default::default() }

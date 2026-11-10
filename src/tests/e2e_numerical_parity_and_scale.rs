@@ -5,8 +5,7 @@ use std::time::{Duration, Instant};
 
 const SMALL_BUDGET: Duration = Duration::from_secs(10);
 const MEDIUM_BUDGET: Duration = Duration::from_secs(35);
-const PARITY_ARGS: [&str; 4] =
-    ["verify_numerical_parity", "module.ref_kernel", "module.candidate_kernel", "[(4, 16)]"];
+const PARITY_ARGS: [&str; 4] = ["verify_numerical_parity", "module.ref_kernel", "module.candidate_kernel", "[(4, 16)]"];
 
 #[test]
 fn test_p03_ulp_ground_truth_oracle() {
@@ -20,8 +19,7 @@ fn test_p03_ulp_ground_truth_oracle() {
 
 #[test]
 fn test_p06_random_seed_determinism() {
-    let seeded: Vec<&str> =
-        PARITY_ARGS.iter().copied().chain(["--seed=12345", "--dtype_str=float32"]).collect();
+    let seeded: Vec<&str> = PARITY_ARGS.iter().copied().chain(["--seed=12345", "--dtype_str=float32"]).collect();
     assert_eq!(run(&seeded), run(&seeded));
 }
 
@@ -48,10 +46,5 @@ fn test_s02_scale_budget_medium_trace() {
 #[test]
 fn test_s03_timeout_surfacing() {
     let path = session(&scratch("s03"), "host.xplane.pb", &training_trace(TRAINING_STEP_PS));
-    assert!(
-        Local::default()
-            .fetch("overview_page", path.to_str().unwrap(), &[("rpc_deadline_s", "600".into())])
-            .unwrap()
-            .is_some()
-    );
+    assert!(Local::default().fetch("overview_page", path.to_str().unwrap(), &[("rpc_deadline_s", "600".into())]).unwrap().is_some());
 }

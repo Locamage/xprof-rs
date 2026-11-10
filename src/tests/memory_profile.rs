@@ -26,19 +26,12 @@ fn one_allocator_multi_activities_test() {
             ("data_type", data_type.into()),
         ]
     };
-    let named = |counters: [(&'static str, V); 9],
-                 names: &[(&'static str, &str)]|
-     -> Vec<(&'static str, V)> {
+    let named = |counters: [(&'static str, V); 9], names: &[(&'static str, &str)]| -> Vec<(&'static str, V)> {
         counters.into_iter().chain(names.iter().map(|&(key, text)| (key, V::from(text)))).collect()
     };
     let first = named(
         counters(2000, 3000, 5000, 8500, 200, 256, 222333, -93746, 1),
-        &[
-            ("allocator_name", "GPU_0_bfc"),
-            ("tf_op", "foo/bar"),
-            ("region_type", "output"),
-            ("shape", "[3, 3, 512, 512]"),
-        ],
+        &[("allocator_name", "GPU_0_bfc"), ("tf_op", "foo/bar"), ("region_type", "output"), ("shape", "[3, 3, 512, 512]")],
     );
     host.event(0, "MemoryAllocation", 40000, 1000, &first);
     let second = named(
@@ -48,17 +41,11 @@ fn one_allocator_multi_activities_test() {
     host.event(0, "MemoryDeallocation", 50000, 1000, &second);
     let third = named(
         counters(2000, 5000, 3000, 9500, 300, 300, 345678, -93746, 9),
-        &[
-            ("allocator_name", "GPU_0_bfc"),
-            ("tf_op", "mul_grad/Sum"),
-            ("region_type", "temp"),
-            ("shape", "[1, 2]"),
-        ],
+        &[("allocator_name", "GPU_0_bfc"), ("tf_op", "mul_grad/Sum"), ("region_type", "temp"), ("shape", "[1, 2]")],
     );
     host.event(0, "MemoryAllocation", 70000, 1000, &third);
     let (map, planes, _) = grouped(&space);
-    let profile: Value =
-        serde_json::from_str(&crate::tools::memory_profile::json(&planes, &map)).unwrap();
+    let profile: Value = serde_json::from_str(&crate::tools::memory_profile::json(&planes, &map)).unwrap();
     let allocators = profile["memoryProfilePerAllocator"].as_object().unwrap();
     assert_eq!(allocators.len(), 1);
     assert_eq!(
@@ -69,33 +56,18 @@ fn one_allocator_multi_activities_test() {
     assert_eq!(name, "GPU_0_bfc");
     let summary = &allocator["profileSummary"];
     assert_eq!(
-        (
-            &summary["peakBytesUsageLifetime"],
-            &summary["peakStats"]["peakBytesInUse"],
-            &summary["peakStatsTimePs"]
-        ),
+        (&summary["peakBytesUsageLifetime"], &summary["peakStats"]["peakBytesInUse"], &summary["peakStatsTimePs"]),
         (&Value::from("9500"), &Value::from("7000"), &Value::from("70000"))
     );
     let count = |key: &str| allocator[key].as_array().unwrap().len();
     assert_eq!(
-        (
-            count("sampledTimelineSnapshots"),
-            count("memoryProfileSnapshots"),
-            count("activeAllocations"),
-            count("specialAllocations")
-        ),
+        (count("sampledTimelineSnapshots"), count("memoryProfileSnapshots"), count("activeAllocations"), count("specialAllocations")),
         (3, 1, 3, 2)
     );
-    assert_eq!(
-        allocator["memoryProfileSnapshots"][0]["activityMetadata"]["tfOpName"],
-        "mul_grad/Sum"
-    );
+    assert_eq!(allocator["memoryProfileSnapshots"][0]["activityMetadata"]["tfOpName"], "mul_grad/Sum");
     assert_eq!(allocator["activeAllocations"][2]["snapshotIndex"], "0");
     assert_eq!(
-        (
-            &allocator["specialAllocations"][1]["tfOpName"],
-            &allocator["specialAllocations"][1]["allocationBytes"]
-        ),
+        (&allocator["specialAllocations"][1]["tfOpName"], &allocator["specialAllocations"][1]["allocationBytes"]),
         (&Value::from("stack"), &Value::from("2000"))
     );
 }
@@ -120,8 +92,7 @@ fn memory_ids_keep_an_allocator_without_active_snapshots() {
         );
     }
     let (map, planes, _) = grouped(&space);
-    let profile: Value =
-        serde_json::from_str(&crate::tools::memory_profile::json(&planes, &map)).unwrap();
+    let profile: Value = serde_json::from_str(&crate::tools::memory_profile::json(&planes, &map)).unwrap();
     let snapshots = &profile["memoryProfilePerAllocator"]["GPU_0_bfc"]["memoryProfileSnapshots"];
     assert!(snapshots.as_array().is_none_or(Vec::is_empty));
     assert_eq!(profile["memoryIds"], serde_json::json!(["GPU_0_bfc"]));
@@ -136,16 +107,10 @@ fn memory_events_with_a_display_name() {
         "MemoryAllocation",
         100,
         10,
-        &[
-            ("allocator_name", "GPU_0_bfc".into()),
-            ("bytes_allocated", 256.into()),
-            ("allocation_bytes", 256.into()),
-            ("addr", 1.into()),
-        ],
+        &[("allocator_name", "GPU_0_bfc".into()), ("bytes_allocated", 256.into()), ("allocation_bytes", 256.into()), ("addr", 1.into())],
     );
     host.event_metadata("MemoryAllocation").display_name = "shown".into();
     let (map, planes, _) = grouped(&space);
-    let profile: Value =
-        serde_json::from_str(&crate::tools::memory_profile::json(&planes, &map)).unwrap();
+    let profile: Value = serde_json::from_str(&crate::tools::memory_profile::json(&planes, &map)).unwrap();
     assert_eq!(profile["memoryIds"], serde_json::json!(["GPU_0_bfc"]));
 }

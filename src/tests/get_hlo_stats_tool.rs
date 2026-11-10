@@ -78,11 +78,10 @@ fn test_get_hlo_stats_bypass_cache_forwarded() {
     let calls = fake.calls.borrow();
     let (tool, params) = calls.last().unwrap();
     assert_eq!(tool, "hlo_stats.json");
-    let expected: Vec<(String, String)> =
-        [("format", "json"), ("tqx", "out:pb"), ("bypass_cache", "True")]
-            .iter()
-            .map(|(key, value)| (key.to_string(), value.to_string()))
-            .collect();
+    let expected: Vec<(String, String)> = [("format", "json"), ("tqx", "out:pb"), ("bypass_cache", "True")]
+        .iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
     assert_eq!(params, &expected);
 }
 
@@ -94,12 +93,7 @@ fn test_op_name_fallback() {
 
 #[test]
 fn test_op_name_regex_no_redos_on_multiple_percents() {
-    let records = records(
-        &Fake::fixed(
-            &SINGLE.replace("EXPRESSION", "%foo %bar %baz %qux = f32[10] add(%foo, %bar)"),
-        ),
-        &[],
-    );
+    let records = records(&Fake::fixed(&SINGLE.replace("EXPRESSION", "%foo %bar %baz %qux = f32[10] add(%foo, %bar)")), &[]);
     assert_eq!(names(&records), ["qux"]);
 }
 
@@ -112,20 +106,13 @@ fn test_sorting() {
         ("flops", ["convolution.1", "fusion.2", "tuple.3"]),
         ("bandwidth", ["fusion.2", "convolution.1", "tuple.3"]),
     ] {
-        assert_eq!(
-            names(&records(&Fake::fixed(DATABASE), &[("sort_by", J::from(sort_by))])),
-            expected,
-            "{sort_by}"
-        );
+        assert_eq!(names(&records(&Fake::fixed(DATABASE), &[("sort_by", J::from(sort_by))])), expected, "{sort_by}");
     }
 }
 
 #[test]
 fn test_category_filter() {
-    assert_eq!(
-        names(&records(&Fake::fixed(DATABASE), &[("category_filter", J::from("Convolution"))])),
-        ["convolution.1"]
-    );
+    assert_eq!(names(&records(&Fake::fixed(DATABASE), &[("category_filter", J::from("Convolution"))])), ["convolution.1"]);
 }
 
 #[test]

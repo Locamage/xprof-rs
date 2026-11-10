@@ -20,12 +20,7 @@ impl std::ops::Deref for Input {
         match self {
             Self::Owned(bytes) => bytes,
             #[cfg(target_os = "linux")]
-            Self::Mapped(mapping) => unsafe {
-                std::slice::from_raw_parts(
-                    std::ptr::with_exposed_provenance(mapping.start),
-                    mapping.len,
-                )
-            },
+            Self::Mapped(mapping) => unsafe { std::slice::from_raw_parts(std::ptr::with_exposed_provenance(mapping.start), mapping.len) },
         }
     }
 }
@@ -43,26 +38,16 @@ pub fn map(file: File, len: u64) -> Result<Input, File> {
     let fd = file.as_raw_fd();
     let mut info: libc::statfs = unsafe { std::mem::zeroed() };
     let local = unsafe { libc::fstatfs(fd, &raw mut info) } == 0
-        && [
-            libc::TMPFS_MAGIC,
-            libc::EXT4_SUPER_MAGIC,
-            libc::XFS_SUPER_MAGIC,
-            libc::BTRFS_SUPER_MAGIC,
-        ]
-        .contains(&info.f_type);
+        && [libc::TMPFS_MAGIC, libc::EXT4_SUPER_MAGIC, libc::XFS_SUPER_MAGIC, libc::BTRFS_SUPER_MAGIC].contains(&info.f_type);
     if len < MAP_BYTES || !local || !*LISTENING {
         return Err(file);
     }
     // The lock makes sure that the thread sees the lease break of a new mapping.
     let mut leases = LEASES.lock().expect("lock poisoned");
-    if unsafe { libc::fcntl(fd, libc::F_SETLEASE, libc::F_RDLCK) } != 0
-        || !file.metadata().is_ok_and(|meta| meta.len() == len)
-    {
+    if unsafe { libc::fcntl(fd, libc::F_SETLEASE, libc::F_RDLCK) } != 0 || !file.metadata().is_ok_and(|meta| meta.len() == len) {
         return Err(file);
     }
-    let start = unsafe {
-        libc::mmap(std::ptr::null_mut(), len as usize, libc::PROT_READ, libc::MAP_SHARED, fd, 0)
-    };
+    let start = unsafe { libc::mmap(std::ptr::null_mut(), len as usize, libc::PROT_READ, libc::MAP_SHARED, fd, 0) };
     if start == libc::MAP_FAILED {
         return Err(file);
     }
@@ -111,24 +96,13 @@ impl Lease {
     /// the same bytes during the change.
     fn copy(&self) -> bool {
         let copy = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                self.len,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-                -1,
-                0,
-            )
+            libc::mmap(std::ptr::null_mut(), self.len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0)
         };
         if copy == libc::MAP_FAILED {
             return false;
         }
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                std::ptr::with_exposed_provenance::<u8>(self.start),
-                copy.cast::<u8>(),
-                self.len,
-            );
+            std::ptr::copy_nonoverlapping(std::ptr::with_exposed_provenance::<u8>(self.start), copy.cast::<u8>(), self.len);
             libc::mprotect(copy, self.len, libc::PROT_READ);
             libc::mremap(
                 copy,

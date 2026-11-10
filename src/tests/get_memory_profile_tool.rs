@@ -48,19 +48,10 @@ fn test_get_memory_profile() {
                 r#""fragmentation_percent": -1.0, "utilization_percent": -1.0}}"#,
             ),
         ),
-        (
-            concat!(
-                r#"[{"memoryProfileSummary": {"memoryCapacity": "0", "peakStats": "#,
-                r#"{"peakBytesUsageHbm": "0"}}}]"#,
-            ),
-            UNSET,
-        ),
+        (r#"[{"memoryProfileSummary": {"memoryCapacity": "0", "peakStats": {"peakBytesUsageHbm": "0"}}}]"#, UNSET),
     ];
     for (response, expected) in cases {
-        let result = json(get_memory_profile(
-            &Fake::fixed(response).with_hosts(&[]),
-            &args("test_session", &[]),
-        ));
+        let result = json(get_memory_profile(&Fake::fixed(response).with_hosts(&[]), &args("test_session", &[])));
         assert!(!result.has("error"));
         assert_eq!(result, parse(expected), "{response}");
     }
@@ -107,10 +98,6 @@ fn test_get_memory_profile_fallback() {
 
 #[test]
 fn test_get_memory_profile_invalid_json() {
-    let error = get_memory_profile(
-        &Fake::fixed("invalid json data").with_hosts(&[]),
-        &args("test_session", &[]),
-    )
-    .unwrap_err();
+    let error = get_memory_profile(&Fake::fixed("invalid json data").with_hosts(&[]), &args("test_session", &[])).unwrap_err();
     assert_eq!(error.kind, Kind::Value);
 }

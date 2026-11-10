@@ -13,18 +13,10 @@ fn sample() -> Vec<u8> {
     plane.add_stat("device_id", 0i64);
     plane.add_stat("device_type_string", "TPU v7x");
     plane.named_line(0, "counters_matmul");
-    for (name, id, value) in [
-        ("CYCLES", 2847490056u64, 2000.0),
-        ("MXU_BUSY_1", 2791875024, 800.0),
-        ("MATMUL_VREG_BF16_MXU_0", 2791874968, 400.0),
-    ] {
-        plane.event(
-            0,
-            name,
-            0,
-            0,
-            &[("performance_counter_id", id.into()), ("counter_value", V::Double(value))],
-        );
+    for (name, id, value) in
+        [("CYCLES", 2847490056u64, 2000.0), ("MXU_BUSY_1", 2791875024, 800.0), ("MATMUL_VREG_BF16_MXU_0", 2791874968, 400.0)]
+    {
+        plane.event(0, name, 0, 0, &[("performance_counter_id", id.into()), ("counter_value", V::Double(value))]);
     }
     space.encode_to_vec()
 }
@@ -41,11 +33,9 @@ fn kernel(result: &J) -> &J {
 
 #[test]
 fn test_get_kernel_utilization_from_raw_bytes() {
-    let parsed = J::parse(&text(get_kernel_utilization(
-        &Fake::fixed(""),
-        &args(&trace_file("ku-raw"), &[("output_format", J::from("json"))]),
-    )))
-    .unwrap();
+    let parsed =
+        J::parse(&text(get_kernel_utilization(&Fake::fixed(""), &args(&trace_file("ku-raw"), &[("output_format", J::from("json"))]))))
+            .unwrap();
     assert_eq!(parsed.at("status").str(), Some("SUCCESS"));
     assert_eq!(parsed.at("devices").items().len(), 1);
     let device = &parsed.at("devices").items()[0];
@@ -61,10 +51,7 @@ fn test_get_kernel_utilization_from_raw_bytes() {
 
 #[test]
 fn test_get_kernel_utilization_from_local_file() {
-    let result = json(get_kernel_utilization(
-        &Fake::fixed(""),
-        &args(&trace_file("ku-file"), &[("output_format", J::from("dict"))]),
-    ));
+    let result = json(get_kernel_utilization(&Fake::fixed(""), &args(&trace_file("ku-file"), &[("output_format", J::from("dict"))])));
     assert_eq!(result.at("status").str(), Some("SUCCESS"));
     assert_eq!(kernel(&result).at("kernel_name").str(), Some("matmul"));
 }
@@ -73,21 +60,14 @@ fn test_get_kernel_utilization_from_local_file() {
 fn test_get_kernel_utilization_from_local_directory() {
     let dir = scratch("ku-dir");
     std::fs::write(dir.join("test.xplane.pb"), sample()).unwrap();
-    let result = json(get_kernel_utilization(
-        &Fake::fixed(""),
-        &args(&dir.to_string_lossy(), &[("output_format", J::from("dict"))]),
-    ));
+    let result = json(get_kernel_utilization(&Fake::fixed(""), &args(&dir.to_string_lossy(), &[("output_format", J::from("dict"))])));
     assert_eq!(result.at("status").str(), Some("SUCCESS"));
     assert_eq!(kernel(&result).at("kernel_name").str(), Some("matmul"));
 }
 
 #[test]
 fn test_get_kernel_utilization_from_empty_directory_raises_file_not_found() {
-    let error = get_kernel_utilization(
-        &Fake::fixed(""),
-        &args(&scratch("ku-empty").to_string_lossy(), &[]),
-    )
-    .unwrap_err();
+    let error = get_kernel_utilization(&Fake::fixed(""), &args(&scratch("ku-empty").to_string_lossy(), &[])).unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
 }
 
@@ -130,8 +110,7 @@ fn test_get_kernel_utilization_dangling_trace_link_raises_path_error() {
     let dir = scratch("ku-dangling");
     let link = dir.join("host.xplane.pb");
     std::os::unix::fs::symlink(dir.join("missing"), &link).unwrap();
-    let error =
-        get_kernel_utilization(&Fake::fixed(""), &args(&dir.to_string_lossy(), &[])).unwrap_err();
+    let error = get_kernel_utilization(&Fake::fixed(""), &args(&dir.to_string_lossy(), &[])).unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
     assert_eq!(error.message, format!("[Errno 2] No such file or directory: '{}'", link.display()));
 }
@@ -141,14 +120,7 @@ fn test_get_kernel_utilization_from_session_id_with_client() {
     let fake = Fake::fixed(MATMUL_JSON);
     let result = json(get_kernel_utilization(
         &fake,
-        &args(
-            "session_12345",
-            &[
-                ("kernel_name", J::from("matmul")),
-                ("output_format", J::from("dict")),
-                ("bypass_cache", J::Bool(true)),
-            ],
-        ),
+        &args("session_12345", &[("kernel_name", J::from("matmul")), ("output_format", J::from("dict")), ("bypass_cache", J::Bool(true))]),
     ));
     let calls = fake.calls.borrow();
     assert_eq!(calls.len(), 1);
@@ -156,10 +128,7 @@ fn test_get_kernel_utilization_from_session_id_with_client() {
         calls[0],
         (
             "kernel_utilization.json".to_string(),
-            vec![
-                ("kernel".to_string(), "matmul".to_string()),
-                ("bypass_cache".to_string(), "True".to_string())
-            ]
+            vec![("kernel".to_string(), "matmul".to_string()), ("bypass_cache".to_string(), "True".to_string())]
         )
     );
     assert_eq!(result.at("status").str(), Some("SUCCESS"));
@@ -168,13 +137,8 @@ fn test_get_kernel_utilization_from_session_id_with_client() {
 
 #[test]
 fn test_get_kernel_utilization_duration_override() {
-    let flags = [
-        ("duration_us", J::Float(20.0)),
-        ("force_duration", J::Bool(true)),
-        ("output_format", J::from("dict")),
-    ];
-    let result =
-        json(get_kernel_utilization(&Fake::fixed(""), &args(&trace_file("ku-duration"), &flags)));
+    let flags = [("duration_us", J::Float(20.0)), ("force_duration", J::Bool(true)), ("output_format", J::from("dict"))];
+    let result = json(get_kernel_utilization(&Fake::fixed(""), &args(&trace_file("ku-duration"), &flags)));
     assert_eq!(result.at("status").str(), Some("SUCCESS"));
     assert!((kernel(&result).at("duration_us").float().unwrap() - 20.0).abs() < 1e-3);
 }
@@ -187,18 +151,13 @@ fn test_get_kernel_utilization_empty_session_and_raw_bytes_raises_value_error() 
 
 #[test]
 fn test_get_kernel_utilization_client_no_data_raises_file_not_found_error() {
-    let error =
-        get_kernel_utilization(&Fake::new(|_, _| Ok(None)), &args("non_existent_session", &[]))
-            .unwrap_err();
+    let error = get_kernel_utilization(&Fake::new(|_, _| Ok(None)), &args("non_existent_session", &[])).unwrap_err();
     assert_eq!(error.kind, Kind::FileNotFound);
 }
 
 #[test]
 fn test_get_kernel_utilization_client_error_raises_runtime_error() {
-    let error = get_kernel_utilization(
-        &Fake::new(|_, _| Err(Error::new(Kind::Os, "Network error"))),
-        &args("session_err", &[]),
-    )
-    .unwrap_err();
+    let error =
+        get_kernel_utilization(&Fake::new(|_, _| Err(Error::new(Kind::Os, "Network error"))), &args("session_err", &[])).unwrap_err();
     assert_eq!(error.kind, Kind::Runtime);
 }
