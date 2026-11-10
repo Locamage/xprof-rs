@@ -19,6 +19,10 @@ This release adds object-store profile serving and multi-host profile support.
 - A run name with a remote `--logdir` reads the latest session of the run. Sessions of the run that the cache already holds do not change the result.
 - `get_tool_data --host` takes the host name that `get_hosts` gives, also when the file name has a dot before the host name.
 - `/open` and `/progress` accept a URI only in the form that a URL parser gives. They refuse a URI with a dot segment (`..`, `%2e%2e`) or a control character, so the pattern of `--open_uri_pattern` sees the path that the store reads.
+- The cache of a store has one budget (`XPROF_CACHE_BYTES`) for all the log directories of the store, and it is safe for more than one process. A sync takes the lock of the directory it writes, the time of a cached session is the time of its last use, and the eviction skips a session that another process uses or writes.
+- A staged profile serves until nobody used it for one hour. `/open` stages a URI again when its last staging ended more than one minute ago, so it reads the changes of the store.
+- A legacy trace whose render fails after its first part ends with an error. Before, the client and the cache got a part of the trace as a complete response.
+- The idle prefetch keeps a value only when it fits in the free memory budget. Before, a large host could make the cache drop a value that a request loaded.
 - CLI targets with `://`, such as `s3://` and `gs://`, sync through the server's remote cache.
 - The first remote `/runs` listing walks the object store level by level in parallel and stops at `plugins/profile`. Before, it walked the full store.
 - Per-command `--help` lists every parameter.

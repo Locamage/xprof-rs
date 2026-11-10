@@ -456,3 +456,36 @@ fn decoded_length_of_a_body_of_4_gib_or_more() {
     assert_eq!(crate::decoded_len(&trailer, &vec![0; len.div_ceil(crate::GZIP_CHUNK)]), len);
     assert_eq!(crate::decoded_len(&trailer, &[0]), len as u32 as usize);
 }
+
+#[tokio::test]
+async fn a_body_that_ends_with_an_error_is_not_kept() {
+    let (state, dir) = (plugin(Path::new("")), temp_logdir("broken-body"));
+    let render = |parts: Vec<Result<Bytes, std::io::Error>>| async move {
+        crate::response(StatusCode::OK, "application/json", Body::from_stream(futures_util::stream::iter(parts)))
+    };
+    let broken = vec![Ok(Bytes::from_static(b"[1,")), Err(std::io::Error::other("the render stopped"))];
+    let reply = crate::cached(&state, "trace".into(), &dir, false, render(broken)).await;
+    assert_eq!(reply.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let reply = crate::cached(&state, "trace".into(), &dir, false, render(vec![Ok(Bytes::from_static(b"[1,2]"))])).await;
+    assert_eq!(reply.status(), StatusCode::OK);
+    assert_eq!(&axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap()[..], b"[1,2]");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn a_prefetched_value_is_kept_only_when_it_fits() {
+    fn seven(_: &Path) -> anyhow::Result<u64> {
+        Ok(7)
+    }
+    let dir = temp_logdir("prefetch-memo");
+    let file = dir.join("value");
+    std::fs::write(&file, b"x").unwrap();
+    std::fs::File::open(&file).unwrap().set_modified(std::time::SystemTime::now() - crate::FRESH * 2).unwrap();
+    let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+    for (weight, kept) in [(u64::MAX, false), (1, true)] {
+        let memo = crate::Memo::new(move |_, _: &u64| weight);
+        assert_eq!(memo.prefetch(file.clone(), &permits, seven).await.unwrap(), 7);
+        assert_eq!(memo.cache.get(&file).await.is_some(), kept, "{weight}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

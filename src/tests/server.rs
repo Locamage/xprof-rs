@@ -144,8 +144,17 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
             .append_pair("run", "s")
             .append_pair("tag", "overview_page")
             .append_pair("host", "ALL_HOSTS");
-        let served = crate::tests::legacy::fetch(&state, &format!("/data?{}", query.finish())).await;
+        let data = format!("/data?{}", query.finish());
+        let served = crate::tests::legacy::fetch(&state, &data).await;
         assert_eq!(served.0, StatusCode::OK, "{}", served.2);
+        // A staging that ended long ago does not answer the next request: the server stages the URI again. The profile of the
+        // first staging serves in the meantime.
+        let first = state.staging.lock().unwrap().values().next().unwrap().clone();
+        first.result.lock().unwrap().as_mut().unwrap().0 = std::time::Instant::now().checked_sub(crate::STAGED_FOR * 2).unwrap();
+        let again = crate::tests::legacy::fetch(&state, &progress_uri).await;
+        assert_eq!(again.0, StatusCode::OK, "{}", again.2);
+        assert!(!std::sync::Arc::ptr_eq(&first, state.staging.lock().unwrap().values().next().unwrap()));
+        assert_eq!(crate::tests::legacy::fetch(&state, &data).await.0, StatusCode::OK);
         let stage_mirror = state.staging.lock().unwrap().values().next().unwrap().remote.mirror.clone();
         std::fs::remove_dir_all(stage_mirror).unwrap();
         std::fs::remove_dir_all(root).unwrap();

@@ -52,6 +52,7 @@ static BUDGET_BYTES: LazyLock<u64> = LazyLock::new(|| (*MEMORY / 8).clamp(256 <<
 const IDLE: Duration = Duration::from_secs(3600);
 const POLL: Duration = Duration::from_secs(30);
 const FRESH: Duration = Duration::from_secs(2);
+const STAGED_FOR: Duration = Duration::from_secs(60);
 const WATCHED_SESSIONS: usize = 8;
 const CONCURRENT_PREFETCHES: usize = 1;
 /// The prefetch starts a load only after this time without requests. A load at the same time as a
@@ -190,16 +191,23 @@ impl<K: Hash + Eq + Clone + Send + 'static, T: Clone + Send + Sync + 'static> Fl
     }
 }
 
+/// The weight in bytes of a value of a memo.
+type Weigh<T> = Arc<dyn Fn(&Stamp, &T) -> u64 + Send + Sync>;
+
 struct Memo<T> {
     cache: moka::future::Cache<PathBuf, (Stamp, Outcome<T>)>,
     flights: Flights<(PathBuf, Stamp), Outcome<T>>,
+    weigh: Weigh<T>,
 }
 
 impl<T: Clone + Send + Sync + 'static> Memo<T> {
     fn new(weigh: impl Fn(&Stamp, &T) -> u64 + Send + Sync + 'static) -> Arc<Self> {
-        let cache =
-            cache(*BUDGET_BYTES, move |_, (stamp, outcome): &(Stamp, Outcome<T>)| outcome.as_ref().map_or(0, |value| weigh(stamp, value)));
-        Arc::new(Self { cache, flights: Flights::new() })
+        let weigh: Weigh<T> = Arc::new(weigh);
+        let weigher = weigh.clone();
+        let cache = cache(*BUDGET_BYTES, move |_, (stamp, outcome): &(Stamp, Outcome<T>)| {
+            outcome.as_ref().map_or(0, |value| weigher(stamp, value))
+        });
+        Arc::new(Self { cache, flights: Flights::new(), weigh })
     }
 
     async fn free(&self) -> u64 {
@@ -208,6 +216,22 @@ impl<T: Clone + Send + Sync + 'static> Memo<T> {
     }
 
     async fn get(self: &Arc<Self>, path: PathBuf, permits: &Arc<Semaphore>, build: fn(&Path) -> anyhow::Result<T>) -> Outcome<T> {
+        self.load(path, permits, build, false).await
+    }
+
+    /// Loads a value ahead of a request. It keeps the value only when the value fits in the free budget, so it never makes the
+    /// memo drop a value that a request loaded.
+    async fn prefetch(self: &Arc<Self>, path: PathBuf, permits: &Arc<Semaphore>, build: fn(&Path) -> anyhow::Result<T>) -> Outcome<T> {
+        self.load(path, permits, build, true).await
+    }
+
+    async fn load(
+        self: &Arc<Self>,
+        path: PathBuf,
+        permits: &Arc<Semaphore>,
+        build: fn(&Path) -> anyhow::Result<T>,
+        spare: bool,
+    ) -> Outcome<T> {
         let stamp = Stamp::of(&path).ok_or_else(|| Arc::from(format!("Cannot read {}", path.display())))?;
         if let Some((cached, outcome)) = self.cache.get(&path).await
             && cached == stamp
@@ -223,7 +247,9 @@ impl<T: Clone + Send + Sync + 'static> Memo<T> {
                 .await
                 .map_err(|payload| panic_message(&*payload))
                 .and_then(|outcome| outcome.map_err(|error| error.to_string().into()));
-            if Stamp::of(&path) == Some(stamp) && stamp.older_than(FRESH) {
+            let room = if spare { memo.free().await } else { u64::MAX };
+            let fits = outcome.as_ref().map_or(0, |value| (memo.weigh)(&stamp, value)) <= room;
+            if fits && Stamp::of(&path) == Some(stamp) && stamp.older_than(FRESH) {
                 memo.cache.insert(path, (stamp, outcome.clone())).await;
             }
             outcome
@@ -257,7 +283,14 @@ struct Settings {
 struct Staging {
     remote: Arc<Remote>,
     started: Instant,
-    result: Mutex<Option<Result<PathBuf, String>>>,
+    /// The time the staging ended, and the local profile or the reason of the failure.
+    result: Mutex<Option<(Instant, Result<PathBuf, String>)>>,
+}
+
+impl Staging {
+    fn outcome(&self) -> Option<Result<PathBuf, String>> {
+        self.result.lock().expect("lock poisoned").as_ref().map(|(_, result)| result.clone())
+    }
 }
 
 struct State_ {
@@ -273,6 +306,9 @@ struct State_ {
     open_uri_pattern: Option<regex::Regex>,
     staging: Mutex<HashMap<String, Arc<Staging>>>,
     staging_permits: Arc<Semaphore>,
+    /// The local profiles that `/open` staged, with the time of their last use. The server serves them like the log directory
+    /// until nobody used them for `IDLE`.
+    staged: Mutex<HashMap<PathBuf, Instant>>,
 }
 
 type Shared = Arc<State_>;
@@ -674,15 +710,12 @@ fn confine(state: &State_, path: &Path) -> Option<PathBuf> {
     let missing = &parts[found..];
     let plain = missing.iter().all(|part| matches!(part, Component::Normal(_)))
         && missing.first().is_none_or(|first| real.join(first).symlink_metadata().is_err());
-    let staged = state.staging.lock().expect("lock poisoned").values().any(|entry| {
-        entry
-            .result
-            .lock()
-            .expect("lock poisoned")
-            .as_ref()
-            .is_some_and(|result| result.as_ref().is_ok_and(|profile| real.starts_with(profile)))
-    });
-    (plain && (real.starts_with(&state.logdir) || staged)).then(|| missing.iter().fold(real, |dir, part| dir.join(part)))
+    let staged = || {
+        let mut staged = state.staged.lock().expect("lock poisoned");
+        staged.retain(|_, used| used.elapsed() < IDLE);
+        staged.iter_mut().find(|(profile, _)| real.starts_with(profile)).map(|(_, used)| *used = Instant::now()).is_some()
+    };
+    (plain && (real.starts_with(&state.logdir) || staged())).then(|| missing.iter().fold(real, |dir, part| dir.join(part)))
 }
 
 fn run_dir(state: &State_, run: &str) -> Option<PathBuf> {
@@ -847,7 +880,16 @@ async fn cached(
                 };
             }
             let (mut gzip, mut frames) = (Gzip::new(), body.into_data_stream());
-            while let Some(Ok(frame)) = frames.next().await {
+            while let Some(frame) = frames.next().await {
+                let frame = match frame {
+                    Ok(frame) => frame,
+                    // The render stopped before the end of the body. The part that arrived is not a response to keep.
+                    Err(error) => {
+                        let (parts, body) = internal(&error.to_string()).into_parts();
+                        let body = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
+                        return Rendered { status: parts.status, headers: parts.headers, body, gzipped: None };
+                    }
+                };
                 gzip = blocking(move || {
                     gzip.write(frame);
                     gzip
@@ -1251,9 +1293,21 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
                 Ok(Some(Err(error))) | Err(error) => internal(&error.to_string()),
             };
         };
-        let rest = futures_util::stream::unfold(receiver, |mut receiver| async move { receiver.recv().await.map(|part| (part, receiver)) });
-        let parts = futures_util::stream::iter([head]).chain(rest);
-        return response(StatusCode::OK, "application/json", Body::from_stream(parts.map(Ok::<_, std::convert::Infallible>)));
+        // When the parts end, the result of the render tells if the body is complete. A render that failed or panicked after the
+        // first part ends the body with an error, so the client and the cache do not take a part of the trace for all of it.
+        let rest = futures_util::stream::unfold((receiver, Some(rendered)), |(mut receiver, mut render)| async move {
+            if let Some(part) = receiver.recv().await {
+                return Some((Ok(part), (receiver, render)));
+            }
+            let failure = match render.take()?.await {
+                Ok(Ok(_)) => return None,
+                Ok(Err(error)) => error.to_string(),
+                Err(error) => error.to_string(),
+            };
+            Some((Err(std::io::Error::other(failure)), (receiver, None)))
+        });
+        let parts = futures_util::stream::iter([Ok(head)]).chain(rest);
+        return response(StatusCode::OK, "application/json", Body::from_stream(parts));
     }
     if tag != "trace_viewer@" {
         return not_found();
@@ -1390,9 +1444,9 @@ async fn prefetch(state: Shared) {
             for key in new {
                 attempted.push(key.clone());
                 quiet().await;
-                _ = state.stats.get(key.0.clone(), &permits, tools::opstats::load).await;
+                _ = state.stats.prefetch(key.0.clone(), &permits, tools::opstats::load).await;
                 quiet().await;
-                _ = state.hosts.get(key.0, &permits, shared_host).await;
+                _ = state.hosts.prefetch(key.0, &permits, shared_host).await;
             }
         }
         tokio::time::sleep(POLL).await;
@@ -1488,6 +1542,7 @@ fn state(settings: &Settings) -> Shared {
             .as_deref()
             .map(|pattern| regex::Regex::new(&format!("^(?:{pattern})$")).expect("pattern validated by arguments")),
         staging: Mutex::default(),
+        staged: Mutex::default(),
         staging_permits: Arc::new(Semaphore::new(4)),
     })
 }
@@ -1526,15 +1581,18 @@ fn allowed_uri<'a>(state: &State_, uri: &'a str) -> Option<&'a str> {
 
 fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
     let mut entries = state.staging.lock().expect("lock poisoned");
+    // A staging that ended answers for `STAGED_FOR`. Then the next request stages the URI again, which reads the changes of the
+    // store, and the entry of a URI that nobody asks for goes away.
+    entries.retain(|_, entry| entry.result.lock().expect("lock poisoned").as_ref().is_none_or(|(at, _)| at.elapsed() < STAGED_FOR));
     if let Some(entry) = entries.get(uri) {
         return Ok(entry.clone());
     }
     let remote = Arc::new(Remote::open(uri)?);
     let entry = Arc::new(Staging { remote, started: Instant::now(), result: Mutex::default() });
     entries.insert(uri.to_string(), entry.clone());
-    let (work_entry, permits, uri) = (entry.clone(), state.staging_permits.clone(), uri.to_string());
+    let (work_entry, permits, uri, served) = (entry.clone(), state.staging_permits.clone(), uri.to_string(), state.clone());
     tokio::spawn(async move {
-        let result = async {
+        let work = async {
             let _permit = permits.acquire_owned().await.map_err(|error| error.to_string())?;
             let profile = work_entry.remote.mirror.join("plugins/profile");
             work_entry.remote.sync(&profile, false).await?;
@@ -1548,9 +1606,12 @@ fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
                 return Err(format!("no XPlane protobuf files found under {uri}"));
             }
             profile.canonicalize().map_err(|error| error.to_string())
+        };
+        let result = AssertUnwindSafe(work).catch_unwind().await.unwrap_or_else(|payload| Err(panic_message(&*payload).to_string()));
+        if let Ok(profile) = &result {
+            served.staged.lock().expect("lock poisoned").insert(profile.clone(), Instant::now());
         }
-        .await;
-        *work_entry.result.lock().expect("lock poisoned") = Some(result);
+        *work_entry.result.lock().expect("lock poisoned") = Some((Instant::now(), result));
     });
     Ok(entry)
 }
@@ -1588,7 +1649,7 @@ async fn open(State(state): State<Shared>, method: Method, Query(params): Query<
             return response(StatusCode::BAD_GATEWAY, "text/plain", format!("profile staging failed: {error}\n"));
         }
     };
-    let result = entry.result.lock().expect("lock poisoned").clone();
+    let result = entry.outcome();
     match result {
         None => response(StatusCode::ACCEPTED, "text/html; charset=utf-8", loading_page(uri, tool)),
         Some(Ok(profile)) => {
@@ -1620,7 +1681,7 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
             return response(StatusCode::FORBIDDEN, "application/json", serde_json::json!({"error":error}).to_string());
         }
     };
-    let result = entry.result.lock().expect("lock poisoned").clone();
+    let result = entry.outcome();
     match result {
         Some(Err(error)) => {
             remove_staging(&state, uri, &entry);
