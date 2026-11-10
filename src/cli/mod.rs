@@ -606,6 +606,19 @@ pub fn literal(text: &str) -> J {
     parsed.unwrap_or_else(|| J::Str(text.to_string()))
 }
 
+/// Whether two positional words are `<logdir> <session>`, and not a session and the value of the next parameter.
+///
+/// A local path is a log directory when it holds the session. The CLI cannot look into a URL without a request, so a URL is a
+/// log directory unless it names a session or a trace file, or the second word is the value of a boolean parameter.
+fn logdir_then_session(first: &str, second: &str) -> bool {
+    if !first.contains("://") {
+        return expand(first).join("plugins/profile").join(second).is_dir();
+    }
+    let session = first.trim_end_matches('/').rsplit_once('/').is_some_and(|(parent, _)| parent.ends_with("/plugins/profile"));
+    let trace = client::TRACE_SUFFIXES.iter().any(|suffix| first.ends_with(suffix));
+    !session && !trace && !matches!(second, "True" | "False")
+}
+
 fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>), Error> {
     let names: Vec<&str> = spec.positional.iter().map(|(name, _)| name.as_str()).chain(spec.keyword.iter().map(String::as_str)).collect();
     let (mut keywords, mut unknown, mut positional) = (Vec::<(String, String)>::new(), Vec::new(), Vec::new());
@@ -661,11 +674,7 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
     if positional.len() > 1
         && spec.keyword.iter().any(|key| key == "logdir")
         && !keywords.iter().any(|(key, _)| key == "logdir")
-        && ((positional[0].contains("://")
-            && !matches!(positional[1].as_str(), "True" | "False")
-            && !client::TRACE_SUFFIXES.iter().any(|suffix| positional[0].ends_with(suffix))
-            && !positional[0].trim_end_matches('/').rsplit_once('/').is_some_and(|(parent, _)| parent.ends_with("/plugins/profile")))
-            || expand(&positional[0]).join("plugins/profile").join(&positional[1]).is_dir())
+        && logdir_then_session(&positional[0], &positional[1])
     {
         keywords.push(("logdir".into(), positional.remove(0)));
     }
