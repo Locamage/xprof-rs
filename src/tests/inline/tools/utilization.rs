@@ -10,7 +10,7 @@ fn find<'a>(metrics: &'a [Metric], name: &str) -> &'a Metric {
 
 #[test]
 fn v6e_tensor_core_metrics() {
-    let id = |name: &str| Device::V6e.id(&format!("{TC_V6E}{name}"));
+    let id = |name: &str| Device::V6e.id(&format!("VF_CHIP_{TC_COUNT}_{name}"));
     let values = counters(&[
         (id("CYCLES"), 1000),
         (id("SCALAR_ALU_INSTRUCTION_0"), 300),
@@ -70,7 +70,7 @@ fn v7x_tensor_core_uses_power_manager_cycles_per_die() {
 
 #[test]
 fn bandwidth_and_ici() {
-    let cycles = Device::V6e.id(&format!("{TC_V6E}CYCLES"));
+    let cycles = Device::V6e.id(&format!("VF_CHIP_{TC_COUNT}_CYCLES"));
     let read =
         Device::V6e.id("VF_CHIP_HBM_1_HBMC_15_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_RD_RESP_PS1");
     let write = Device::V6e

@@ -14,7 +14,8 @@ const HBM_BYTES_PER_BEAT: u64 = 32;
 const ICI_BYTES_PER_FLIT: u64 = 128;
 const PEAK_ICI_BYTES_PER_SECOND: f64 = 294947368421.0526;
 const ICI_FREQUENCY_HZ: f64 = 1e9;
-const TC_V6E: &str = "VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_";
+const TC_COUNT: &str = "TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT";
+const ICR_FIFO: &str = "PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN";
 const HBM_SUFFIX: &str = "_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_";
 const SC_SUFFIX: &str = "_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_";
 const POWER_STATS: &str = "PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_";
@@ -98,8 +99,8 @@ impl Device {
 
     fn tensor_counter(self, core: usize, name: &str) -> u64 {
         match self {
-            Self::V6e => self.id(&format!("{TC_V6E}{name}")),
-            Self::V7x => self.id(&format!("VF_CHIP_DIE{}_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_{name}", die(core))),
+            Self::V6e => self.id(&format!("VF_CHIP_{TC_COUNT}_{name}")),
+            Self::V7x => self.id(&format!("VF_CHIP_DIE{}_{TC_COUNT}_{name}", die(core))),
         }
     }
 
@@ -353,10 +354,23 @@ fn bandwidth(counters: &Counters, device: Device, core: usize, metrics: &mut Vec
 
 fn ici(counters: &Counters, device: Device, metrics: &mut Vec<Metric>) {
     let flits = |kind: &str| {
+        let fifo = |name: String| device.id(&name);
         match device {
-        Device::V6e => total(counters, (0..2).map(|index| device.id(&format!("VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_{kind}_REQ_{index}_INSERTION_COUNT")))),
-        Device::V7x => total(counters, (0..4).map(|index| device.id(&format!("VF_CHIP_DIE1_OCI_ICR_{index}_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_{kind}_REQ_0_INSERTION_COUNT")))),
-    }
+            Device::V6e => total(
+                counters,
+                (0..2).map(|index| {
+                    fifo(format!("VF_CHIP_OCI_ICR_{ICR_FIFO}_{kind}_REQ_{index}_INSERTION_COUNT"))
+                }),
+            ),
+            Device::V7x => total(
+                counters,
+                (0..4).map(|index| {
+                    fifo(format!(
+                        "VF_CHIP_DIE1_OCI_ICR_{index}_{ICR_FIFO}_{kind}_REQ_0_INSERTION_COUNT"
+                    ))
+                }),
+            ),
+        }
     };
     let (read, written) = (
         flits("RD").wrapping_mul(ICI_BYTES_PER_FLIT),
