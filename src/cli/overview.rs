@@ -389,6 +389,8 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
     let (capacity, peak) = (gib(memory.capacity, true), gib(memory.peak, true));
     let utilization =
         if capacity > 0.0 && peak > 0.0 { round(peak / capacity * 100.0, 2) } else { -1.0 };
+    let fragmentation =
+        if memory.fragmentation >= 0.0 { round(memory.fragmentation * 100.0, 2) } else { -1.0 };
     Ok(obj! {
         "memory_capacity_gib" => capacity,
         "peak_memory_usage_gib" => peak,
@@ -396,9 +398,7 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
             "stack_reservation_gib" => gib(memory.stack, false),
             "heap_allocation_gib" => gib(memory.heap, false),
             "free_memory_gib" => gib(memory.free, false),
-            "fragmentation_percent" => {
-                if memory.fragmentation >= 0.0 { round(memory.fragmentation * 100.0, 2) } else { -1.0 }
-            },
+            "fragmentation_percent" => fragmentation,
             "utilization_percent" => utilization,
         },
     })
@@ -533,9 +533,10 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
         let data =
             client.fetch_either("roofline_model.json", "roofline_model", &session, &params)?;
         let Some(data) = data else {
+            let session = py_repr(&session);
             return Ok(obj! {
                 "status" => "NO_DATA",
-                "message" => format!("No roofline model data found for session {}.", py_repr(&session)),
+                "message" => format!("No roofline model data found for session {session}."),
             });
         };
         let parsed = parsed(&data)?;

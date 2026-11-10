@@ -169,7 +169,10 @@ static LISTENING: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
         }
         // During a lease break, `F_GETLEASE` gives `F_UNLCK`. A lease that the thread cannot copy
         // stays, and the writer waits for the lease break time of the system.
-        LEASES.lock().expect("lock poisoned").retain(|lease| unsafe { libc::fcntl(lease.fd, libc::F_GETLEASE) } == libc::F_RDLCK || !lease.copy());
+        LEASES.lock().expect("lock poisoned").retain(|lease| {
+            let held = unsafe { libc::fcntl(lease.fd, libc::F_GETLEASE) } == libc::F_RDLCK;
+            held || !lease.copy()
+        });
     };
     if std::thread::Builder::new().name("leases".into()).spawn(listen).is_err() {
         return false;

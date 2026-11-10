@@ -226,16 +226,54 @@ fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8)
     };
     let tips = [
         ("faq", "Refer to the TF2 Profiler FAQ".to_string(), "Tool troubleshooting / FAQ"),
-        ("host", "input_pipeline_analyzer (especially Section 3 for the breakdown of input \
-            operations on the Host)".into(), "Next steps for reducing the Host time"),
-        ("host", "trace_viewer (look at the activities on the timeline of each Host Thread near \
-            the bottom of the trace view)".into(), "Next steps for reducing the Host time"),
-        ("device", format!("{tool} (identify the time-consuming operations executed on the \
-            {device_name})"), "Next steps for reducing the Device time"),
-        ("device", format!("trace_viewer (look at the activities on the timeline of each \
-            {timeline} in the trace view)"), "Next steps for reducing the Device time"),
-        ("doc", r#"<a href="https://www.tensorflow.org/guide/data_performance_analysis" target="_blank">Analyze tf.data performance with the TF Profiler</a>"#.into(), "Other useful resources"),
-        ("doc", r#"<a href="https://www.tensorflow.org/guide/data_performance" target="_blank">Better performance with the tf.data API</a>"#.into(), "Other useful resources"),
+        (
+            "host",
+            "input_pipeline_analyzer (especially Section 3 for the breakdown of input \
+                operations on the Host)"
+                .into(),
+            "Next steps for reducing the Host time",
+        ),
+        (
+            "host",
+            "trace_viewer (look at the activities on the timeline of each Host Thread near \
+                the bottom of the trace view)"
+                .into(),
+            "Next steps for reducing the Host time",
+        ),
+        (
+            "device",
+            format!(
+                "{tool} (identify the time-consuming operations executed on the \
+                    {device_name})"
+            ),
+            "Next steps for reducing the Device time",
+        ),
+        (
+            "device",
+            format!(
+                "trace_viewer (look at the activities on the timeline of each \
+                    {timeline} in the trace view)"
+            ),
+            "Next steps for reducing the Device time",
+        ),
+        (
+            "doc",
+            concat!(
+                r#"<a href="https://www.tensorflow.org/guide/data_performance_analysis" "#,
+                r#"target="_blank">Analyze tf.data performance with the TF Profiler</a>"#,
+            )
+            .into(),
+            "Other useful resources",
+        ),
+        (
+            "doc",
+            concat!(
+                r#"<a href="https://www.tensorflow.org/guide/data_performance" "#,
+                r#"target="_blank">Better performance with the tf.data API</a>"#,
+            )
+            .into(),
+            "Other useful resources",
+        ),
     ];
     recommendation.rows = tips
         .into_iter()

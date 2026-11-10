@@ -1052,7 +1052,9 @@ fn throughput_and_latency(spans: &[(u64, u64)]) -> (f64, f64) {
 }
 
 macro_rules! wrapping_add {
-    ($sum:ident, $item:ident, $($field:ident),*) => { $($sum.$field = $sum.$field.wrapping_add($item.$field);)* };
+    ($sum:ident, $item:ident, $($field:ident),*) => {
+        $($sum.$field = $sum.$field.wrapping_add($item.$field);)*
+    };
 }
 
 fn add_request(sum: &mut RequestDetail, request: &RequestDetail) {

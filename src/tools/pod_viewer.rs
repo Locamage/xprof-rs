@@ -21,7 +21,8 @@ const GENERIC_EVENTS: [(&str, &[u32]); 9] = [
     ("All others", &[UNKNOWN_TIME]),
 ];
 
-const EMPTY_RECORD: &str = "{\"hostName\":\"\",\"chipId\":0,\"nodeId\":0,\"stepNum\":0,\"totalDurationUs\":0,\"bottleneck\":\"\",\"stepBreakdownUs\":{}}";
+const EMPTY_RECORD: &str = "{\"hostName\":\"\",\"chipId\":0,\"nodeId\":0,\"stepNum\":0,\
+    \"totalDurationUs\":0,\"bottleneck\":\"\",\"stepBreakdownUs\":{}}";
 
 fn record(host_name: &str, step_num: u32, info: &StepInfo) -> String {
     let breakdown_ps = GENERIC_EVENTS.map(|(_, kinds)| match &info.breakdown {
@@ -83,7 +84,8 @@ pub fn render(extra: &Extra) -> String {
     };
     let _ = write!(
         out,
-        "]}},\"diagnostics\":{{\"info\":[],\"warnings\":[{warning}],\"errors\":[]}},\"stepBreakdownEvents\":["
+        "]}},\"diagnostics\":{{\"info\":[],\"warnings\":[{warning}],\"errors\":[]}},\
+            \"stepBreakdownEvents\":["
     );
     for (index, (name, _)) in GENERIC_EVENTS.iter().enumerate() {
         let _ = write!(

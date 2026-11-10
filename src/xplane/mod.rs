@@ -56,7 +56,7 @@ const QUEUE_CONSUMERS: &str = "RunProgramRequest HostCallbackRequest TransferH2D
 const INTERNAL_STATS: [&str; 8] =
     ["_pt", "_p", "_ct", "_c", "_r", "flops", "program_id", "symbol_id"];
 macro_rules! kinds {
-    ($($kind:ident: $text:literal),*) => {
+    ($($kind:ident: $text:literal),* $(,)?) => {
         const STATS: [&str; [$($text),*].len()] = [$($text),*];
         #[allow(non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
         #[repr(usize)]
@@ -65,7 +65,27 @@ macro_rules! kinds {
     };
 }
 
-kinds!(FLOW: "flow", GROUP: "group_id", ASYNC: "_a", STEP: "step_name", PT: "_pt", P: "_p", CT: "_ct", C: "_c", CORRELATION: "correlation_id", REQUEST_ID: "request_id", QUEUE_ADDR: "queue_addr", DEVICE_ORDINAL: "device_ordinal", QUEUE_ID: "queue_id", RUN_ID: "run_id", CORE_TYPE: "core_type", PID: "_pid", ROOT: "_r", STEP_ID: "id", ITER_NUM: "iter_num");
+kinds!(
+    FLOW: "flow",
+    GROUP: "group_id",
+    ASYNC: "_a",
+    STEP: "step_name",
+    PT: "_pt",
+    P: "_p",
+    CT: "_ct",
+    C: "_c",
+    CORRELATION: "correlation_id",
+    REQUEST_ID: "request_id",
+    QUEUE_ADDR: "queue_addr",
+    DEVICE_ORDINAL: "device_ordinal",
+    QUEUE_ID: "queue_id",
+    RUN_ID: "run_id",
+    CORE_TYPE: "core_type",
+    PID: "_pid",
+    ROOT: "_r",
+    STEP_ID: "id",
+    ITER_NUM: "iter_num",
+);
 const NO_KIND: u8 = u8::MAX;
 const MAX_TAG: u64 = (1 << 29) - 1;
 const ID_SLACK: u64 = 1024;
@@ -487,7 +507,16 @@ fn line(
     }
     let complete = AtomicBool::new(true);
     let events = bodies.par_iter().with_min_len(4096).map(|&(start, len)| {
-        let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start as usize) as u32, len), meta: 0, eager: None, has_stats: false, linked: false };
+        let mut event = Ev {
+            ts: 0,
+            dur: 0,
+            group: NONE_GROUP,
+            raw: ((offset + start as usize) as u32, len),
+            meta: 0,
+            eager: None,
+            has_stats: false,
+            linked: false,
+        };
         let mut parts = fields(&bytes[start as usize..][..len as usize]);
         for (tag, field) in &mut parts {
             match (tag, field) {
@@ -501,7 +530,10 @@ fn line(
                     {
                         valid.store(false, Ordering::Relaxed);
                     }
-                    event.linked = event.linked || !matches!(fields(body).next(), Some((1, Field::Num(id))) if kind.get(id as usize).is_none_or(|&kind| kind == NO_KIND));
+                    event.linked = event.linked || {
+                        let unknown = |id: u64| kind.get(id as usize).is_none_or(|&k| k == NO_KIND);
+                        !matches!(fields(body).next(), Some((1, Field::Num(id))) if unknown(id))
+                    };
                 }
                 _ => {}
             }
@@ -551,7 +583,9 @@ pub fn parse_checking(
         }
     }
     anyhow::ensure!(entries.complete(), "The XSpace is not valid");
-    let bare = bare && !spans.iter().any(|(_, bytes)| fields(bytes).any(|field| matches!(field, (2, Field::Bytes(_, name)) if name.starts_with(gpu::PREFIX.as_bytes()))));
+    let prefix = gpu::PREFIX.as_bytes();
+    let named_gpu = |field| matches!(field, (2, Field::Bytes(_, name)) if name.starts_with(prefix));
+    let bare = bare && !spans.iter().any(|(_, bytes)| fields(bytes).any(named_gpu));
     let mut planes: Vec<Plane> = spans
         .par_iter()
         .map(|&span| Plane::parse(span, buf, checked, bare))

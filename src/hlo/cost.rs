@@ -1283,7 +1283,11 @@ impl<'c, 'm> Analysis<'c, 'm> {
             } else {
                 let value: serde_json::Value =
                     serde_json::from_slice(&config).map_err(|error| error.to_string())?;
-                let dimensions = value["gemm_backend_config"]["dot_dimension_numbers"]["lhs_contracting_dimensions"].as_array();
+                let dimensions = value
+                    .pointer(
+                        "/gemm_backend_config/dot_dimension_numbers/lhs_contracting_dimensions",
+                    )
+                    .and_then(serde_json::Value::as_array);
                 dimensions.map_or_else(Vec::new, |items| {
                     items
                         .iter()

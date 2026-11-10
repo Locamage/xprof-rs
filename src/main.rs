@@ -1894,7 +1894,11 @@ fn arguments(list: impl IntoIterator<Item = String>) -> Result<Settings, String>
 }
 
 fn state(settings: &Settings) -> Shared {
-    let config = serde_json::json!({"enableTabNameLabel": settings.enable_tab_name_label, "hideCaptureProfileButton": settings.hide_capture_profile_button, "srcPathPrefix": settings.src_prefix});
+    let config = serde_json::json!({
+        "enableTabNameLabel": settings.enable_tab_name_label,
+        "hideCaptureProfileButton": settings.hide_capture_profile_button,
+        "srcPathPrefix": settings.src_prefix,
+    });
     Arc::new(State_ {
         logdir: settings.logdir.canonicalize().unwrap_or_else(|_| settings.logdir.clone()),
         remote: settings.remote.clone(),

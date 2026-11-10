@@ -9,7 +9,16 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 const GPU_PREFIX: &str = "/device:GPU:";
-const PERF_COLUMNS: &str = r#"{"cols":[{"id":"Host","label":"Host","type":"string"},{"id":"Chip","label":"Chip","type":"number"},{"id":"Kernel","label":"Kernel","type":"string"},{"id":"Sample","label":"Sample","type":"number"},{"id":"Counter","label":"Counter","type":"string"},{"id":"Value","label":"Value (Hex)","type":"number"},{"id":"Description","label":"Description","type":"string"},{"id":"Set","label":"Set","type":"string"}],"rows":["#;
+const PERF_COLUMNS: &str = concat!(
+    r#"{"cols":[{"id":"Host","label":"Host","type":"string"},"#,
+    r#"{"id":"Chip","label":"Chip","type":"number"},"#,
+    r#"{"id":"Kernel","label":"Kernel","type":"string"},"#,
+    r#"{"id":"Sample","label":"Sample","type":"number"},"#,
+    r#"{"id":"Counter","label":"Counter","type":"string"},"#,
+    r#"{"id":"Value","label":"Value (Hex)","type":"number"},"#,
+    r#"{"id":"Description","label":"Description","type":"string"},"#,
+    r#"{"id":"Set","label":"Set","type":"string"}],"rows":["#,
+);
 const UTILIZATION_COLUMNS: [(&str, &str, &str); 8] = [
     ("host", "number", "Host"),
     ("device", "number", "Device"),
@@ -568,7 +577,12 @@ fn summarize(name: &str, duration_us: f64, metrics: &[Metric]) -> Json {
     json!({
         "duration_us": duration_us,
         "kernel_name": name,
-        "mxu_cycles_breakdown": {"BF16": share(precisions[0]), "FP8": share(precisions[3]), "Int4": share(precisions[2]), "Int8": share(precisions[1])},
+        "mxu_cycles_breakdown": {
+            "BF16": share(precisions[0]),
+            "FP8": share(precisions[3]),
+            "Int4": share(precisions[2]),
+            "Int8": share(precisions[1]),
+        },
         "mxu_is_anomaly": utilization > 100.0,
         "mxu_utilization": utilization,
         "other_metrics": other,

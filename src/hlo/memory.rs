@@ -718,7 +718,8 @@ impl Model<'_> {
                 }
                 let description = || {
                     format!(
-                        "buffer_id:{}\nhlo_op:{}\nshape:{}\nsize:{}\nunpadded_size:{}\noffset:{}\nspan:({},{})",
+                        "buffer_id:{}\nhlo_op:{}\nshape:{}\nsize:{}\nunpadded_size:{}\noffset:{}\n\
+                            span:({},{})",
                         buffer.logical.id,
                         buffer.logical.name,
                         shape,

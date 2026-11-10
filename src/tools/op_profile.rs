@@ -476,7 +476,8 @@ impl<'a> Builder<'a> {
             }
             let _ = write!(
                 out,
-                ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\"sourceInfo\":{{\"fileName\":",
+                ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\
+                    \"sourceInfo\":{{\"fileName\":",
                 xla.program_id
             );
             let (file, line, stack) = xla

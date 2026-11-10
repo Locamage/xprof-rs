@@ -59,13 +59,46 @@ pub const HARDWARE: [&str; 4] = ["UNKNOWN_HARDWARE", "CPU_ONLY", "GPU", "TPU"];
 pub const BOTTLENECK_PREFIXES: [&str; 4] =
     ["", "kernel_launch_", "all_other_", "device_collectives_"];
 const RECOMMENDATIONS: [&str; 5] = [
-    r"Enqueuing data: you may want to combine small input data chunks into fewer but larger chunks.",
-    r#"Data preprocessing: you may increase num_parallel_calls in <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#map" target="_blank">Dataset map()</a> or preprocess the data OFFLINE."#,
-    r#"Reading data from files in advance: you may tune parameters in the following tf.data API (<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" target="_blank">prefetch size</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" target="_blank">interleave cycle_length</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/TFRecordDataset#class_tfrecorddataset" target="_blank">reader buffer_size</a>)"#,
-    r#"Reading data from files on demand: you should read data IN ADVANCE using the following tf.data API (<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" target="_blank">prefetch</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" target="_blank">interleave</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/TFRecordDataset#class_tfrecorddataset" target="_blank">reader buffer</a>)"#,
-    r#"Other data reading or processing: you may consider using the <a href="https://www.tensorflow.org/programmers_guide/datasets" target="_blank">tf.data API</a> (if you are not using it now)"#,
+    concat!(
+        r"Enqueuing data: you may want to combine small input data chunks into fewer but ",
+        r"larger chunks.",
+    ),
+    concat!(
+        r#"Data preprocessing: you may increase num_parallel_calls in <a "#,
+        r#"href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#map" "#,
+        r#"target="_blank">Dataset map()</a> or preprocess the data OFFLINE."#,
+    ),
+    concat!(
+        r#"Reading data from files in advance: you may tune parameters in the following "#,
+        r#"tf.data API (<a "#,
+        r#"href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" "#,
+        r#"target="_blank">prefetch size</a>, <a "#,
+        r#"href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" "#,
+        r#"target="_blank">interleave cycle_length</a>, <a "#,
+        r#"href="https://www.tensorflow.org/api_docs/python/tf/data/"#,
+        r#"TFRecordDataset#class_tfrecorddataset" target="_blank">reader buffer_size</a>)"#,
+    ),
+    concat!(
+        r#"Reading data from files on demand: you should read data IN ADVANCE using the "#,
+        r#"following tf.data API (<a "#,
+        r#"href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" "#,
+        r#"target="_blank">prefetch</a>, <a "#,
+        r#"href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" "#,
+        r#"target="_blank">interleave</a>, <a "#,
+        r#"href="https://www.tensorflow.org/api_docs/python/tf/data/"#,
+        r#"TFRecordDataset#class_tfrecorddataset" target="_blank">reader buffer</a>)"#,
+    ),
+    concat!(
+        r#"Other data reading or processing: you may consider using the <a "#,
+        r#"href="https://www.tensorflow.org/programmers_guide/datasets" "#,
+        r#"target="_blank">tf.data API</a> (if you are not using it now)"#,
+    ),
 ];
-const CONSIDER_TF_DATA: &str = r#"Consider using <a href="https://www.tensorflow.org/guide/data" target="_blank">the tf.data API</a> to enable profiler's host-side analysis for input pipeline. Profiler currently does not support custom input pipeline (please ignore Section 3 below)."#;
+const CONSIDER_TF_DATA: &str = concat!(
+    r#"Consider using <a href="https://www.tensorflow.org/guide/data" target="_blank">the "#,
+    r#"tf.data API</a> to enable profiler's host-side analysis for input pipeline. Profiler "#,
+    r#"currently does not support custom input pipeline (please ignore Section 3 below)."#,
+);
 pub(crate) const TC_COMPUTE: usize = 0;
 pub(crate) const SCV0_COMPUTE: usize = 1;
 pub(crate) const TC_INFEED: usize = 2;

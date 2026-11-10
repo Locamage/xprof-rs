@@ -866,8 +866,9 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
                 ),
             );
         }
+        let average = fsum(durations.iter().copied()) / durations.len() as f64;
         let mut report = obj! {
-            "avg_step_time_ms" => round(fsum(durations.iter().copied()) / durations.len() as f64, 4),
+            "avg_step_time_ms" => round(average, 4),
             "step_count" => durations.len(),
         };
         if cut > 0 {

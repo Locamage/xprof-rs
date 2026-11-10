@@ -6,7 +6,24 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-const COLUMNS: &str = r#"{"cols":[{"id":"rendezvous_name","label":"Rendezvous Name","type":"string"},{"id":"recv_op_name","label":"Recv Op Name","type":"string"},{"id":"send_op_name","label":"Send Op Name","type":"string"},{"id":"transfer_type","label":"Transfer Type","type":"string"},{"id":"slack_time","label":"Slack Time (ms)","type":"number"},{"id":"host_stall","label":"Host Stall (ms)","type":"string"},{"id":"observed_duration","label":"Observed Duration (ms)","type":"number"},{"id":"send_stall","label":"Send Stall (ms)","type":"number"},{"id":"send_done_stall","label":"SendDone Stall (ms)","type":"number"},{"id":"recv_stall","label":"Recv Stall (ms)","type":"number"},{"id":"recv_done_stall","label":"RecvDone Stall (ms)","type":"number"},{"id":"stall_duration","label":"Stall Duration (ms)","type":"number"},{"id":"total_stall","label":"Aggregated Total Stall (ms)","type":"number"},{"id":"occurrences","label":"Occurrences","type":"number"},{"id":"net_tx_bytes","label":"Data Transmitted Size","type":"number"},{"id":"required_bandwidth","label":"Required Bandwidth (Gbps)","type":"number"}],"rows":["#;
+const COLUMNS: &str = concat!(
+    r#"{"cols":[{"id":"rendezvous_name","label":"Rendezvous Name","type":"string"},"#,
+    r#"{"id":"recv_op_name","label":"Recv Op Name","type":"string"},"#,
+    r#"{"id":"send_op_name","label":"Send Op Name","type":"string"},"#,
+    r#"{"id":"transfer_type","label":"Transfer Type","type":"string"},"#,
+    r#"{"id":"slack_time","label":"Slack Time (ms)","type":"number"},"#,
+    r#"{"id":"host_stall","label":"Host Stall (ms)","type":"string"},"#,
+    r#"{"id":"observed_duration","label":"Observed Duration (ms)","type":"number"},"#,
+    r#"{"id":"send_stall","label":"Send Stall (ms)","type":"number"},"#,
+    r#"{"id":"send_done_stall","label":"SendDone Stall (ms)","type":"number"},"#,
+    r#"{"id":"recv_stall","label":"Recv Stall (ms)","type":"number"},"#,
+    r#"{"id":"recv_done_stall","label":"RecvDone Stall (ms)","type":"number"},"#,
+    r#"{"id":"stall_duration","label":"Stall Duration (ms)","type":"number"},"#,
+    r#"{"id":"total_stall","label":"Aggregated Total Stall (ms)","type":"number"},"#,
+    r#"{"id":"occurrences","label":"Occurrences","type":"number"},"#,
+    r#"{"id":"net_tx_bytes","label":"Data Transmitted Size","type":"number"},"#,
+    r#"{"id":"required_bandwidth","label":"Required Bandwidth (Gbps)","type":"number"}],"rows":["#,
+);
 const ALL_HOSTS: &str = "ALL_HOSTS";
 const FIRST_TPU: &str = "/device:TPU:0";
 const RENDEZVOUS_ATTRIBUTE: &str = "_xla_host_transfer_rendezvous";

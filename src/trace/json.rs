@@ -25,7 +25,9 @@ const POWERS: [u128; 21] = {
     }
     powers
 };
-pub const CONTEXT_TYPES: &str = "||tf_exec|tfrt_exec|batch_sched|PjRt|as_batch_sched|tfrt_rt|tpu_embed|gpu_launch|batcher|tpu_stream|tpu_launch|pathways_exec|pjrt_library_call|threadpool_event|jax_serving|sparsecore_offload";
+pub const CONTEXT_TYPES: &str = "||tf_exec|tfrt_exec|batch_sched|PjRt|as_batch_sched|tfrt_rt|\
+    tpu_embed|gpu_launch|batcher|tpu_stream|tpu_launch|pathways_exec|pjrt_library_call|\
+    threadpool_event|jax_serving|sparsecore_offload";
 
 pub struct View<'a> {
     pub trace: &'a Trace,
@@ -248,9 +250,10 @@ fn add_texts(
     }
 }
 
-fn table<'a>(
-    sources: impl IntoIterator<Item = (&'a [Plane], &'a [u8], &'a [Event], &'a HashMap<u32, Box<str>>)>,
-) -> Vec<String> {
+/// The planes, the bytes, the events and the names of one host.
+type Source<'a> = (&'a [Plane], &'a [u8], &'a [Event], &'a HashMap<u32, Box<str>>);
+
+fn table<'a>(sources: impl IntoIterator<Item = Source<'a>>) -> Vec<String> {
     let mut texts = FxHashMap::default();
     for (planes, map, events, long_names) in sources {
         add_texts(&mut texts, planes, map, events, long_names);
@@ -579,14 +582,18 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
         body.push_str(if body.is_empty() { "" } else { "," });
         let _ = write!(
             body,
-            "{{\"args\":{{\"name\":{}}},\"name\":\"process_name\",\"ph\":\"M\",\"pid\":{pid},\"thread_count\":{}}},{{\"args\":{{\"sort_index\":{pid}}},\"name\":\"process_sort_index\",\"ph\":\"M\",\"pid\":{pid}}}",
+            "{{\"args\":{{\"name\":{}}},\"name\":\"process_name\",\"ph\":\"M\",\"pid\":{pid},\
+                \"thread_count\":{}}},{{\"args\":{{\"sort_index\":{pid}}},\
+                \"name\":\"process_sort_index\",\"ph\":\"M\",\"pid\":{pid}}}",
             quoted(&device.name),
             device.resources.len()
         );
         for (resource, name) in &device.resources {
             let _ = write!(
                 body,
-                ",{{\"args\":{{\"name\":{}}},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":{pid},\"tid\":{resource}}},{{\"args\":{{\"sort_index\":{resource}}},\"name\":\"thread_sort_index\",\"ph\":\"M\",\"pid\":{pid},\"tid\":{resource}}}",
+                ",{{\"args\":{{\"name\":{}}},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":{pid},\
+                    \"tid\":{resource}}},{{\"args\":{{\"sort_index\":{resource}}},\
+                    \"name\":\"thread_sort_index\",\"ph\":\"M\",\"pid\":{pid},\"tid\":{resource}}}",
                 quoted(name)
             );
         }

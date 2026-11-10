@@ -716,13 +716,16 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
             keys.iter().find_map(|key| {
                 let value = cells.get(columns.iter().position(|column| column == key)?)?;
                 let value = if let J::Map(_) = value { value.get("v")? } else { value };
-                (*value != J::Null && !value.str().is_some_and(|text| text.trim().is_empty())).then_some(value)
+                let blank = value.str().is_some_and(|text| text.trim().is_empty());
+                (*value != J::Null && !blank).then_some(value)
             })
         };
-        let text = |keys: &[&str], default: &str| cell(keys).map_or_else(|| default.to_string(), J::text);
+        let text =
+            |keys: &[&str], default: &str| cell(keys).map_or_else(|| default.to_string(), J::text);
         let float = |keys: &[&str]| cell(keys).and_then(J::float).unwrap_or(0.0);
         let category = text(&["hlo_category", "category"], "");
-        if category_filter.is_some_and(|filter| !category.to_lowercase().contains(&filter.trim().to_lowercase())) {
+        let wanted = category_filter.map(|filter| filter.trim().to_lowercase());
+        if wanted.is_some_and(|wanted| !category.to_lowercase().contains(&wanted)) {
             return None;
         }
         let expression = text(&["hlo_op_expression", "hlo_expression", "expression"], "");
@@ -735,7 +738,8 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
             Some(value) => value.float().unwrap_or(0.0) * 100.0,
             None => float(&["total_self_time_percent", "self_time_percent", "self_time_pct"]),
         };
-        let (mut source_file, mut source_line) = (text(&["source_file", "file_name"], ""), safe_int(cell(&["source_line", "line_number"])));
+        let mut source_file = text(&["source_file", "file_name"], "");
+        let mut source_line = safe_int(cell(&["source_line", "line_number"]));
         if source_file.is_empty() {
             let info = text(&["source_info"], "");
             match info.rsplit_once(':') {
@@ -748,6 +752,10 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
                 None => source_file = info,
             }
         }
+        let self_time =
+            float(&["total_self_time_in_us", "total_self_time_us", "total_self_time", "self_time"]);
+        let flop_rate =
+            float(&["measured_flop_rate", "model_flop_rate", "normalized_flop_rate", "flop_rate"]);
         Some(obj! {
             "rank" => safe_int(cell(&["rank"])),
             "program_id" => safe_int(cell(&["program_id"])),
@@ -756,11 +764,13 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
             "tf_op_name" => text(&["tf_op_name", "framework_op_name"], "").trim(),
             "occurrences" => safe_int(cell(&["occurrences"])),
             "total_time_us" => float(&["total_time_in_us", "total_time_us", "total_time"]),
-            "total_self_time_us" => float(&["total_self_time_in_us", "total_self_time_us", "total_self_time", "self_time"]),
+            "total_self_time_us" => self_time,
             "self_time_percent" => self_time_percent,
-            "measured_flop_rate" => float(&["measured_flop_rate", "model_flop_rate", "normalized_flop_rate", "flop_rate"]),
+            "measured_flop_rate" => flop_rate,
             "flops" => float(&["flops_v2", "flops"]),
-            "measured_memory_bw_gbs" => float(&["measured_memory_bw", "hbm_bw", "memory_bw", "bandwidth"]),
+            "measured_memory_bw_gbs" => {
+                float(&["measured_memory_bw", "hbm_bw", "memory_bw", "bandwidth"])
+            },
             "bound_by" => text(&["bound_by"], "Unknown"),
             "source_file" => source_file,
             "source_line" => source_line,
