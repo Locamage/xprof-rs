@@ -48,7 +48,8 @@ const BANDWIDTH_RENAMES: [(&str, &str); 2] =
     [("peak_hbm_bw", "peak_hbm_bw_gibs"), ("peak_vmem_bw", "peak_vmem_bw_gibs")];
 const BYTES_PER_GIB: f64 = 1073741824.0;
 const BYTES_PER_MIB: f64 = 1048576.0;
-pub const CUSTOM_CALL_GUIDANCE: &str = "Op-level metrics unavailable for custom calls. Use get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events for Pallas kernels.";
+pub const CUSTOM_CALL_GUIDANCE: &str = "Op-level metrics unavailable for custom calls. Use \
+    get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events for Pallas kernels.";
 static XID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"--streamz_default_root_labels=\S*xmanager:int:(\d+)")
         .expect("regular expression is valid")
@@ -258,7 +259,13 @@ fn integer(value: &J, default: i128) -> Result<i128, Error> {
 }
 
 fn parse_memory(data: &str) -> Result<Memory, Error> {
-    let parsed = J::parse(data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse JSON for memory profile: JSONDecodeError('Expecting value: line 1 column 1 (char 0)')"))?;
+    let parsed = J::parse(data).ok_or_else(|| {
+        Error::new(
+            Kind::Value,
+            "Failed to parse JSON for memory profile: JSONDecodeError('Expecting value: line 1 \
+                column 1 (char 0)')",
+        )
+    })?;
     let devices = if let J::Map(_) = parsed { vec![parsed] } else { parsed.items().to_vec() };
     let Some(first) = devices.first() else {
         return fail(Kind::Value, "Unexpected memory profile data format: not a list or empty");
@@ -389,7 +396,9 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
             "stack_reservation_gib" => gib(memory.stack, false),
             "heap_allocation_gib" => gib(memory.heap, false),
             "free_memory_gib" => gib(memory.free, false),
-            "fragmentation_percent" => if memory.fragmentation >= 0.0 { round(memory.fragmentation * 100.0, 2) } else { -1.0 },
+            "fragmentation_percent" => {
+                if memory.fragmentation >= 0.0 { round(memory.fragmentation * 100.0, 2) } else { -1.0 }
+            },
             "utilization_percent" => utilization,
         },
     })
@@ -449,7 +458,13 @@ pub fn get_device_information(client: &dyn Client, args: &Args) -> Result<Out, E
                 format!("No roofline model data returned for session {session}."),
             )
         })?;
-        let parsed = J::parse(&data).ok_or_else(|| Error::new(Kind::Value, "Failed to parse roofline model data: JSONDecodeError('Expecting value: line 1 column 1 (char 0)')"))?;
+        let parsed = J::parse(&data).ok_or_else(|| {
+            Error::new(
+                Kind::Value,
+                "Failed to parse roofline model data: JSONDecodeError('Expecting value: line 1 \
+                    column 1 (char 0)')",
+            )
+        })?;
         let table = parsed
             .items()
             .first()
@@ -541,25 +556,31 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
             });
         };
         let number = |row: &J, key: &str| row.at(key).float().unwrap_or(0.0);
-        let utilization = |util: &str, bandwidth: &str, peaks: [&str; 2]| {
-            let value = program.at(util);
-            if *value != J::Null && number(program, util) > 0.0 {
-                return percent(number(program, util));
+        let utilization = |memory: &str, direction: &str| {
+            let util = format!("{memory}_{direction}_bw_utilization");
+            let value = program.at(&util);
+            if *value != J::Null && number(program, &util) > 0.0 {
+                return percent(number(program, &util));
             }
-            let mut measured = number(program, bandwidth);
-            if measured == 0.0 && bandwidth.starts_with("hbm_") {
+            let mut measured = number(program, &format!("{memory}_{direction}_bw"));
+            if measured == 0.0 && memory == "hbm" {
                 measured = number(program, "hbm_bw");
             }
+            let peaks = [format!("peak_{memory}_{direction}_bw"), format!("peak_{memory}_bw")];
             match peaks.iter().map(|key| number(&info, key)).find(|peak| *peak > 0.0) {
                 Some(peak) => format!("{:.2}%", measured / peak * 100.0),
-                None if *value != J::Null => percent(number(program, util)),
+                None if *value != J::Null => percent(number(program, &util)),
                 None => "N/A".into(),
             }
         };
         let mut summary = obj! {
             "bound_by" => program.get("bound_by").cloned().unwrap_or_else(|| J::from("Unknown")),
-            "operational_intensity_flop_per_byte" => round(number(program, "operational_intensity"), 4),
-            "bottleneck_operational_intensity_flop_per_byte" => round(number(program, "bottleneck_operational_intensity"), 4),
+            "operational_intensity_flop_per_byte" => {
+                round(number(program, "operational_intensity"), 4)
+            },
+            "bottleneck_operational_intensity_flop_per_byte" => {
+                round(number(program, "bottleneck_operational_intensity"), 4)
+            },
             "roofline_efficiency_percent" => percent(number(program, "roofline_efficiency")),
             "compute_efficiency_percent" => percent(number(program, "compute_efficiency")),
             "max_mem_bw_utilization_percent" => percent(number(program, "max_mem_bw_utilization")),
@@ -569,12 +590,12 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
             "model_flop_rate_gflops" => round(number(program, "model_flop_rate"), 2),
             "measured_memory_bw_gibs" => round(number(program, "measured_memory_bw"), 2),
             "hbm_bw_gibs" => round(number(program, "hbm_bw"), 2),
-            "hbm_read_bw_utilization_percent" => utilization("hbm_read_bw_utilization", "hbm_read_bw", ["peak_hbm_read_bw", "peak_hbm_bw"]),
-            "hbm_write_bw_utilization_percent" => utilization("hbm_write_bw_utilization", "hbm_write_bw", ["peak_hbm_write_bw", "peak_hbm_bw"]),
-            "cmem_read_bw_utilization_percent" => utilization("cmem_read_bw_utilization", "cmem_read_bw", ["peak_cmem_read_bw", "peak_cmem_bw"]),
-            "cmem_write_bw_utilization_percent" => utilization("cmem_write_bw_utilization", "cmem_write_bw", ["peak_cmem_write_bw", "peak_cmem_bw"]),
-            "vmem_read_bw_utilization_percent" => utilization("vmem_read_bw_utilization", "vmem_read_bw", ["peak_vmem_read_bw", "peak_vmem_bw"]),
-            "vmem_write_bw_utilization_percent" => utilization("vmem_write_bw_utilization", "vmem_write_bw", ["peak_vmem_write_bw", "peak_vmem_bw"]),
+            "hbm_read_bw_utilization_percent" => utilization("hbm", "read"),
+            "hbm_write_bw_utilization_percent" => utilization("hbm", "write"),
+            "cmem_read_bw_utilization_percent" => utilization("cmem", "read"),
+            "cmem_write_bw_utilization_percent" => utilization("cmem", "write"),
+            "vmem_read_bw_utilization_percent" => utilization("vmem", "read"),
+            "vmem_write_bw_utilization_percent" => utilization("vmem", "write"),
             "total_time_ms" => round(number(program, "total_time") / 1000.0, 3),
         };
         let mut seen = Vec::new();
@@ -612,8 +633,12 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
                 "category" => category,
                 "total_self_time_ms" => round(number(row, "total_self_time") / 1000.0, 3),
                 "total_self_time_percent" => percent(number(row, "total_self_time_percent")),
-                "operational_intensity_flop_per_byte" => round(number(row, "operational_intensity"), 4),
-                "bottleneck_operational_intensity_flop_per_byte" => round(number(row, "bottleneck_operational_intensity"), 4),
+                "operational_intensity_flop_per_byte" => {
+                    round(number(row, "operational_intensity"), 4)
+                },
+                "bottleneck_operational_intensity_flop_per_byte" => {
+                    round(number(row, "bottleneck_operational_intensity"), 4)
+                },
                 "roofline_efficiency_percent" => percent(number(row, "roofline_efficiency")),
                 "compute_efficiency_percent" => percent(number(row, "compute_efficiency")),
                 "max_mem_bw_utilization_percent" => percent(number(row, "max_mem_bw_utilization")),
@@ -872,14 +897,22 @@ pub fn utilization_viewer(
 }
 
 pub fn get_utilization_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    let index = |name: &str| {
-        match args.raw(name) {
+    let index = |name: &str| match args.raw(name) {
         None => Ok(0),
         Some(value) => value.int().map(|number| number as i64).ok_or_else(|| match value {
-            J::Str(_) => Error::new(Kind::Value, format!("invalid literal for int() with base 10: {}", value.repr())),
-            _ => Error::new(Kind::Type, format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", super::kind(value))),
+            J::Str(_) => Error::new(
+                Kind::Value,
+                format!("invalid literal for int() with base 10: {}", value.repr()),
+            ),
+            _ => Error::new(
+                Kind::Type,
+                format!(
+                    "int() argument must be a string, a bytes-like object or a real number, not \
+                        '{}'",
+                    super::kind(value)
+                ),
+            ),
         }),
-    }
     };
     let indices = (|| Ok([index("host")?, index("device")?, index("node")?]))();
     Ok(utilization_viewer(client, &args.session(), indices, args.flag("bypass_cache", false))?
