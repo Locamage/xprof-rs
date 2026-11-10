@@ -258,15 +258,12 @@ fn bandwidth(counters: &Counters, device: Device, core: usize, metrics: &mut Vec
 
 fn ici(counters: &Counters, device: Device, metrics: &mut Vec<Metric>) {
     let flits = |kind: &str| {
-        let fifo = |name: String| device.id(&name);
-        match device {
-            Device::V6e => {
-                total(counters, (0..2).map(|index| fifo(format!("VF_CHIP_OCI_ICR_{ICR_FIFO}_{kind}_REQ_{index}_INSERTION_COUNT"))))
-            }
-            Device::V7x => {
-                total(counters, (0..4).map(|index| fifo(format!("VF_CHIP_DIE1_OCI_ICR_{index}_{ICR_FIFO}_{kind}_REQ_0_INSERTION_COUNT"))))
-            }
-        }
+        let name = |index: u32| match device {
+            Device::V6e => format!("VF_CHIP_OCI_ICR_{ICR_FIFO}_{kind}_REQ_{index}_INSERTION_COUNT"),
+            Device::V7x => format!("VF_CHIP_DIE1_OCI_ICR_{index}_{ICR_FIFO}_{kind}_REQ_0_INSERTION_COUNT"),
+        };
+        let fifos = if device == Device::V6e { 0..2 } else { 0..4 };
+        total(counters, fifos.map(|index| device.id(&name(index))))
     };
     let (read, written) = (flits("RD").wrapping_mul(ICI_BYTES_PER_FLIT), flits("WR").wrapping_mul(ICI_BYTES_PER_FLIT));
     let cycles = count(counters, device.cycle_counters()[0]);
