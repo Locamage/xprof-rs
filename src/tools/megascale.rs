@@ -1,14 +1,13 @@
 use crate::hlo::{Module, Shape, module_name, protos};
 use crate::tools::opstats::safe_divide;
 use crate::tools::table::{number, string};
-use crate::xplane::{Ev, Field, Line, Plane, Value, fields, slice, stats};
+use crate::xplane::{Ev, Field, Line, Plane, TPU_PREFIX, Value, fields, slice, stat_value};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 const COLUMNS: &str = r#"{"cols":[{"id":"rendezvous_name","label":"Rendezvous Name","type":"string"},{"id":"recv_op_name","label":"Recv Op Name","type":"string"},{"id":"send_op_name","label":"Send Op Name","type":"string"},{"id":"transfer_type","label":"Transfer Type","type":"string"},{"id":"slack_time","label":"Slack Time (ms)","type":"number"},{"id":"host_stall","label":"Host Stall (ms)","type":"string"},{"id":"observed_duration","label":"Observed Duration (ms)","type":"number"},{"id":"send_stall","label":"Send Stall (ms)","type":"number"},{"id":"send_done_stall","label":"SendDone Stall (ms)","type":"number"},{"id":"recv_stall","label":"Recv Stall (ms)","type":"number"},{"id":"recv_done_stall","label":"RecvDone Stall (ms)","type":"number"},{"id":"stall_duration","label":"Stall Duration (ms)","type":"number"},{"id":"total_stall","label":"Aggregated Total Stall (ms)","type":"number"},{"id":"occurrences","label":"Occurrences","type":"number"},{"id":"net_tx_bytes","label":"Data Transmitted Size","type":"number"},{"id":"required_bandwidth","label":"Required Bandwidth (Gbps)","type":"number"}],"rows":["#;
 const ALL_HOSTS: &str = "ALL_HOSTS";
-const TPU_PREFIX: &str = "/device:TPU:";
 const FIRST_TPU: &str = "/device:TPU:0";
 const RENDEZVOUS_ATTRIBUTE: &str = "_xla_host_transfer_rendezvous";
 const TRANSFER_ATTRIBUTE: &str = "_xla_megascale_transfer_type";
@@ -350,10 +349,7 @@ fn metadata_text<'a>(
     meta: u32,
     id: Option<usize>,
 ) -> Option<Value<'a>> {
-    let id = id?;
-    stats(slice(map, plane.meta.get(meta as usize)?.raw), 5, |stat| stat == id)
-        .next()
-        .map(|stat| stat.value)
+    stat_value(slice(map, plane.meta.get(meta as usize)?.raw), 5, id?)
 }
 
 pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {

@@ -393,11 +393,7 @@ fn summarize(steps: &[J], props: Option<&J>) -> J {
 
 fn overview_steps(raw: &str) -> Option<J> {
     let sections = J::parse(raw)?;
-    let mut all = J::Map(Vec::new());
-    let properties = sections.items().iter().flat_map(|section| section.at("p").entries());
-    for (key, value) in properties {
-        all.set(key, value);
-    }
+    let all = super::overview::properties(&sections);
     let mut step = finite(all.at("steptime_ms_average"));
     if step <= 0.0 && all.has("stat_step_time") {
         step = super::json::py_float(all.at("stat_step_time").text().replace("ms", "").trim())
@@ -617,8 +613,7 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
                 format!("No overview data returned for session {session}"),
             )
         })?;
-        let sections = J::parse(&raw)
-            .ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
+        let sections = super::overview::parsed(&raw)?;
         let section = |index: usize, key: &str| {
             sections
                 .items()

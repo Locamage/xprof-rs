@@ -229,21 +229,21 @@ fn sources(client: &dyn Client, source: &str) -> Result<Vec<PathBuf>, Error> {
             return fail(Kind::FileNotFound, format!("Path does not exist: {}", py_repr(source)));
         }
         if path.is_dir() {
-            let found = traces(path);
-            if found.is_empty() {
-                return fail(
-                    Kind::FileNotFound,
-                    format!(
-                        "No .xplane.pb or .xspace.pb files found in directory: {}",
-                        py_repr(source)
-                    ),
-                );
-            }
-            return Ok(found);
+            return traces_in(path, source);
         }
         return Ok(vec![path.to_path_buf()]);
     }
     client.xspace_paths(&client.run_dir(source)?)
+}
+
+fn traces_in(dir: &Path, source: &str) -> Result<Vec<PathBuf>, Error> {
+    let found = traces(dir);
+    if found.is_empty() {
+        let message =
+            format!("No .xplane.pb or .xspace.pb files found in directory: {}", py_repr(source));
+        return fail(Kind::FileNotFound, message);
+    }
+    Ok(found)
 }
 
 fn regex(pattern: &str) -> Result<Pattern, Error> {
@@ -501,10 +501,7 @@ fn serialized(
     match paths.as_slice() {
         [path] => super::read(path),
         _ if host.is_empty() => {
-            let mut hosts: Vec<String> =
-                paths.iter().map(|path| super::client::host(path)).collect();
-            hosts.sort();
-            hosts.dedup();
+            let hosts = super::client::host_names(&paths);
             fail(
                 Kind::Value,
                 format!(
@@ -540,14 +537,7 @@ pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> 
     let host = args.text("host").unwrap_or_default();
     let data = serialized(client, &session, &host)?;
     if let Some(output) = args.text("output_path").filter(|path| !path.is_empty()) {
-        let path = PathBuf::from(&output);
-        let io = |error: std::io::Error| Error::new(Kind::Os, error.to_string());
-        path.parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .map(std::fs::create_dir_all)
-            .transpose()
-            .map_err(io)?;
-        std::fs::write(&path, &*data).map_err(io)?;
+        super::write_file(Path::new(&output), &data)?;
         return Ok(Out::Text(output));
     }
     if data.len() > XSPACE_SPILL_BYTES {
@@ -773,13 +763,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                 "avg_duration_us" => round(total / values.len() as f64, 4),
             });
         }
-        records.sort_by(|left, right| {
-            right
-                .at("total_duration_us")
-                .float()
-                .partial_cmp(&left.at("total_duration_us").float())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        super::descending(&mut records, |record| record.at("total_duration_us").float());
         if kernel.is_none() {
             let limit = args.compared("limit", 10.0, ">")?;
             if limit > 0.0 && matches!(args.raw("limit"), Some(J::Float(_))) {
@@ -924,16 +908,8 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
         if !path.exists() {
             return fail(Kind::FileNotFound, format!("Path does not exist: {}", py_repr(&session)));
         }
-        let files = if path.is_dir() { traces(path) } else { vec![path.to_path_buf()] };
-        if files.is_empty() {
-            return fail(
-                Kind::FileNotFound,
-                format!(
-                    "No .xplane.pb or .xspace.pb files found in directory: {}",
-                    py_repr(&session)
-                ),
-            );
-        }
+        let files =
+            if path.is_dir() { traces_in(path, &session)? } else { vec![path.to_path_buf()] };
         files.iter().try_for_each(|file| super::openable(file))?;
         kernel?;
         let option = |key: &str| {
@@ -982,9 +958,7 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
         })?
     };
     if args.string("output_format", "json") == "dict" {
-        return Ok(Out::Value(J::parse(&text).ok_or_else(|| {
-            Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)")
-        })?));
+        return Ok(Out::Value(super::overview::parsed(&text)?));
     }
     Ok(Out::Text(text))
 }
@@ -1008,12 +982,7 @@ fn llo(client: &dyn Client, args: &Args, failure: &str) -> Result<Out, Error> {
     let compute = || -> Result<(), Error> {
         if path_like {
             if !requested_host.is_empty() {
-                let mut hosts = traces(Path::new(&session))
-                    .iter()
-                    .map(|path| super::client::host(path))
-                    .collect::<Vec<_>>();
-                hosts.sort();
-                hosts.dedup();
+                let hosts = super::client::host_names(&traces(Path::new(&session)));
                 if !hosts.contains(&requested_host) {
                     return Err(invalid_llo_host(&requested_host, &hosts));
                 }

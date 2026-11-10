@@ -122,6 +122,19 @@ fn roofline_fallback(client: &dyn Client, session: &str, summary: &mut J) -> Opt
     Some(())
 }
 
+pub fn properties(sections: &J) -> J {
+    let mut all = J::Map(Vec::new());
+    for (key, value) in sections.items().iter().flat_map(|section| section.at("p").entries()) {
+        all.set(key, value);
+    }
+    all
+}
+
+pub fn parsed(data: &str) -> Result<J, Error> {
+    J::parse(data)
+        .ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))
+}
+
 pub fn overview(
     client: &dyn Client,
     session: &str,
@@ -135,16 +148,11 @@ pub fn overview(
         let data = data.ok_or_else(|| {
             Error::new(Kind::FileNotFound, "No overview data returned for the session")
         })?;
-        let sections = J::parse(&data)
-            .ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
+        let sections = parsed(&data)?;
         if sections.items().is_empty() {
             return fail(Kind::Value, "Unexpected overview page data format");
         }
-        let mut all = J::Map(Vec::new());
-        let properties = sections.items().iter().flat_map(|section| section.at("p").entries());
-        for (key, value) in properties {
-            all.set(key, value);
-        }
+        let all = properties(&sections);
         let environment = sections.items().iter().find_map(|section| {
             let columns: Vec<String> = section
                 .get("rows")
@@ -508,8 +516,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
                 obj! {"status" => "NO_DATA", "message" => format!("No roofline model data found for session {}.", py_repr(&session))},
             );
         };
-        let parsed = J::parse(&data)
-            .ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
+        let parsed = parsed(&data)?;
         let table = parsed.items().first().ok_or_else(|| {
             Error::new(
                 Kind::Value,
@@ -609,13 +616,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
             });
         }
         let total = operations.len();
-        operations.sort_by(|left, right| {
-            right
-                .at("total_self_time_ms")
-                .float()
-                .partial_cmp(&left.at("total_self_time_ms").float())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        super::descending(&mut operations, |row| row.at("total_self_time_ms").float());
         operations.truncate(super::slice_end(args.raw("top_n").unwrap_or(&J::Int(15)), total)?);
         let custom = operations
             .iter()

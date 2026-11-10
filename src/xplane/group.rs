@@ -1,6 +1,7 @@
 use crate::xplane::derive::{Category, is_tensor_core, tf_op};
 use crate::xplane::{
-    C, CT, Ev, Line, Links, NONE_GROUP, P, PT, Plane, ROLES, ROOT, Step, Value, slice, stats,
+    C, CT, Ev, HOST_PLANE, Line, Links, NONE_GROUP, P, PT, Plane, ROLES, ROOT, Step, TPU_PREFIX,
+    Value, slice, stats,
 };
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -8,7 +9,6 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::LazyLock;
 
-const TPU: &str = "/device:TPU:";
 const STEPS: [&str; 2] = ["Steps", "Sparse Core Steps"];
 const MODULES: [&str; 2] = ["XLA Modules", "Sparse Core Modules"];
 const COUNTERS: &str = "_counters_";
@@ -21,7 +21,6 @@ const CHUNK: usize = if cfg!(test) { 4 } else { 1024 };
 const IDLE: &str = "step_idle_time_ps";
 const OFFSET: &str = "device_offset_ps";
 const DURATION: &str = "device_duration_ps";
-const HOST: &str = "/host:CPU";
 const LOOPS: [&str; 5] =
     ["WhileOp-EvalCond", "WhileOp-StartBody", "ForOp", "ParallelForOp", "ForeverOp"];
 const HOST_EVENTS: &str = "UnknownHostEventType TraceContext SessionRun FunctionRun RunGraph RunGraphDone ExecutorState::Process ExecutorDoneCallback MemoryAllocation MemoryDeallocation RemotePerfCounter InstantiatedCapturedFunction::Run InstantiatedCapturedFunction::RunWithBorrowedArgs InstantiatedCapturedFunction::RunInstantiated InstantiatedCapturedFunction::RunAsync ParallelForOp ForeverOp WhileOp-EvalCond WhileOp-StartBody ForOp IteratorGetNextOp::DoCompute IteratorGetNextAsOptionalOp::DoCompute Iterator Iterator::Prefetch::Generator PrefetchProduce PrefetchConsume ParallelInterleaveProduce ParallelInterleaveConsume ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce MapAndBatchConsume ParseExampleProduce ParseExampleConsume ParallelBatchProduce ParallelBatchConsume BatchingSessionRun ProcessBatch BrainSessionRun ConcatInputTensors MergeInputTensors ScheduleWithoutSplit ScheduleWithSplit ScheduleWithEagerSplit ASBSQueue::Schedule OrbaxServing::ProcessBatch OrbaxServing::ConcatInputBuffers TfrtModelRun ServingModelRun EnqueueRequestLocked RunProgramRequest HostCallbackRequest TransferH2DRequest TransferPreprocessedH2DRequest TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti OnDeviceRecvRequestMulti PjrtAsyncWait DoEnqueueProgram DoEnqueueContinuationProgram WriteHbm ReadHbm TpuExecuteOp CompleteCallbacks TPUPartitionedCallOp-InitializeVarOnTPU TPUPartitionedCallOp-ExecuteRemote TPUPartitionedCallOp-ExecuteLocal Linearize Delinearize TransferBufferFromDevice-FastPath tpu::System::TransferToDevice=>IssueEvent tpu::System::TransferToDevice=>IssueEvent=>Done tpu::System::TransferFromDevice=>IssueEvent tpu::System::TransferFromDevice=>IssueEvent=>Done tpu::System::Execute";
@@ -93,7 +92,7 @@ impl Typing {
             .collect();
         Self {
             kinds,
-            host: plane.name == HOST,
+            host: plane.name == HOST_PLANE,
             correlation: plane.id("correlation_id"),
             step: plane.id("id"),
             iteration: plane.id("iter_num"),
@@ -161,7 +160,7 @@ pub fn ordinal(plane: &Plane, line: &Line) -> Option<u64> {
 }
 
 pub fn is_sparse_core(name: &str) -> bool {
-    let Some(rest) = name.strip_prefix(TPU) else {
+    let Some(rest) = name.strip_prefix(TPU_PREFIX) else {
         return false;
     };
     let parts: Vec<&str> = rest.split(' ').collect();
@@ -531,7 +530,7 @@ fn merge(plane: &mut Plane, map: &[u8], index: usize, names: &HashMap<i64, Strin
 fn plan_jobs(planes: &[Plane], full: bool) -> (Vec<Job>, u32, Vec<(u32, usize)>) {
     let (mut jobs, mut nodes, mut cores) = (Vec::new(), 0u32, Vec::new());
     for (plane_index, plane) in planes.iter().enumerate() {
-        let grouping = plane.name.starts_with(TPU).then(|| {
+        let grouping = plane.name.starts_with(TPU_PREFIX).then(|| {
             (is_tensor_core(&plane.name) || is_sparse_core(&plane.name))
                 .then(|| grouping_line(plane))
                 .flatten()
@@ -706,17 +705,17 @@ pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
     if typings.iter().any(|typing| typing.kinds.contains(&LOOP)) {
         return None;
     }
-    let eager_exists = planes
-        .iter()
-        .zip(&typings)
-        .any(|(plane, typing)| !plane.name.starts_with(TPU) && typing.kinds.contains(&EAGER));
+    let eager_exists = planes.iter().zip(&typings).any(|(plane, typing)| {
+        !plane.name.starts_with(TPU_PREFIX) && typing.kinds.contains(&EAGER)
+    });
     let full = eager_exists
         || planes
             .iter()
             .any(|plane| plane.present[ROOT] || plane.meta.iter().any(|meta| meta.root.is_some()))
         || typings.iter().any(|typing| typing.kinds.contains(&EXECUTOR))
         || planes.iter().any(|plane| {
-            plane.name.starts_with(TPU) && [PT, P, CT, C].iter().any(|&kind| plane.present[kind])
+            plane.name.starts_with(TPU_PREFIX)
+                && [PT, P, CT, C].iter().any(|&kind| plane.present[kind])
         });
     let (jobs, nodes, cores) = plan_jobs(planes, full);
     let outs: Vec<Out> =
@@ -782,7 +781,7 @@ pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
         planes
             .par_iter_mut()
             .zip(&typings)
-            .filter(|(plane, _)| !plane.name.starts_with(TPU))
+            .filter(|(plane, _)| !plane.name.starts_with(TPU_PREFIX))
             .for_each(|(plane, typing)| {
                 for event in plane.lines.iter_mut().flat_map(|line| line.events.iter_mut()) {
                     if matches!(typing.kind(map, event).0, EXECUTE | TF_OP_RUN) {
@@ -808,7 +807,7 @@ pub fn group(planes: &mut [Plane], map: &[u8]) -> Option<Groups> {
             .steps
             .insert(event as usize, Step { name, stats: Vec::new() });
     }
-    if planes.iter().any(|plane| plane.name.starts_with(TPU)) {
+    if planes.iter().any(|plane| plane.name.starts_with(TPU_PREFIX)) {
         planes
             .par_iter_mut()
             .filter(|plane| plane.name.starts_with("/device"))

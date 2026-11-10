@@ -3,12 +3,12 @@ use crate::hlo::profiler::{
     MemoryAggregationStats as Stats, MemoryProfile, MemoryProfileSnapshot, MemoryProfileSummary,
     PerAllocatorMemoryProfile,
 };
-use crate::xplane::{Ev, Field, NONE_GROUP, Plane, Value, fields, slice, stats};
+use crate::xplane::{
+    Ev, Field, HOST_PLANE, NONE_GROUP, Plane, TPU_PREFIX, Value, fields, slice, stats,
+};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 
-const HOST_PLANE: &str = "/host:CPU";
-const TPU_PREFIX: &str = "/device:TPU:";
 const MODULE_LINE: &str = "XLA Modules";
 const MAX_SNAPSHOTS: usize = 1000;
 const ALLOCATION: i32 = 1;

@@ -418,10 +418,10 @@ fn swap(partial: &Path, path: &Path) -> std::io::Result<()> {
     std::fs::rename(partial, path)
 }
 
-fn prepare(path: &Path, trace: bool) -> anyhow::Result<(input::Input, Vec<Plane>)> {
+fn prepare(path: &Path) -> anyhow::Result<(input::Input, Vec<Plane>)> {
     let map = read_file(path)?;
     let mut planes = xplane::parse(&map)?;
-    finish(&mut planes, &map, trace);
+    finish(&mut planes, &map, true);
     Ok((map, planes))
 }
 
@@ -541,7 +541,7 @@ fn discard<T>(items: Vec<T>) {
 
 fn load_host(path: &Path) -> anyhow::Result<Host> {
     let begin = Instant::now();
-    let (map, mut planes) = prepare(path, true)?;
+    let (map, mut planes) = prepare(path)?;
     let name = host_name(path);
     let plane_bytes = planes
         .iter()
@@ -654,6 +654,14 @@ macro_rules! or_fail {
 
 fn failure((status, message): Failure) -> Response {
     response(status, "text/plain", message)
+}
+
+async fn load_failure(paths: Vec<PathBuf>, message: &str) -> Response {
+    if blocking(move || tools::counters::corrupt(&paths)).await {
+        not_found()
+    } else {
+        internal(message)
+    }
 }
 
 fn internal(message: &str) -> Response {
@@ -1317,13 +1325,7 @@ async fn tool(state: &Shared, paths: Vec<PathBuf>, render: Render) -> Response {
     .await
     {
         Ok(all) => all,
-        Err(message) => {
-            return if blocking(move || tools::counters::corrupt(&paths)).await {
-                not_found()
-            } else {
-                internal(&message)
-            };
-        }
+        Err(message) => return load_failure(paths, &message).await,
     };
     let Some(combined) = OpStats::combine(&all) else {
         return not_found();
@@ -1480,13 +1482,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
             return match outcome {
                 Ok(Some(body)) => response(StatusCode::OK, "application/json", body),
                 Ok(None) => not_found(),
-                Err(message) => {
-                    if blocking(move || tools::counters::corrupt(&paths)).await {
-                        not_found()
-                    } else {
-                        internal(&message)
-                    }
-                }
+                Err(message) => load_failure(paths, &message).await,
             };
         }
         "inference_profile" | "smart_suggestion" => {
@@ -1590,13 +1586,7 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
     .await
     {
         Ok(hosts) => hosts,
-        Err(message) => {
-            return if blocking(move || tools::counters::corrupt(&files)).await {
-                not_found()
-            } else {
-                internal(&message)
-            };
-        }
+        Err(message) => return load_failure(files, &message).await,
     };
     let option = |key: &str| params.get(key).map_or(Some(0.0), |value| trace::atod(value));
     let integer =

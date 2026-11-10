@@ -1174,11 +1174,7 @@ pub fn invoke(
 
 fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let tool = args.text("tool").unwrap_or_default();
-    let name = tool.strip_suffix(".json").unwrap_or(&tool);
-    let name = if name == "hlo_op_profile" { "op_profile" } else { name };
-    if !crate::XPLANE_TOOLS.contains(&name) {
-        return fail(Kind::Value, format!("Unknown XProf tool name: {}", json::py_repr(&tool)));
-    }
+    client::tool_name(&tool)?;
     let session = args.session();
     let dir = client.run_dir(&session)?;
     match args.text("host").filter(|host| !host.is_empty()) {
@@ -1211,17 +1207,27 @@ fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     }
     let reply = reply.to_vec();
     if let Some(output) = args.text("output_path").filter(|path| !path.is_empty()) {
-        let path = Path::new(&output);
-        path.parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .map(std::fs::create_dir_all)
-            .transpose()
-            .map_err(|error| Error::new(Kind::Os, error.to_string()))?;
-        std::fs::write(path, &reply).map_err(|error| Error::new(Kind::Os, error.to_string()))?;
+        write_file(Path::new(&output), &reply)?;
         Ok(Out::Text(output))
     } else {
         Ok(Out::Bytes(reply))
     }
+}
+
+pub fn descending<T, K: PartialOrd>(items: &mut [T], key: impl Fn(&T) -> K) {
+    items.sort_by(|left, right| {
+        key(right).partial_cmp(&key(left)).unwrap_or(std::cmp::Ordering::Equal)
+    });
+}
+
+pub fn write_file(path: &Path, data: &[u8]) -> Result<(), Error> {
+    let io = |error: std::io::Error| Error::new(Kind::Os, error.to_string());
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(std::fs::create_dir_all)
+        .transpose()
+        .map_err(io)?;
+    std::fs::write(path, data).map_err(io)
 }
 
 pub fn execute(argv: &[String]) -> Option<(i32, Vec<u8>, String)> {

@@ -966,9 +966,7 @@ pub fn protos<'a>(planes: &[Plane], map: &'a [u8]) -> Vec<(u64, &'a [u8])> {
         let program = plane.id("program_id");
         for (index, meta) in plane.meta.iter().enumerate() {
             let raw = slice(map, meta.raw);
-            let Some(Value::Bytes(body)) =
-                stats(raw, 5, |stat| stat == proto).next().map(|stat| stat.value)
-            else {
+            let Some(Value::Bytes(body)) = crate::xplane::stat_value(raw, 5, proto) else {
                 continue;
             };
             let parses = meta.hlo_parses.get().copied().unwrap_or_else(|| {
