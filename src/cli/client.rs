@@ -247,9 +247,7 @@ impl Client for Local {
     }
 
     fn roofline_total(&self, session: &str) -> Option<String> {
-        self.fetch_text("roofline_model.json", session, &[(TOTAL_ONLY, String::new())])
-            .ok()?
-            .or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
+        self.fetch_text("roofline_model.json", session, &[(TOTAL_ONLY, String::new())]).ok()?
     }
 
     fn roofline_properties(&self, session: &str, _: &Params) -> Result<Option<String>, Error> {
