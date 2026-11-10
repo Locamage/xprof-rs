@@ -6,7 +6,24 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-const COLUMNS: &str = r#"{"cols":[{"id":"rendezvous_name","label":"Rendezvous Name","type":"string"},{"id":"recv_op_name","label":"Recv Op Name","type":"string"},{"id":"send_op_name","label":"Send Op Name","type":"string"},{"id":"transfer_type","label":"Transfer Type","type":"string"},{"id":"slack_time","label":"Slack Time (ms)","type":"number"},{"id":"host_stall","label":"Host Stall (ms)","type":"string"},{"id":"observed_duration","label":"Observed Duration (ms)","type":"number"},{"id":"send_stall","label":"Send Stall (ms)","type":"number"},{"id":"send_done_stall","label":"SendDone Stall (ms)","type":"number"},{"id":"recv_stall","label":"Recv Stall (ms)","type":"number"},{"id":"recv_done_stall","label":"RecvDone Stall (ms)","type":"number"},{"id":"stall_duration","label":"Stall Duration (ms)","type":"number"},{"id":"total_stall","label":"Aggregated Total Stall (ms)","type":"number"},{"id":"occurrences","label":"Occurrences","type":"number"},{"id":"net_tx_bytes","label":"Data Transmitted Size","type":"number"},{"id":"required_bandwidth","label":"Required Bandwidth (Gbps)","type":"number"}],"rows":["#;
+const COLUMNS: &str = concat!(
+    r#"{"cols":[{"id":"rendezvous_name","label":"Rendezvous Name","type":"string"},"#,
+    r#"{"id":"recv_op_name","label":"Recv Op Name","type":"string"},"#,
+    r#"{"id":"send_op_name","label":"Send Op Name","type":"string"},"#,
+    r#"{"id":"transfer_type","label":"Transfer Type","type":"string"},"#,
+    r#"{"id":"slack_time","label":"Slack Time (ms)","type":"number"},"#,
+    r#"{"id":"host_stall","label":"Host Stall (ms)","type":"string"},"#,
+    r#"{"id":"observed_duration","label":"Observed Duration (ms)","type":"number"},"#,
+    r#"{"id":"send_stall","label":"Send Stall (ms)","type":"number"},"#,
+    r#"{"id":"send_done_stall","label":"SendDone Stall (ms)","type":"number"},"#,
+    r#"{"id":"recv_stall","label":"Recv Stall (ms)","type":"number"},"#,
+    r#"{"id":"recv_done_stall","label":"RecvDone Stall (ms)","type":"number"},"#,
+    r#"{"id":"stall_duration","label":"Stall Duration (ms)","type":"number"},"#,
+    r#"{"id":"total_stall","label":"Aggregated Total Stall (ms)","type":"number"},"#,
+    r#"{"id":"occurrences","label":"Occurrences","type":"number"},"#,
+    r#"{"id":"net_tx_bytes","label":"Data Transmitted Size","type":"number"},"#,
+    r#"{"id":"required_bandwidth","label":"Required Bandwidth (Gbps)","type":"number"}],"rows":["#,
+);
 const ALL_HOSTS: &str = "ALL_HOSTS";
 const FIRST_TPU: &str = "/device:TPU:0";
 const RENDEZVOUS_ATTRIBUTE: &str = "_xla_host_transfer_rendezvous";
@@ -81,17 +98,13 @@ pub struct Tracker {
 }
 
 fn replica_group_size(info: &[u8]) -> i64 {
-    let mut groups = fields(info).filter_map(|(tag, field)| {
-        if let Field::Bytes(_, body) = field { Some((tag, body)) } else { None }
-    });
+    let mut groups = fields(info).filter_map(|(tag, field)| if let Field::Bytes(_, body) = field { Some((tag, body)) } else { None });
     let (one_to_one, endpoints): (Vec<_>, Vec<_>) =
         groups.by_ref().filter(|(tag, _)| *tag == 2 || *tag == 3).partition(|(tag, _)| *tag == 3);
     if one_to_one.is_empty() {
-        endpoints.first().map_or(0, |(_, group)| {
-            fields(group)
-                .filter(|(tag, field)| *tag == 1 && matches!(field, Field::Bytes(..)))
-                .count() as i64
-        })
+        endpoints
+            .first()
+            .map_or(0, |(_, group)| fields(group).filter(|(tag, field)| *tag == 1 && matches!(field, Field::Bytes(..))).count() as i64)
     } else {
         1
     }
@@ -133,17 +146,11 @@ impl Tracker {
         let duration_ns = (visit.duration_ps as u64) as f64 / 1e3;
         let duration_ps = visit.duration_ps as u64;
         let group = match instruction.opcode {
-            Opcode::Send => *self
-                .group_sizes
-                .entry(rendezvous.clone())
-                .or_insert_with(|| replica_group_size(visit.collective_info)),
+            Opcode::Send => *self.group_sizes.entry(rendezvous.clone()).or_insert_with(|| replica_group_size(visit.collective_info)),
             _ => 0,
         };
         let overlap = self.overlap;
-        let state = self
-            .states
-            .entry(rendezvous.clone())
-            .or_insert_with(|| OpState { overlap_base: overlap, ..Default::default() });
+        let state = self.states.entry(rendezvous.clone()).or_insert_with(|| OpState { overlap_base: overlap, ..Default::default() });
         state.stall_duration_ns = (state.stall_duration_ns as f64 + duration_ns) as u64;
         match instruction.opcode {
             Opcode::Send => {
@@ -159,35 +166,27 @@ impl Tracker {
             Opcode::SendDone => state.send_done_ps = duration_ps,
             Opcode::RecvDone if state.start_time != 0 => {
                 let index = *self.positions.entry(rendezvous.clone()).or_insert_with(|| {
-                    self.summaries
-                        .push(Summary { rendezvous: rendezvous.clone(), ..Default::default() });
+                    self.summaries.push(Summary { rendezvous: rendezvous.clone(), ..Default::default() });
                     self.summaries.len() - 1
                 });
                 let summary = &mut self.summaries[index];
                 let end_ns = (visit.timestamp_ns as f64 + duration_ns) as i64;
                 let slack_us = ((visit.timestamp_ns as u64)
                     .wrapping_sub(state.start_time)
-                    .wrapping_sub(overlap.wrapping_sub(state.overlap_base))
-                    as f64
+                    .wrapping_sub(overlap.wrapping_sub(state.overlap_base)) as f64
                     / 1e3) as u64;
-                let observed_us = (((end_ns as u64) as f64 / 1e3) as u64)
-                    .wrapping_sub((state.start_time as f64 / 1e3) as u64);
+                let observed_us = (((end_ns as u64) as f64 / 1e3) as u64).wrapping_sub((state.start_time as f64 / 1e3) as u64);
                 let times = &mut summary.times_us;
                 times[SLACK] = times[SLACK].wrapping_add(slack_us);
-                times[STALL] =
-                    times[STALL].wrapping_add((state.stall_duration_ns as f64 / 1e3) as u64);
+                times[STALL] = times[STALL].wrapping_add((state.stall_duration_ns as f64 / 1e3) as u64);
                 times[OBSERVED] = times[OBSERVED].wrapping_add(observed_us);
                 times[SEND] = (times[SEND] as f64 + state.send_ps as f64 / 1e6) as u64;
                 times[RECV] = (times[RECV] as f64 + state.recv_ps as f64 / 1e6 / 1e6) as u64;
-                times[SEND_DONE] =
-                    (times[SEND_DONE] as f64 + state.send_done_ps as f64 / 1e6) as u64;
+                times[SEND_DONE] = (times[SEND_DONE] as f64 + state.send_done_ps as f64 / 1e6) as u64;
                 times[RECV_DONE] = (times[RECV_DONE] as f64 + duration_ps as f64 / 1e6) as u64;
                 summary.occurrences += 1;
-                summary.bytes_transmitted_over_network = transmitted_bytes(
-                    instruction.size,
-                    state.replica_group_size,
-                    &state.transfer_type,
-                );
+                summary.bytes_transmitted_over_network =
+                    transmitted_bytes(instruction.size, state.replica_group_size, &state.transfer_type);
                 summary.transfer_type.clone_from(&state.transfer_type);
                 summary.recv_op_name = visit.display_name.to_string();
                 summary.send_op_name.clone_from(&state.send_op_name);
@@ -201,14 +200,10 @@ impl Tracker {
 pub fn combine(analyses: &[Vec<Summary>]) -> Vec<Summary> {
     let mut combined: Vec<Summary> = Vec::new();
     for slack in analyses.iter().flatten() {
-        let index = combined
-            .iter()
-            .position(|summary| summary.rendezvous == slack.rendezvous)
-            .unwrap_or_else(|| {
-                combined
-                    .push(Summary { rendezvous: slack.rendezvous.clone(), ..Default::default() });
-                combined.len() - 1
-            });
+        let index = combined.iter().position(|summary| summary.rendezvous == slack.rendezvous).unwrap_or_else(|| {
+            combined.push(Summary { rendezvous: slack.rendezvous.clone(), ..Default::default() });
+            combined.len() - 1
+        });
         let summary = &mut combined[index];
         for (to, from) in summary.times_us.iter_mut().zip(slack.times_us) {
             *to = to.wrapping_add(from.wrapping_mul(slack.occurrences));
@@ -235,26 +230,15 @@ pub fn human_bytes(bytes: i64) -> String {
         value /= 1024;
         unit += 1;
     }
-    format!(
-        "{sign}{:.2$}{}",
-        value as f64 / 1024.0,
-        UNITS[unit] as char,
-        if unit == 0 { 1 } else { 2 }
-    )
+    format!("{sign}{:.2$}{}", value as f64 / 1024.0, UNITS[unit] as char, if unit == 0 { 1 } else { 2 })
 }
 
 pub fn table(summaries: &[Summary]) -> String {
     let mut out = format!("[{COLUMNS}");
     for (index, summary) in summaries.iter().enumerate() {
         out.push_str(if index > 0 { ",{\"c\":[" } else { "{\"c\":[" });
-        for (position, text) in [
-            &summary.rendezvous,
-            &summary.recv_op_name,
-            &summary.send_op_name,
-            &summary.transfer_type,
-        ]
-        .into_iter()
-        .enumerate()
+        for (position, text) in
+            [&summary.rendezvous, &summary.recv_op_name, &summary.send_op_name, &summary.transfer_type].into_iter().enumerate()
         {
             out.push_str(if position > 0 { ",{\"v\":" } else { "{\"v\":" });
             string(&mut out, text);
@@ -290,8 +274,7 @@ pub fn table(summaries: &[Summary]) -> String {
             if times[SLACK] == 0 {
                 f64::from(i32::MAX)
             } else {
-                safe_divide(summary.bytes_transmitted_over_network as f64, times[SLACK] as f64)
-                    * BANDWIDTH_FACTOR
+                safe_divide(summary.bytes_transmitted_over_network as f64, times[SLACK] as f64) * BANDWIDTH_FACTOR
             },
         );
         out.push_str("]}");
@@ -302,9 +285,7 @@ pub fn table(summaries: &[Summary]) -> String {
 
 fn instruction(module: &Module, name: &str) -> Option<Instruction> {
     let wanted = crate::hlo::sanitize(name);
-    let node = (0..module.nodes.len())
-        .filter(|&node| module.nodes[node].name == wanted)
-        .find(|&node| module.inst(node).name == name)?;
+    let node = (0..module.nodes.len()).filter(|&node| module.nodes[node].name == wanted).find(|&node| module.inst(node).name == name)?;
     let inst = module.inst(node);
     let attributes = inst.frontend_attributes.as_deref().map(|attributes| &attributes.map);
     let attribute = |key: &str| attributes.and_then(|map| map.get(key)).cloned();
@@ -318,12 +299,7 @@ fn instruction(module: &Module, name: &str) -> Option<Instruction> {
     let shape = inst.shape.as_deref().cloned().unwrap_or_default();
     let size = match (shape.is_array(), shape.is_tuple()) {
         (true, _) => shape.unpadded_bytes(),
-        (false, true) => shape
-            .tuple_shapes
-            .iter()
-            .filter(|element| element.is_array())
-            .map(Shape::unpadded_bytes)
-            .sum(),
+        (false, true) => shape.tuple_shapes.iter().filter(|element| element.is_array()).map(Shape::unpadded_bytes).sum(),
         _ => 0,
     };
     Some(Instruction {
@@ -336,41 +312,25 @@ fn instruction(module: &Module, name: &str) -> Option<Instruction> {
 }
 
 fn absolute(line: &Line, event: &Ev, origin: i64) -> (i64, i64) {
-    let offset =
-        event.ts.wrapping_sub((line.timestamp_ns.wrapping_sub(origin) as u64).wrapping_mul(1000))
-            as i64;
+    let offset = event.ts.wrapping_sub((line.timestamp_ns.wrapping_sub(origin) as u64).wrapping_mul(1000)) as i64;
     let timestamp_ps = line.timestamp_ns.wrapping_mul(1000).wrapping_add(offset);
     (timestamp_ps, (line.timestamp_ns as f64 + (offset as u64) as f64 / 1e3) as i64)
 }
 
-fn metadata_text<'a>(
-    plane: &'a Plane,
-    map: &'a [u8],
-    meta: u32,
-    id: Option<usize>,
-) -> Option<Value<'a>> {
+fn metadata_text<'a>(plane: &'a Plane, map: &'a [u8], meta: u32, id: Option<usize>) -> Option<Value<'a>> {
     stat_value(slice(map, plane.meta.get(meta as usize)?.raw), 5, id?)
 }
 
 pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
     let cores = planes
         .iter()
-        .filter(|plane| {
-            plane
-                .name
-                .strip_prefix(TPU_PREFIX)
-                .is_some_and(|id| id.bytes().all(|byte| byte.is_ascii_digit()))
-        })
+        .filter(|plane| plane.name.strip_prefix(TPU_PREFIX).is_some_and(|id| id.bytes().all(|byte| byte.is_ascii_digit())))
         .count();
-    let Some(plane) = planes.iter().find(|plane| plane.name == FIRST_TPU).filter(|_| cores > 0)
-    else {
+    let Some(plane) = planes.iter().find(|plane| plane.name == FIRST_TPU).filter(|_| cores > 0) else {
         return Vec::new();
     };
-    let modules: HashMap<String, &[u8]> = protos(planes, map)
-        .into_iter()
-        .rev()
-        .map(|(program, proto)| (format!("{}({program})", module_name(proto)), proto))
-        .collect();
+    let modules: HashMap<String, &[u8]> =
+        protos(planes, map).into_iter().rev().map(|(program, proto)| (format!("{}({program})", module_name(proto)), proto)).collect();
     let mut parsed: HashMap<String, Option<Module>> = HashMap::new();
     let mut instructions: HashMap<String, Option<Instruction>> = HashMap::new();
     let mut tracker = Tracker::default();
@@ -378,13 +338,10 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
     let Some(module_line) = plane.lines.iter().find(|line| line.name == "XLA Modules") else {
         return averaged(tracker.summaries);
     };
-    let (mut current, category_id, info_id) =
-        (None, plane.id("hlo_category"), plane.id("dcn_collective_info"));
+    let (mut current, category_id, info_id) = (None, plane.id("hlo_category"), plane.id("dcn_collective_info"));
     for line in plane.lines.iter().filter(|line| line.name == "XLA Ops") {
         for event in &line.events {
-            let category = metadata_text(plane, map, event.meta, category_id)
-                .map(|value| plane.text(&value))
-                .unwrap_or_default();
+            let category = metadata_text(plane, map, event.meta, category_id).map(|value| plane.text(&value)).unwrap_or_default();
             let (timestamp_ps, timestamp_ns) = absolute(line, event, origin);
             let span = (timestamp_ps, timestamp_ps.wrapping_add(event.dur as i64));
             let module_span = |index: usize| {
@@ -413,18 +370,11 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
                 continue;
             }
             let module_meta = module_line.events[index].meta as usize;
-            let module = if module_meta < plane.meta.len() {
-                plane.meta[module_meta].full_name(map)
-            } else {
-                Cow::Borrowed("")
-            };
+            let module = if module_meta < plane.meta.len() { plane.meta[module_meta].full_name(map) } else { Cow::Borrowed("") };
             let display = plane.meta.get(event.meta as usize).map_or("", |meta| &meta.display);
             let found = instructions.entry(format!("{module}_{display}")).or_insert_with(|| {
                 let loaded = parsed.entry(module.to_string()).or_insert_with(|| {
-                    modules
-                        .get(module.as_ref())
-                        .map(|proto| Module::parse(Cow::Borrowed(proto)))
-                        .filter(|module| module.valid)
+                    modules.get(module.as_ref()).map(|proto| Module::parse(Cow::Borrowed(proto))).filter(|module| module.valid)
                 });
                 loaded.as_ref().and_then(|module| instruction(module, display))
             });
@@ -433,15 +383,7 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
                 Some(Value::Bytes(bytes)) => bytes,
                 _ => &[],
             };
-            tracker.visit(
-                found,
-                &Visit {
-                    timestamp_ns,
-                    duration_ps: event.dur as i64,
-                    display_name: display,
-                    collective_info: info,
-                },
-            );
+            tracker.visit(found, &Visit { timestamp_ns, duration_ps: event.dur as i64, display_name: display, collective_info: info });
         }
     }
     averaged(tracker.summaries)
@@ -458,9 +400,7 @@ pub fn json(paths: &[PathBuf], host: &str) -> Option<String> {
         analyses.push((crate::host_name(path), analyze(&planes, &map)));
     }
     if host == ALL_HOSTS {
-        return Some(table(&combine(
-            &analyses.into_iter().map(|(_, analysis)| analysis).collect::<Vec<_>>(),
-        )));
+        return Some(table(&combine(&analyses.into_iter().map(|(_, analysis)| analysis).collect::<Vec<_>>())));
     }
     analyses.into_iter().find(|(name, _)| name == host).map(|(_, analysis)| table(&analysis))
 }

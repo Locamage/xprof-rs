@@ -4,10 +4,7 @@ use crate::tools::overview_page::inference_latency;
 const MAX_ERROR: f64 = 0.0001;
 
 fn assert_near(actual: f64, expected: f64) {
-    assert!(
-        (actual - expected).abs() <= MAX_ERROR,
-        "{actual} is not within {MAX_ERROR} of {expected}"
-    );
+    assert!((actual - expected).abs() <= MAX_ERROR, "{actual} is not within {MAX_ERROR} of {expected}");
 }
 
 #[test]
@@ -22,22 +19,16 @@ fn inference_latency_test() {
         })
         .collect();
     let stats = InferenceStats {
-        inference_stats_per_model: [(
-            0,
-            PerModelInferenceStats { request_details, ..Default::default() },
-        )]
-        .into(),
+        inference_stats_per_model: [(0, PerModelInferenceStats { request_details, ..Default::default() })].into(),
         ..Default::default()
     };
 
     let result = inference_latency(&stats);
 
     assert_eq!(result.len(), 6);
-    for (index, [total, host, device, communication]) in [
-        (0, [0.495, 0.396, 0.0495, 0.0495]),
-        (1, [0.5, 0.4, 0.05, 0.05]),
-        (5, [0.99, 0.792, 0.099, 0.099]),
-    ] {
+    for (index, [total, host, device, communication]) in
+        [(0, [0.495, 0.396, 0.0495, 0.0495]), (1, [0.5, 0.4, 0.05, 0.05]), (5, [0.99, 0.792, 0.099, 0.099])]
+    {
         assert_near(result[index].total_latency_us, total);
         assert_near(result[index].host_latency_us, host);
         assert_near(result[index].device_latency_us, device);

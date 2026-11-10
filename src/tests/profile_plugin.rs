@@ -8,6 +8,9 @@ use std::time::Duration;
 use tower::ServiceExt;
 
 const PREFIX: &str = "/data/plugin/profile";
+/// Held by each test that serves a static file, since one of them sets `XPROF_STATIC_DIR` for the
+/// whole process.
+static STATIC_DIR_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const RUN_TO_TOOLS: [(&str, &[&str]); 6] = [
     ("foo", &["trace_viewer", "trace_viewer@"]),
     ("bar", &["unsupported"]),
@@ -24,8 +27,7 @@ const RUN_TO_HOSTS: [(&str, &[Option<&str>]); 6] = [
     ("abc", &[Some("host1"), Some("host2")]),
     ("empty", &[]),
 ];
-const XPLANE_TOOLS: [&str; 5] =
-    ["trace_viewer", "trace_viewer@", "overview_page", "op_profile", "input_pipeline_analyzer"];
+const XPLANE_TOOLS: [&str; 5] = ["trace_viewer", "trace_viewer@", "overview_page", "op_profile", "input_pipeline_analyzer"];
 
 fn temp_logdir(name: &str) -> PathBuf {
     crate::tests::scratch(&format!("plugin-{name}")).canonicalize().unwrap()
@@ -44,13 +46,8 @@ fn generate_testdata(logdir: &Path) {
                 } else {
                     tool.as_bytes().to_vec()
                 };
-                std::fs::write(
-                    plugin.join(run).join(
-                        host.map_or("xplane.pb".to_string(), |host| format!("{host}.xplane.pb")),
-                    ),
-                    data,
-                )
-                .unwrap();
+                std::fs::write(plugin.join(run).join(host.map_or("xplane.pb".to_string(), |host| format!("{host}.xplane.pb"))), data)
+                    .unwrap();
             }
         }
     }
@@ -73,20 +70,11 @@ async fn json(state: &Shared, uri: &str) -> serde_json::Value {
 }
 
 async fn runs(state: &Shared) -> BTreeSet<String> {
-    json(state, "runs")
-        .await
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|run| run.as_str().unwrap().to_string())
-        .collect()
+    json(state, "runs").await.as_array().unwrap().iter().map(|run| run.as_str().unwrap().to_string()).collect()
 }
 
 fn expected_runs(prefixes: &[&str]) -> BTreeSet<String> {
-    prefixes
-        .iter()
-        .flat_map(|prefix| RUN_TO_TOOLS.iter().map(move |(run, _)| format!("{prefix}{run}")))
-        .collect()
+    prefixes.iter().flat_map(|prefix| RUN_TO_TOOLS.iter().map(move |(run, _)| format!("{prefix}{run}"))).collect()
 }
 
 async fn fetch_testdata(name: &str, query: &str) -> (StatusCode, axum::http::HeaderMap, String) {
@@ -98,20 +86,10 @@ async fn fetch_testdata(name: &str, query: &str) -> (StatusCode, axum::http::Hea
 }
 
 async fn post(state: &Shared, uri: &str) -> (StatusCode, String) {
-    let reply = app(state.clone())
-        .oneshot(
-            axum::http::Request::builder().method("POST").uri(uri).body(Body::empty()).unwrap(),
-        )
-        .await
-        .unwrap();
+    let reply =
+        app(state.clone()).oneshot(axum::http::Request::builder().method("POST").uri(uri).body(Body::empty()).unwrap()).await.unwrap();
     let status = reply.status();
-    (
-        status,
-        String::from_utf8_lossy(
-            &axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap(),
-        )
-        .into_owned(),
-    )
+    (status, String::from_utf8_lossy(&axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap()).into_owned())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -212,27 +190,12 @@ async fn data() {
     for (query, expected) in [
         ("run=foo&tag=invalid_tool&host=host0", "No Data"),
         ("run=foo&tag=memory_viewer&host=host0", "No Data"),
-        (
-            "run=foo&tag=trace_viewer&host=invalid_host",
-            "No xplane file found for host: invalid_host in run: foo",
-        ),
+        ("run=foo&tag=trace_viewer&host=invalid_host", "No xplane file found for host: invalid_host in run: foo"),
         ("run=bar&tag=unsupported&host=host1", "No Data"),
-        (
-            "run=bar&tag=trace_viewer&host=host0",
-            "No xplane file found for run: bar, tool: trace_viewer",
-        ),
-        (
-            "run=qux&tag=trace_viewer&host=host",
-            "No xplane file found for run: qux, tool: trace_viewer",
-        ),
-        (
-            "run=empty&tag=trace_viewer&host=",
-            "No xplane file found for run: empty, tool: trace_viewer",
-        ),
-        (
-            "run=a/foo&tag=trace_viewer&host=invalid_host",
-            "No xplane file found for host: invalid_host in run: a/foo",
-        ),
+        ("run=bar&tag=trace_viewer&host=host0", "No xplane file found for run: bar, tool: trace_viewer"),
+        ("run=qux&tag=trace_viewer&host=host", "No xplane file found for run: qux, tool: trace_viewer"),
+        ("run=empty&tag=trace_viewer&host=", "No xplane file found for run: empty, tool: trace_viewer"),
+        ("run=a/foo&tag=trace_viewer&host=invalid_host", "No xplane file found for host: invalid_host in run: a/foo"),
     ] {
         let (status, _, body) = fetch(&state, &format!("{PREFIX}/data?{query}")).await;
         assert_eq!((status, body.as_str()), (StatusCode::NOT_FOUND, expected), "{query}");
@@ -243,15 +206,8 @@ async fn data() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_names_only_happy_path() {
     let logdir = temp_logdir("names-only");
-    let (status, headers, body) = fetch(
-        &plugin(&logdir),
-        &format!("{PREFIX}/data?tag=perf_counters&names_only=1&device_type=v7x"),
-    )
-    .await;
-    assert_eq!(
-        (status, &headers[header::CONTENT_TYPE]),
-        (StatusCode::OK, &"application/json".parse::<header::HeaderValue>().unwrap())
-    );
+    let (status, headers, body) = fetch(&plugin(&logdir), &format!("{PREFIX}/data?tag=perf_counters&names_only=1&device_type=v7x")).await;
+    assert_eq!((status, &headers[header::CONTENT_TYPE]), (StatusCode::OK, &"application/json".parse::<header::HeaderValue>().unwrap()));
     let names: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert!(names[0].get("name").is_some() && names[0].get("val").is_some(), "{body}");
     std::fs::remove_dir_all(&logdir).unwrap();
@@ -260,62 +216,37 @@ async fn data_names_only_happy_path() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_names_only_missing_device_type() {
     let logdir = temp_logdir("names-only-missing");
-    let (status, _, body) =
-        fetch(&plugin(&logdir), &format!("{PREFIX}/data?tag=perf_counters&names_only=1")).await;
-    assert!(
-        status == StatusCode::INTERNAL_SERVER_ERROR && body.contains("device_type is required"),
-        "{status} {body}"
-    );
+    let (status, _, body) = fetch(&plugin(&logdir), &format!("{PREFIX}/data?tag=perf_counters&names_only=1")).await;
+    assert!(status == StatusCode::INTERNAL_SERVER_ERROR && body.contains("device_type is required"), "{status} {body}");
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_impl_trace_viewer_options() {
-    let query = "run=foo&tag=trace_viewer@&host=host1&full_dma=true&resolution=10000&start_time_ms=100&end_time_ms=200&search_metadata=false";
+    let query =
+        "run=foo&tag=trace_viewer@&host=host1&full_dma=true&resolution=10000&start_time_ms=100&end_time_ms=200&search_metadata=false";
     let (status, headers, body) = fetch_testdata("trace-viewer-options", query).await;
-    assert_eq!(
-        (status, headers[header::CONTENT_TYPE].to_str().unwrap()),
-        (StatusCode::OK, "application/json"),
-        "{body}"
-    );
+    assert_eq!((status, headers[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "application/json"), "{body}");
     assert!(body.contains("\"returnedEventsSize\":0,"), "{body}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_impl_trace_viewer_format_pb_returns_octet_stream() {
-    let (status, headers, _) =
-        fetch_testdata("trace-viewer-pb", "run=foo&tag=trace_viewer&host=host1&format=pb").await;
-    assert_eq!(
-        (status, headers[header::CONTENT_TYPE].to_str().unwrap()),
-        (StatusCode::OK, "application/octet-stream")
-    );
+    let (status, headers, _) = fetch_testdata("trace-viewer-pb", "run=foo&tag=trace_viewer&host=host1&format=pb").await;
+    assert_eq!((status, headers[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "application/octet-stream"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_impl_trace_viewer_streaming_pb_returns_octet_stream() {
-    let (status, headers, _) = fetch_testdata(
-        "trace-viewer-streaming-pb",
-        "run=foo&tag=trace_viewer@&host=host1&format=pb",
-    )
-    .await;
-    assert_eq!(
-        (status, headers[header::CONTENT_TYPE].to_str().unwrap()),
-        (StatusCode::OK, "application/octet-stream")
-    );
+    let (status, headers, _) = fetch_testdata("trace-viewer-streaming-pb", "run=foo&tag=trace_viewer@&host=host1&format=pb").await;
+    assert_eq!((status, headers[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "application/octet-stream"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn data_impl_trace_viewer_event_name_fallback_to_json() {
-    let (status, headers, body) = fetch_testdata(
-        "trace-viewer-event-name",
-        "run=foo&tag=trace_viewer&host=host1&format=pb&event_name=mock_event",
-    )
-    .await;
-    assert_eq!(
-        (status, headers[header::CONTENT_TYPE].to_str().unwrap()),
-        (StatusCode::OK, "application/json"),
-        "{body}"
-    );
+    let (status, headers, body) =
+        fetch_testdata("trace-viewer-event-name", "run=foo&tag=trace_viewer&host=host1&format=pb&event_name=mock_event").await;
+    assert_eq!((status, headers[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "application/json"), "{body}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -329,12 +260,8 @@ async fn generate_runs_no_logdir() {
         serde_json::json!([elsewhere.file_name().unwrap().to_string_lossy()])
     );
     std::fs::remove_dir_all(&elsewhere).unwrap();
-    let (status, _, body) =
-        fetch(&state, &format!("{PREFIX}/capture_profile?service_addr=localhost:1")).await;
-    assert_eq!(
-        (status, body.as_str()),
-        (StatusCode::INTERNAL_SERVER_ERROR, "{\"error\": \"logdir is not set, abort capturing.\"}")
-    );
+    let (status, _, body) = fetch(&state, &format!("{PREFIX}/capture_profile?service_addr=localhost:1")).await;
+    assert_eq!((status, body.as_str()), (StatusCode::INTERNAL_SERVER_ERROR, "{\"error\": \"logdir is not set, abort capturing.\"}"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -343,10 +270,7 @@ async fn runs_impl_with_session() {
     let session = logdir.join("session_run");
     std::fs::create_dir(&session).unwrap();
     std::fs::write(session.join("host.xplane.pb"), "dummy xplane data").unwrap();
-    assert_eq!(
-        json(&plugin(&logdir), &format!("runs?session_path={}", session.display())).await,
-        serde_json::json!(["session_run"])
-    );
+    assert_eq!(json(&plugin(&logdir), &format!("runs?session_path={}", session.display())).await, serde_json::json!(["session_run"]));
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 
@@ -356,15 +280,13 @@ async fn runs_impl_with_run_path() {
     let run = logdir.join("base/run1");
     std::fs::create_dir_all(&run).unwrap();
     std::fs::write(run.join("host.xplane.pb"), "dummy xplane data").unwrap();
-    assert_eq!(
-        json(&plugin(&logdir), &format!("runs?run_path={}", logdir.join("base").display())).await,
-        serde_json::json!(["run1"])
-    );
+    assert_eq!(json(&plugin(&logdir), &format!("runs?run_path={}", logdir.join("base").display())).await, serde_json::json!(["run1"]));
     std::fs::remove_dir_all(&logdir).unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn read_static_file_with_xprof_static_dir_success_and_fallbacks() {
+    let _env = STATIC_DIR_ENV.lock().await;
     let logdir = temp_logdir("static");
     let (statics, sibling) = (logdir.join("static"), logdir.join("static_sibling"));
     std::fs::create_dir_all(&statics).unwrap();
@@ -375,17 +297,19 @@ async fn read_static_file_with_xprof_static_dir_success_and_fallbacks() {
     std::os::unix::fs::symlink(sibling.join("secret.txt"), statics.join("styles.css")).unwrap();
     let state = plugin(&logdir);
     let embedded = fetch(&state, "/bundle.js").await.2;
+    // SAFETY: only this test changes the environment, and the tests that read this variable wait for `STATIC_DIR_ENV`. A test
+    // on another thread can read another variable at the same time, which the tests accept. The same holds for the two
+    // changes below.
     unsafe { std::env::set_var("XPROF_STATIC_DIR", &statics) };
     let served = fetch(&state, "/bundle.js").await;
     let traversal = fetch(&state, "/styles.css").await;
+    // SAFETY: see the first change of the variable in this test.
     unsafe { std::env::set_var("XPROF_STATIC_DIR", logdir.join("does_not_exist")) };
     let missing_dir = fetch(&state, "/bundle.js").await;
+    // SAFETY: see the first change of the variable in this test.
     unsafe { std::env::remove_var("XPROF_STATIC_DIR") };
     assert_eq!((served.0, served.2.as_str()), (StatusCode::OK, "console.log(\"xprof\");"));
-    assert_eq!(
-        (traversal.0, traversal.2.as_str()),
-        (StatusCode::NOT_FOUND, "Fail to read the files.")
-    );
+    assert_eq!((traversal.0, traversal.2.as_str()), (StatusCode::NOT_FOUND, "Fail to read the files."));
     assert_eq!((missing_dir.0, &missing_dir.2), (StatusCode::OK, &embedded));
     assert_ne!(embedded, served.2);
     std::fs::remove_dir_all(&logdir).unwrap();
@@ -393,23 +317,15 @@ async fn read_static_file_with_xprof_static_dir_success_and_fallbacks() {
 
 #[tokio::test]
 async fn embedded_static_file_is_not_sent_again_when_the_tag_matches() {
+    let _env = STATIC_DIR_ENV.lock().await;
     let state = plugin(Path::new(""));
     let (status, headers, body) = fetch(&state, "/bundle.js").await;
-    assert_eq!(
-        (status, headers[header::CACHE_CONTROL].to_str().unwrap()),
-        (StatusCode::OK, "no-cache")
-    );
+    assert_eq!((status, headers[header::CACHE_CONTROL].to_str().unwrap()), (StatusCode::OK, "no-cache"));
     assert!(!body.is_empty());
-    let request = axum::http::Request::builder()
-        .uri("/bundle.js")
-        .header(header::IF_NONE_MATCH, &headers[header::ETAG])
-        .body(Body::empty())
-        .unwrap();
+    let request =
+        axum::http::Request::builder().uri("/bundle.js").header(header::IF_NONE_MATCH, &headers[header::ETAG]).body(Body::empty()).unwrap();
     let reply = app(state).oneshot(request).await.unwrap();
-    assert_eq!(
-        (reply.status(), &reply.headers()[header::ETAG]),
-        (StatusCode::NOT_MODIFIED, &headers[header::ETAG])
-    );
+    assert_eq!((reply.status(), &reply.headers()[header::ETAG]), (StatusCode::NOT_MODIFIED, &headers[header::ETAG]));
     assert!(axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap().is_empty());
 }
 
@@ -422,12 +338,7 @@ async fn generate_cache_task_generates_cache() {
     std::fs::write(&file, include_bytes!("../../tests/data/demo.xplane.pb")).unwrap();
     settle(&file);
     let state = plugin(&logdir);
-    assert_eq!(
-        post(&state, &format!("{PREFIX}/generate_cache?session_path={}", session.display()))
-            .await
-            .0,
-        StatusCode::ACCEPTED
-    );
+    assert_eq!(post(&state, &format!("{PREFIX}/generate_cache?session_path={}", session.display())).await.0, StatusCode::ACCEPTED);
     for _ in 0..600 {
         if state.hosts.cache.contains_key(&file) && state.stats.cache.contains_key(&file) {
             break;
@@ -444,52 +355,22 @@ async fn generate_cache_impl() {
     let (session, empty) = (logdir.join("plugins/profile/s"), logdir.join("plugins/profile/empty"));
     std::fs::create_dir_all(&session).unwrap();
     std::fs::create_dir_all(&empty).unwrap();
-    std::fs::write(
-        session.join("host1.xplane.pb"),
-        include_bytes!("../../tests/data/demo.xplane.pb"),
-    )
-    .unwrap();
+    std::fs::write(session.join("host1.xplane.pb"), include_bytes!("../../tests/data/demo.xplane.pb")).unwrap();
     let state = plugin(&logdir);
     assert_eq!(
-        fetch(&state, &format!("{PREFIX}/generate_cache?session_path={}", session.display()))
-            .await
-            .0,
+        fetch(&state, &format!("{PREFIX}/generate_cache?session_path={}", session.display())).await.0,
         StatusCode::METHOD_NOT_ALLOWED
     );
     let (status, body) = post(&state, &format!("{PREFIX}/generate_cache")).await;
-    assert!(
-        status == StatusCode::BAD_REQUEST && body.contains("Missing \"session_path\" parameter"),
-        "{status} {body}"
-    );
-    let (status, body) =
-        post(&state, &format!("{PREFIX}/generate_cache?session_path={}", empty.display())).await;
-    assert!(
-        status == StatusCode::NOT_FOUND && body.contains("No XPlane files found"),
-        "{status} {body}"
-    );
-    let (status, body) = post(
-        &state,
-        &format!(
-            "{PREFIX}/generate_cache?session_path={}&tools=unsupported_tool",
-            session.display()
-        ),
-    )
-    .await;
-    assert!(
-        status == StatusCode::BAD_REQUEST && body.contains("No valid XPlane tools"),
-        "{status} {body}"
-    );
-    for tools in [
-        "",
-        "&tools=%20overview_page%20,%20trace_viewer@%20",
-        "&tools=overview_page,trace_viewer@,graph_viewer",
-        "&tools=overview_page",
-    ] {
-        let (status, body) = post(
-            &state,
-            &format!("{PREFIX}/generate_cache?session_path={}{tools}", session.display()),
-        )
-        .await;
+    assert!(status == StatusCode::BAD_REQUEST && body.contains("Missing \"session_path\" parameter"), "{status} {body}");
+    let (status, body) = post(&state, &format!("{PREFIX}/generate_cache?session_path={}", empty.display())).await;
+    assert!(status == StatusCode::NOT_FOUND && body.contains("No XPlane files found"), "{status} {body}");
+    let (status, body) = post(&state, &format!("{PREFIX}/generate_cache?session_path={}&tools=unsupported_tool", session.display())).await;
+    assert!(status == StatusCode::BAD_REQUEST && body.contains("No valid XPlane tools"), "{status} {body}");
+    for tools in
+        ["", "&tools=%20overview_page%20,%20trace_viewer@%20", "&tools=overview_page,trace_viewer@,graph_viewer", "&tools=overview_page"]
+    {
+        let (status, body) = post(&state, &format!("{PREFIX}/generate_cache?session_path={}{tools}", session.display())).await;
         assert_eq!(status, StatusCode::ACCEPTED, "{tools}");
         assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["status"], "ACCEPTED");
     }
@@ -500,35 +381,16 @@ async fn generate_cache_impl() {
 async fn data_csv_route_content_disposition() {
     let logdir = temp_logdir("csv-filename");
     for (run, tag, host, expected) in [
-        (
-            "my/run/123",
-            "roofline_model",
-            "worker-pool-1-x2y3",
-            "roofline_model_my_run_123_x2y3.csv",
-        ),
+        ("my/run/123", "roofline_model", "worker-pool-1-x2y3", "roofline_model_my_run_123_x2y3.csv"),
         ("clean_run", "hlo_stats", "localhost", "hlo_stats_clean_run_localhost.csv"),
     ] {
         let (prefix, session) = run.rsplit_once('/').unwrap_or((".", run));
         let dir = logdir.join(prefix).join("plugins/profile").join(session);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join(format!("{host}.xplane.pb")),
-            include_bytes!("../../tests/data/demo.xplane.pb"),
-        )
-        .unwrap();
-        let (status, headers, _) =
-            fetch(&plugin(&logdir), &format!("{PREFIX}/data_csv?run={run}&tag={tag}&host={host}"))
-                .await;
-        assert_eq!(
-            (status, headers[header::CONTENT_TYPE].to_str().unwrap()),
-            (StatusCode::OK, "text/csv")
-        );
-        assert!(
-            headers[header::CONTENT_DISPOSITION]
-                .to_str()
-                .unwrap()
-                .contains(&format!("filename=\"{expected}\""))
-        );
+        std::fs::write(dir.join(format!("{host}.xplane.pb")), include_bytes!("../../tests/data/demo.xplane.pb")).unwrap();
+        let (status, headers, _) = fetch(&plugin(&logdir), &format!("{PREFIX}/data_csv?run={run}&tag={tag}&host={host}")).await;
+        assert_eq!((status, headers[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "text/csv"));
+        assert!(headers[header::CONTENT_DISPOSITION].to_str().unwrap().contains(&format!("filename=\"{expected}\"")));
     }
     std::fs::remove_dir_all(&logdir).unwrap();
 }
@@ -546,8 +408,7 @@ async fn hlo_module_list_impl_sorts_module_names() {
     ] {
         std::fs::write(run.join(format!("{name}.hlo_proto.pb")), "").unwrap();
     }
-    let (status, _, body) =
-        fetch(&plugin(&logdir), &format!("{PREFIX}/module_list?run=test_run")).await;
+    let (status, _, body) = fetch(&plugin(&logdir), &format!("{PREFIX}/module_list?run=test_run")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
@@ -558,17 +419,9 @@ async fn hlo_module_list_impl_sorts_module_names() {
 
 #[tokio::test]
 async fn static_files_are_gzip_only_for_clients_that_accept_gzip() {
-    let packed = axum::body::Bytes::from_static(
-        crate::ASSETS.iter().find(|(name, _)| *name == "runtime.js").unwrap().1,
-    );
-    let reply = |accepts| {
-        crate::negotiate(
-            crate::response(StatusCode::OK, "application/javascript", Body::empty()),
-            packed.clone(),
-            accepts,
-            None,
-        )
-    };
+    let packed = axum::body::Bytes::from_static(crate::ASSETS.iter().find(|(name, _)| *name == "runtime.js").unwrap().1);
+    let reply =
+        |accepts| crate::negotiate(crate::response(StatusCode::OK, "application/javascript", Body::empty()), packed.clone(), accepts, None);
     let (plain, gzipped) = (reply(false), reply(true));
     assert!(plain.headers().get(header::CONTENT_ENCODING).is_none());
     assert_eq!(gzipped.headers()[header::CONTENT_ENCODING], "gzip");
@@ -594,15 +447,9 @@ async fn cached_gzip_parts_decode_alone_and_as_one_stream() {
         assert_eq!(gzip(body.chunks(3_000_001).collect()), (packed.clone(), ends.clone()));
         assert_eq!(ends.len(), body.len().div_ceil(crate::GZIP_CHUNK).max(1));
         let mut whole = Vec::new();
-        std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&packed[..]), &mut whole)
-            .unwrap();
+        std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&packed[..]), &mut whole).unwrap();
         assert_eq!(whole, body);
-        let plain = crate::negotiate(
-            crate::response(StatusCode::OK, "application/json", Body::empty()),
-            packed,
-            false,
-            Some(&ends),
-        );
+        let plain = crate::negotiate(crate::response(StatusCode::OK, "application/json", Body::empty()), packed, false, Some(&ends));
         assert_eq!(axum::body::to_bytes(plain.into_body(), usize::MAX).await.unwrap(), body);
     }
 }
@@ -613,4 +460,37 @@ fn decoded_length_of_a_body_of_4_gib_or_more() {
     let trailer = [&[0u8; 4][..], &(len as u32).to_le_bytes()].concat();
     assert_eq!(crate::decoded_len(&trailer, &vec![0; len.div_ceil(crate::GZIP_CHUNK)]), len);
     assert_eq!(crate::decoded_len(&trailer, &[0]), len as u32 as usize);
+}
+
+#[tokio::test]
+async fn a_body_that_ends_with_an_error_is_not_kept() {
+    let (state, dir) = (plugin(Path::new("")), temp_logdir("broken-body"));
+    let render = |parts: Vec<Result<Bytes, std::io::Error>>| async move {
+        crate::response(StatusCode::OK, "application/json", Body::from_stream(futures_util::stream::iter(parts)))
+    };
+    let broken = vec![Ok(Bytes::from_static(b"[1,")), Err(std::io::Error::other("the render stopped"))];
+    let reply = crate::cached(&state, "trace".into(), &dir, false, render(broken)).await;
+    assert_eq!(reply.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let reply = crate::cached(&state, "trace".into(), &dir, false, render(vec![Ok(Bytes::from_static(b"[1,2]"))])).await;
+    assert_eq!(reply.status(), StatusCode::OK);
+    assert_eq!(&axum::body::to_bytes(reply.into_body(), usize::MAX).await.unwrap()[..], b"[1,2]");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn a_prefetched_value_is_kept_only_when_it_fits() {
+    fn seven(_: &Path) -> anyhow::Result<u64> {
+        Ok(7)
+    }
+    let dir = temp_logdir("prefetch-memo");
+    let file = dir.join("value");
+    std::fs::write(&file, b"x").unwrap();
+    std::fs::File::open(&file).unwrap().set_modified(std::time::SystemTime::now() - crate::FRESH * 2).unwrap();
+    let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+    for (weight, kept) in [(u64::MAX, false), (1, true)] {
+        let memo = crate::Memo::new(move |_, _: &u64| weight);
+        assert_eq!(memo.prefetch(file.clone(), &permits, seven).await.unwrap(), 7);
+        assert_eq!(memo.cache.get(&file).await.is_some(), kept, "{weight}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }

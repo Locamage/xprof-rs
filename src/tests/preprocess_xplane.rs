@@ -12,9 +12,7 @@ fn links_by_name(space: &XSpace) -> Vec<(String, Links)> {
         .lines
         .iter()
         .flat_map(|line| &line.events)
-        .map(|event| {
-            (name(plane, event).to_string(), plane.links(event.meta, slice(&map, event.raw), None))
-        })
+        .map(|event| (name(plane, event).to_string(), plane.links(event.meta, slice(&map, event.raw), None)))
         .collect()
 }
 
@@ -33,12 +31,8 @@ fn is_root_stats_test() {
     let plane = space.add_plane();
     plane.event(0, "ProcessBatch", 100, 100, &[]);
     plane.event(0, "BatchingSessionRun", 200, 100, &[]);
-    let roots: Vec<(String, Option<i64>)> =
-        links_by_name(&space).into_iter().map(|(name, links)| (name, links.root)).collect();
-    assert_eq!(
-        roots,
-        [("ProcessBatch".to_string(), Some(2)), ("BatchingSessionRun".to_string(), Some(1))]
-    );
+    let roots: Vec<(String, Option<i64>)> = links_by_name(&space).into_iter().map(|(name, links)| (name, links.root)).collect();
+    assert_eq!(roots, [("ProcessBatch".to_string(), Some(2)), ("BatchingSessionRun".to_string(), Some(1))]);
 }
 
 #[test]
@@ -83,13 +77,7 @@ fn regions(space: &XSpace) -> Vec<(u64, u64)> {
 fn threadpool_space(regions: &[(i64, i64)]) -> XSpace {
     let mut space = XSpace::default();
     let plane = space.add_plane();
-    plane.event(
-        0,
-        "ThreadpoolListener::Record",
-        100,
-        100,
-        &[("_pt", THREADPOOL_EVENT.into()), ("_p", 123.into())],
-    );
+    plane.event(0, "ThreadpoolListener::Record", 100, 100, &[("_pt", THREADPOOL_EVENT.into()), ("_p", 123.into())]);
     let consumer = [("_ct", V::from(THREADPOOL_EVENT)), ("_c", 123.into())];
     for &(start, stop) in regions {
         plane.event(1, "ThreadpoolListener::StartRegion", start, 0, &consumer);
@@ -105,9 +93,6 @@ fn thread_pool_preprocessor_test() {
 
 #[test]
 fn thread_pool_preprocessor_sorted_test() {
-    let timestamps: Vec<u64> = regions(&threadpool_space(&[(400, 500), (200, 300)]))
-        .into_iter()
-        .map(|region| region.0)
-        .collect();
+    let timestamps: Vec<u64> = regions(&threadpool_space(&[(400, 500), (200, 300)])).into_iter().map(|region| region.0).collect();
     assert_eq!(timestamps, [200, 400]);
 }

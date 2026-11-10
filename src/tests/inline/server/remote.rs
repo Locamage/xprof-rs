@@ -8,15 +8,16 @@ const DEMO: &[u8] = include_bytes!("../../../../tests/data/demo.xplane.pb");
 
 fn memory(name: &str) -> (Arc<InMemory>, Remote) {
     let store = Arc::new(InMemory::new());
-    let remote = Remote::new(
-        &format!("memory://{name}-{}", std::process::id()),
-        store.clone(),
-        Key::from("logs"),
-    )
-    .unwrap();
+    let remote = Remote::new(&format!("memory://{name}-{}", std::process::id()), store.clone(), Key::from("logs")).unwrap();
     _ = std::fs::remove_dir_all(&remote.mirror);
     std::fs::create_dir_all(&remote.mirror).unwrap();
     (store, remote)
+}
+
+/// Sets the time of the last use of a cached session to twice the in-use time ago, plus `later`.
+fn unused(session: &Path, later: Duration) {
+    let at = SystemTime::now() - IN_USE * 2 + later;
+    std::fs::File::open(session).unwrap().set_modified(at).unwrap();
 }
 
 async fn put(store: &InMemory, path: &str, bytes: Vec<u8>) {
@@ -35,17 +36,13 @@ async fn listing_mirrors_sessions_and_sessions_download_on_demand() {
     put(&store, "logs/b/c/plugins/profile/s2/x.xplane.pb", vec![4; 4]).await;
     put(&store, "other/plugins/profile/s3/x.xplane.pb", vec![5; 4]).await;
     remote.sync(&remote.mirror, false).await.unwrap();
-    let mut names: Vec<String> =
-        sessions(&remote.mirror).into_iter().map(|(name, _)| name).collect();
+    let mut names: Vec<String> = sessions(&remote.mirror).into_iter().map(|(name, _)| name).collect();
     names.sort();
     assert_eq!(names, ["a/s1", "b/c/s2", "s0"]);
     let s1 = remote.mirror.join("a/plugins/profile/s1");
     assert!(list(&s1, |_| true).is_empty());
     remote.sync(&s1, true).await.unwrap();
-    let mut files: Vec<String> = list(&s1, |_| true)
-        .iter()
-        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
-        .collect();
+    let mut files: Vec<String> = list(&s1, |_| true).iter().map(|path| path.file_name().unwrap().to_string_lossy().into_owned()).collect();
     files.sort();
     assert_eq!(files, ["empty.xplane.pb", "h1.xplane.pb", "jit_f.hlo_proto.pb"]);
     assert_eq!(std::fs::read(s1.join("h1.xplane.pb")).unwrap(), big);
@@ -63,11 +60,7 @@ async fn listing_mirrors_sessions_and_sessions_download_on_demand() {
     std::fs::write(s1.join("local.hlo_proto.pb"), [1]).unwrap();
     remote.checked.lock().unwrap().clear();
     remote.sync(&s1, true).await.unwrap();
-    assert!(
-        !s1.join("h1.xplane.pb").exists()
-            && s1.join("local.hlo_proto.pb").exists()
-            && s1.join("empty.xplane.pb").exists()
-    );
+    assert!(!s1.join("h1.xplane.pb").exists() && s1.join("local.hlo_proto.pb").exists() && s1.join("empty.xplane.pb").exists());
     assert!(remote.key(&remote.mirror.join("a/../../escape")).is_none());
     assert!(remote.key(Path::new("/elsewhere")).is_none());
     std::fs::remove_dir_all(&remote.mirror).unwrap();
@@ -86,9 +79,8 @@ async fn least_recently_used_sessions_are_evicted_beyond_the_budget() {
     for session in ["s1", "s2"] {
         remote.sync(&dir(session), true).await.unwrap();
     }
-    let long_ago = Instant::now().checked_sub(IN_USE * 2).unwrap();
-    remote.used.lock().unwrap().insert(dir("s1"), long_ago);
-    remote.used.lock().unwrap().insert(dir("s2"), long_ago + Duration::from_secs(1));
+    unused(&dir("s1"), Duration::ZERO);
+    unused(&dir("s2"), Duration::from_secs(1));
     remote.sync(&dir("s3"), true).await.unwrap();
     assert_eq!([held("s1"), held("s2"), held("s3")], [false, true, true]);
     assert!(dir("s1").is_dir() && !remote.checked.lock().unwrap().contains_key(&dir("s1")));
@@ -107,14 +99,62 @@ async fn a_session_with_a_running_sync_is_not_evicted() {
     remote.sync(&remote.mirror, false).await.unwrap();
     let dir = |session: &str| remote.mirror.join("plugins/profile").join(session);
     remote.sync(&dir("s1"), false).await.unwrap();
+    unused(&dir("s1"), Duration::ZERO);
     remote.locks.lock().unwrap().insert(dir("s1"), Arc::default());
     remote.sync(&dir("s2"), true).await.unwrap();
     assert!(dir("s1").join("h.xplane.pb").exists());
     remote.locks.lock().unwrap().clear();
+    let other_process = lock_dir(&dir("s1"), false).unwrap().unwrap();
+    remote.checked.lock().unwrap().clear();
+    remote.sync(&dir("s2"), true).await.unwrap();
+    assert!(dir("s1").join("h.xplane.pb").exists());
+    drop(other_process);
     remote.checked.lock().unwrap().clear();
     remote.sync(&dir("s2"), true).await.unwrap();
     assert!(!dir("s1").join("h.xplane.pb").exists());
     std::fs::remove_dir_all(&remote.mirror).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remotes_of_one_store_share_the_downloads_and_the_budget() {
+    let store = Arc::new(InMemory::new());
+    let url = format!("memory://shared-{}", std::process::id());
+    let open = |root: &str| Remote::new(&url, store.clone(), Key::from(root)).unwrap();
+    let (mut first, second, other) = (open("logs"), open("logs"), open("more"));
+    _ = std::fs::remove_dir_all(&first.cache);
+    for remote in [&first, &other] {
+        std::fs::create_dir_all(&remote.mirror).unwrap();
+    }
+    let big: Vec<u8> = (0..PART_BYTES * 2 + 7).map(|index| (index % 251) as u8).collect();
+    put(&store, "logs/plugins/profile/s/h.xplane.pb", big.clone()).await;
+    put(&store, "more/plugins/profile/t/h.xplane.pb", vec![1; 300]).await;
+    assert_eq!((&first.mirror, &first.cache), (&second.mirror, &other.cache));
+    let session = first.mirror.join("plugins/profile/s");
+    first.sync(&first.mirror, false).await.unwrap();
+    let (one, two) = tokio::join!(first.sync(&session, true), second.sync(&session, true));
+    assert_eq!((one, two), (Ok(()), Ok(())));
+    assert_eq!(std::fs::read(session.join("h.xplane.pb")).unwrap(), big);
+    assert_eq!(first.files_completed.load(Ordering::Relaxed) + second.files_completed.load(Ordering::Relaxed), 1);
+    let elsewhere = other.mirror.join("plugins/profile/t");
+    other.sync(&other.mirror, false).await.unwrap();
+    other.sync(&elsewhere, true).await.unwrap();
+    unused(&elsewhere, Duration::ZERO);
+    first.budget = big.len() as u64;
+    first.checked.lock().unwrap().clear();
+    put(&store, "logs/plugins/profile/s/jit_f.hlo_proto.pb", vec![2; 3]).await;
+    first.sync(&session, true).await.unwrap();
+    assert!(session.join("h.xplane.pb").exists() && !elsewhere.join("h.xplane.pb").exists());
+    std::fs::remove_dir_all(&first.cache).unwrap();
+    // When the bucket is the first part of the path, each bucket of the host has its own cache.
+    let bucket = |name: &str| {
+        let url = format!("https://path-style-{}.example/{name}/run", std::process::id());
+        Remote::new(&url, store.clone(), Key::from("run")).unwrap().cache
+    };
+    let (one, two) = (bucket("one"), bucket("two"));
+    assert_ne!(one, two);
+    for cache in [one, two] {
+        std::fs::remove_dir_all(cache).unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -125,8 +165,7 @@ async fn a_file_url_logdir_serves_what_the_same_local_logdir_serves() {
     std::fs::write(bucket.join("run/plugins/profile/s/host-b.xplane.pb"), DEMO).unwrap();
     std::fs::write(bucket.join("nested/run/plugins/profile/t/h.xplane.pb"), DEMO).unwrap();
     let local = state(&Settings { logdir: bucket.clone(), ..Default::default() });
-    let settings =
-        arguments(["--logdir".to_string(), format!("file://{}", bucket.display())]).unwrap();
+    let settings = arguments(["--logdir".to_string(), format!("file://{}", bucket.display())]).unwrap();
     let mirror = settings.remote.as_ref().unwrap().mirror.clone();
     _ = std::fs::remove_dir_all(&mirror);
     std::fs::create_dir_all(&mirror).unwrap();
@@ -146,9 +185,7 @@ async fn a_file_url_logdir_serves_what_the_same_local_logdir_serves() {
         format!("{base}/module_list?run=nested/run/t"),
         format!("{base}/runs?run_path=run/plugins/profile"),
         format!("{base}/data?run=s&run_path=run/plugins/profile&tag=hlo_stats&host=host-a"),
-        format!(
-            "{base}/data?run=s&session_path=run/plugins/profile/s&tag=framework_op_stats&host=host-a"
-        ),
+        format!("{base}/data?run=s&session_path=run/plugins/profile/s&tag=framework_op_stats&host=host-a"),
         format!("{base}/data?run=../x/s&tag=trace_viewer@&host=h"),
         format!("{base}/data?run=s&session_path=../../../../../../../../etc&tag=trace_viewer@"),
     ] {
@@ -166,18 +203,13 @@ async fn an_unreadable_store_answers_bad_gateway() {
     let file = bucket.join("locked");
     std::fs::create_dir(&file).unwrap();
     std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o0)).unwrap();
-    let settings =
-        arguments(["--logdir".to_string(), format!("file://{}", file.display())]).unwrap();
+    let settings = arguments(["--logdir".to_string(), format!("file://{}", file.display())]).unwrap();
     let state = state(&settings);
     let (status, _, message) = fetch(&state, "/data/plugin/profile/runs").await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{message}");
     assert!(message.starts_with(&format!("Cannot read file://{}", file.display())), "{message}");
     assert_eq!(fetch(&state, "/data/plugin/profile/version").await.0, StatusCode::OK);
-    assert!(
-        arguments(["--logdir".to_string(), "gs://".to_string()])
-            .unwrap_err()
-            .starts_with("Cannot open gs://: ")
-    );
+    assert!(arguments(["--logdir".to_string(), "gs://".to_string()]).unwrap_err().starts_with("Cannot open gs://: "));
     std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     std::fs::remove_dir_all(&bucket).unwrap();
     std::fs::remove_dir_all(&settings.remote.unwrap().mirror).unwrap();
@@ -190,8 +222,7 @@ async fn a_request_for_a_mirrored_session_does_not_list_the_whole_store() {
     std::fs::create_dir_all(bucket.join("run/plugins/profile/s")).unwrap();
     std::fs::create_dir_all(bucket.join("other")).unwrap();
     std::fs::write(bucket.join("run/plugins/profile/s/h.xplane.pb"), DEMO).unwrap();
-    let settings =
-        arguments(["--logdir".to_string(), format!("file://{}", bucket.display())]).unwrap();
+    let settings = arguments(["--logdir".to_string(), format!("file://{}", bucket.display())]).unwrap();
     let state = state(&settings);
     assert_eq!(fetch(&state, "/data/plugin/profile/runs").await.2, "[\"run/s\"]");
     std::fs::set_permissions(bucket.join("other"), std::fs::Permissions::from_mode(0o0)).unwrap();
@@ -214,19 +245,12 @@ async fn a_failed_download_leaves_no_partial_file_and_no_lock() {
     let dir = remote.mirror.join("plugins/profile/s");
     std::fs::create_dir_all(dir.join(".b.xplane.pb.partial")).unwrap();
     let stale = remote.mirror.join("plugins");
-    remote
-        .checked
-        .lock()
-        .unwrap()
-        .insert(stale.clone(), Instant::now().checked_sub(RECHECK * 2).unwrap());
+    remote.checked.lock().unwrap().insert(stale.clone(), Instant::now().checked_sub(RECHECK * 2).unwrap());
     assert!(remote.sync(&dir, true).await.is_err());
     assert!(!dir.join(".a.xplane.pb.partial").exists() && !dir.join("a.xplane.pb").exists());
     std::fs::remove_dir(dir.join(".b.xplane.pb.partial")).unwrap();
     remote.sync(&dir, true).await.unwrap();
     assert_eq!(std::fs::read(dir.join("b.xplane.pb")).unwrap(), [2; 10]);
-    assert!(
-        remote.locks.lock().unwrap().is_empty()
-            && !remote.checked.lock().unwrap().contains_key(&stale)
-    );
+    assert!(remote.locks.lock().unwrap().is_empty() && !remote.checked.lock().unwrap().contains_key(&stale));
     std::fs::remove_dir_all(&remote.mirror).unwrap();
 }

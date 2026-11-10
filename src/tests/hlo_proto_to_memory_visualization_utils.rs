@@ -15,19 +15,17 @@ buffer_assignment {
   logical_buffers { id: 2 size: 524288 color: 0 defined_at { instruction_id: 1 shape_index: 0 } }
   logical_buffers { id: 3 size: 1048576 color: 0 defined_at { instruction_id: 2 shape_index: 0 } }
   heap_simulator_traces { %s } }"#;
-const ALLOC_ALLOC_FREE_FREE: &str = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
+const ALLOC_ALLOC_FREE_FREE: &str = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: FREE \
+    buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
 const HALF: u64 = 524288;
 
-/// Gives an HLO proto text with one allocation (index 0). Instruction `i` has id `i` and defines the logical buffer with id `i + 1`.
+/// Gives an HLO proto text with one allocation (index 0). Instruction `i` has id `i` and defines
+/// the logical buffer with id `i + 1`.
 fn hlo_text(color: u8, allocation_size: u64, buffers: &[(&str, u64, u64)], trace: &str) -> String {
-    let (mut instructions, mut assigned, mut logical) =
-        (String::new(), String::new(), String::new());
+    let (mut instructions, mut assigned, mut logical) = (String::new(), String::new(), String::new());
     for (id, &(name, offset, size)) in buffers.iter().enumerate() {
-        instructions += &format!(
-            r#"instructions {{ name: "{name}" id: {id} shape {{ tuple_shapes {{ element_type: U64 }} }} }} "#
-        );
-        assigned +=
-            &format!("assigned {{ logical_buffer_id: {} offset: {offset} size: {size} }} ", id + 1);
+        instructions += &format!(r#"instructions {{ name: "{name}" id: {id} shape {{ tuple_shapes {{ element_type: U64 }} }} }} "#);
+        assigned += &format!("assigned {{ logical_buffer_id: {} offset: {offset} size: {size} }} ", id + 1);
         logical += &format!(
             "logical_buffers {{ id: {} size: {size} color: {color} defined_at {{ instruction_id: {id} shape_index: 0 }} }} ",
             id + 1
@@ -40,44 +38,25 @@ buffer_assignment {{ buffer_allocations {{ index: 0 size: {allocation_size} colo
 }
 
 fn two_halves(color: u8, names: [&str; 2]) -> HloProto {
-    hlo_proto(&hlo_text(
-        color,
-        2 * HALF,
-        &[(names[0], 0, HALF), (names[1], HALF, HALF)],
-        ALLOC_ALLOC_FREE_FREE,
-    ))
+    hlo_proto(&hlo_text(color, 2 * HALF, &[(names[0], 0, HALF), (names[1], HALF, HALF)], ALLOC_ALLOC_FREE_FREE))
 }
 
 fn chain(trace: &str) -> HloProto {
-    hlo_proto(&hlo_text(
-        0,
-        3 * HALF,
-        &[("fusion.1", 0, HALF), ("fusion.2", 0, HALF), ("fusion.3", 0, HALF)],
-        trace,
-    ))
+    hlo_proto(&hlo_text(0, 3 * HALF, &[("fusion.1", 0, HALF), ("fusion.2", 0, HALF), ("fusion.3", 0, HALF)], trace))
 }
 
 fn chain_display_name(trace: &str) -> HloProto {
     hlo_proto(&hlo_text(
         1,
         3 * HALF / 2,
-        &[
-            ("fusion.1", 0, HALF / 2),
-            ("fusion.2", 0, HALF / 2),
-            ("fusion.3", 0, HALF / 2),
-            ("fusion.4", HALF / 2, HALF),
-        ],
+        &[("fusion.1", 0, HALF / 2), ("fusion.2", 0, HALF / 2), ("fusion.3", 0, HALF / 2), ("fusion.4", HALF / 2, HALF)],
         trace,
     ))
 }
 
 fn scoped(mut proto: HloProto, sizes: &[u64]) -> HloProto {
-    for (instruction, size) in
-        proto.hlo_module.as_mut().unwrap().computations[0].instructions.iter_mut().zip(sizes)
-    {
-        instruction.backend_config =
-            format!(r#"{{"used_scoped_memory_configs":[{{"memory_space":"1","size":"{size}"}}]}}"#)
-                .into_bytes();
+    for (instruction, size) in proto.hlo_module.as_mut().unwrap().computations[0].instructions.iter_mut().zip(sizes) {
+        instruction.backend_config = format!(r#"{{"used_scoped_memory_configs":[{{"memory_space":"1","size":"{size}"}}]}}"#).into_bytes();
     }
     proto
 }
@@ -105,9 +84,7 @@ fn allocation_timeline(proto: &HloProto, color: i64) -> String {
 }
 
 fn number(value: &Value, key: &str) -> f64 {
-    value.get(key).map_or(0.0, |number| {
-        number.as_f64().or_else(|| number.as_str().and_then(|text| text.parse().ok())).unwrap()
-    })
+    value.get(key).map_or(0.0, |number| number.as_f64().or_else(|| number.as_str().and_then(|text| text.parse().ok())).unwrap())
 }
 
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {
@@ -120,12 +97,10 @@ fn list<'a>(value: &'a Value, key: &str) -> &'a [Value] {
 
 fn parse_logical_buffers_from_dot(dot: &str) -> Vec<DoubleRectInfo> {
     let find = |needle: &str, from: usize| dot[from..].find(needle).map(|position| position + from);
-    let find_any =
-        |needles: &[char], from: usize| dot[from..].find(needles).map(|position| position + from);
+    let find_any = |needles: &[char], from: usize| dot[from..].find(needles).map(|position| position + from);
     let mut buffer_rects = Vec::new();
     let mut offset = 0;
-    while let Some(node_end) = find("\"", offset).and_then(|node_start| find("\"", node_start + 1))
-    {
+    while let Some(node_end) = find("\"", offset).and_then(|node_start| find("\"", node_start + 1)) {
         offset = node_end + 1;
         let Some(open_bracket) = find("[", offset).filter(|open| open - offset <= 5) else {
             continue;
@@ -146,9 +121,7 @@ fn parse_logical_buffers_from_dot(dot: &str) -> Vec<DoubleRectInfo> {
         let Some(pos_end) = find("!", pos_start) else {
             continue;
         };
-        let (pos_x, pos_y) = dot[pos_start..pos_end]
-            .split_once(',')
-            .map_or((0.0, 0.0), |(x, y)| (x.parse().unwrap(), y.parse().unwrap()));
+        let (pos_x, pos_y) = dot[pos_start..pos_end].split_once(',').map_or((0.0, 0.0), |(x, y)| (x.parse().unwrap(), y.parse().unwrap()));
         let Some(width_start) = find("width=\"", pos_end).map(|start| start + 7) else {
             continue;
         };
@@ -177,12 +150,7 @@ fn parse_logical_buffers_from_dot(dot: &str) -> Vec<DoubleRectInfo> {
         }
         let field = |key: &str| {
             tooltip.find(key).map_or(0, |position| {
-                tooltip[position + key.len()..]
-                    .split(|character: char| !character.is_ascii_digit())
-                    .next()
-                    .unwrap()
-                    .parse()
-                    .unwrap()
+                tooltip[position + key.len()..].split(|character: char| !character.is_ascii_digit()).next().unwrap().parse().unwrap()
             })
         };
         buffer_rects.push(DoubleRectInfo {
@@ -209,18 +177,10 @@ fn boundary(rect: &DoubleRectInfo, sign: i32) -> f64 {
 }
 
 fn rects_overlap(a: &DoubleRectInfo, b: &DoubleRectInfo) -> bool {
-    let (a_left, a_right, a_bottom, a_top) = (
-        a.pos_x - a.width / 2.0,
-        a.pos_x + a.width / 2.0,
-        a.pos_y - a.height / 2.0,
-        a.pos_y + a.height / 2.0,
-    );
-    let (b_left, b_right, b_bottom, b_top) = (
-        b.pos_x - b.width / 2.0,
-        b.pos_x + b.width / 2.0,
-        b.pos_y - b.height / 2.0,
-        b.pos_y + b.height / 2.0,
-    );
+    let (a_left, a_right, a_bottom, a_top) =
+        (a.pos_x - a.width / 2.0, a.pos_x + a.width / 2.0, a.pos_y - a.height / 2.0, a.pos_y + a.height / 2.0);
+    let (b_left, b_right, b_bottom, b_top) =
+        (b.pos_x - b.width / 2.0, b.pos_x + b.width / 2.0, b.pos_y - b.height / 2.0, b.pos_y + b.height / 2.0);
     let x_overlap = (a_right.min(b_right) - a_left.max(b_left)).max(0.0);
     let y_overlap = (a_top.min(b_top) - a_bottom.max(b_bottom)).max(0.0);
     x_overlap > 0.05 && y_overlap > 0.05
@@ -228,7 +188,8 @@ fn rects_overlap(a: &DoubleRectInfo, b: &DoubleRectInfo) -> bool {
 
 #[test]
 fn test_heap_simulator_trace_share_with_1() {
-    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: \
+        FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
     assert_eq!(number(&preprocess_result, "peakUnpaddedHeapMib"), 8.0 / (1 << 20) as f64 + 1.0);
@@ -238,7 +199,8 @@ fn test_heap_simulator_trace_share_with_1() {
 
 #[test]
 fn test_heap_simulator_trace_share_with_2() {
-    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 2 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 \
+        share_with_canonical_id: 1 } events { kind: FREE buffer_id: 2 }";
     let proto = hlo_proto(&HLO_BASE.replace("%s", trace));
     let preprocess_result = preprocess(&proto, 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
@@ -271,14 +233,12 @@ events { kind: ALLOC buffer_id: 4 } events { kind: SHARE_WITH buffer_id: 3 share
         found_fusion_4 |= instruction_name.contains("fusion.4");
         assert!(
             !instruction_name.contains("fusion.1"),
-            "Bar chart shows root canonical name 'fusion.1' instead of sharer name 'fusion.3'. heap_object.instruction_name()={instruction_name}"
+            "Bar chart shows root canonical name 'fusion.1' instead of sharer name 'fusion.3'. \
+                heap_object.instruction_name()={instruction_name}"
         );
     }
     assert!(found_fusion_3, "Expected sharer C's instruction 'fusion.3' in the bar chart");
-    assert!(
-        found_fusion_4,
-        "Expected independent buffer D's instruction 'fusion.4' in the bar chart"
-    );
+    assert!(found_fusion_4, "Expected independent buffer D's instruction 'fusion.4' in the bar chart");
 }
 
 #[test]
@@ -311,20 +271,13 @@ fn test_logical_buffers_do_not_overlap() {
             }
         }
     };
-    verify_no_overlap(
-        &[("fusion.1", 0, HALF), ("fusion.2", HALF, HALF)],
-        2 * HALF,
-        ALLOC_ALLOC_FREE_FREE,
-    );
-    verify_no_overlap(
-        &[("fusion.1", 54076112896, 134217728), ("fusion.2", 54210330624, 134217728)],
-        54344548352,
-        ALLOC_ALLOC_FREE_FREE,
-    );
+    verify_no_overlap(&[("fusion.1", 0, HALF), ("fusion.2", HALF, HALF)], 2 * HALF, ALLOC_ALLOC_FREE_FREE);
+    verify_no_overlap(&[("fusion.1", 54076112896, 134217728), ("fusion.2", 54210330624, 134217728)], 54344548352, ALLOC_ALLOC_FREE_FREE);
     verify_no_overlap(
         &[("fusion.1", 0, HALF), ("fusion.2", 0, HALF)],
         2 * HALF,
-        "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: FREE buffer_id: 2 }",
+        "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: FREE \
+            buffer_id: 2 }",
     );
 }
 
@@ -337,8 +290,7 @@ fn scoped_vmem_allocation_single_instruction() {
 
 #[test]
 fn scoped_vmem_allocation_max_across_instructions() {
-    let result =
-        preprocess(&scoped(two_halves(1, ["fusion.1", "fusion.2"]), &[1048576, 2097152]), 1);
+    let result = preprocess(&scoped(two_halves(1, ["fusion.1", "fusion.2"]), &[1048576, 2097152]), 1);
     assert_eq!(number(&result, "maxScopedVmemAllocationMib"), 2.0);
     assert_eq!(text(&result, "maxScopedVmemInstructionName"), "fusion.2");
 }
@@ -352,17 +304,15 @@ fn scoped_vmem_allocation_no_scoped_configs() {
 
 #[test]
 fn scoped_vmem_allocation_hbm_ignores_scoped() {
-    let result = preprocess(
-        &scoped(hlo_proto(&HLO_BASE.replace("%s", ALLOC_ALLOC_FREE_FREE)), &[1048576]),
-        0,
-    );
+    let result = preprocess(&scoped(hlo_proto(&HLO_BASE.replace("%s", ALLOC_ALLOC_FREE_FREE)), &[1048576]), 0);
     assert_eq!(number(&result, "maxScopedVmemAllocationMib"), 0.0);
     assert!(text(&result, "maxScopedVmemInstructionName").is_empty());
 }
 
 #[test]
 fn test_convert_allocation_timeline_buffer_blocks() {
-    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 2 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 \
+        share_with_canonical_id: 1 } events { kind: FREE buffer_id: 2 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     let blocks = list(&preprocess_result, "bufferBlocks");
     assert_eq!(blocks.len(), 2);
@@ -385,10 +335,7 @@ fn test_convert_allocation_timeline_buffer_blocks() {
 
 #[test]
 fn test_allocation_timeline_labels() {
-    let result = allocation_timeline(
-        &two_halves(1, ["very_long_instruction_name_that_might_need_truncation_or_not", "short"]),
-        1,
-    );
+    let result = allocation_timeline(&two_halves(1, ["very_long_instruction_name_that_might_need_truncation_or_not", "short"]), 1);
     assert!(!result.is_empty());
     let rects = parse_logical_buffers_from_dot(&result);
     assert_eq!(rects.len(), 2);
@@ -418,16 +365,13 @@ fn test_allocation_timeline_labels_truncation() {
 
 #[test]
 fn test_allocation_timeline_font_size_scaling() {
-    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: ALLOC buffer_id: 3 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 } events { kind: FREE buffer_id: 3 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: ALLOC buffer_id: 3 } events { \
+        kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 } events { kind: FREE buffer_id: 3 }";
     let result = allocation_timeline(
         &hlo_proto(&hlo_text(
             1,
             1000000,
-            &[
-                ("large_buffer", 0, 995000),
-                ("medium_buffer", 995000, 4000),
-                ("small_buffer", 999000, 1000),
-            ],
+            &[("large_buffer", 0, 995000), ("medium_buffer", 995000, 4000), ("small_buffer", 999000, 1000)],
             trace,
         )),
         1,
@@ -445,33 +389,25 @@ fn memory_viewer_matches_xprof_on_synthetic_modules() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/memory_viewer");
     let mut text = String::new();
     std::io::Read::read_to_string(
-        &mut flate2::read::GzDecoder::new(
-            &include_bytes!("../../tests/data/memory_viewer/expected.json.gz")[..],
-        ),
+        &mut flate2::read::GzDecoder::new(&include_bytes!("../../tests/data/memory_viewer/expected.json.gz")[..]),
         &mut text,
     )
     .unwrap();
     let cases: Vec<Value> = serde_json::from_str(&text).unwrap();
     for case in &cases {
-        let params: std::collections::HashMap<String, String> = case["params"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string()))
-            .collect();
-        assert_eq!(
-            crate::hlo::memory::serve(&dir, &params).unwrap().0,
-            case["body"].as_str().unwrap(),
-            "{params:?}"
-        );
+        let params: std::collections::HashMap<String, String> =
+            case["params"].as_object().unwrap().iter().map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string())).collect();
+        assert_eq!(crate::hlo::memory::serve(&dir, &params).unwrap().0, case["body"].as_str().unwrap(), "{params:?}");
     }
 }
 
 #[test]
 fn test_heap_simulator_trace_share_with_cycle() {
     for trace in [
-        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 1 share_with_canonical_id: 1 }\nevents { kind: FREE buffer_id: 1 }",
-        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 1 share_with_canonical_id: 2 }\nevents { kind: FREE buffer_id: 1 }",
+        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 1 share_with_canonical_id: 1 }\nevents { kind: FREE \
+            buffer_id: 1 }",
+        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }\nevents { kind: \
+            SHARE_WITH buffer_id: 1 share_with_canonical_id: 2 }\nevents { kind: FREE buffer_id: 1 }",
     ] {
         preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     }

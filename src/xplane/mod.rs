@@ -28,10 +28,10 @@ static NAMES: LazyLock<HashMap<&str, (bool, [u8; ROLES])>> = LazyLock::new(|| {
     names
 });
 
-static LONGEST_NAME: LazyLock<usize> =
-    LazyLock::new(|| NAMES.keys().map(|name| name.len()).max().unwrap_or(0));
+static LONGEST_NAME: LazyLock<usize> = LazyLock::new(|| NAMES.keys().map(|name| name.len()).max().unwrap_or(0));
 
-/// If the event name is internal, and its roles in the connections. The length check skips the long names of the HLO operations.
+/// If the event name is internal, and its roles in the connections. The length check skips the long
+/// names of the HLO operations.
 fn known(name: &[u8]) -> (bool, [u8; ROLES]) {
     (name.len() <= *LONGEST_NAME)
         .then(|| std::str::from_utf8(name).ok().and_then(|name| NAMES.get(name)))
@@ -44,12 +44,15 @@ pub const NONE_GROUP: i64 = i64::MIN;
 pub const TPU_PREFIX: &str = "/device:TPU:";
 pub const HOST_PLANE: &str = "/host:CPU";
 const EPOCH_NS: i64 = 1_000_000_000_000_000;
-const INTERNAL_EVENTS: &str = "MemoryAllocation MemoryDeallocation PrefetchProduce PrefetchConsume ParallelInterleaveProduce ParallelInterleaveConsume ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce MapAndBatchConsume ParseExampleProduce ParseExampleConsume";
-const QUEUE_CONSUMERS: &str = "RunProgramRequest HostCallbackRequest TransferH2DRequest TransferPreprocessedH2DRequest TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti OnDeviceRecvRequestMulti PjrtAsyncWait";
-const INTERNAL_STATS: [&str; 8] =
-    ["_pt", "_p", "_ct", "_c", "_r", "flops", "program_id", "symbol_id"];
+const INTERNAL_EVENTS: &str = "MemoryAllocation MemoryDeallocation PrefetchProduce PrefetchConsume ParallelInterleaveProduce \
+    ParallelInterleaveConsume ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce \
+    MapAndBatchConsume ParseExampleProduce ParseExampleConsume";
+const QUEUE_CONSUMERS: &str = "RunProgramRequest HostCallbackRequest TransferH2DRequest TransferPreprocessedH2DRequest \
+    TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti \
+    OnDeviceRecvRequestMulti PjrtAsyncWait";
+const INTERNAL_STATS: [&str; 8] = ["_pt", "_p", "_ct", "_c", "_r", "flops", "program_id", "symbol_id"];
 macro_rules! kinds {
-    ($($kind:ident: $text:literal),*) => {
+    ($($kind:ident: $text:literal),* $(,)?) => {
         const STATS: [&str; [$($text),*].len()] = [$($text),*];
         #[allow(non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
         #[repr(usize)]
@@ -58,7 +61,27 @@ macro_rules! kinds {
     };
 }
 
-kinds!(FLOW: "flow", GROUP: "group_id", ASYNC: "_a", STEP: "step_name", PT: "_pt", P: "_p", CT: "_ct", C: "_c", CORRELATION: "correlation_id", REQUEST_ID: "request_id", QUEUE_ADDR: "queue_addr", DEVICE_ORDINAL: "device_ordinal", QUEUE_ID: "queue_id", RUN_ID: "run_id", CORE_TYPE: "core_type", PID: "_pid", ROOT: "_r", STEP_ID: "id", ITER_NUM: "iter_num");
+kinds!(
+    FLOW: "flow",
+    GROUP: "group_id",
+    ASYNC: "_a",
+    STEP: "step_name",
+    PT: "_pt",
+    P: "_p",
+    CT: "_ct",
+    C: "_c",
+    CORRELATION: "correlation_id",
+    REQUEST_ID: "request_id",
+    QUEUE_ADDR: "queue_addr",
+    DEVICE_ORDINAL: "device_ordinal",
+    QUEUE_ID: "queue_id",
+    RUN_ID: "run_id",
+    CORE_TYPE: "core_type",
+    PID: "_pid",
+    ROOT: "_r",
+    STEP_ID: "id",
+    ITER_NUM: "iter_num",
+);
 const NO_KIND: u8 = u8::MAX;
 const MAX_TAG: u64 = (1 << 29) - 1;
 const ID_SLACK: u64 = 1024;
@@ -66,17 +89,9 @@ const ID_FACTOR: u64 = 4;
 const RUN_ID_MASK: u64 = (1 << 27) - 1;
 const LAUNCH: u64 = 12;
 const LEGACY: u64 = 1;
-const ROOTS: [(&str, i64, bool); 4] = [
-    ("TraceContext", 1, false),
-    ("ProcessBatch", 2, true),
-    ("OrbaxServing::ProcessBatch", 2, true),
-    ("BatchingSessionRun", 1, true),
-];
-const REGION: [&str; 3] = [
-    "ThreadpoolListener::StartRegion",
-    "ThreadpoolListener::StopRegion",
-    "ThreadpoolListener::Region",
-];
+const ROOTS: [(&str, i64, bool); 4] =
+    [("TraceContext", 1, false), ("ProcessBatch", 2, true), ("OrbaxServing::ProcessBatch", 2, true), ("BatchingSessionRun", 1, true)];
+const REGION: [&str; 3] = ["ThreadpoolListener::StartRegion", "ThreadpoolListener::StopRegion", "ThreadpoolListener::Region"];
 
 struct Connection {
     producers: &'static str,
@@ -87,33 +102,20 @@ struct Connection {
 
 const ROLES: usize = 3;
 const CONNECTIONS: [Connection; ROLES] = [
-    Connection {
-        producers: "EnqueueRequestLocked",
-        consumers: QUEUE_CONSUMERS,
-        context: 11,
-        stats: &[REQUEST_ID, QUEUE_ADDR],
-    },
+    Connection { producers: "EnqueueRequestLocked", consumers: QUEUE_CONSUMERS, context: 11, stats: &[REQUEST_ID, QUEUE_ADDR] },
     Connection {
         producers: "DoEnqueueProgram",
         consumers: "CompleteCallbacks",
         context: LAUNCH,
         stats: &[DEVICE_ORDINAL, QUEUE_ID, RUN_ID, CORE_TYPE],
     },
-    Connection {
-        producers: "ExecutorState::Process",
-        consumers: "TpuExecuteOp",
-        context: LEGACY,
-        stats: &[STEP_ID, ITER_NUM],
-    },
+    Connection { producers: "ExecutorState::Process", consumers: "TpuExecuteOp", context: LEGACY, stats: &[STEP_ID, ITER_NUM] },
 ];
 
-/// The number of a stat for the event links. A producer, consumer or connection stat that is not an integer gives 0.
+/// The number of a stat for the event links. A producer, consumer or connection stat that is not an
+/// integer gives 0.
 fn number(kind: usize, value: &Value) -> Option<i64> {
-    if matches!(kind, PT..=C | REQUEST_ID..=PID | STEP_ID | ITER_NUM) {
-        Some(value.int().unwrap_or(0))
-    } else {
-        value.int()
-    }
+    if matches!(kind, PT..=C | REQUEST_ID..=PID | STEP_ID | ITER_NUM) { Some(value.int().unwrap_or(0)) } else { value.int() }
 }
 
 pub enum Field<'a> {
@@ -128,7 +130,8 @@ pub fn varint(buf: &[u8], pos: &mut usize) -> Option<u64> {
         *pos += 1;
         return Some(u64::from(first));
     }
-    // A varint of at most 8 bytes ends at the first byte without the high bit. One load gives its bytes, and three steps join their 7-bit groups.
+    // A varint of at most 8 bytes ends at the first byte without the high bit. One load gives its
+    // bytes, and three steps join their 7-bit groups.
     if let Some(chunk) = buf.get(*pos..).and_then(<[u8]>::first_chunk::<8>) {
         let word = u64::from_le_bytes(*chunk);
         let stops = !word & 0x8080_8080_8080_8080;
@@ -218,7 +221,8 @@ pub struct Ev {
     pub eager: Option<bool>,
     /// The event has a field of stats.
     pub has_stats: bool,
-    /// A stat of the event can have a kind of `STATS`. Without one, the links of the event come only from its metadata.
+    /// A stat of the event can have a kind of `STATS`. Without one, the links of the event come
+    /// only from its metadata.
     pub linked: bool,
 }
 
@@ -278,7 +282,8 @@ pub struct Meta {
     step: Option<String>,
     base: Option<Box<Stats>>,
     role: [u8; ROLES],
-    /// If C++ protobuf parses the HLO proto of the metadata. The first call of `hlo::protos` sets it.
+    /// If C++ protobuf parses the HLO proto of the metadata. The first call of `hlo::protos` sets
+    /// it.
     pub hlo_parses: OnceLock<bool>,
 }
 
@@ -374,18 +379,12 @@ pub fn stat(body: &[u8], keep: impl Fn(usize) -> bool) -> Option<Stat<'_>> {
     keep(id).then_some(Stat { id, value })
 }
 
-pub fn stats(
-    raw: &[u8],
-    field: u32,
-    keep: impl Fn(usize) -> bool,
-) -> impl Iterator<Item = Stat<'_>> {
+pub fn stats(raw: &[u8], field: u32, keep: impl Fn(usize) -> bool) -> impl Iterator<Item = Stat<'_>> {
     nested(raw, field).filter_map(move |body| stat(body, &keep))
 }
 
 pub fn nested(data: &[u8], wanted: u32) -> impl Iterator<Item = &[u8]> {
-    fields(data).filter_map(move |(tag, field)| {
-        if let (true, Field::Bytes(_, body)) = (tag == wanted, field) { Some(body) } else { None }
-    })
+    fields(data).filter_map(move |(tag, field)| if let (true, Field::Bytes(_, body)) = (tag == wanted, field) { Some(body) } else { None })
 }
 
 pub fn event_stat(raw: &[u8], id: Option<usize>) -> Option<Value<'_>> {
@@ -404,9 +403,7 @@ pub fn event_stats<const N: usize>(raw: &[u8], ids: [Option<usize>; N]) -> [Opti
     }
     for body in nested(raw, 4) {
         let first = std::cell::Cell::new(None);
-        let Some(stat) = stat(body, |id| {
-            ids.contains(&Some(id)) && first.replace(Some(id)).is_none_or(|first| first == id)
-        }) else {
+        let Some(stat) = stat(body, |id| ids.contains(&Some(id)) && first.replace(Some(id)).is_none_or(|first| first == id)) else {
             continue;
         };
         for (slot, id) in out.iter_mut().zip(ids) {
@@ -423,8 +420,7 @@ pub fn event_group(raw: &[u8], group: i64, id: Option<usize>) -> Option<i64> {
 }
 
 fn table<T: Default>(entries: Vec<Vec<(u64, T)>>) -> Option<Vec<T>> {
-    let bound = (entries.iter().map(Vec::len).sum::<usize>() as u64 * ID_FACTOR + ID_SLACK)
-        .min(u64::from(u32::MAX));
+    let bound = (entries.iter().map(Vec::len).sum::<usize>() as u64 * ID_FACTOR + ID_SLACK).min(u64::from(u32::MAX));
     if entries.iter().flatten().any(|(id, _)| *id >= bound) {
         return None;
     }
@@ -451,13 +447,7 @@ fn named(bytes: &[u8]) -> Option<(u64, &[u8], &[u8])> {
     entries.complete().then_some(entry)
 }
 
-fn line(
-    (offset, bytes): (usize, &[u8]),
-    limit: u64,
-    kind: &[u8],
-    checked: Option<&AtomicBool>,
-    keep: bool,
-) -> Option<Line> {
+fn line((offset, bytes): (usize, &[u8]), limit: u64, kind: &[u8], checked: Option<&AtomicBool>, keep: bool) -> Option<Line> {
     let (mut line, mut bodies) = (Line::default(), Vec::with_capacity(bytes.len() / 32));
     let mut entries = fields(bytes);
     for (tag, field) in &mut entries {
@@ -476,7 +466,16 @@ fn line(
     }
     let complete = AtomicBool::new(true);
     let events = bodies.par_iter().with_min_len(4096).map(|&(start, len)| {
-        let mut event = Ev { ts: 0, dur: 0, group: NONE_GROUP, raw: ((offset + start as usize) as u32, len), meta: 0, eager: None, has_stats: false, linked: false };
+        let mut event = Ev {
+            ts: 0,
+            dur: 0,
+            group: NONE_GROUP,
+            raw: ((offset + start as usize) as u32, len),
+            meta: 0,
+            eager: None,
+            has_stats: false,
+            linked: false,
+        };
         let mut parts = fields(&bytes[start as usize..][..len as usize]);
         for (tag, field) in &mut parts {
             match (tag, field) {
@@ -490,7 +489,10 @@ fn line(
                     {
                         valid.store(false, Ordering::Relaxed);
                     }
-                    event.linked = event.linked || !matches!(fields(body).next(), Some((1, Field::Num(id))) if kind.get(id as usize).is_none_or(|&kind| kind == NO_KIND));
+                    event.linked = event.linked || {
+                        let unknown = |id: u64| kind.get(id as usize).is_none_or(|&k| k == NO_KIND);
+                        !matches!(fields(body).next(), Some((1, Field::Num(id))) if unknown(id))
+                    };
                 }
                 _ => {}
             }
@@ -522,12 +524,9 @@ pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
     parse_checking(buf, None, false)
 }
 
-/// Clears `checked` if a stat of an event does not pass the check of `valid_stat`. With `bare` and no GPU planes, the lines of the host plane have no events.
-pub fn parse_checking(
-    buf: &[u8],
-    checked: Option<&AtomicBool>,
-    bare: bool,
-) -> anyhow::Result<Vec<Plane>> {
+/// Clears `checked` if a stat of an event does not pass the check of `valid_stat`. With `bare` and
+/// no GPU planes, the lines of the host plane have no events.
+pub fn parse_checking(buf: &[u8], checked: Option<&AtomicBool>, bare: bool) -> anyhow::Result<Vec<Plane>> {
     anyhow::ensure!(u32::try_from(buf.len()).is_ok(), "The profile is larger than 4 GiB");
     let mut entries = fields(buf);
     let (mut spans, mut host) = (Vec::new(), None);
@@ -539,15 +538,12 @@ pub fn parse_checking(
         }
     }
     anyhow::ensure!(entries.complete(), "The XSpace is not valid");
-    let bare = bare && !spans.iter().any(|(_, bytes)| fields(bytes).any(|field| matches!(field, (2, Field::Bytes(_, name)) if name.starts_with(gpu::PREFIX.as_bytes()))));
-    let mut planes: Vec<Plane> = spans
-        .par_iter()
-        .map(|&span| Plane::parse(span, buf, checked, bare))
-        .collect::<anyhow::Result<_>>()?;
+    let prefix = gpu::PREFIX.as_bytes();
+    let named_gpu = |field| matches!(field, (2, Field::Bytes(_, name)) if name.starts_with(prefix));
+    let bare = bare && !spans.iter().any(|(_, bytes)| fields(bytes).any(named_gpu));
+    let mut planes: Vec<Plane> = spans.par_iter().map(|&span| Plane::parse(span, buf, checked, bare)).collect::<anyhow::Result<_>>()?;
     let origin = origin_ns(&planes);
-    let host = host.map_or(0, |name| {
-        hash(name.len() as u64, &name.iter().map(|&byte| byte as u64).collect::<Vec<_>>())
-    });
+    let host = host.map_or(0, |name| hash(name.len() as u64, &name.iter().map(|&byte| byte as u64).collect::<Vec<_>>()));
     for plane in &mut planes {
         (plane.origin_ns, plane.host) = (origin, host);
     }
@@ -562,12 +558,7 @@ pub fn parse_checking(
 }
 
 impl Plane {
-    fn parse(
-        (offset, bytes): (usize, &[u8]),
-        buf: &[u8],
-        checked: Option<&AtomicBool>,
-        bare: bool,
-    ) -> anyhow::Result<Self> {
+    fn parse((offset, bytes): (usize, &[u8]), buf: &[u8], checked: Option<&AtomicBool>, bare: bool) -> anyhow::Result<Self> {
         let (mut spans, mut entries, mut own) = (Vec::new(), [Vec::new(), Vec::new()], Vec::new());
         let mut plane = Self::default();
         let mut parts = fields(bytes);
@@ -587,16 +578,10 @@ impl Plane {
             .par_iter()
             .try_fold(Vec::new, |out, &(start, entry)| plane.entry(start, entry, buf, false, out))
             .collect::<anyhow::Result<Vec<_>>>()?;
-        let names: Option<Vec<Box<str>>> =
-            table(names).map(|names| names.into_iter().map(|meta| meta.name).collect());
+        let names: Option<Vec<Box<str>>> = table(names).map(|names| names.into_iter().map(|meta| meta.name).collect());
         plane.stat_names = names.clone().unwrap_or_default();
-        plane.kind = plane
-            .stat_names
-            .iter()
-            .map(|name| {
-                STATS.iter().position(|stat| stat == &&**name).map_or(NO_KIND, |kind| kind as u8)
-            })
-            .collect();
+        plane.kind =
+            plane.stat_names.iter().map(|name| STATS.iter().position(|stat| stat == &&**name).map_or(NO_KIND, |kind| kind as u8)).collect();
         for &kind in plane.kind.iter().filter(|&&kind| kind != NO_KIND) {
             plane.present[kind as usize] = true;
         }
@@ -618,16 +603,9 @@ impl Plane {
         plane
             .lines
             .par_iter_mut()
-            .filter(|line| {
-                !line.events.par_windows(2).all(|pair| order(&pair[0]) <= order(&pair[1]))
-            })
+            .filter(|line| !line.events.par_windows(2).all(|pair| order(&pair[0]) <= order(&pair[1])))
             .for_each(|line| line.events.par_sort_by_key(order));
-        if plane
-            .lines
-            .par_iter()
-            .flat_map(|line| line.events.par_iter())
-            .any(|event| u64::from(event.meta) == limit)
-        {
+        if plane.lines.par_iter().flat_map(|line| line.events.par_iter()).any(|event| u64::from(event.meta) == limit) {
             plane.meta.push(Meta::default());
         }
         plane.correlation = plane.kind.iter().position(|&kind| kind == CORRELATION as u8);
@@ -648,27 +626,17 @@ impl Plane {
             Some((_, Own::Int(value))) => Some(*value as i32),
             _ => None,
         };
-        let ready: Vec<bool> = CONNECTIONS
-            .iter()
-            .map(|connection| {
-                connection.stats.iter().all(|&kind| plane.present[kind] || kind == CORE_TYPE)
-            })
-            .collect();
+        let ready: Vec<bool> =
+            CONNECTIONS.iter().map(|connection| connection.stats.iter().all(|&kind| plane.present[kind] || kind == CORE_TYPE)).collect();
         for meta in &mut plane.meta {
             meta.role = std::array::from_fn(|role| if ready[role] { meta.role[role] } else { 0 });
         }
         Ok(plane)
     }
 
-    /// Adds to `out` the metadata of an entry of the map of event metadata (with `event`) or of stat metadata. An entry can have more than one value.
-    fn entry(
-        &self,
-        start: usize,
-        entry: &[u8],
-        buf: &[u8],
-        event: bool,
-        mut out: Vec<(u64, Meta)>,
-    ) -> anyhow::Result<Vec<(u64, Meta)>> {
+    /// Adds to `out` the metadata of an entry of the map of event metadata (with `event`) or of
+    /// stat metadata. An entry can have more than one value.
+    fn entry(&self, start: usize, entry: &[u8], buf: &[u8], event: bool, mut out: Vec<(u64, Meta)>) -> anyhow::Result<Vec<(u64, Meta)>> {
         let (mut parts, mut key) = (fields(entry), None);
         for (entry_tag, value) in &mut parts {
             let (value_start, value) = match (entry_tag, value) {
@@ -683,17 +651,10 @@ impl Plane {
             let name = if display.is_empty() { lossy(long).into() } else { Box::default() };
             let meta = if event {
                 let (internal, role) = known(long);
-                let root = ROOTS
-                    .iter()
-                    .find(|root| root.0.as_bytes() == long)
-                    .map(|root| (root.1, root.2));
-                let (base, step) =
-                    if self.present.contains(&true) { self.base(value) } else { (None, None) };
-                let long = if long.is_empty() {
-                    (0, 0)
-                } else {
-                    ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32)
-                };
+                let root = ROOTS.iter().find(|root| root.0.as_bytes() == long).map(|root| (root.1, root.2));
+                let (base, step) = if self.present.contains(&true) { self.base(value) } else { (None, None) };
+                let long =
+                    if long.is_empty() { (0, 0) } else { ((long.as_ptr() as usize - buf.as_ptr() as usize) as u32, long.len() as u32) };
                 Meta {
                     internal,
                     root,
@@ -727,16 +688,11 @@ impl Plane {
                 step = Some(stat.value);
             }
         }
-        (
-            base.iter().any(Option::is_some).then(|| Box::new(base)),
-            step.map(|value| self.text(&value)),
-        )
+        (base.iter().any(Option::is_some).then(|| Box::new(base)), step.map(|value| self.text(&value)))
     }
 
     fn apply(&self, out: &mut Stats, raw: &[u8], field: u32, keep: impl Fn(usize) -> bool) {
-        for stat in stats(raw, field, |id| {
-            self.kind.get(id).is_some_and(|&kind| kind != NO_KIND && keep(kind as usize))
-        }) {
+        for stat in stats(raw, field, |id| self.kind.get(id).is_some_and(|&kind| kind != NO_KIND && keep(kind as usize))) {
             let kind = self.kind[stat.id] as usize;
             if let Some(value) = number(kind, &stat.value) {
                 out[kind] = Some(value as u64);
@@ -780,13 +736,11 @@ impl Plane {
                         .iter()
                         .map(|&kind| {
                             if self.present[kind] {
-                                get(kind).map(|value| {
-                                    if kind == RUN_ID && connection.context == LAUNCH {
-                                        value & RUN_ID_MASK
-                                    } else {
-                                        value
-                                    }
-                                })
+                                get(kind).map(
+                                    |value| {
+                                        if kind == RUN_ID && connection.context == LAUNCH { value & RUN_ID_MASK } else { value }
+                                    },
+                                )
                             } else {
                                 Some(0)
                             }
@@ -804,24 +758,17 @@ impl Plane {
             }
         }
         if let (Some(ordinal), Some(queue), Some(run)) = (ordinal, get(QUEUE_ID), get(RUN_ID)) {
-            consumer =
-                Some((hash(LAUNCH, &[ordinal, queue, run, get(CORE_TYPE).unwrap_or(0)]), LAUNCH));
+            consumer = Some((hash(LAUNCH, &[ordinal, queue, run, get(CORE_TYPE).unwrap_or(0)]), LAUNCH));
         }
         let mut pid = get(PID).map(|pid| pid as i32);
         if producer.is_some() || (consumer.is_some() && pid.is_none()) {
             pid = self.pid.or(pid);
         }
         let synthesize = |id: u64, kind: u64, direction: u64, category: u64| {
-            Some(
-                category << 58
-                    | ((hash(kind, &[id]) ^ self.host) & ((1 << 56) - 1)) << 2
-                    | direction,
-            )
+            Some(category << 58 | ((hash(kind, &[id]) ^ self.host) & ((1 << 56) - 1)) << 2 | direction)
         };
-        let correlated = correlation.map_or_else(
-            || get(FLOW),
-            |id| synthesize(id, u64::MAX, if self.name.starts_with("/device:") { 1 } else { 2 }, 9),
-        );
+        let correlated =
+            correlation.map_or_else(|| get(FLOW), |id| synthesize(id, u64::MAX, if self.name.starts_with("/device:") { 1 } else { 2 }, 9));
         let stated = get(ROOT).map(|level| level as i64);
         Links {
             flow: consumer.map_or_else(
@@ -832,9 +779,7 @@ impl Plane {
             asynchronous: get(ASYNC),
             producer,
             consumer,
-            pid: pid.filter(|_| {
-                ![producer, consumer].iter().flatten().any(|&(_, kind)| kind == LAUNCH)
-            }),
+            pid: pid.filter(|_| ![producer, consumer].iter().flatten().any(|&(_, kind)| kind == LAUNCH)),
             root: match meta.root {
                 Some((level, true)) => Some(level),
                 Some((level, false)) => stated.or(Some(level)),
@@ -846,12 +791,10 @@ impl Plane {
     }
 
     pub fn own_double(&self, name: &str) -> f64 {
-        self.own.iter().find_map(|(key, value)| (&**key == name).then_some(value)).map_or(
-            0.0,
-            |value| {
-                if let Own::Double(value) = value { *value } else { 0.0 }
-            },
-        )
+        self.own
+            .iter()
+            .find_map(|(key, value)| (&**key == name).then_some(value))
+            .map_or(0.0, |value| if let Own::Double(value) = value { *value } else { 0.0 })
     }
 
     pub fn own_text(&self, name: &str) -> Option<&str> {
@@ -865,43 +808,19 @@ impl Plane {
         self.stat_names.iter().position(|stat| &**stat == name)
     }
 
-    pub fn find<'a>(
-        &self,
-        map: &'a [u8],
-        meta: u32,
-        raw: (u32, u32),
-        id: Option<usize>,
-    ) -> Option<Value<'a>> {
+    pub fn find<'a>(&self, map: &'a [u8], meta: u32, raw: (u32, u32), id: Option<usize>) -> Option<Value<'a>> {
         let id = id?;
-        stat_value(slice(map, raw), 4, id)
-            .or_else(|| stat_value(slice(map, self.meta[meta as usize].raw), 5, id))
+        stat_value(slice(map, raw), 4, id).or_else(|| stat_value(slice(map, self.meta[meta as usize].raw), 5, id))
     }
 
-    pub fn stat<'a>(
-        &self,
-        map: &'a [u8],
-        meta: u32,
-        raw: (u32, u32),
-        name: &str,
-    ) -> Option<Value<'a>> {
+    pub fn stat<'a>(&self, map: &'a [u8], meta: u32, raw: (u32, u32), name: &str) -> Option<Value<'a>> {
         self.find(map, meta, raw, self.id(name))
     }
 
-    pub fn named_stats<'a>(
-        &'a self,
-        map: &'a [u8],
-        meta: u32,
-        raw: (u32, u32),
-    ) -> impl Iterator<Item = (u32, &'a Box<str>, Stat<'a>)> {
+    pub fn named_stats<'a>(&'a self, map: &'a [u8], meta: u32, raw: (u32, u32)) -> impl Iterator<Item = (u32, &'a Box<str>, Stat<'a>)> {
         [(self.meta[meta as usize].raw, 5), (raw, 4)].into_iter().flat_map(move |(raw, field)| {
             stats(slice(map, raw), field, |_| true).filter_map(move |stat| {
-                Some((
-                    field,
-                    self.stat_names
-                        .get(stat.id)
-                        .filter(|name| !INTERNAL_STATS.contains(&&***name))?,
-                    stat,
-                ))
+                Some((field, self.stat_names.get(stat.id).filter(|name| !INTERNAL_STATS.contains(&&***name))?, stat))
             })
         })
     }
@@ -913,9 +832,7 @@ impl Plane {
     pub fn text_cow<'a>(&'a self, value: &Value<'a>) -> Cow<'a, str> {
         match value {
             Value::Str(bytes) => lossy(bytes),
-            Value::Ref(id) => {
-                Cow::Borrowed(self.stat_names.get(*id as usize).map_or("", |name| name))
-            }
+            Value::Ref(id) => Cow::Borrowed(self.stat_names.get(*id as usize).map_or("", |name| name)),
             _ => Cow::Borrowed(""),
         }
     }
@@ -927,8 +844,7 @@ impl Plane {
     pub fn add_threadpool_regions(&mut self, map: &[u8]) {
         let mut found = [None; REGION.len()];
         for (index, meta) in self.meta.iter().enumerate() {
-            let name =
-                if meta.display.is_empty() { meta.name.as_bytes() } else { slice(map, meta.long) };
+            let name = if meta.display.is_empty() { meta.name.as_bytes() } else { slice(map, meta.long) };
             if let Some(position) = REGION.iter().position(|region| region.as_bytes() == name) {
                 found[position].get_or_insert(index);
             }
@@ -976,9 +892,7 @@ impl Line {
     }
 
     pub fn absolute_ps(&self, ts: u64, origin_ns: i64) -> u64 {
-        ts.wrapping_add(
-            (self.timestamp_ns as u64).wrapping_mul(1000).wrapping_sub(self.base_ps(origin_ns)),
-        )
+        ts.wrapping_add((self.timestamp_ns as u64).wrapping_mul(1000).wrapping_sub(self.base_ps(origin_ns)))
     }
 
     pub fn resource_id(&self) -> u32 {
@@ -987,12 +901,7 @@ impl Line {
 }
 
 pub fn origin_ns(planes: &[Plane]) -> i64 {
-    let earliest = planes
-        .iter()
-        .flat_map(|plane| plane.lines.iter().map(|line| line.timestamp_ns))
-        .filter(|&t| t > 0)
-        .min()
-        .unwrap_or(0);
+    let earliest = planes.iter().flat_map(|plane| plane.lines.iter().map(|line| line.timestamp_ns)).filter(|&t| t > 0).min().unwrap_or(0);
     if earliest > EPOCH_NS { earliest } else { 0 }
 }
 

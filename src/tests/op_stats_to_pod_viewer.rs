@@ -1,9 +1,8 @@
 use crate::tools::opstats::pico_to_micro;
 use crate::tools::pod_viewer::render;
 use crate::xplane::steps::{
-    Breakdown, Core, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE,
-    DEVICE_TO_HOST, DEVICE_WAIT_DEVICE, DEVICE_WAIT_HOST, Extra, HOST_COMPILE, HOST_COMPUTE,
-    HOST_PREPARE, HOST_TO_DEVICE, HOST_TO_HOST, HOST_WAIT_INPUT, StepInfo, StepRecord,
+    Breakdown, Core, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE, DEVICE_TO_HOST, DEVICE_WAIT_DEVICE,
+    DEVICE_WAIT_HOST, Extra, HOST_COMPILE, HOST_COMPUTE, HOST_PREPARE, HOST_TO_DEVICE, HOST_TO_HOST, HOST_WAIT_INPUT, StepInfo, StepRecord,
     UNKNOWN_TIME,
 };
 use serde_json::Value;
@@ -55,32 +54,17 @@ pub fn create_op_stats() -> Extra {
         (DEVICE_WAIT_HOST, DEVICE_WAIT_HOST_PS),
         (UNKNOWN_TIME, UNKNOWN_TIME_PS),
     ]);
-    let step_info = StepInfo {
-        name: String::new(),
-        begin: 0,
-        duration: STEP_TIME_PS,
-        breakdown: Breakdown::Types(type_ps),
-    };
+    let step_info = StepInfo { name: String::new(), begin: 0, duration: STEP_TIME_PS, breakdown: Breakdown::Types(type_ps) };
     Extra {
-        steps: vec![StepRecord {
-            num: STEP_NUM,
-            cores: BTreeMap::from([(CORE_ID, step_info)]),
-            ..Default::default()
-        }],
-        cores: BTreeMap::from([(
-            CORE_ID,
-            Core { hostname: HOSTNAME.into(), ..Default::default() },
-        )]),
+        steps: vec![StepRecord { num: STEP_NUM, cores: BTreeMap::from([(CORE_ID, step_info)]), ..Default::default() }],
+        cores: BTreeMap::from([(CORE_ID, Core { hostname: HOSTNAME.into(), ..Default::default() })]),
         ..Default::default()
     }
 }
 
 pub fn check_record(record: &Value) {
     let near = |actual: &Value, expected_ps: u64| {
-        assert!(
-            (actual.as_f64().unwrap() - pico_to_micro(expected_ps)).abs() <= MAX_ERROR,
-            "{actual} != {expected_ps} ps"
-        );
+        assert!((actual.as_f64().unwrap() - pico_to_micro(expected_ps)).abs() <= MAX_ERROR, "{actual} != {expected_ps} ps");
     };
     assert_eq!(record["stepNum"], STEP_NUM);
     assert_eq!(record["hostName"], HOSTNAME);
@@ -109,8 +93,6 @@ fn gpu_pod_viewer() {
 
 #[test]
 fn device_type() {
-    let pod_viewer_db: Value =
-        serde_json::from_str(&render(&Extra { device_type: "GPU".into(), ..Default::default() }))
-            .unwrap();
+    let pod_viewer_db: Value = serde_json::from_str(&render(&Extra { device_type: "GPU".into(), ..Default::default() })).unwrap();
     assert_eq!(pod_viewer_db["deviceType"], "GPU");
 }

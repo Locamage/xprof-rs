@@ -7,17 +7,7 @@ fn step(num: u32, cores: &[(u32, Breakdown)]) -> StepRecord {
         num,
         cores: cores
             .iter()
-            .map(|(core, breakdown)| {
-                (
-                    *core,
-                    StepInfo {
-                        name: String::new(),
-                        begin: 0,
-                        duration: 2_500_000,
-                        breakdown: breakdown.clone(),
-                    },
-                )
-            })
+            .map(|(core, breakdown)| (*core, StepInfo { name: String::new(), begin: 0, duration: 2_500_000, breakdown: breakdown.clone() }))
             .collect(),
         collectives: BTreeMap::new(),
     }
@@ -25,11 +15,7 @@ fn step(num: u32, cores: &[(u32, Breakdown)]) -> StepRecord {
 
 #[test]
 fn generic_breakdowns_sum_event_types_and_pick_the_largest_bottleneck() {
-    let types = Breakdown::Types(BTreeMap::from([
-        (HOST_WAIT_INPUT, 1_000_000),
-        (HOST_TO_DEVICE, 500_000),
-        (HOST_COMPUTE, 1_000_000),
-    ]));
+    let types = Breakdown::Types(BTreeMap::from([(HOST_WAIT_INPUT, 1_000_000), (HOST_TO_DEVICE, 500_000), (HOST_COMPUTE, 1_000_000)]));
     let extra = Extra {
         steps: vec![step(4, &[(1, types)])],
         cores: BTreeMap::from([(1, Core { hostname: "worker".into(), ..Default::default() })]),
@@ -46,25 +32,31 @@ fn tpu_breakdowns_do_not_unpack_so_every_type_is_zero_and_output_wins_ties() {
     let extra = Extra {
         steps: vec![step(
             0,
-            &[
-                (2, Breakdown::Categories(BTreeMap::from([("IDLE".to_string(), 9)]))),
-                (5, Breakdown::Categories(BTreeMap::new())),
-            ],
+            &[(2, Breakdown::Categories(BTreeMap::from([("IDLE".to_string(), 9)]))), (5, Breakdown::Categories(BTreeMap::new()))],
         )],
         cores: BTreeMap::from([(5, Core { hostname: "tpu".into(), ..Default::default() })]),
         device_type: "TPU v4".into(),
         ..Default::default()
     };
     let json = render(&extra);
-    assert!(json.contains(r#""podStatsPerCore":{"2":{"hostName":"tpu","chipId":0,"nodeId":0,"stepNum":0,"totalDurationUs":2.5,"bottleneck":"Output""#), "{json}");
-    assert!(json.contains(r#""5":{"hostName":"","chipId":0,"nodeId":0,"stepNum":0,"totalDurationUs":0,"bottleneck":"","stepBreakdownUs":{}}"#), "{json}");
+    assert!(
+        json.contains(concat!(
+            r#""podStatsPerCore":{"2":{"hostName":"tpu","chipId":0,"nodeId":0,"stepNum":0,"#,
+            r#""totalDurationUs":2.5,"bottleneck":"Output""#,
+        )),
+        "{json}"
+    );
+    assert!(
+        json.contains(r#""5":{"hostName":"","chipId":0,"nodeId":0,"stepNum":0,"totalDurationUs":0,"bottleneck":"","stepBreakdownUs":{}}"#),
+        "{json}"
+    );
 }
 
 #[test]
 fn missing_steps_warn_like_xprof() {
     let json = render(&Extra { device_type: "CPU".into(), ..Default::default() });
-    assert!(json.starts_with(&format!(r#"{{"podStatsSequence":{{"podStatsMap":[]}},"diagnostics":{{"info":[],"warnings":["{NO_STEP_MARKER}"],"errors":[]}}"#)));
-    assert!(
-        render(&Extra { empty_intersect: true, ..Default::default() }).contains(EMPTY_INTERSECT)
-    );
+    assert!(json.starts_with(&format!(
+        r#"{{"podStatsSequence":{{"podStatsMap":[]}},"diagnostics":{{"info":[],"warnings":["{NO_STEP_MARKER}"],"errors":[]}}"#
+    )));
+    assert!(render(&Extra { empty_intersect: true, ..Default::default() }).contains(EMPTY_INTERSECT));
 }

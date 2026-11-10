@@ -10,10 +10,7 @@ const ANY_PREFIX: &str = "type.googleapis.com/";
 const GENERIC_STEP_BREAKDOWN: &str = "tensorflow.profiler.GenericStepBreakdown";
 
 fn field(message: &DynamicMessage, name: &str) -> Value {
-    message
-        .get_field_by_name(name)
-        .unwrap_or_else(|| panic!("{} has no field {name}", message.descriptor().full_name()))
-        .into_owned()
+    message.get_field_by_name(name).unwrap_or_else(|| panic!("{} has no field {name}", message.descriptor().full_name())).into_owned()
 }
 
 fn number(message: &DynamicMessage, name: &str) -> u64 {
@@ -67,12 +64,8 @@ fn key_number(key: &MapKey) -> u64 {
 }
 
 fn map(message: &DynamicMessage, name: &str) -> Vec<(MapKey, Value)> {
-    let mut entries: Vec<(MapKey, Value)> = field(message, name)
-        .as_map()
-        .unwrap()
-        .iter()
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect();
+    let mut entries: Vec<(MapKey, Value)> =
+        field(message, name).as_map().unwrap().iter().map(|(key, value)| (key.clone(), value.clone())).collect();
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     entries
 }
@@ -96,13 +89,7 @@ pub fn metrics(message: &DynamicMessage) -> Metrics {
     });
     let memory = messages(message, "memory_accessed_breakdown")
         .iter()
-        .map(|entry| {
-            (
-                number(entry, "operation_type") as u8,
-                number(entry, "memory_space"),
-                number(entry, "bytes_accessed"),
-            )
-        })
+        .map(|entry| (number(entry, "operation_type") as u8, number(entry, "memory_space"), number(entry, "bytes_accessed")))
         .collect();
     Metrics {
         module: number(message, "hlo_module_id"),
@@ -121,19 +108,13 @@ pub fn metrics(message: &DynamicMessage) -> Metrics {
         model_flops_v2: double(message, "model_flops_v2"),
         bytes_accessed: number(message, "bytes_accessed"),
         memory,
-        vdd_energy: message
-            .has_field_by_name("vdd_energy_j")
-            .then(|| double(message, "vdd_energy_j")),
+        vdd_energy: message.has_field_by_name("vdd_energy_j").then(|| double(message, "vdd_energy_j")),
         num_cores: number(message, "num_cores") as u32,
         core_type: number(message, "core_type") as u8,
         autotuned: flag(message, "autotuned"),
         is_eager: flag(message, "is_eager"),
         source,
-        children: if message.has_field_by_name("children") {
-            db(&child(message, "children"))
-        } else {
-            Db::default()
-        },
+        children: if message.has_field_by_name("children") { db(&child(message, "children")) } else { Db::default() },
     }
 }
 
@@ -155,17 +136,10 @@ fn breakdown(info: &DynamicMessage) -> Breakdown {
     assert_eq!(type_url.strip_prefix(ANY_PREFIX), Some(GENERIC_STEP_BREAKDOWN));
     let bytes = field(&any, "value").as_bytes().unwrap().clone();
     let generic = DynamicMessage::decode(descriptor(GENERIC_STEP_BREAKDOWN), bytes).unwrap();
-    let categories: BTreeMap<String, u64> = map(&generic, "category_ps")
-        .into_iter()
-        .map(|(key, value)| (key.as_str().unwrap().to_string(), value_number(&value)))
-        .collect();
+    let categories: BTreeMap<String, u64> =
+        map(&generic, "category_ps").into_iter().map(|(key, value)| (key.as_str().unwrap().to_string(), value_number(&value))).collect();
     if categories.is_empty() {
-        Breakdown::Types(
-            map(&generic, "type_ps")
-                .into_iter()
-                .map(|(key, value)| (key_number(&key) as u32, value_number(&value)))
-                .collect(),
-        )
+        Breakdown::Types(map(&generic, "type_ps").into_iter().map(|(key, value)| (key_number(&key) as u32, value_number(&value))).collect())
     } else {
         Breakdown::Categories(categories)
     }
@@ -197,13 +171,7 @@ pub fn steps(step_db: &DynamicMessage) -> Vec<StepRecord> {
                         key_number(&core) as u32,
                         reduces
                             .iter()
-                            .map(|reduce| {
-                                (
-                                    number(reduce, "id"),
-                                    number(reduce, "start_time_ps"),
-                                    number(reduce, "end_time_ps"),
-                                )
-                            })
+                            .map(|reduce| (number(reduce, "id"), number(reduce, "start_time_ps"), number(reduce, "end_time_ps")))
                             .collect(),
                     )
                 })
@@ -214,8 +182,7 @@ pub fn steps(step_db: &DynamicMessage) -> Vec<StepRecord> {
 
 fn kernel(report: &DynamicMessage) -> KernelReport {
     let dims = |name: &str| {
-        let values: Vec<u32> =
-            list(report, name).iter().map(|value| value.as_u32().unwrap()).collect();
+        let values: Vec<u32> = list(report, name).iter().map(|value| value.as_u32().unwrap()).collect();
         std::array::from_fn(|index| values.get(index).copied().unwrap_or(0))
     };
     KernelReport {
@@ -249,14 +216,9 @@ pub fn extra(stats: &DynamicMessage) -> Extra {
     let counters = child(stats, "performance_counter_result");
     let precision = child(&device, "precision_stats");
     let perf_env = child(stats, "perf_env");
-    let strings = |name: &str| {
-        list(&diagnostics, name).iter().map(|value| value.as_str().unwrap().to_string()).collect()
-    };
+    let strings = |name: &str| list(&diagnostics, name).iter().map(|value| value.as_str().unwrap().to_string()).collect();
     Extra {
-        hostnames: map(&environment, "hostnames")
-            .into_iter()
-            .map(|(key, _)| key.as_str().unwrap().to_string())
-            .collect(),
+        hostnames: map(&environment, "hostnames").into_iter().map(|(key, _)| key.as_str().unwrap().to_string()).collect(),
         tasks: number(&environment, "task_count") as i32,
         empty_intersect: flag(&step_db, "empty_intersect"),
         device_type: text(&environment, "device_type"),
@@ -297,10 +259,7 @@ pub fn op_stats_message(stats: &DynamicMessage) -> OpStats {
         db: db(&child(stats, "device_op_metrics_db")),
         perf: Perf {
             peak_tera_flops: double(&perf_env, "peak_tera_flops_per_second"),
-            bandwidths: list(&perf_env, "peak_bws_giga_bytes_per_second")
-                .iter()
-                .map(|value| value.as_f64().unwrap())
-                .collect(),
+            bandwidths: list(&perf_env, "peak_bws_giga_bytes_per_second").iter().map(|value| value.as_f64().unwrap()).collect(),
             ridge_point: double(&perf_env, "ridge_point"),
             cmem: false,
         },

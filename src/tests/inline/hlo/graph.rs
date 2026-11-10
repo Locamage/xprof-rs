@@ -16,15 +16,7 @@ fn cublas_lt_gemm_labels_show_the_backend_dot_dimensions() {
     );
     assert_eq!(gpu_properties("custom-call", "__cublas$gemm", 11, plain), None);
     assert_eq!(gpu_properties("custom-call", "__cublas$lt$matmul", 11, b"not json"), None);
-    assert_eq!(
-        gpu_properties(
-            "custom-call",
-            "__cublas$lt$matmul",
-            11,
-            br#"{"gemm_backend_config":{"unknown":1}}"#
-        ),
-        None
-    );
+    assert_eq!(gpu_properties("custom-call", "__cublas$lt$matmul", 11, br#"{"gemm_backend_config":{"unknown":1}}"#), None);
 }
 
 #[test]
@@ -32,33 +24,18 @@ fn cudnn_convolution_labels_show_scales_activation_and_engine() {
     let config = br#"{"cudnn_conv_backend_config":{"activation_mode":"kLeakyRelu","conv_result_scale":0.5,"side_input_scale":1,"leakyrelu_alpha":0.1,"algorithm":{"algo_id":"67","math_type":"TENSOR_OP_MATH","tuning_knobs":{"28":"1","2":"1","-3":"0"}}}}"#;
     assert_eq!(
         gpu_properties("custom-call", "__cudnn$convForward", 11, config).as_deref(),
-        Some(
-            "<br/>conv_result_scale=0.5<br/>leakyrelu_alpha=0.1<br/>activation_mode=leakyrelu<br/>algo=eng67{k-3=0,k2=1,k28=1}"
-        )
+        Some("<br/>conv_result_scale=0.5<br/>leakyrelu_alpha=0.1<br/>activation_mode=leakyrelu<br/>algo=eng67{k-3=0,k2=1,k28=1}")
     );
     assert_eq!(
         gpu_properties("custom-call", "__cudnn$convBackwardFilter", 11, b"").as_deref(),
         Some("<br/>conv_result_scale=0<br/>activation_mode=none<br/>algo=eng0{}")
     );
     assert_eq!(
-        gpu_properties(
-            "custom-call",
-            "__cudnn$convForward",
-            11,
-            br#"{"cudnnConvBackendConfig":{"activationMode":9,"convResultScale":1}}"#
-        )
-        .as_deref(),
+        gpu_properties("custom-call", "__cudnn$convForward", 11, br#"{"cudnnConvBackendConfig":{"activationMode":9,"convResultScale":1}}"#)
+            .as_deref(),
         Some("<br/>activation_mode=unknown: 9<br/>algo=eng0{}")
     );
-    assert_eq!(
-        gpu_properties(
-            "custom-call",
-            "__cudnn$convForward",
-            11,
-            br#"{"cudnn_conv_backend_config":{},"bogus":true}"#
-        ),
-        None
-    );
+    assert_eq!(gpu_properties("custom-call", "__cudnn$convForward", 11, br#"{"cudnn_conv_backend_config":{},"bogus":true}"#), None);
 }
 
 fn graph_dumper_module(name: &str) -> Module<'static> {
@@ -99,17 +76,13 @@ fn nested_fusion() {
             assert!(graph.contains(&module.nodes[node].name), "{}", module.nodes[node].name);
         }
     }
-    let neighborhood_graph =
-        String::from_utf8(render(&module, "add.0", 1, false, true, "dot").unwrap().0).unwrap();
+    let neighborhood_graph = String::from_utf8(render(&module, "add.0", 1, false, true, "dot").unwrap().0).unwrap();
     assert!(neighborhood_graph.contains("add.0"));
 }
 
 #[test]
 fn constant() {
-    assert!(
-        render_graph(&graph_dumper_module("constant"), "b", "an_empty_graph")
-            .contains("an_empty_graph")
-    );
+    assert!(render_graph(&graph_dumper_module("constant"), "b", "an_empty_graph").contains("an_empty_graph"));
 }
 
 #[test]
@@ -121,10 +94,7 @@ fn tuple_constant() {
 
 #[test]
 fn compare() {
-    assert!(
-        render_graph(&graph_dumper_module("compare"), "comp", "tuple_constant")
-            .contains("direction=LT")
-    );
+    assert!(render_graph(&graph_dumper_module("compare"), "comp", "tuple_constant").contains("direction=LT"));
 }
 
 #[test]
@@ -141,30 +111,19 @@ fn root_is_constant() {
 fn show_callers() {
     let module = graph_dumper_module("show_callers");
     assert!(render_graph(&module, "comp", "command_buffer").contains("ENTRY computation"));
-    assert!(
-        render_graph(&module, "command_buffer", "command_buffer")
-            .contains("Caller instructions: call.1")
-    );
+    assert!(render_graph(&module, "command_buffer", "command_buffer").contains("Caller instructions: call.1"));
 }
 
 #[test]
 fn annotate_called_computations_parameters() {
-    let graph = render_graph(
-        &graph_dumper_module("annotate_called_computations_parameters"),
-        "command_buffer.1",
-        "command buffer",
-    );
+    let graph = render_graph(&graph_dumper_module("annotate_called_computations_parameters"), "command_buffer.1", "command buffer");
     assert!(graph.contains("<b>Parameter 0</b><br/><i>from add.123 in command_buffer.0</i>"));
     assert!(graph.contains("<b>Parameter 1</b><br/><i>from mul.456 in command_buffer.0</i>"));
 }
 
 #[test]
 fn annotate_called_computations_parameters_tuple() {
-    let graph = render_graph(
-        &graph_dumper_module("annotate_called_computations_parameters_tuple"),
-        "command_buffer",
-        "command buffer",
-    );
+    let graph = render_graph(&graph_dumper_module("annotate_called_computations_parameters_tuple"), "command_buffer", "command buffer");
     assert!(graph.contains("<b>Parameter 0</b><br/><i>from tuple.1 in the ENTRY computation</i>"));
 }
 
@@ -192,29 +151,16 @@ fn instructions_with_missing_operands_or_computations() {
     use crate::hlo::cost::tests::{computation, inst, parameter, shape};
     use crate::hlo::xla::HloInstructionProto;
     let f32 = || shape(11, &[2]);
-    let gte = built_module(vec![computation(
-        1,
-        vec![inst(1, "get-tuple-element", f32(), &[]), inst(2, "negate", f32(), &[1])],
-    )]);
+    let gte = built_module(vec![computation(1, vec![inst(1, "get-tuple-element", f32(), &[]), inst(2, "negate", f32(), &[1])])]);
     assert!(render(&gte, "negate.2", 3, false, true, "dot").is_ok());
-    let fusion = built_module(vec![
-        computation(1, vec![parameter(1, 0, f32())]),
-        computation(2, vec![inst(3, "fusion", f32(), &[])]),
-    ]);
+    let fusion = built_module(vec![computation(1, vec![parameter(1, 0, f32())]), computation(2, vec![inst(3, "fusion", f32(), &[])])]);
     assert!(render(&fusion, "fusion.3", 3, false, true, "dot").is_ok());
+    let fused = HloInstructionProto { called_computation_ids: vec![1], ..inst(4, "fusion", f32(), &[]) };
     let fused =
-        HloInstructionProto { called_computation_ids: vec![1], ..inst(4, "fusion", f32(), &[]) };
-    let fused = built_module(vec![
-        computation(1, vec![parameter(1, 0, f32()), inst(2, "negate", f32(), &[1])]),
-        computation(2, vec![fused]),
-    ]);
+        built_module(vec![computation(1, vec![parameter(1, 0, f32()), inst(2, "negate", f32(), &[1])]), computation(2, vec![fused])]);
     assert!(render(&fused, "computation.1", 3, false, true, "dot").is_ok());
-    let called =
-        HloInstructionProto { called_computation_ids: vec![1], ..inst(4, "call", f32(), &[3]) };
-    let called = built_module(vec![
-        computation(1, vec![parameter(1, 5, f32())]),
-        computation(2, vec![parameter(3, 0, f32()), called]),
-    ]);
+    let called = HloInstructionProto { called_computation_ids: vec![1], ..inst(4, "call", f32(), &[3]) };
+    let called = built_module(vec![computation(1, vec![parameter(1, 5, f32())]), computation(2, vec![parameter(3, 0, f32()), called])]);
     assert!(render(&called, "computation.1", 3, false, true, "dot").is_ok());
 }
 

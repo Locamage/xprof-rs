@@ -48,15 +48,19 @@ fn nvidia(clock: i64, cores: i64, bandwidth_tib: f64, major: i64, minor: i64) ->
 }
 
 fn amd(clock: i64, cores: i64, arch: &str) -> XSpace {
-    device(&[
-        ("clock_rate", clock.into()),
-        ("core_count", cores.into()),
-        ("device_vendor", "AMD".into()),
-        ("gpu_device_name", arch.into()),
-    ])
+    device(&[("clock_rate", clock.into()), ("core_count", cores.into()), ("device_vendor", "AMD".into()), ("gpu_device_name", arch.into())])
 }
 
-macro_rules! peaks { ($($name:ident: $space:expr => $peak:expr;)*) => { $(#[test] fn $name() { near(peak_tflops(&$space), $peak, 1.0); })* } }
+macro_rules! peaks {
+    ($($name:ident: $space:expr => $peak:expr;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                near(peak_tflops(&$space), $peak, 1.0);
+            }
+        )*
+    };
+}
 
 peaks! {
     b200_peak_comput_t_flops: nvidia(1830000, 148, 7.68, 10, 0) => 2218.0;
@@ -119,17 +123,11 @@ fn shared_memory_bandwidth_unknown_amd_arch_reports_nothing() {
 
 #[test]
 fn gpu_model_name_ignores_nvidia_product_name() {
-    let space = device(&[
-        ("device_vendor", "Nvidia".into()),
-        ("compute_cap_major", 9.into()),
-        ("gpu_device_name", "NVIDIA H100 80GB HBM3".into()),
-    ]);
+    let space =
+        device(&[("device_vendor", "Nvidia".into()), ("compute_cap_major", 9.into()), ("gpu_device_name", "NVIDIA H100 80GB HBM3".into())]);
     assert_eq!(gpu_model_name(&space), "Nvidia GPU (Hopper)");
     let stats = op_stats(&[space]).unwrap();
-    assert_eq!(
-        (stats.extra.device_type.as_str(), stats.extra.hardware),
-        ("Nvidia GPU (Hopper)", GPU)
-    );
+    assert_eq!((stats.extra.device_type.as_str(), stats.extra.hardware), ("Nvidia GPU (Hopper)", GPU));
 }
 
 #[test]
@@ -148,29 +146,18 @@ fn gpu_model_name_reports_amd_arch_from_device_name() {
 
 #[test]
 fn gpu_model_name_rejects_malformed_amd_device_name() {
-    let space = device(&[
-        ("device_vendor", "AMD".into()),
-        ("gpu_device_name", "gfx942:sramecc+:xnack-".into()),
-    ]);
+    let space = device(&[("device_vendor", "AMD".into()), ("gpu_device_name", "gfx942:sramecc+:xnack-".into())]);
     assert_eq!(gpu_model_name(&space), "AMD GPU");
 }
 
 #[test]
 fn gpu_model_name_resolves_amd_arch_from_compute_capability() {
-    let space = device(&[
-        ("device_vendor", "AMD".into()),
-        ("compute_cap_major", 9.into()),
-        ("compute_cap_minor", 4.into()),
-    ]);
+    let space = device(&[("device_vendor", "AMD".into()), ("compute_cap_major", 9.into()), ("compute_cap_minor", 4.into())]);
     assert_eq!(gpu_model_name(&space), "AMD GPU - gfx942");
 }
 
 #[test]
 fn gpu_model_name_falls_back_to_amd_family_without_name() {
-    let space = device(&[
-        ("device_vendor", "AMD".into()),
-        ("compute_cap_major", 9.into()),
-        ("compute_cap_minor", 0.into()),
-    ]);
+    let space = device(&[("device_vendor", "AMD".into()), ("compute_cap_major", 9.into()), ("compute_cap_minor", 0.into())]);
     assert_eq!(gpu_model_name(&space), "AMD GPU - gfx-9XX series");
 }

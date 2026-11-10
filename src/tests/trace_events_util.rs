@@ -34,12 +34,5 @@ fn smaller_span_does_not_change_bounds() {
 #[test]
 fn bad_timestamps_are_ignored() {
     assert_eq!(bounds(&[(10, 20), (5, BAD_TIMESTAMP.wrapping_add(1))]), (5, 20));
-    assert_eq!(
-        bounds(&[
-            (10, 20),
-            (5, BAD_TIMESTAMP.wrapping_add(1)),
-            (BAD_TIMESTAMP.wrapping_add(1), 25)
-        ]),
-        (5, 20)
-    );
+    assert_eq!(bounds(&[(10, 20), (5, BAD_TIMESTAMP.wrapping_add(1)), (BAD_TIMESTAMP.wrapping_add(1), 25)]), (5, 20));
 }

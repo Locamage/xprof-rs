@@ -18,8 +18,12 @@ const NAME_STATS: [&str; 4] = ["msg", "message", "annotation", "label"];
 const DEVICE_LINES: [&str; 3] = ["XLA OPS", "PALLAS", "LLO OPS"];
 const EXCLUDED_LINES: [&str; 5] = ["COUNTER", "MODULES", "OVERLAY", "SYNC FLAG", "SENSOR"];
 const XSPACE_SPILL_BYTES: usize = 10 * 1024 * 1024;
-const LLO_REMEDIATION: &str = "To enable LLO tracing, ensure the workload is executed with LIBTPU_INIT_ARGS=\"--xla_xprof_enable_custom_call_tracing=true --xla_xprof_register_llo_debug_info=true\" exported strictly BEFORE 'import jax'. Prerequisites: Python 3.11+ (Python 3.12 recommended via uv), JAX >= 0.11.0 (default Cloud TPU VM images running Python 3.10 cap JAX at 0.6.2 and lack LLO flag support), and xprof-nightly.";
-const NUMERICAL_DEPENDENCIES: &str = "Required numerical dependencies are not installed in current environment: No module named 'ml_dtypes'. Please install numpy and ml_dtypes (e.g. 'pip install numpy ml_dtypes') to use verify_numerical_parity.";
+const LLO_REMEDIATION: &str = "To enable LLO tracing, ensure the workload is executed with \
+    LIBTPU_INIT_ARGS=\"--xla_xprof_enable_custom_call_tracing=true --xla_xprof_register_llo_debug_info=true\" exported strictly BEFORE \
+    'import jax'. Prerequisites: Python 3.11+ (Python 3.12 recommended via uv), JAX >= 0.11.0 (default Cloud TPU VM images running \
+    Python 3.10 cap JAX at 0.6.2 and lack LLO flag support), and xprof-nightly.";
+const NUMERICAL_DEPENDENCIES: &str = "Required numerical dependencies are not installed in current environment: No module named \
+    'ml_dtypes'. Please install numpy and ml_dtypes (e.g. 'pip install numpy ml_dtypes') to use verify_numerical_parity.";
 
 struct Visit<'a> {
     plane: &'a Plane<'a>,
@@ -42,10 +46,10 @@ impl Visit<'_> {
         stats(self.event.raw, 4, |_| true)
             .map(|stat| {
                 (
-                    self.plane.stat_names.get(&(stat.id as u64)).map_or_else(
-                        || (stat.id as i64).to_string(),
-                        |name| String::from_utf8_lossy(name).into_owned(),
-                    ),
+                    self.plane
+                        .stat_names
+                        .get(&(stat.id as u64))
+                        .map_or_else(|| (stat.id as i64).to_string(), |name| String::from_utf8_lossy(name).into_owned()),
                     value_text(stat.value),
                 )
             })
@@ -55,21 +59,16 @@ impl Visit<'_> {
     /// The first value with this name that is not empty.
     fn stat(&self, name: &str) -> Option<String> {
         stats(self.event.raw, 4, |_| true)
-            .filter(|stat| {
-                self.plane
-                    .stat_names
-                    .get(&(stat.id as u64))
-                    .is_some_and(|known| *known == name.as_bytes())
-            })
+            .filter(|stat| self.plane.stat_names.get(&(stat.id as u64)).is_some_and(|known| *known == name.as_bytes()))
             .map(|stat| value_text(stat.value))
             .find(|value| !value.is_empty())
     }
 
     fn raw_name(&self) -> String {
-        self.plane.metadata.get(&self.event.meta).map_or_else(
-            || (self.event.meta as i64).to_string(),
-            |(name, _)| String::from_utf8_lossy(name).into_owned(),
-        )
+        self.plane
+            .metadata
+            .get(&self.event.meta)
+            .map_or_else(|| (self.event.meta as i64).to_string(), |(name, _)| String::from_utf8_lossy(name).into_owned())
     }
 
     fn name(&self) -> String {
@@ -96,15 +95,14 @@ fn value_text(value: Value) -> String {
     }
 }
 
-/// Runs `scan` on every line of every trace file, with its plane, its index and the capture window. The lines run in parallel. The results keep the order of the planes and of the lines.
-fn scan_lines<R: Send>(
-    paths: &[PathBuf],
-    scan: impl Fn(&Plane, usize, Capture) -> R + Sync,
-) -> Result<Vec<R>, Error> {
+/// Runs `scan` on every line of every trace file, with its plane, its index and the capture window.
+/// The lines run in parallel. The results keep the order of the planes and of the lines.
+fn scan_lines<R: Send>(paths: &[PathBuf], scan: impl Fn(&Plane, usize, Capture) -> R + Sync) -> Result<Vec<R>, Error> {
     scan_until(paths, |plane, index, _, capture| scan(plane, index, capture), |_| 0, usize::MAX)
 }
 
-/// The results of `scan` for each line, in the order of the files. The scan stops after `limit` events. `count` gives the number of events in a result.
+/// The results of `scan` for each line, in the order of the files. The scan stops after `limit`
+/// events. `count` gives the number of events in a result.
 fn scan_until<R: Send>(
     paths: &[PathBuf],
     scan: impl Fn(&Plane, usize, usize, Capture) -> R + Sync,
@@ -116,24 +114,19 @@ fn scan_until<R: Send>(
         let scanned = checked(&super::read(path)?, |map| {
             let planes = planes(map, |_| true);
             let capture = capture(&planes);
-            let lines: Vec<(&Plane, usize)> = planes
-                .iter()
-                .flat_map(|plane| (0..plane.lines.len()).map(move |index| (plane, index)))
-                .collect();
-            // A few lines can hold most of the events. The largest lines start first, so that the scan does not wait for a large line at the end.
+            let lines: Vec<(&Plane, usize)> =
+                planes.iter().flat_map(|plane| (0..plane.lines.len()).map(move |index| (plane, index))).collect();
+            // A few lines can hold most of the events. The largest lines start first, so that the
+            // scan does not wait for a large line at the end.
             let mut order: Vec<usize> = (0..lines.len()).collect();
-            order.sort_unstable_by_key(|&at| {
-                std::cmp::Reverse(lines[at].0.lines[lines[at].1].len())
-            });
+            order.sort_unstable_by_key(|&at| std::cmp::Reverse(lines[at].0.lines[lines[at].1].len()));
             let next = AtomicUsize::new(0);
             let mut done: Vec<(usize, R)> = (0..rayon::current_num_threads())
                 .into_par_iter()
                 .with_max_len(1)
                 .flat_map_iter(|_| {
                     std::iter::from_fn(|| {
-                        order
-                            .get(next.fetch_add(1, Relaxed))
-                            .map(|&at| (at, scan(lines[at].0, lines[at].1, usize::MAX, capture)))
+                        order.get(next.fetch_add(1, Relaxed)).map(|&at| (at, scan(lines[at].0, lines[at].1, usize::MAX, capture)))
                     })
                 })
                 .collect();
@@ -153,10 +146,7 @@ fn scan_until<R: Send>(
             }
             found
         });
-        results.extend(
-            scanned
-                .ok_or_else(|| Error::new(Kind::Value, "Failed to parse XSpace protobuf data"))?,
-        );
+        results.extend(scanned.ok_or_else(|| Error::new(Kind::Value, "Failed to parse XSpace protobuf data"))?);
     }
     Ok(results)
 }
@@ -164,12 +154,7 @@ fn scan_until<R: Send>(
 type Capture = Option<(i64, i64)>;
 
 /// Visits the events of a line and flags those cut by the capture window.
-fn visit_line(
-    plane: &Plane,
-    index: usize,
-    capture: Capture,
-    mut each: impl FnMut(&Visit) -> bool,
-) -> bool {
+fn visit_line(plane: &Plane, index: usize, capture: Capture, mut each: impl FnMut(&Visit) -> bool) -> bool {
     let (bytes, mut line, mut timestamp) = (plane.lines[index], String::new(), 0);
     for (tag, field) in fields(bytes) {
         match (tag, field) {
@@ -184,15 +169,14 @@ fn visit_line(
         ((origin - timestamp) * 1000, (origin + stop - start - timestamp) * 1000)
     });
     events(bytes).all(|event| {
-        let cut = window.is_some_and(|(low, high)| {
-            (event.offset_ps as i64) < low
-                || event.offset_ps as i64 + event.duration_ps as i64 > high
-        });
+        let cut =
+            window.is_some_and(|(low, high)| (event.offset_ps as i64) < low || event.offset_ps as i64 + event.duration_ps as i64 > high);
         each(&Visit { plane, line: &line, timestamp, event, cut })
     })
 }
 
-/// The name of an event and if it matches. Only the events with a number as name need work for each event.
+/// The name of an event and if it matches. Only the events with a number as name need work for each
+/// event.
 struct Names<'a> {
     pattern: &'a Pattern,
     known: FxHashMap<u64, (String, bool, bool)>,
@@ -221,10 +205,7 @@ impl<'a> Names<'a> {
 
 fn sources(client: &dyn Client, source: &str) -> Result<Vec<PathBuf>, Error> {
     let path = Path::new(source);
-    if path.exists()
-        || source.starts_with('/')
-        || TRACE_SUFFIXES.iter().any(|suffix| source.ends_with(suffix))
-    {
+    if path.exists() || source.starts_with('/') || TRACE_SUFFIXES.iter().any(|suffix| source.ends_with(suffix)) {
         if !path.exists() {
             return fail(Kind::FileNotFound, format!("Path does not exist: {}", py_repr(source)));
         }
@@ -239,8 +220,7 @@ fn sources(client: &dyn Client, source: &str) -> Result<Vec<PathBuf>, Error> {
 fn traces_in(dir: &Path, source: &str) -> Result<Vec<PathBuf>, Error> {
     let found = traces(dir);
     if found.is_empty() {
-        let message =
-            format!("No .xplane.pb or .xspace.pb files found in directory: {}", py_repr(source));
+        let message = format!("No .xplane.pb or .xspace.pb files found in directory: {}", py_repr(source));
         return fail(Kind::FileNotFound, message);
     }
     Ok(found)
@@ -252,10 +232,8 @@ fn regex(pattern: &str) -> Result<Pattern, Error> {
 
 /// The error of Python `re` for a pattern that is not text.
 fn not_pattern(value: &J) -> String {
-    super::unhashable(value).map_or_else(
-        || "first argument must be string or compiled pattern".into(),
-        |kind| format!("unhashable type: '{kind}'"),
-    )
+    super::unhashable(value)
+        .map_or_else(|| "first argument must be string or compiled pattern".into(), |kind| format!("unhashable type: '{kind}'"))
 }
 
 fn regex_option(args: &Args, name: &str) -> Result<Pattern, Error> {
@@ -273,24 +251,14 @@ fn plane_filter(pattern: &Pattern) -> impl Fn(&Plane) -> bool {
 pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let compute = || -> Result<J, Error> {
-        let (planes_re, events_re) =
-            (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
+        let (planes_re, events_re) = (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
         // Python compares these values only when an event comes to the comparison.
         let number = |name: &str, operator: &str, number_first: bool| match args.raw(name) {
             Some(value @ (J::Bool(_) | J::Int(_) | J::Float(_))) => Ok(value.float()),
             None => Ok(None),
             Some(value) => {
-                let (left, right) = if number_first {
-                    ("int", super::kind(value))
-                } else {
-                    (super::kind(value), "int")
-                };
-                Err(Error::new(
-                    Kind::Type,
-                    format!(
-                        "'{operator}' not supported between instances of '{left}' and '{right}'"
-                    ),
-                ))
+                let (left, right) = if number_first { ("int", super::kind(value)) } else { (super::kind(value), "int") };
+                Err(Error::new(Kind::Type, format!("'{operator}' not supported between instances of '{left}' and '{right}'")))
             }
         };
         let optional = |name: &str, operator: &str| {
@@ -301,8 +269,7 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
             number("max_events", "<=", false).map(|max| max.unwrap_or(100.0)),
             number("offset", "<", true).map(|offset| offset.unwrap_or(0.0)),
         );
-        let (limit, skip) =
-            (*max_events.as_ref().unwrap_or(&0.0), *offset.as_ref().unwrap_or(&0.0));
+        let (limit, skip) = (*max_events.as_ref().unwrap_or(&0.0), *offset.as_ref().unwrap_or(&0.0));
         let keep = plane_filter(&planes_re);
         let wanted = if limit <= 0.0 { f64::INFINITY } else { skip.max(0.0).ceil() + limit.ceil() };
         let failed = AtomicBool::new(false);
@@ -333,12 +300,7 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
                     if found {
                         matched += 1;
                         if (listed.len() as f64) < wanted {
-                            listed.push((
-                                visit.line.to_string(),
-                                name.into_owned(),
-                                offset_ps as i128,
-                                duration_ps as i128,
-                            ));
+                            listed.push((visit.line.to_string(), name.into_owned(), offset_ps as i128, duration_ps as i128));
                         }
                     }
                     true
@@ -356,35 +318,34 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
                 if (skipped as f64) < offset.clone()? {
                     skipped += 1;
                 } else if max_events.clone()? <= 0.0 || (listed.len() as f64) < limit {
-                    listed.push(obj! {"plane" => plane.clone(), "line_id" => line, "event" => name, "offset_ps" => offset_ps, "duration_ps" => duration_ps});
+                    listed.push(obj! {
+                        "plane" => plane.clone(),
+                        "line_id" => line,
+                        "event" => name,
+                        "offset_ps" => offset_ps,
+                        "duration_ps" => duration_ps,
+                    });
                 }
             }
         }
         if let (Err(_), Some(value)) = (&offset, args.raw("offset")) {
-            return Err(Error::new(
-                Kind::Type,
-                format!("unsupported operand type(s) for +: 'int' and '{}'", super::kind(value)),
-            ));
+            return Err(Error::new(Kind::Type, format!("unsupported operand type(s) for +: 'int' and '{}'", super::kind(value))));
         }
         let returned = listed.len();
-        Ok(
-            obj! {"events" => listed, "returned" => returned, "total_matched" => matched, "truncated" => matched as f64 > returned as f64 + skip},
-        )
+        Ok(obj! {
+            "events" => listed,
+            "returned" => returned,
+            "total_matched" => matched,
+            "truncated" => matched as f64 > returned as f64 + skip,
+        })
     };
-    Ok(compute()
-        .map_err(|error| {
-            rethrow(error, |error| {
-                format!("Error listing XPlane events for session {session}: {}", error.message)
-            })
-        })?
-        .into())
+    Ok(compute().map_err(rethrow(format!("Error listing XPlane events for session {session}: ")))?.into())
 }
 
 pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let compute = || -> Result<J, Error> {
-        let (planes_re, events_re) =
-            (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
+        let (planes_re, events_re) = (regex_option(args, "plane_regex")?, regex_option(args, "event_regex")?);
         let keep = plane_filter(&planes_re);
         let mut durations = IndexMap::with_hasher(FxBuildHasher);
         let mut scanned = 0usize;
@@ -393,42 +354,33 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
         let parts = scan_until(
             &paths,
             |plane, index, cap, capture| {
-                let (mut found, mut count, mut names) = (
-                    IndexMap::<String, (Vec<i128>, usize), FxBuildHasher>::default(),
-                    0usize,
-                    Names::new(&events_re),
-                );
-                // The slot in `found` of each metadata with a name that is not a number. `None` is a name that does not match.
+                let (mut found, mut count, mut names) =
+                    (IndexMap::<String, (Vec<i128>, usize), FxBuildHasher>::default(), 0usize, Names::new(&events_re));
+                // The slot in `found` of each metadata with a name that is not a number. `None` is
+                // a name that does not match.
                 let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
                 if keep(plane) {
                     visit_line(plane, index, capture, |visit| {
                         count += 1;
                         let duration = || (visit.duration_ns() * 1000.0).trunc() as i128;
-                        if let Some(slot) = slots.get(&visit.event.meta) {
-                            if let Some(slot) = *slot {
-                                let (values, cut) = &mut found[slot];
-                                values.push(duration());
-                                if visit.cut {
-                                    *cut += 1;
-                                }
+                        let slot = if let Some(&slot) = slots.get(&visit.event.meta) {
+                            slot
+                        } else {
+                            let (name, matched) = names.resolve(visit);
+                            let slot = matched.then(|| {
+                                found.get_index_of(&*name).unwrap_or_else(|| found.insert_full(name.to_string(), (Vec::new(), 0)).0)
+                            });
+                            if let Cow::Borrowed(_) = name {
+                                slots.insert(visit.event.meta, slot);
                             }
-                            return count < cap;
-                        }
-                        let (name, matched) = names.resolve(visit);
-                        let slot = matched.then(|| {
-                            found.get_index_of(&*name).unwrap_or_else(|| {
-                                found.insert_full(name.to_string(), (Vec::new(), 0)).0
-                            })
-                        });
+                            slot
+                        };
                         if let Some(slot) = slot {
                             let (values, cut) = &mut found[slot];
                             values.push(duration());
                             if visit.cut {
                                 *cut += 1;
                             }
-                        }
-                        if let Cow::Borrowed(_) = name {
-                            slots.insert(visit.event.meta, slot);
                         }
                         count < cap
                     });
@@ -469,28 +421,20 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
                 aggregate
             })
             .collect();
-        results.sort_by_key(|result| {
-            std::cmp::Reverse(result.at("total_duration_ps").int().unwrap_or(0))
-        });
+        results.sort_by_key(|result| std::cmp::Reverse(result.at("total_duration_ps").int().unwrap_or(0)));
         let count = results.len();
-        Ok(
-            obj! {"aggregates" => results, "returned" => count, "total_matched" => count, "events_scanned" => scanned, "truncated" => scanned > MAX_SCANNED},
-        )
+        Ok(obj! {
+            "aggregates" => results,
+            "returned" => count,
+            "total_matched" => count,
+            "events_scanned" => scanned,
+            "truncated" => scanned > MAX_SCANNED,
+        })
     };
-    Ok(compute()
-        .map_err(|error| {
-            rethrow(error, |error| {
-                format!("Error aggregating XPlane events for session {session}: {}", error.message)
-            })
-        })?
-        .into())
+    Ok(compute().map_err(rethrow(format!("Error aggregating XPlane events for session {session}: ")))?.into())
 }
 
-fn serialized(
-    client: &dyn Client,
-    session: &str,
-    host: &str,
-) -> Result<crate::input::Input, Error> {
+fn serialized(client: &dyn Client, session: &str, host: &str) -> Result<crate::input::Input, Error> {
     let mut paths = client.xspace_paths(&client.run_dir(session)?)?;
     if !host.is_empty() {
         paths.retain(|path| super::client::host(path) == host);
@@ -502,36 +446,19 @@ fn serialized(
         [path] => super::read(path),
         _ if host.is_empty() => {
             let hosts = super::client::host_names(&paths);
-            fail(
-                Kind::Value,
-                format!(
-                    "Session {} has {} hosts: {}. Pass --host=<name>.",
-                    py_repr(session),
-                    hosts.len(),
-                    hosts.join(", ")
-                ),
-            )
+            fail(Kind::Value, format!("Session {} has {} hosts: {}. Pass --host=<name>.", py_repr(session), hosts.len(), hosts.join(", ")))
         }
-        _ => fail(
-            Kind::NotImplemented,
-            "Multi-host XSpace serialization is not supported in OSS because xplane_pb2 is not exposed.",
-        ),
+        _ => fail(Kind::NotImplemented, "Multi-host XSpace serialization is not supported in OSS because xplane_pb2 is not exposed."),
     }
 }
 
 pub(super) fn missing_host(session: &str, host: &str) -> Error {
-    Error::new(
-        Kind::FileNotFound,
-        format!("No traces found for host {} in session {}", py_repr(host), py_repr(session)),
-    )
+    Error::new(Kind::FileNotFound, format!("No traces found for host {} in session {}", py_repr(host), py_repr(session)))
 }
 
 pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     if args.flag("as_text", false) {
-        return fail(
-            Kind::NotImplemented,
-            "as_text=True is not supported in OSS because xplane_pb2 is not exposed.",
-        );
+        return fail(Kind::NotImplemented, "as_text=True is not supported in OSS because xplane_pb2 is not exposed.");
     }
     let session = args.session();
     let host = args.text("host").unwrap_or_default();
@@ -541,31 +468,20 @@ pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         return Ok(Out::Text(output));
     }
     if data.len() > XSPACE_SPILL_BYTES {
-        let safe = |text: &str| {
-            text.chars()
-                .map(|character| {
-                    if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
-                        character
-                    } else {
-                        '_'
-                    }
-                })
-                .collect::<String>()
-        };
         let name = if host.is_empty() {
-            safe(&session)
+            crate::file_safe(&session)
         } else {
-            format!("{}.{}", safe(&session), safe(&host))
+            format!("{}.{}", crate::file_safe(&session), crate::file_safe(&host))
         };
         let path = PathBuf::from(format!("/tmp/xspace_{name}.pb"));
-        crate::replace_file(&path, &data)
-            .map_err(|error| Error::new(Kind::Os, error.to_string()))?;
+        crate::replace_file(&path, &data).map_err(|error| Error::new(Kind::Os, error.to_string()))?;
         return Ok(obj! {
             "status" => "SAVED_TO_FILE",
             "size_bytes" => data.len(),
             "size_mib" => round(data.len() as f64 / 1048576.0, 2),
             "file_path" => path.to_string_lossy().into_owned(),
-            "message" => "XSpace payload exceeded 10 MB. Saved to file to prevent terminal buffer overflow. Specify --output_path to customize.",
+            "message" => "XSpace payload exceeded 10 MB. Saved to file to prevent terminal buffer overflow. Specify --output_path to \
+                customize.",
         }
         .into());
     }
@@ -586,10 +502,7 @@ pub fn union_ns(mut intervals: Vec<(i128, i128)>) -> i128 {
 
 fn kernel_markdown(records: &[J], kernel: Option<&str>) -> String {
     let mut lines = vec![
-        kernel.map_or_else(
-            || "# Top Kernels by Duration".to_string(),
-            |kernel| format!("# Kernel Stats for `{kernel}`"),
-        ),
+        kernel.map_or_else(|| "# Top Kernels by Duration".to_string(), |kernel| format!("# Kernel Stats for `{kernel}`")),
         String::new(),
     ];
     lines.push("| Kernel | Total Duration (us) | Execution Count | Avg Duration (us) |".into());
@@ -618,10 +531,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         args.string("output_format", "json"),
         args.flag("include_summary", false),
     );
-    let matchers: Result<Vec<J>, String> = match args
-        .get("trace_matchers")
-        .filter(|value| value.truthy())
-    {
+    let matchers: Result<Vec<J>, String> = match args.get("trace_matchers").filter(|value| value.truthy()) {
         None => Ok(Vec::new()),
         Some(J::Str(text)) => Ok(text.chars().map(|character| J::Str(character.into())).collect()),
         Some(J::List(items) | J::Tuple(items) | J::Set(items)) => Ok(items.clone()),
@@ -629,7 +539,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         Some(value) => Err(format!("'{}' object is not iterable", super::kind(value))),
     };
     let compute = || -> Result<Out, Error> {
-        // A pattern that Python cannot use is an error at the first event that comes to it. A bad regex finds the pattern as text.
+        // A pattern that Python cannot use is an error at the first event that comes to it. A bad
+        // regex finds the pattern as text.
         let patterns: Vec<Result<(Option<Pattern>, &str), String>> = match &matchers {
             Ok(matchers) => matchers
                 .iter()
@@ -656,8 +567,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                     && (patterns.is_empty()
                         || patterns.iter().any(|pattern| match pattern {
                             Ok((compiled, pattern)) => {
-                                compiled.as_ref().is_some_and(|compiled| compiled.search(name))
-                                    || name.contains(pattern)
+                                compiled.as_ref().is_some_and(|compiled| compiled.search(name)) || name.contains(pattern)
                             }
                             Err(message) => {
                                 failure.get_or_init(|| message.clone());
@@ -665,7 +575,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                             }
                         }))
             };
-            // The slot in `durations` of each metadata with a name that is not a number, for the events without `tf_op_name`. `None` is a name that the filters skip.
+            // The slot in `durations` of each metadata with a name that is not a number, for the
+            // events without `tf_op_name`. `None` is a name that the filters skip.
             let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
             visit_line(plane, index, None, |visit| {
                 let &mut (skipped, modules) = kind.get_or_insert_with(|| {
@@ -684,16 +595,12 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                     return true;
                 }
                 let tf_op = visit.stat("tf_op_name");
-                let cached =
-                    tf_op.is_none().then(|| slots.get(&visit.event.meta).copied()).flatten();
+                let cached = tf_op.is_none().then(|| slots.get(&visit.event.meta).copied()).flatten();
                 let slot = cached.unwrap_or_else(|| {
                     let by_meta = tf_op.is_none() && !py_isdigit(&visit.raw_name());
                     let name = tf_op.unwrap_or_else(|| visit.name());
-                    let slot = wanted(&name).then(|| {
-                        durations
-                            .get_index_of(&name)
-                            .unwrap_or_else(|| durations.insert_full(name, Vec::new()).0)
-                    });
+                    let slot =
+                        wanted(&name).then(|| durations.get_index_of(&name).unwrap_or_else(|| durations.insert_full(name, Vec::new()).0));
                     if by_meta {
                         slots.insert(visit.event.meta, slot);
                     }
@@ -712,8 +619,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         if let Some(message) = failure.into_inner() {
             return Err(Error::new(Kind::Runtime, message));
         }
-        let (mut durations, mut intervals, mut steps) =
-            (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
+        let (mut durations, mut intervals, mut steps) = (IndexMap::<String, Vec<f64>, FxBuildHasher>::default(), Vec::new(), Vec::new());
         for (found, spans, times) in parts {
             for (name, values) in found {
                 durations.entry(name).or_default().extend(values);
@@ -743,14 +649,11 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         let mut records = Vec::new();
         for (name, values) in durations {
             let total = fsum(values.iter().copied());
-            let canonical =
-                name.trim().split(':').next().unwrap_or_default().split_whitespace().next();
+            let canonical = name.trim().split(':').next().unwrap_or_default().split_whitespace().next();
             let canonical = if name.is_empty() {
                 String::new()
             } else {
-                canonical
-                    .ok_or_else(|| Error::new(Kind::Runtime, "list index out of range"))?
-                    .to_string()
+                canonical.ok_or_else(|| Error::new(Kind::Runtime, "list index out of range"))?.to_string()
             };
             records.push(obj! {
                 "kernel_name" => name.clone(),
@@ -776,18 +679,17 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         if summary {
             let total_ns = union_ns(intervals);
             let total_us = total_ns as f64 / 1000.0;
-            let mean = if steps.is_empty() {
-                total_us
-            } else {
-                fsum(steps.iter().copied()) / steps.len() as f64
-            };
+            let mean = if steps.is_empty() { total_us } else { fsum(steps.iter().copied()) / steps.len() as f64 };
             let report = obj! {
                 "total_device_duration_ns" => total_ns,
                 "total_device_duration_us" => total_us,
                 "total_device_duration_ms" => total_ns as f64 / 1_000_000.0,
                 "kernel_records" => records,
                 "step_durations_us" => steps.clone(),
-                "stats" => obj! {"mean_us" => round(mean, 4), "std_us" => round(if steps.len() > 1 { stdev(&steps) } else { 0.0 }, 4)},
+                "stats" => obj! {
+                    "mean_us" => round(mean, 4),
+                    "std_us" => round(if steps.len() > 1 { stdev(&steps) } else { 0.0 }, 4),
+                },
             };
             return Ok(if format == "dict" { Out::Value(report) } else { report.into() });
         }
@@ -797,9 +699,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             _ => J::List(records).into(),
         })
     };
-    compute().map_err(|error| {
-        rethrow(error, |error| format!("Failed to get kernel stats: {}", error.message))
-    })
+    compute().map_err(rethrow("Failed to get kernel stats: "))
 }
 
 pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -811,14 +711,11 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
             let (mut durations, mut cut, mut line) = (Vec::new(), 0usize, None);
             if plane.name.starts_with("/device:") {
                 visit_line(plane, index, capture, |visit| {
-                    if !*line
-                        .get_or_insert_with(|| visit.line.to_uppercase().contains("XLA MODULES"))
-                    {
+                    if !*line.get_or_insert_with(|| visit.line.to_uppercase().contains("XLA MODULES")) {
                         return true;
                     }
                     match function {
-                        Some(J::Str(function)) if !visit.raw_name().contains(function.as_str()) => {
-                        }
+                        Some(J::Str(function)) if !visit.raw_name().contains(function.as_str()) => {}
                         Some(J::Str(_)) | None => {
                             durations.push(visit.duration_ns() / 1_000_000.0);
                             if visit.cut {
@@ -836,13 +733,7 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
             (durations, cut)
         })?;
         if let Some(function) = function.filter(|_| failed.into_inner()) {
-            return fail(
-                Kind::Type,
-                format!(
-                    "'in <string>' requires string as left operand, not {}",
-                    super::kind(function)
-                ),
-            );
+            return fail(Kind::Type, format!("'in <string>' requires string as left operand, not {}", super::kind(function)));
         }
         let mut cut = 0;
         let durations: Vec<f64> = parts
@@ -857,23 +748,21 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
                 Kind::Value,
                 format!(
                     "No steps matching func_name '{}' found in {source}.",
-                    args.get("func_name").map_or("None".into(), J::text)
+                    args.get("func_name").map_or_else(|| "None".into(), J::text)
                 ),
             );
         }
-        let mut report = obj! {"avg_step_time_ms" => round(fsum(durations.iter().copied()) / durations.len() as f64, 4), "step_count" => durations.len()};
+        let average = fsum(durations.iter().copied()) / durations.len() as f64;
+        let mut report = obj! {
+            "avg_step_time_ms" => round(average, 4),
+            "step_count" => durations.len(),
+        };
         if cut > 0 {
             report.set("truncated_by_capture", cut);
         }
-        Ok(if args.string("output_format", "json") == "dict" {
-            Out::Value(report)
-        } else {
-            report.into()
-        })
+        Ok(if args.string("output_format", "json") == "dict" { Out::Value(report) } else { report.into() })
     };
-    compute().map_err(|error| {
-        rethrow(error, |error| format!("Failed to get average step time: {}", error.message))
-    })
+    compute().map_err(rethrow("Failed to get average step time: "))
 }
 
 pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -893,14 +782,10 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
         return fail(Kind::Value, "session_id or raw_bytes must be provided.");
     }
     let mut params: Vec<(&str, String)> = Vec::new();
-    let kernel = args
-        .get("kernel_name")
-        .filter(|name| name.truthy())
-        .map_or(Ok(None), |name| super::packed("kernel", name));
+    let kernel = args.get("kernel_name").filter(|name| name.truthy()).map_or(Ok(None), |name| super::packed("kernel", name));
     params.extend(kernel.clone().ok().flatten().map(|name| ("kernel", name)));
     params.extend(args.get("duration_us").map(|value| ("duration_us", value.text())));
-    params
-        .extend(args.flag("force_duration", false).then(|| ("force_duration", "True".to_string())));
+    params.extend(args.flag("force_duration", false).then(|| ("force_duration", "True".to_string())));
     params.extend(args.get("device").map(|value| ("device_id", value.text())));
     params.push(bypass(args.flag("bypass_cache", false)));
     let text = if session.starts_with('/') || session.starts_with("./") {
@@ -908,33 +793,21 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
         if !path.exists() {
             return fail(Kind::FileNotFound, format!("Path does not exist: {}", py_repr(&session)));
         }
-        let files =
-            if path.is_dir() { traces_in(path, &session)? } else { vec![path.to_path_buf()] };
+        let files = if path.is_dir() { traces_in(path, &session)? } else { vec![path.to_path_buf()] };
         files.iter().try_for_each(|file| super::openable(file))?;
         kernel?;
-        let option = |key: &str| {
-            params.iter().find(|(name, _)| *name == key).map(|(_, value)| value.as_str())
-        };
+        let option = |key: &str| params.iter().find(|(name, _)| *name == key).map(|(_, value)| value.as_str());
         let rendered = <[PathBuf; 1]>::try_from(files).ok().and_then(|[file]| {
             let map = crate::read_file(&file).ok()?;
             let name = file.file_name().unwrap_or_default().as_encoded_bytes();
             let name = name.strip_suffix(b".xplane.pb").unwrap_or(name);
-            if crate::xplane::nested(&map, 4)
-                .next()
-                .is_some_and(|host| memchr::memmem::find(name, host).is_none())
-            {
+            if crate::xplane::nested(&map, 4).next().is_some_and(|host| memchr::memmem::find(name, host).is_none()) {
                 return None;
             }
             super::client::kernel_utilization(&map, option)
         });
         rendered.ok_or_else(|| {
-            Error::new(
-                Kind::Runtime,
-                format!(
-                    "Failed to compute utilization from file {}: no data returned.",
-                    py_repr(&session)
-                ),
-            )
+            Error::new(Kind::Runtime, format!("Failed to compute utilization from file {}: no data returned.", py_repr(&session)))
         })?
     } else {
         let fetched = kernel
@@ -943,19 +816,10 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
             .map_err(|error| {
                 Error::new(
                     Kind::Runtime,
-                    format!(
-                        "Error fetching kernel_utilization.json for session {}: {}",
-                        py_repr(&session),
-                        error.repr()
-                    ),
+                    format!("Error fetching kernel_utilization.json for session {}: {}", py_repr(&session), error.repr()),
                 )
             })?;
-        fetched.ok_or_else(|| {
-            Error::new(
-                Kind::FileNotFound,
-                format!("No utilization data returned for session {}.", py_repr(&session)),
-            )
-        })?
+        fetched.ok_or_else(|| Error::new(Kind::FileNotFound, format!("No utilization data returned for session {}.", py_repr(&session))))?
     };
     if args.string("output_format", "json") == "dict" {
         return Ok(Out::Value(super::overview::parsed(&text)?));
@@ -966,10 +830,7 @@ pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, E
 fn invalid_llo_host(host: &str, hosts: &[String]) -> Error {
     Error::new(
         Kind::Value,
-        format!(
-            "Invalid host: '{host}'. Available hosts: [{}]",
-            hosts.iter().map(|host| py_repr(host)).collect::<Vec<_>>().join(", ")
-        ),
+        format!("Invalid host: '{host}'. Available hosts: [{}]", hosts.iter().map(|host| py_repr(host)).collect::<Vec<_>>().join(", ")),
     )
 }
 
@@ -999,26 +860,22 @@ fn llo(client: &dyn Client, args: &Args, failure: &str) -> Result<Out, Error> {
         };
         serialized(client, &session, &host).map(drop)
     };
-    compute().map_err(|error| {
-        rethrow(error, |error| format!("Error analyzing LLO data: {}", error.message))
-    })?;
-    Ok(obj! {"status" => "UNAVAILABLE", "reason" => "LLO_DATA_ABSENT", "error" => failure, "remediation" => LLO_REMEDIATION}.into())
+    compute().map_err(rethrow("Error analyzing LLO data: "))?;
+    Ok(obj! {
+        "status" => "UNAVAILABLE",
+        "reason" => "LLO_DATA_ABSENT",
+        "error" => failure,
+        "remediation" => LLO_REMEDIATION,
+    }
+    .into())
 }
 
 pub fn get_llo_analysis(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    llo(
-        client,
-        args,
-        "Failed to analyze LLO from xspace (LLO trace data is not available in this session).",
-    )
+    llo(client, args, "Failed to analyze LLO from xspace (LLO trace data is not available in this session).")
 }
 
 pub fn get_llo_debug_string(client: &dyn Client, args: &Args) -> Result<Out, Error> {
-    llo(
-        client,
-        args,
-        "Failed to extract LLO debug string (LLO trace data is not available in this session).",
-    )
+    llo(client, args, "Failed to extract LLO debug string (LLO trace data is not available in this session).")
 }
 
 fn resolve(path: &Path) -> PathBuf {
@@ -1056,40 +913,23 @@ pub fn upload_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     if !TRACE_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) {
         return fail(
             Kind::Value,
-            format!(
-                "Unsupported file format '{name}'. Only XSpace formats (.xplane.pb, .xspace.pb) are supported by XProf."
-            ),
+            format!("Unsupported file format '{name}'. Only XSpace formats (.xplane.pb, .xspace.pb) are supported by XProf."),
         );
     }
-    let run = args
-        .text("run_name")
-        .filter(|run| !run.is_empty())
-        .unwrap_or_else(|| "imported_trace".into());
+    let run = args.text("run_name").filter(|run| !run.is_empty()).unwrap_or_else(|| "imported_trace".into());
     if run.contains(['/', '\\']) || run.contains("..") || run.starts_with('/') {
         return fail(
             Kind::Value,
-            format!(
-                "Invalid run_name '{run}': must be a single directory name without path separators or traversal components."
-            ),
+            format!("Invalid run_name '{run}': must be a single directory name without path separators or traversal components."),
         );
     }
     let base = resolve(&logdir.join("plugins/profile"));
     let destination = resolve(&base.join(&run));
     if !destination.starts_with(&base) || destination == base {
-        return fail(
-            Kind::Value,
-            format!("Invalid run_name '{run}': resolves outside the logdir profile hierarchy."),
-        );
+        return fail(Kind::Value, format!("Invalid run_name '{run}': resolves outside the logdir profile hierarchy."));
     }
     let io = |error: std::io::Error| {
-        Error::new(
-            if error.kind() == std::io::ErrorKind::NotFound {
-                Kind::FileNotFound
-            } else {
-                Kind::Os
-            },
-            error.to_string(),
-        )
+        Error::new(if error.kind() == std::io::ErrorKind::NotFound { Kind::FileNotFound } else { Kind::Os }, error.to_string())
     };
     std::fs::create_dir_all(&destination).map_err(io)?;
     let target = destination.join(&name);
@@ -1097,11 +937,7 @@ pub fn upload_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     if identity(source).is_some_and(|source| identity(&target) == Some(source)) {
         return fail(
             Kind::Os,
-            format!(
-                "PosixPath({}) and PosixPath({}) are the same file",
-                py_repr(&file),
-                py_repr(&target.to_string_lossy())
-            ),
+            format!("PosixPath({}) and PosixPath({}) are the same file", py_repr(&file), py_repr(&target.to_string_lossy())),
         );
     }
     std::fs::copy(source, &target).map_err(io)?;

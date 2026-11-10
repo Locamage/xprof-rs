@@ -4,10 +4,7 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 
 static LITERALS: LazyLock<Module<'static>> = LazyLock::new(|| {
-    Module::parse(Cow::Owned(
-        std::fs::read(format!("{}/tests/data/literal/literals.pb", env!("CARGO_MANIFEST_DIR")))
-            .unwrap(),
-    ))
+    Module::parse(Cow::Owned(std::fs::read(format!("{}/tests/data/literal/literals.pb", env!("CARGO_MANIFEST_DIR"))).unwrap()))
 });
 
 fn to_string(name: &str) -> String {
@@ -66,15 +63,14 @@ fn r2_to_string() {
 
 #[test]
 fn r3_to_string() {
-    assert_eq!(
-        to_string("r3"),
-        "s32[3,2,1] {\n{\n  {1},\n  {2}\n},\n{\n  {3},\n  {4}\n},\n{\n  {5},\n  {6}\n}\n}"
-    );
+    assert_eq!(to_string("r3"), "s32[3,2,1] {\n{\n  {1},\n  {2}\n},\n{\n  {3},\n  {4}\n},\n{\n  {5},\n  {6}\n}\n}");
 }
 
 #[test]
 fn r6_to_string() {
-    let expected = "s32[2,2,1,1,1,2] {\n{ /*i0=0*/\n{ /*i1=0*/\n{ /*i2=0*/\n{ /*i3=0*/\n  { 0, 0 }\n}\n}\n},\n{ /*i1=1*/\n{ /*i2=0*/\n{ /*i3=0*/\n  { 0, 0 }\n}\n}\n}\n},\n{ /*i0=1*/\n{ /*i1=0*/\n{ /*i2=0*/\n{ /*i3=0*/\n  { 0, 0 }\n}\n}\n},\n{ /*i1=1*/\n{ /*i2=0*/\n{ /*i3=0*/\n  { 0, 0 }\n}\n}\n}\n}\n}";
+    let expected = "s32[2,2,1,1,1,2] {\n{ /*i0=0*/\n{ /*i1=0*/\n{ /*i2=0*/\n{ /*i3=0*/\n  { 0, 0 }\n}\n}\n},\n{ /*i1=1*/\n{ /*i2=0*/\n{ \
+        /*i3=0*/\n  { 0, 0 }\n}\n}\n}\n},\n{ /*i0=1*/\n{ /*i1=0*/\n{ /*i2=0*/\n{ /*i3=0*/\n  { 0, 0 }\n}\n}\n},\n{ /*i1=1*/\n{ \
+        /*i2=0*/\n{ /*i3=0*/\n  { 0, 0 }\n}\n}\n}\n}\n}";
     assert_eq!(to_string("r6"), expected);
 }
 
@@ -89,17 +85,17 @@ fn create_r3_from_array3d() {
 
 #[test]
 fn literal_r4_f32_projected_stringifies() {
-    assert_eq!(
-        LITERALS.nodes[LITERALS.find("r4_projected").unwrap()].shape.dimensions,
-        [1, 2, 3, 2]
-    );
-    let expected = "f32[1,2,3,2] {\n{ /*i0=0*/\n{ /*i1=0*/\n  { 1, 2 },\n  { 1001, 1002 },\n  { 2001, 2002 }\n},\n{ /*i1=1*/\n  { 1, 2 },\n  { 1001, 1002 },\n  { 2001, 2002 }\n}\n}\n}";
+    assert_eq!(LITERALS.nodes[LITERALS.find("r4_projected").unwrap()].shape.dimensions, [1, 2, 3, 2]);
+    let expected = "f32[1,2,3,2] {\n{ /*i0=0*/\n{ /*i1=0*/\n  { 1, 2 },\n  { 1001, 1002 },\n  { 2001, 2002 }\n},\n{ /*i1=1*/\n  { 1, 2 \
+        },\n  { 1001, 1002 },\n  { 2001, 2002 }\n}\n}\n}";
     assert_eq!(to_string("r4_projected"), expected);
 }
 
 #[test]
 fn literal_r4_f32_stringifies() {
     assert_eq!(LITERALS.nodes[LITERALS.find("r4").unwrap()].shape.dimensions, [2, 2, 3, 3]);
-    let expected = "f32[2,2,3,3] {\n{ /*i0=0*/\n{ /*i1=0*/\n  { 1, 2, 3 },\n  { 4, 5, 6 },\n  { 7, 8, 9 }\n},\n{ /*i1=1*/\n  { 11, 12, 13 },\n  { 14, 15, 16 },\n  { 17, 18, 19 }\n}\n},\n{ /*i0=1*/\n{ /*i1=0*/\n  { 101, 102, 103 },\n  { 104, 105, 106 },\n  { 107, 108, 109 }\n},\n{ /*i1=1*/\n  { 201, 202, 203 },\n  { 204, 205, 206 },\n  { 207, 208, 209 }\n}\n}\n}";
+    let expected = "f32[2,2,3,3] {\n{ /*i0=0*/\n{ /*i1=0*/\n  { 1, 2, 3 },\n  { 4, 5, 6 },\n  { 7, 8, 9 }\n},\n{ /*i1=1*/\n  { 11, 12, \
+        13 },\n  { 14, 15, 16 },\n  { 17, 18, 19 }\n}\n},\n{ /*i0=1*/\n{ /*i1=0*/\n  { 101, 102, 103 },\n  { 104, 105, 106 },\n  { 107, \
+        108, 109 }\n},\n{ /*i1=1*/\n  { 201, 202, 203 },\n  { 204, 205, 206 },\n  { 207, 208, 209 }\n}\n}\n}";
     assert_eq!(to_string("r4"), expected);
 }

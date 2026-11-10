@@ -13,13 +13,7 @@ const BASE_TOOLS: [&str; 8] = [
     "roofline_model",
 ];
 
-fn tools_list(
-    plane_name: &str,
-    has_hlo_module: bool,
-    has_dcn_collective_stats: bool,
-    has_perf_counters: bool,
-    expected: &[&str],
-) {
+fn tools_list(plane_name: &str, has_hlo_module: bool, has_dcn_collective_stats: bool, has_perf_counters: bool, expected: &[&str]) {
     let mut space = XSpace::default();
     space.plane(plane_name);
     if has_hlo_module {
@@ -60,13 +54,7 @@ fn tools_for_gpu_without_hlo_module() {
 
 #[test]
 fn tools_for_gpu_with_hlo_module() {
-    tools_list(
-        "/device:GPU:",
-        true,
-        false,
-        false,
-        &["kernel_stats", "graph_viewer", "memory_viewer"],
-    );
+    tools_list("/device:GPU:", true, false, false, &["kernel_stats", "graph_viewer", "memory_viewer"]);
 }
 
 #[test]
@@ -76,11 +64,5 @@ fn tools_for_tpu_with_dcn_collective_stats() {
 
 #[test]
 fn tools_for_tpu_with_perf_counters() {
-    tools_list(
-        "/device:TPU:",
-        false,
-        false,
-        true,
-        &["perf_counters", "utilization_viewer", "kernel_utilization"],
-    );
+    tools_list("/device:TPU:", false, false, true, &["perf_counters", "utilization_viewer", "kernel_utilization"]);
 }

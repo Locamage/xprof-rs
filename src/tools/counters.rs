@@ -9,7 +9,16 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 const GPU_PREFIX: &str = "/device:GPU:";
-const PERF_COLUMNS: &str = r#"{"cols":[{"id":"Host","label":"Host","type":"string"},{"id":"Chip","label":"Chip","type":"number"},{"id":"Kernel","label":"Kernel","type":"string"},{"id":"Sample","label":"Sample","type":"number"},{"id":"Counter","label":"Counter","type":"string"},{"id":"Value","label":"Value (Hex)","type":"number"},{"id":"Description","label":"Description","type":"string"},{"id":"Set","label":"Set","type":"string"}],"rows":["#;
+const PERF_COLUMNS: &str = concat!(
+    r#"{"cols":[{"id":"Host","label":"Host","type":"string"},"#,
+    r#"{"id":"Chip","label":"Chip","type":"number"},"#,
+    r#"{"id":"Kernel","label":"Kernel","type":"string"},"#,
+    r#"{"id":"Sample","label":"Sample","type":"number"},"#,
+    r#"{"id":"Counter","label":"Counter","type":"string"},"#,
+    r#"{"id":"Value","label":"Value (Hex)","type":"number"},"#,
+    r#"{"id":"Description","label":"Description","type":"string"},"#,
+    r#"{"id":"Set","label":"Set","type":"string"}],"rows":["#,
+);
 const UTILIZATION_COLUMNS: [(&str, &str, &str); 8] = [
     ("host", "number", "Host"),
     ("device", "number", "Device"),
@@ -88,9 +97,7 @@ fn slot(message: Message, field: u64) -> Slot {
         (Message::Plane, 3) => Slot::Message(Message::Line),
         (Message::Plane, 4) => Slot::Message(Message::EventEntry),
         (Message::Plane, 5) => Slot::Message(Message::StatEntry),
-        (Message::Plane, 6) | (Message::Event, 4) | (Message::EventMetadata, 5) => {
-            Slot::Message(Message::Stat)
-        }
+        (Message::Plane, 6) | (Message::Event, 4) | (Message::EventMetadata, 5) => Slot::Message(Message::Stat),
         (Message::Line, 4) => Slot::Message(Message::Event),
         (Message::EventEntry, 2) => Slot::Message(Message::EventMetadata),
         (Message::StatEntry, 2) => Slot::Message(Message::StatMetadata),
@@ -108,7 +115,8 @@ pub fn valid_besides_events(buf: &[u8]) -> bool {
     valid(buf, Message::Space, true, false)
 }
 
-/// With `split` and `events`, a line checks only its own fields, and then parts of about `SPLIT` bytes check all of their fields in parallel.
+/// With `split` and `events`, a line checks only its own fields, and then parts of about `SPLIT`
+/// bytes check all of their fields in parallel.
 fn valid(buf: &[u8], message: Message, split: bool, events: bool) -> bool {
     const SPLIT: usize = 1 << 16;
     let split = split && events && matches!(message, Message::Line);
@@ -122,9 +130,7 @@ fn valid(buf: &[u8], message: Message, split: bool, events: bool) -> bool {
                     true
                 }
                 Slot::Message(_) if split => true,
-                Slot::Message(Message::Event) => {
-                    !events || walk(body, |field, stat| field != 4 || valid_stat(stat))
-                }
+                Slot::Message(Message::Event) => !events || walk(body, |field, stat| field != 4 || valid_stat(stat)),
                 Slot::Message(child) => valid(body, child, false, events),
                 Slot::Text => std::str::from_utf8(body).is_ok(),
                 Slot::Packed => {
@@ -178,20 +184,13 @@ fn counter_value(value: &Value) -> u64 {
     }
 }
 
-pub fn first<'a, const N: usize>(
-    raw: &'a [u8],
-    field: u32,
-    ids: [Option<u64>; N],
-) -> [Option<Value<'a>>; N] {
+pub fn first<'a, const N: usize>(raw: &'a [u8], field: u32, ids: [Option<u64>; N]) -> [Option<Value<'a>>; N] {
     let mut found: [Option<Value<'a>>; N] = std::array::from_fn(|_| None);
     if ids.iter().all(Option::is_none) {
         return found;
     }
     for stat in stats(raw, field, |id| ids.contains(&Some(id as u64))) {
-        if let Some(slot) = found
-            .iter_mut()
-            .zip(ids)
-            .find_map(|(slot, id)| (slot.is_none() && id == Some(stat.id as u64)).then_some(slot))
+        if let Some(slot) = found.iter_mut().zip(ids).find_map(|(slot, id)| (slot.is_none() && id == Some(stat.id as u64)).then_some(slot))
         {
             *slot = Some(stat.value);
         }
@@ -217,13 +216,8 @@ pub fn planes(map: &[u8], keep: impl Fn(&[u8]) -> bool) -> Vec<Plane<'_>> {
     bodies
         .into_par_iter()
         .map(|bytes| {
-            let mut plane = Plane {
-                name: String::new(),
-                bytes,
-                stat_names: FxHashMap::default(),
-                metadata: FxHashMap::default(),
-                lines: Vec::new(),
-            };
+            let mut plane =
+                Plane { name: String::new(), bytes, stat_names: FxHashMap::default(), metadata: FxHashMap::default(), lines: Vec::new() };
             for (tag, field) in fields(bytes) {
                 match (tag, field) {
                     (2, Field::Bytes(_, name)) => plane.name = lossy(name).into_owned(),
@@ -282,19 +276,13 @@ pub fn events(bytes: &[u8]) -> impl Iterator<Item = Event<'_>> {
 
 impl<'a> Plane<'a> {
     pub fn stat_id(&self, name: &str) -> Option<u64> {
-        self.stat_names
-            .iter()
-            .filter(|(_, stat)| **stat == name.as_bytes())
-            .map(|(&id, _)| id)
-            .min()
+        self.stat_names.iter().filter(|(_, stat)| **stat == name.as_bytes()).map(|(&id, _)| id).min()
     }
 
     fn text(&self, value: &Value) -> String {
         match value {
             Value::Str(bytes) => lossy(bytes).into_owned(),
-            Value::Ref(id) => {
-                self.stat_names.get(id).map(|name| lossy(name).into_owned()).unwrap_or_default()
-            }
+            Value::Ref(id) => self.stat_names.get(id).map(|name| lossy(name).into_owned()).unwrap_or_default(),
             _ => String::new(),
         }
     }
@@ -311,9 +299,7 @@ impl<'a> Plane<'a> {
     }
 
     fn is_tensor_core(&self) -> bool {
-        self.name
-            .strip_prefix(TPU_PREFIX)
-            .is_some_and(|core| core.bytes().all(|byte| byte.is_ascii_digit()))
+        self.name.strip_prefix(TPU_PREFIX).is_some_and(|core| core.bytes().all(|byte| byte.is_ascii_digit()))
     }
 
     fn device_type(&self) -> String {
@@ -321,10 +307,8 @@ impl<'a> Plane<'a> {
     }
 
     fn sampler(&self) -> Sampler {
-        let mut sampler = Sampler {
-            ids: [self.stat_id("performance_counter_id"), self.stat_id("counter_value")],
-            metadata: FxHashMap::default(),
-        };
+        let mut sampler =
+            Sampler { ids: [self.stat_id("performance_counter_id"), self.stat_id("counter_value")], metadata: FxHashMap::default() };
         if sampler.ids.iter().any(Option::is_some) {
             sampler.metadata = self
                 .metadata
@@ -362,11 +346,7 @@ impl Sampler {
                     }
                     let counter = id.filter(|&id| id != 0).unwrap_or(event.meta);
                     if let (Some(value), true) = (value, counter != 0) {
-                        samples.push((
-                            (event.offset_ps, Reverse(event.duration_ps)),
-                            counter,
-                            value,
-                        ));
+                        samples.push(((event.offset_ps, Reverse(event.duration_ps)), counter, value));
                     }
                 }
                 (samples, longest)
@@ -387,21 +367,13 @@ impl Sampler {
 }
 
 fn sorted_samples(planes: &[Plane]) -> bool {
-    let device = |plane: &&Plane| {
-        HOST_PLANES.iter().chain(&DEVICE_PLANES).any(|prefix| plane.name.starts_with(prefix))
-    };
+    let device = |plane: &&Plane| HOST_PLANES.iter().chain(&DEVICE_PLANES).any(|prefix| plane.name.starts_with(prefix));
     !planes.iter().filter(device).all(|plane| plane.stat_id("group_id").is_some())
 }
 
 fn perf_rows(plane: &Plane, host: &str) -> Vec<String> {
-    let chip = Some(plane.own_id(b"global_chip_id"))
-        .filter(|&chip| chip != -1)
-        .unwrap_or_else(|| plane.own_id(b"device_id"));
-    let ids = [
-        plane.stat_id("counter_value"),
-        plane.stat_id("performance_counter_description"),
-        plane.stat_id("performance_counter_sets"),
-    ];
+    let chip = Some(plane.own_id(b"global_chip_id")).filter(|&chip| chip != -1).unwrap_or_else(|| plane.own_id(b"device_id"));
+    let ids = [plane.stat_id("counter_value"), plane.stat_id("performance_counter_description"), plane.stat_id("performance_counter_sets")];
     if chip == -1 || ids[0].is_none() {
         return Vec::new();
     }
@@ -410,17 +382,11 @@ fn perf_rows(plane: &Plane, host: &str) -> Vec<String> {
         .par_iter()
         .flat_map(|bytes| {
             let line = line(bytes);
-            let mut prefix = format!(
-                "{{\"c\":[{{\"v\":{}}},{{\"v\":",
-                serde_json::to_string(host).expect("serializing a string cannot fail")
-            );
+            let mut prefix =
+                format!("{{\"c\":[{{\"v\":{}}},{{\"v\":", serde_json::to_string(host).expect("serializing a string cannot fail"));
             number(&mut prefix, chip as f64);
-            write!(
-                prefix,
-                "}},{{\"v\":{}}},{{\"v\":",
-                serde_json::to_string(&line.name).expect("writing to a string cannot fail")
-            )
-            .expect("serializing a string cannot fail");
+            write!(prefix, "}},{{\"v\":{}}},{{\"v\":", serde_json::to_string(&line.name).expect("writing to a string cannot fail"))
+                .expect("serializing a string cannot fail");
             number(&mut prefix, line.id as f64);
             prefix.push_str("},{\"v\":");
             chunks(line.bytes)
@@ -437,19 +403,14 @@ fn perf_rows(plane: &Plane, host: &str) -> Vec<String> {
                         }
                         out.push_str(&prefix);
                         let name = names.entry(event.meta).or_insert_with(|| {
-                            plane.metadata.get(&event.meta).map_or_else(String::new, |(name, _)| {
-                                lossy(name).to_ascii_lowercase()
-                            })
+                            plane.metadata.get(&event.meta).map_or_else(String::new, |(name, _)| lossy(name).to_ascii_lowercase())
                         });
                         string(&mut out, name);
                         let _ = write!(out, "}},{{\"f\":\"0x{value:x}\",\"v\":");
                         number(&mut out, value as f64);
                         for text in [description, set] {
                             out.push_str("},{\"v\":");
-                            string(
-                                &mut out,
-                                &text.map(|value| plane.text(&value)).unwrap_or_default(),
-                            );
+                            string(&mut out, &text.map(|value| plane.text(&value)).unwrap_or_default());
                         }
                         out.push_str("}]}");
                     }
@@ -472,9 +433,7 @@ pub fn perf_counters(hosts: &[(String, &[u8])]) -> String {
     let rows: Vec<String> = hosts
         .iter()
         .flat_map(|(host, map)| {
-            let planes = planes(map, |name| {
-                name.starts_with(TPU_PREFIX.as_bytes()) || name.starts_with(GPU_PREFIX.as_bytes())
-            });
+            let planes = planes(map, |name| name.starts_with(TPU_PREFIX.as_bytes()) || name.starts_with(GPU_PREFIX.as_bytes()));
             planes.par_iter().flat_map(|plane| perf_rows(plane, host)).collect::<Vec<_>>()
         })
         .collect();
@@ -490,9 +449,7 @@ pub fn utilization_viewer(map: &[u8]) -> String {
         .filter(|plane| plane.name.starts_with(TPU_PREFIX))
         .flat_map(|plane| {
             let (device_id, sampler) = (plane.own_id(b"device_id"), plane.sampler());
-            let Some(device) = Device::from_type(&plane.device_type())
-                .filter(|_| device_id != -1 && sampler.ids[1].is_some())
-            else {
+            let Some(device) = Device::from_type(&plane.device_type()).filter(|_| device_id != -1 && sampler.ids[1].is_some()) else {
                 return Vec::new();
             };
             let sort = sorted && plane.is_tensor_core();
@@ -502,15 +459,9 @@ pub fn utilization_viewer(map: &[u8]) -> String {
                 .flat_map_iter(|bytes| {
                     let line = line(bytes);
                     let (counters, _) = sampler.counters(&line, sort, false);
-                    let metrics =
-                        if counters.is_empty() { Vec::new() } else { compute(&counters, device) };
+                    let metrics = if counters.is_empty() { Vec::new() } else { compute(&counters, device) };
                     metrics.into_iter().map(move |metric| {
-                        let ids = [
-                            0.0,
-                            device_id as i32 as u64 as f64,
-                            line.id as i32 as u64 as f64,
-                            metric.node as f64,
-                        ];
+                        let ids = [0.0, device_id as i32 as u64 as f64, line.id as i32 as u64 as f64, metric.node as f64];
                         let mut row: Vec<Cell> = ids.into_iter().map(Cell::Number).collect();
                         row.extend([
                             Cell::Text(metric.name),
@@ -545,8 +496,7 @@ fn summarize(name: &str, duration_us: f64, metrics: &[Metric]) -> Json {
             "MXU I4" => precisions[2] += metric.achieved,
             "MXU E4M3 + E5M2" => precisions[3] += metric.achieved,
             name if metric.peak > 0.0 => {
-                let name =
-                    if name.starts_with("HBM Rd+Wr") { "HBM Bandwidth Utilization" } else { name };
+                let name = if name.starts_with("HBM Rd+Wr") { "HBM Bandwidth Utilization" } else { name };
                 let sums = other.entry(name.to_string()).or_default();
                 sums.0 += metric.achieved;
                 sums.1 += metric.peak;
@@ -559,15 +509,17 @@ fn summarize(name: &str, duration_us: f64, metrics: &[Metric]) -> Json {
         if total > 0.0 { percent(value, total) } else { 0.0 }
     };
     let utilization = if mxu_peak > 0.0 { percent(mxu, mxu_peak) } else { 0.0 };
-    let other: BTreeMap<String, f64> = other
-        .into_iter()
-        .filter(|(_, (_, peak))| *peak > 0.0)
-        .map(|(name, (achieved, peak))| (name, percent(achieved, peak)))
-        .collect();
+    let other: BTreeMap<String, f64> =
+        other.into_iter().filter(|(_, (_, peak))| *peak > 0.0).map(|(name, (achieved, peak))| (name, percent(achieved, peak))).collect();
     json!({
         "duration_us": duration_us,
         "kernel_name": name,
-        "mxu_cycles_breakdown": {"BF16": share(precisions[0]), "FP8": share(precisions[3]), "Int4": share(precisions[2]), "Int8": share(precisions[1])},
+        "mxu_cycles_breakdown": {
+            "BF16": share(precisions[0]),
+            "FP8": share(precisions[3]),
+            "Int4": share(precisions[2]),
+            "Int8": share(precisions[1]),
+        },
         "mxu_is_anomaly": utilization > 100.0,
         "mxu_utilization": utilization,
         "other_metrics": other,
@@ -595,20 +547,11 @@ fn first_kernel(plane: &Plane, sort: bool) -> String {
         });
         if sort { named.min_by_key(|found| found.0) } else { named.next() }
     };
-    let lines = plane
-        .lines
-        .iter()
-        .map(|bytes| line(bytes))
-        .filter(|line| KERNEL_LINES.contains(&line.name.as_str()));
+    let lines = plane.lines.iter().map(|bytes| line(bytes)).filter(|line| KERNEL_LINES.contains(&line.name.as_str()));
     let found = lines.into_iter().find_map(|line| {
         let pieces = chunks(line.bytes);
         if sort {
-            pieces
-                .par_iter()
-                .filter_map(named)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .min_by_key(|found| found.0)
+            pieces.par_iter().filter_map(named).collect::<Vec<_>>().into_iter().min_by_key(|found| found.0)
         } else {
             pieces.par_iter().find_map_first(named)
         }
@@ -638,8 +581,7 @@ fn device_kernels(plane: &Plane, sorted: bool, filter: &Filter) -> Option<Json> 
             .and_then(|rest| rest.trim_matches(|c: char| c.is_ascii_whitespace()).parse().ok())
             .unwrap_or(-1);
     }
-    let device = Device::from_type(&device_type)
-        .filter(|_| device_id != -1 && (filter.device < 0 || device_id == filter.device))?;
+    let device = Device::from_type(&device_type).filter(|_| device_id != -1 && (filter.device < 0 || device_id == filter.device))?;
     let sampler = plane.sampler();
     let kernels: Vec<Json> = if sampler.ids[1].is_none() {
         Vec::new()
@@ -659,8 +601,7 @@ fn device_kernels(plane: &Plane, sorted: bool, filter: &Filter) -> Option<Json> 
                 if counters.is_empty() {
                     return None;
                 }
-                let duration_us =
-                    if filter.duration_us > 0.0 { filter.duration_us } else { measured_us };
+                let duration_us = if filter.duration_us > 0.0 { filter.duration_us } else { measured_us };
                 let nominal = duration_us * (device.frequency_hz() / 1e6);
                 if nominal > 0.0 {
                     for id in device.cycle_counters() {
@@ -725,7 +666,8 @@ pub fn corrupt(paths: &[std::path::PathBuf]) -> bool {
     paths.iter().any(|path| crate::read_file(path).is_ok_and(|map| !valid_space(&map)))
 }
 
-/// Renders a trace if it is valid. The render reads a trace that is not valid without a panic, so it runs at the same time as the check.
+/// Renders a trace if it is valid. The render reads a trace that is not valid without a panic, so
+/// it runs at the same time as the check.
 pub fn checked<T: Send>(map: &[u8], render: impl FnOnce(&[u8]) -> T + Send) -> Option<T> {
     let (valid, rendered) = rayon::join(|| valid_space(map), || render(map));
     valid.then_some(rendered)
@@ -740,16 +682,9 @@ pub fn serve(tag: &str, paths: &[std::path::PathBuf]) -> Option<String> {
         "perf_counters" if !paths.is_empty() => {
             let maps: Vec<(String, crate::input::Input)> = paths
                 .iter()
-                .filter_map(|path| {
-                    Some((
-                        crate::host_name(path),
-                        crate::read_file(path).ok().filter(|map| valid_space(map))?,
-                    ))
-                })
+                .filter_map(|path| Some((crate::host_name(path), crate::read_file(path).ok().filter(|map| valid_space(map))?)))
                 .collect();
-            Some(perf_counters(
-                &maps.iter().map(|(host, map)| (host.clone(), &map[..])).collect::<Vec<_>>(),
-            ))
+            Some(perf_counters(&maps.iter().map(|(host, map)| (host.clone(), &map[..])).collect::<Vec<_>>()))
         }
         "utilization_viewer" => single(utilization_viewer),
         "kernel_utilization" => single(|map| kernel_utilization(map, &Filter::default())),

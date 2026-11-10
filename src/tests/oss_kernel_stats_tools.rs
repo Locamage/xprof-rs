@@ -46,10 +46,7 @@ fn test_get_avg_step_time() {
     plane.named_line(0, "XLA Modules");
     plane.event(0, "jit_train_step", 0, 15 * MS, &[]);
     plane.event(0, "jit_train_step", 20 * MS, 17 * MS, &[]);
-    let result = json(get_avg_step_time(
-        &Fake::fixed(""),
-        &source("ks-steps", &space, &[("func_name", J::from("train_step"))]),
-    ));
+    let result = json(get_avg_step_time(&Fake::fixed(""), &source("ks-steps", &space, &[("func_name", J::from("train_step"))])));
     assert_eq!(result.at("step_count"), &J::Int(2));
     assert_eq!(result.at("avg_step_time_ms"), &J::Float(16.0));
 }
@@ -64,24 +61,14 @@ fn test_compute_disjoint_interval_union_ns() {
 
 #[test]
 fn test_get_kernel_stats_with_include_summary() {
-    let space =
-        ops(&[("matmul_fwd", 0, 1400 * MS / 1000), ("dot", 700 * MS / 1000, 800 * MS / 1000)]);
+    let space = ops(&[("matmul_fwd", 0, 1400 * MS / 1000), ("dot", 700 * MS / 1000, 800 * MS / 1000)]);
     let result = json(get_kernel_stats(
         &Fake::fixed(""),
-        &source(
-            "ks-summary",
-            &space,
-            &[("output_format", J::from("dict")), ("include_summary", J::Bool(true))],
-        ),
+        &source("ks-summary", &space, &[("output_format", J::from("dict")), ("include_summary", J::Bool(true))]),
     ));
-    for key in [
-        "total_device_duration_ns",
-        "total_device_duration_us",
-        "total_device_duration_ms",
-        "kernel_records",
-        "step_durations_us",
-        "stats",
-    ] {
+    for key in
+        ["total_device_duration_ns", "total_device_duration_us", "total_device_duration_ms", "kernel_records", "step_durations_us", "stats"]
+    {
         assert!(result.has(key), "{key}");
     }
     assert_eq!(result.at("total_device_duration_ns"), &J::Int(1500000));
@@ -92,20 +79,15 @@ fn test_get_kernel_stats_with_include_summary() {
 #[test]
 fn test_get_kernel_stats_in_memory_profile_data() {
     let space = ops(&[("matmul_fwd", 0, 1400 * MS / 1000)]);
-    let result = json(get_kernel_stats(
-        &Fake::fixed(""),
-        &source("ks-memory", &space, &[("output_format", J::from("dict"))]),
-    ));
+    let result = json(get_kernel_stats(&Fake::fixed(""), &source("ks-memory", &space, &[("output_format", J::from("dict"))])));
     assert_eq!(result.items().len(), 1);
     assert_eq!(result.items()[0].at("kernel_name").str(), Some("matmul_fwd"));
 }
 
 #[test]
 fn test_get_kernel_stats_trace_matchers() {
-    let space =
-        ops(&[("matmul_fwd", 0, 1400 * MS / 1000), ("conv2d", 1400 * MS / 1000, 800 * MS / 1000)]);
-    let flags =
-        [("output_format", J::from("dict")), ("trace_matchers", J::List(vec![J::from("matmul")]))];
+    let space = ops(&[("matmul_fwd", 0, 1400 * MS / 1000), ("conv2d", 1400 * MS / 1000, 800 * MS / 1000)]);
+    let flags = [("output_format", J::from("dict")), ("trace_matchers", J::List(vec![J::from("matmul")]))];
     let result = json(get_kernel_stats(&Fake::fixed(""), &source("ks-matchers", &space, &flags)));
     assert_eq!(result.items().len(), 1);
     assert_eq!(result.items()[0].at("kernel_name").str(), Some("matmul_fwd"));
