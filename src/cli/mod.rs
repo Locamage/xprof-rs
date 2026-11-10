@@ -662,6 +662,7 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
         && spec.keyword.iter().any(|key| key == "logdir")
         && !keywords.iter().any(|(key, _)| key == "logdir")
         && ((positional[0].contains("://")
+            && !matches!(positional[1].as_str(), "True" | "False")
             && !client::TRACE_SUFFIXES.iter().any(|suffix| positional[0].ends_with(suffix))
             && !positional[0].trim_end_matches('/').rsplit_once('/').is_some_and(|(parent, _)| parent.ends_with("/plugins/profile")))
             || expand(&positional[0]).join("plugins/profile").join(&positional[1]).is_dir())
@@ -756,7 +757,8 @@ fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Erro
 
 async fn latest(remote: &crate::server::remote::Remote, dir: &std::path::Path) -> Result<Option<std::path::PathBuf>, String> {
     remote.sync(dir, true).await?;
-    if !client::traces(dir).is_empty() {
+    // Only the traces of `dir` itself make it a session. Sessions under it that the cache already holds do not.
+    if !client::find(dir, &client::TRACE_SUFFIXES, false).is_empty() {
         return Ok(Some(dir.to_path_buf()));
     }
     remote.sync(&dir.join("plugins/profile"), false).await?;
@@ -817,6 +819,13 @@ fn mirror(url: &str, logdir: bool, first: &str, args: &mut Args) -> Result<Optio
         })
         .map_err(absent)?;
     if logdir {
+        let run = remote.mirror.join(&session);
+        if let Some(latest) = resolved.filter(|found| !session.is_empty() && *found != run && found.starts_with(&run)) {
+            let key = if args.session().is_empty() { first } else { "session_id" };
+            if let Some((_, value)) = args.values.iter_mut().find(|(name, _)| name == key) {
+                *value = J::Str(latest.display().to_string());
+            }
+        }
         return Ok(Some(remote.mirror));
     }
     if let Some((_, value)) = args.values.iter_mut().find(|(key, _)| key == first) {
@@ -976,18 +985,20 @@ fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     client::tool_name(&tool)?;
     let session = args.session();
     let dir = client.run_dir(&session)?;
-    match args.text("host").filter(|host| !host.is_empty()) {
-        Some(host) if client.xspace_paths(&dir)?.iter().all(|path| client::host(path) != host) => {
-            return Err(xplane::missing_host(&session, &host));
+    let host = match args.text("host") {
+        Some(host) if !host.is_empty() => {
+            let paths = client.xspace_paths(&dir)?;
+            let path = paths.iter().find(|path| client::host(path) == host).ok_or_else(|| xplane::missing_host(&session, &host))?;
+            Some(crate::host_name(path))
         }
-        _ => {}
-    }
+        host => host,
+    };
     let mut params = HashMap::from([
         ("tag".to_string(), tool),
         ("run".to_string(), dir.file_name().unwrap_or_default().to_string_lossy().into_owned()),
         ("resolution".to_string(), "0".to_string()),
     ]);
-    if let Some(host) = args.text("host") {
+    if let Some(host) = host {
         params.insert("host".into(), host);
     }
     let runtime =

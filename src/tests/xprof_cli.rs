@@ -308,6 +308,32 @@ fn test_wrap_with_logdir_coerces_int_to_str() {
 }
 
 #[test]
+fn remote_run_names_logdir_urls_and_dotted_hosts() {
+    let demo = std::fs::read(super::e2e_oracles::DEMO).unwrap();
+    let store = scratch("run-name-store");
+    for (session, file) in [("s1", "host-a.xplane.pb"), ("s2", "run.host-b.xplane.pb")] {
+        let dir = store.join("run/plugins/profile").join(session);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(file), &demo).unwrap();
+    }
+    let store_flag = format!("--logdir=file://{}", store.display());
+    let run_flag = format!("--logdir=file://{}/run", store.display());
+    let (code, latest, _) = run(&["get_hosts", "run", &store_flag]);
+    assert_eq!(code, 0, "{latest}");
+    assert!(latest.contains("host-b") && !latest.contains("host-a"), "{latest}");
+    assert_eq!(run(&["get_hosts", "s1", &run_flag]).0, 0);
+    assert_eq!(run(&["get_hosts", "run", &store_flag]).1, latest);
+    let logdir_url = format!("file://{}/run", store.display());
+    let (expected_code, expected_out, _) = run(&["get_overview", &logdir_url, "--include_command=True"]);
+    assert_eq!(expected_code, 0, "{expected_out}");
+    let (code, out, _) = run(&["get_overview", &logdir_url, "True"]);
+    assert_eq!((code, out), (expected_code, expected_out));
+    let session = store.join("run/plugins/profile/s2");
+    let (code, out, _) = run(&["get_tool_data", session.to_str().unwrap(), "--tool=overview_page", "--host=host-b"]);
+    assert_eq!(code, 0, "{out}");
+}
+
+#[test]
 fn test_multi_host_logdir_session_remote_and_help() {
     let demo = std::fs::read(super::e2e_oracles::DEMO).unwrap();
     let logdir = scratch("multi-host");
