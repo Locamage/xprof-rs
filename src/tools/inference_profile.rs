@@ -745,8 +745,10 @@ fn tensor_patterns<'a>(
             let text = |id: Option<usize>| event_stat(event.raw, id).map(|value| host.text(&value));
             let shape = match (text(ids.shape), text(ids.dims)) {
                 (Some(shape), _) => shape,
-                (None, Some(dims)) => text(ids.kind)
-                    .map_or(dims.clone(), |kind| format!("{}{dims}", kind.to_ascii_lowercase())),
+                (None, Some(dims)) => text(ids.kind).map_or_else(
+                    || dims.clone(),
+                    |kind| format!("{}{dims}", kind.to_ascii_lowercase()),
+                ),
                 (None, None) => String::new(),
             };
             let Some(layout) = text(ids.layout).filter(|_| !shape.is_empty()) else {

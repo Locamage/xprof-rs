@@ -724,7 +724,7 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
                 Some(column.at("label"))
                     .filter(|label| label.truthy())
                     .or(column.get("id"))
-                    .map_or(format!("col_{index}"), J::text)
+                    .map_or_else(|| format!("col_{index}"), J::text)
             })
             .collect();
         let rows = table

@@ -841,7 +841,7 @@ struct Annotation {
     #[prost(double, optional, tag = "5")]
     double: Option<f64>,
     #[prost(message, repeated, tag = "12")]
-    array: Vec<Annotation>,
+    array: Vec<Self>,
     #[prost(uint64, optional, tag = "17")]
     text: Option<u64>,
 }

@@ -862,7 +862,7 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
                 Kind::Value,
                 format!(
                     "No steps matching func_name '{}' found in {source}.",
-                    args.get("func_name").map_or("None".into(), J::text)
+                    args.get("func_name").map_or_else(|| "None".into(), J::text)
                 ),
             );
         }

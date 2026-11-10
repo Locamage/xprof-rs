@@ -669,7 +669,7 @@ impl Dumper<'_> {
         format!("{name} {}", shape.text(false))
     }
 
-    fn inlined_operands(&mut self, node: usize) -> String {
+    fn inlined_operands(&self, node: usize) -> String {
         let module = self.module;
         let entry = &module.nodes[node];
         let mut lines = Vec::new();

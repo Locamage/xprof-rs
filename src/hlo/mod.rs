@@ -21,12 +21,12 @@ use std::time::SystemTime;
 
 const LEGACY_QUEUES: &[u8] = b"\"wait_on_operation_queues\"";
 
-#[allow(clippy::all, clippy::pedantic, dead_code)]
+#[allow(clippy::all, clippy::pedantic, clippy::use_self, dead_code)]
 pub mod xla {
     include!(concat!(env!("OUT_DIR"), "/xla.rs"));
 }
 
-#[allow(clippy::all, clippy::pedantic, dead_code)]
+#[allow(clippy::all, clippy::pedantic, clippy::use_self, dead_code)]
 pub mod profiler {
     include!(concat!(env!("OUT_DIR"), "/tensorflow.profiler.rs"));
 

@@ -706,7 +706,7 @@ pub fn stats_records(table: &J, category_filter: Option<&str>) -> Vec<J> {
             Some(column.at("id"))
                 .filter(|id| id.truthy())
                 .or(column.get("label"))
-                .map_or(format!("col_{index}"), J::text)
+                .map_or_else(|| format!("col_{index}"), J::text)
                 .to_lowercase()
         })
         .collect();

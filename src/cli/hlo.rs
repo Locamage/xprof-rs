@@ -454,7 +454,7 @@ fn buffers(
             .iter()
             .map(|buffer| {
                 (
-                    buffer.get("instructionName").map_or("unknown".into(), J::text),
+                    buffer.get("instructionName").map_or_else(|| "unknown".into(), J::text),
                     buffer.get("logicalBufferSizeMib").map_or(Some(0.0), J::float).unwrap_or(0.0),
                 )
             })
@@ -464,7 +464,10 @@ fn buffers(
             .iter()
             .map(|buffer| {
                 (
-                    buffer.at("definedAt").get("instructionName").map_or("unknown".into(), J::text),
+                    buffer
+                        .at("definedAt")
+                        .get("instructionName")
+                        .map_or_else(|| "unknown".into(), J::text),
                     buffer.get("size").map_or(Some(0), J::int).unwrap_or(0) as f64 / 1048576.0,
                 )
             })

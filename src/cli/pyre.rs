@@ -245,18 +245,18 @@ enum Tok {
 
 impl Tok {
     fn len(self) -> usize {
-        if let Tok::Escape(_) = self { 2 } else { 1 }
+        if let Self::Escape(_) = self { 2 } else { 1 }
     }
 
     fn text(self) -> String {
         match self {
-            Tok::Char(c) => c.to_string(),
-            Tok::Escape(c) => format!("\\{c}"),
+            Self::Char(c) => c.to_string(),
+            Self::Escape(c) => format!("\\{c}"),
         }
     }
 
     fn char(self) -> Option<char> {
-        if let Tok::Char(c) = self { Some(c) } else { None }
+        if let Self::Char(c) = self { Some(c) } else { None }
     }
 
     fn alpha(self) -> bool {
@@ -461,13 +461,13 @@ enum Node {
     Set(bool, Vec<Item>),
     Any,
     At(At),
-    Repeat(u128, u128, Repeat, Box<Node>),
-    Group(Option<usize>, u32, u32, Vec<Node>),
-    Atomic(Vec<Node>),
-    Branch(Vec<Vec<Node>>),
-    Assert(bool, bool, Vec<Node>),
+    Repeat(u128, u128, Repeat, Box<Self>),
+    Group(Option<usize>, u32, u32, Vec<Self>),
+    Atomic(Vec<Self>),
+    Branch(Vec<Vec<Self>>),
+    Assert(bool, bool, Vec<Self>),
     GroupRef(usize),
-    Exists(usize, Vec<Node>, Option<Vec<Node>>),
+    Exists(usize, Vec<Self>, Option<Vec<Self>>),
 }
 
 enum Escaped {
