@@ -15,7 +15,7 @@ This release adds object-store profile serving and multi-host profile support.
 - On a multi-host session, `get_xspace_proto` accepts `--host` to save one trace. Without it, the command lists the sorted host names and asks you to pass `--host=<name>`. Before, the command failed, as it does in XProf.
 - A direct trace file gives no utilization data when its file name does not contain the first host name. A profile found with `--logdir` does not use this check. For example, host `worker-0` in `host.xplane.pb` gives no data as a direct file, but it gives utilization data with `--logdir`. If a session has no utilization counters, `--logdir` returns an empty device list with `SUCCESS`.
 - Aggregate and statistics commands, such as `get_overview`, `get_kpi_metrics`, `check_host_boundness`, `get_top_hlo_ops` and `get_hlo_stats`, combine all hosts in a multi-host session, where XProf fails. For `check_host_boundness`, barrier-core times use the host with the smallest name, as in XProf.
-- The `<logdir> <session>` form selects that session. Before, the logdir bound as `session_id` and the session as the next parameter, as in XProf.
+- The `<logdir> <session>` form selects that session. Before, the logdir bound as `session_id` and the session as the next parameter, as in XProf. A URL of a session (`<url>/plugins/profile/<session>`) or of a trace file stays the session, so `get_overview <session URL> True` binds `include_command`, as with a local path.
 - CLI targets with `://`, such as `s3://` and `gs://`, sync through the server's remote cache.
 - The first remote `/runs` listing walks the object store level by level in parallel and stops at `plugins/profile`. Before, it walked the full store.
 - Per-command `--help` lists every parameter.

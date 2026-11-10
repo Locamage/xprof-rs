@@ -793,7 +793,12 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
     if positional.len() > 1
         && spec.keyword.iter().any(|key| key == "logdir")
         && !keywords.iter().any(|(key, _)| key == "logdir")
-        && (positional[0].contains("://")
+        && ((positional[0].contains("://")
+            && !client::TRACE_SUFFIXES.iter().any(|suffix| positional[0].ends_with(suffix))
+            && !positional[0]
+                .trim_end_matches('/')
+                .rsplit_once('/')
+                .is_some_and(|(parent, _)| parent.ends_with("/plugins/profile")))
             || expand(&positional[0]).join("plugins/profile").join(&positional[1]).is_dir())
     {
         keywords.push(("logdir".into(), positional.remove(0)));

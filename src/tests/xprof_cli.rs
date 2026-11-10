@@ -528,6 +528,13 @@ fn test_multi_host_logdir_session_remote_and_help() {
     assert_eq!((code, out), (expected_code, expected_out));
     assert_eq!(run(&["get_overview", &format!("file://{a}")]).1, overview);
     assert_eq!(run(&["get_overview", &format!("file://{logdir}"), "a"]).1, overview);
+    for session in [format!("file://{a}"), format!("file://{a}/"), format!("file://{b_trace}")] {
+        let (expected_code, expected_out, _) =
+            run(&["get_overview", &session, "--include_command=True"]);
+        assert_eq!(expected_code, 0, "{session}: {expected_out}");
+        let (code, out, _) = run(&["get_overview", &session, "True"]);
+        assert_eq!((code, out), (expected_code, expected_out), "{session}");
+    }
     for command in ["get_avg_step_time", "get_kernel_stats"] {
         for source in [&b, &b_trace] {
             let (expected_code, expected_out, _) = run(&[command, source]);
