@@ -560,7 +560,9 @@ pub(crate) const RULES: [Rule; 12] = [
     },
     Rule {
         name: "ComputeBoundRule",
-        meets: |data| matches!((hbm(data), mxu(data)), (Ok(hbm), Ok(mxu)) if mxu > MXU_HIGH && hbm < HBM_LOW),
+        meets: |data| {
+            hbm(data).is_ok_and(|hbm| hbm < HBM_LOW) && mxu(data).is_ok_and(|mxu| mxu > MXU_HIGH)
+        },
         generate: compute_bound,
     },
     Rule {
@@ -599,14 +601,18 @@ pub(crate) const RULES: [Rule; 12] = [
     Rule {
         name: "InputBoundRule",
         meets: |data| {
-            input_bound(data)
-                && matches!((percent_of_input(data, false), percent_of_input(data, true)), (Ok(other), Ok(enqueue)) if other.abs() < ZERO_EPSILON && enqueue.abs() < ZERO_EPSILON)
+            let zero = |enqueue: bool| {
+                percent_of_input(data, enqueue).is_ok_and(|percent| percent.abs() < ZERO_EPSILON)
+            };
+            input_bound(data) && zero(false) && zero(true)
         },
         generate: input_bound_text,
     },
     Rule {
         name: "MemoryBoundRule",
-        meets: |data| matches!((hbm(data), mxu(data)), (Ok(hbm), Ok(mxu)) if hbm > HBM_HIGH && mxu < MXU_LOW),
+        meets: |data| {
+            hbm(data).is_ok_and(|hbm| hbm > HBM_HIGH) && mxu(data).is_ok_and(|mxu| mxu < MXU_LOW)
+        },
         generate: memory_bound,
     },
     Rule {
@@ -627,7 +633,10 @@ pub(crate) const RULES: [Rule; 12] = [
     },
     Rule {
         name: "SparseCoreOffloadRule",
-        meets: |data| matches!((async_done_percent(data), peak_memory_percent(data)), (Ok(async_done), Ok(memory)) if async_done > ASYNC_DONE_PERCENT && memory < MEMORY_HIGH),
+        meets: |data| {
+            async_done_percent(data).is_ok_and(|done| done > ASYNC_DONE_PERCENT)
+                && peak_memory_percent(data).is_ok_and(|memory| memory < MEMORY_HIGH)
+        },
         generate: sparse_core_offload,
     },
 ];
