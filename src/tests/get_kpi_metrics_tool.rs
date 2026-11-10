@@ -3,25 +3,36 @@ use crate::cli::overview::get_kpi_metrics;
 use crate::cli::{Error, Kind};
 
 fn kpi_fake(memory: Result<Option<&'static str>, Error>) -> Fake {
-    Fake::new(move |tool, _| {
-        match tool {
+    Fake::new(move |tool, _| match tool {
         "overview_page" | "overview_page.json" => Ok(Some(
-            r#"[{"p": {"steptime_ms_average": "10.5", "device_duty_cycle_percent": "95.0", "mxu_utilization_percent": "80.0", "flop_rate_utilization_relative_to_roofline": "45.0", "device_type": "TPU", "device_core_count": "8"}}]"#
-                .into(),
+            concat!(
+                r#"[{"p": {"steptime_ms_average": "10.5", "device_duty_cycle_percent": "#,
+                r#""95.0", "mxu_utilization_percent": "80.0", "#,
+                r#""flop_rate_utilization_relative_to_roofline": "45.0", "device_type": "#,
+                r#""TPU", "device_core_count": "8"}}]"#,
+            )
+            .into(),
         )),
-        "memory_profile.json" => memory.clone().map(|data| data.map(|data| data.as_bytes().to_vec())),
+        "memory_profile.json" => {
+            memory.clone().map(|data| data.map(|data| data.as_bytes().to_vec()))
+        }
         _ => Ok(None),
-    }
     })
 }
 
 #[test]
 fn test_get_kpi_metrics_success() {
-    let memory = r#"[{"memoryProfilePerAllocator": {"default": {"profileSummary": {"memoryCapacity": "34359738368", "peakStats": {"peakBytesInUse": "13421772800"}}}}}]"#;
-    let result = json(get_kpi_metrics(&kpi_fake(Ok(Some(memory))), &args("test_session", &[])));
-    let expected = parse(
-        r#"{"step_time_ms": "10.5", "duty_cycle_percent": "95.0", "mxu_utilization_percent": "80.0", "roofline_utilization": "45.0", "peak_hbm_gib": 12.5, "accelerator_info": {"device_type": "TPU", "device_core_count": "8"}}"#,
+    let memory = concat!(
+        r#"[{"memoryProfilePerAllocator": {"default": {"profileSummary": {"memoryCapacity": "#,
+        r#""34359738368", "peakStats": {"peakBytesInUse": "13421772800"}}}}}]"#,
     );
+    let result = json(get_kpi_metrics(&kpi_fake(Ok(Some(memory))), &args("test_session", &[])));
+    let expected = parse(concat!(
+        r#"{"step_time_ms": "10.5", "duty_cycle_percent": "95.0", "#,
+        r#""mxu_utilization_percent": "80.0", "roofline_utilization": "45.0", "#,
+        r#""peak_hbm_gib": 12.5, "accelerator_info": {"device_type": "TPU", "#,
+        r#""device_core_count": "8"}}"#,
+    ));
     assert_eq!(result, expected);
 }
 

@@ -3,7 +3,10 @@ use crate::cli::json::J;
 use crate::cli::steps::check_host_boundness;
 use crate::cli::{Error, Kind};
 
-const MATMUL: &str = r#"{"byCategory": {"children": [{"name": "matmul", "metrics": {"occurrences": 1, "rawTime": 3000.0}}]}}"#;
+const MATMUL: &str = concat!(
+    r#"{"byCategory": {"children": [{"name": "matmul", "metrics": {"occurrences": 1, "#,
+    r#""rawTime": 3000.0}}]}}"#,
+);
 const BARRIER: &str = r#"{"traceEvents": [{"name": "barrier-cores", "dur": 50000.0}]}"#;
 const HIGH_DUTY: &str = r#"[{"p": {"device_duty_cycle_percent": "98.3%"}}, {"p": {"steptime_ms_average": "100.0"}, "rows": [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}]}, {"p": {"device_core_count": "8", "host_count": "1"}}]"#;
 
@@ -46,7 +49,11 @@ fn metric(result: &J, key: &str) -> f64 {
 
 #[test]
 fn test_insufficient_data_when_zero_duration() {
-    let data = r#"[{"p": {"device_duty_cycle_percent": "0.0%", "device_idle_time_percent": "100.0%"}}, {"p": {"steptime_ms_average": "0.0"}, "rows": []}, {"p": {"device_core_count": "8"}}]"#;
+    let data = concat!(
+        r#"[{"p": {"device_duty_cycle_percent": "0.0%", "device_idle_time_percent": "#,
+        r#""100.0%"}}, {"p": {"steptime_ms_average": "0.0"}, "rows": []}, {"p": "#,
+        r#"{"device_core_count": "8"}}]"#,
+    );
     let result = check(&Fake::fixed(data), &[]);
     assert_eq!(result.at("status").str(), Some("INSUFFICIENT_DATA"));
     assert!(
@@ -112,7 +119,10 @@ fn test_host_bound_despite_high_duty_cycle() {
 
 #[test]
 fn test_not_host_bound_by_low_idle_ratio() {
-    let hlo = r#"{"byCategory": {"children": [{"name": "matmul", "metrics": {"occurrences": 1, "rawTime": 7360000000000.0}}]}}"#;
+    let hlo = concat!(
+        r#"{"byCategory": {"children": [{"name": "matmul", "metrics": {"occurrences": 1, "#,
+        r#""rawTime": 7360000000000.0}}]}}"#,
+    );
     let result = check(
         &session(
             overview("90.0%", "8", "1"),
@@ -246,7 +256,14 @@ fn test_traverse_and_sum_hlo_times_comprehensive() {
         ],
         [0.0; 3]
     );
-    let tree = r#"{"byCategory": {"children": [{"name": "all-reduce", "metrics": {"occurrences": 1, "rawTime": 500000000000.0}}, {"name": "copy-start", "metrics": {"occurrences": 1, "rawTime": 300000000000.0}}, {"name": "custom-call", "xla": {"category": "convolution"}, "metrics": {"occurrences": 2, "rawTime": 1200000000000.0}}, {"name": "zero-occurrences-op", "metrics": {"occurrences": 0, "rawTime": 9999000000000.0}}]}}"#;
+    let tree = concat!(
+        r#"{"byCategory": {"children": [{"name": "all-reduce", "metrics": {"occurrences": 1, "#,
+        r#""rawTime": 500000000000.0}}, {"name": "copy-start", "metrics": {"occurrences": 1, "#,
+        r#""rawTime": 300000000000.0}}, {"name": "custom-call", "xla": {"category": "#,
+        r#""convolution"}, "metrics": {"occurrences": 2, "rawTime": 1200000000000.0}}, "#,
+        r#"{"name": "zero-occurrences-op", "metrics": {"occurrences": 0, "rawTime": "#,
+        r#"9999000000000.0}}]}}"#,
+    );
     let result = check(&session(overview("15.0%", "1", "1"), tree, "{}", String::new(), &[]), &[]);
     assert_eq!(metric(&result, "scaled_compute_time_ms"), 1200.0);
     assert_eq!(metric(&result, "scaled_hbm_time_ms"), 300.0);
@@ -273,7 +290,11 @@ fn test_dict_overview_format_success() {
 
 #[test]
 fn test_negative_number_of_steps_stays_negative() {
-    let data = r#"{"performance_summary": {"device_duty_cycle_percent": "15.0%"}, "step_time": {"steptime_ms_average": "100.0"}, "run_environment": {"device_core_count": "8"}, "number_of_steps": -1}"#;
+    let data = concat!(
+        r#"{"performance_summary": {"device_duty_cycle_percent": "15.0%"}, "step_time": "#,
+        r#"{"steptime_ms_average": "100.0"}, "run_environment": {"device_core_count": "8"}, "#,
+        r#""number_of_steps": -1}"#,
+    );
     let result = check(&session(data.into(), MATMUL, "{}", String::new(), &[]), &[]);
     assert_eq!(result.at("metrics").at("number_of_steps"), &J::Int(-1));
     assert_eq!(metric(&result, "total_duration_ms"), -100.0);

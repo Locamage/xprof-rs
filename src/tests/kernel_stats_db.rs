@@ -26,14 +26,32 @@ fn multi_kernels() {
         "kernel_name_middle",
         20000,
         2000,
-        &[("tf_op", "Conv2D".into()), ("kernel_details", "regs:32\nstatic_shared:0\ndynamic_shared:16384\ngrid:2,1,1\nblock:32,1,1\nocc_pct=13.0".into()), ("equation", "".into())],
+        &[
+            ("tf_op", "Conv2D".into()),
+            (
+                "kernel_details",
+                "regs:32\nstatic_shared:0\n\
+                    dynamic_shared:16384\ngrid:2,1,1\nblock:32,1,1\nocc_pct=13.0"
+                    .into(),
+            ),
+            ("equation", "".into()),
+        ],
     );
     device_trace.event(
         0,
         "volta_fp16_s884gemm_fp16_128x128_ldg8_f2f_tn",
         30000,
         3000,
-        &[("tf_op", "Einsum_80".into()), ("kernel_details", "regs:32\nstatic_shared:0\ndynamic_shared:16384\ngrid:3,1,1\nblock:64,1,1\nocc_pct:25.0".into()), ("equation", "".into())],
+        &[
+            ("tf_op", "Einsum_80".into()),
+            (
+                "kernel_details",
+                "regs:32\nstatic_shared:0\n\
+                    dynamic_shared:16384\ngrid:3,1,1\nblock:64,1,1\nocc_pct:25.0"
+                    .into(),
+            ),
+            ("equation", "".into()),
+        ],
     );
     let (map, planes) = space.parsed();
     let kernel_stats = top_kernels(device_plane(&planes[0], &map, &Infos::default(), 0).1);

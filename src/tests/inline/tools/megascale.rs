@@ -39,7 +39,13 @@ fn send_to_recv_done_measures_slack_minus_overlapped_ops() {
         [15, 6, 22, 2, 0]
     );
     let json = table(std::slice::from_ref(summary));
-    assert!(json.contains(r#"{"v":"r"},{"v":"op"},{"v":"op"},{"v":"ALL_REDUCE"},{"v":0.015},{"v":"-"},{"v":0.022}"#), "{json}");
+    assert!(
+        json.contains(concat!(
+            r#"{"v":"r"},{"v":"op"},{"v":"op"},{"v":"ALL_REDUCE"},{"v":0.015},{"v":"-"},"#,
+            r#"{"v":0.022}"#,
+        )),
+        "{json}"
+    );
     assert!(json.contains(r#"{"f":"1.5K","v":1500.0},{"v":0.8}"#), "{json}");
 }
 

@@ -58,7 +58,8 @@ cases! {
     test_get_hlo_module_content: reached(&["get_hlo_module_content", SESSION, "--fmt=text", "--max_lines=2000"], "Error fetching HLO module content: ");
     test_get_hlo_neighborhood: reached(&["get_hlo_neighborhood", SESSION, "instr_name", "2"], "Error analyzing neighborhood: ");
     test_get_hlo_neighborhood_with_op_name: reached(&["get_hlo_neighborhood", SESSION, "--op_name=instr_name"], "Error analyzing neighborhood: ");
-    test_get_hlo_text: reached(&["get_hlo_text", SESSION, "", "module_name", "op_name"], "Error analyzing neighborhood: ");
+    test_get_hlo_text: reached(&["get_hlo_text", SESSION, "", "module_name", "op_name"], "Error \
+        analyzing neighborhood: ");
     test_list_hlo_modules: reached(&["list_hlo_modules", SESSION], "Error listing HLO modules: ");
     test_get_hlo_op_profile: missing(&["get_hlo_op_profile", SESSION, "15"]);
     test_list_xplane_events: missing(&["list_xplane_events", SESSION, "--plane_regex=.*", "--event_regex=.*", "--max_events=100", "--offset=0"]);

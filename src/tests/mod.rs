@@ -121,7 +121,8 @@ mod xspace;
 mod xspace_to_event_time_fraction_analyzer;
 mod zstd_compression;
 
-/// Gives the directory of this test run. A run removes the directories of the runs that stopped, so the test files do not collect.
+/// Gives the directory of this test run. A run removes the directories of the runs that stopped, so
+/// the test files do not collect.
 pub fn temp_dir() -> std::path::PathBuf {
     static ROOT: std::sync::LazyLock<std::path::PathBuf> = std::sync::LazyLock::new(|| {
         fn remove(path: &std::path::Path) {

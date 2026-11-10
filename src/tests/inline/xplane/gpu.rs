@@ -305,7 +305,8 @@ fn source_info_prefers_the_file_and_falls_back_to_the_first_stack_frame() {
 fn launch_params_and_tensor_core_rules() {
     let (mut key, mut occupancy) = (KernelKey::default(), 0.0);
     launch_params(
-        "regs:96 static_shared:21520 dynamic_shared:82240 grid:32,1,1 block:640,1,1 occ_pct:12.5 bad block:1,2",
+        "regs:96 static_shared:21520 dynamic_shared:82240 grid:32,1,1 block:640,1,1 occ_pct:12.5 \
+            bad block:1,2",
         &mut key,
         &mut occupancy,
     );

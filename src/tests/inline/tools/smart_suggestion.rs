@@ -46,6 +46,9 @@ fn third_party_engine_runs_only_the_barrier_rule_and_renders_protobuf_json() {
         suggestions.iter().map(|suggestion| suggestion.rule).collect::<Vec<_>>(),
         ["BarrierCoresRule"]
     );
-    assert!(render(&suggestions).starts_with("{\"suggestions\":[{\"ruleName\":\"BarrierCoresRule\",\"suggestionText\":\"\\u003cp\\u003eYour program"));
+    assert!(render(&suggestions).starts_with(
+        "{\"suggestions\":[{\"ruleName\":\"BarrierCoresRule\",\
+            \"suggestionText\":\"\\u003cp\\u003eYour program"
+    ));
     assert_eq!(render(&[]), "{\"suggestions\":[]}");
 }

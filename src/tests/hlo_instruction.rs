@@ -60,7 +60,8 @@ fn sparsity_config_to_string_rhs_only() {
     );
     assert_eq!(
         to_string(&conv, "convolution"),
-        "%convolution = bf16[256,256]{1,0} convolution(%lhs, %rhs, %rhs_indices), dim_labels=bf_io->bf, sparsity_config={rhs={sparsity=1x4 dimension=0 stride=1 idx=2}}"
+        "%convolution = bf16[256,256]{1,0} convolution(%lhs, %rhs, %rhs_indices), \
+            dim_labels=bf_io->bf, sparsity_config={rhs={sparsity=1x4 dimension=0 stride=1 idx=2}}"
     );
 }
 
@@ -68,11 +69,14 @@ fn sparsity_config_to_string_rhs_only() {
 fn sparsity_config_to_string_lhs_and_rhs() {
     let conv = convolution(
         "[1, 2, 3, 4]",
-        "rhs { block_size: 4 num_non_zero: 1 dimension: 0 stride: 1 idx: 3 } lhs { block_size: 4 num_non_zero: 1 dimension: 0 stride: 1 idx: 2 }",
+        "rhs { block_size: 4 num_non_zero: 1 dimension: 0 stride: 1 idx: 3 } lhs { block_size: 4 \
+            num_non_zero: 1 dimension: 0 stride: 1 idx: 2 }",
     );
     assert_eq!(
         to_string(&conv, "convolution"),
-        "%convolution = bf16[256,256]{1,0} convolution(%lhs, %rhs, %lhs_indices, %rhs_indices), dim_labels=bf_io->bf, sparsity_config={lhs={sparsity=1x4 dimension=0 stride=1 idx=2} rhs={sparsity=1x4 dimension=0 stride=1 idx=3}}"
+        "%convolution = bf16[256,256]{1,0} convolution(%lhs, %rhs, %lhs_indices, %rhs_indices), \
+            dim_labels=bf_io->bf, sparsity_config={lhs={sparsity=1x4 dimension=0 stride=1 idx=2} \
+            rhs={sparsity=1x4 dimension=0 stride=1 idx=3}}"
     );
 }
 

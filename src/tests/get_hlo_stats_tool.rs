@@ -7,11 +7,51 @@ const DATABASE: &str = r#"{"cols": [{"id": "rank"}, {"id": "program_id"}, {"id":
 {"c": [{"v": 1}, {"v": "1111111111111111111"}, {"v": "Convolution"}, {"v": "%convolution.1 = ... calls=conv_sub"}, {"v": "conv2d"}, {"v": 10}, {"v": 1200.0}, {"v": 1000.0}, {"v": 0.5}, {"v": 0.8}, {"v": 500.0}, {"v": 0}, {"v": 50.0}, {"v": "Compute"}, {"v": "model.py"}, {"v": 42}]},
 {"c": [{"v": 2}, {"v": "2222222222222222222"}, {"v": "Fusion"}, {"v": "%fusion.2 = ... calls=fusion_sub"}, {"v": "gelu"}, {"v": 5}, {"v": 900.0}, {"v": 800.0}, {"v": 0.4}, {"v": 0.2}, {"v": 100.0}, {"v": 0}, {"v": 80.0}, {"v": "HBM"}, {"v": ""}, {"v": 0}]},
 {"c": [{"v": 3}, {"v": "3333333333333333333"}, {"v": "Tuple"}, {"v": "%tuple.3 = tuple()"}, {"v": ""}, {"v": 20}, {"v": 200.0}, {"v": 200.0}, {"v": 0.1}, {"v": 0.0}, {"v": null}, {"v": 10}, {"v": 10.0}, {"v": "Unknown"}, {"v": ""}, {"v": 0}]}]}"#;
-const SINGLE: &str = r#"{"cols": [{"id": "rank"}, {"id": "program_id"}, {"id": "hlo_category"}, {"id": "hlo_expression"}, {"id": "total_self_time_in_us"}], "rows": [{"c": [{"v": 1}, {"v": 100}, {"v": "Custom"}, {"v": "EXPRESSION"}, {"v": 500.0}]}]}"#;
+const SINGLE: &str = concat!(
+    r#"{"cols": [{"id": "rank"}, {"id": "program_id"}, {"id": "hlo_category"}, {"id": "#,
+    r#""hlo_expression"}, {"id": "total_self_time_in_us"}], "rows": [{"c": [{"v": 1}, {"v": "#,
+    r#"100}, {"v": "Custom"}, {"v": "EXPRESSION"}, {"v": 500.0}]}]}"#,
+);
 const DATATABLE: &str = r#"{"cols": [{"id": "rank", "label": "Rank", "type": "number"}, {"id": "program_id", "label": "Program ID", "type": "number"}, {"id": "hlo_category", "label": "Category", "type": "string"}, {"id": "hlo_expression", "label": "HLO Expression", "type": "string"}, {"id": "tf_op_name", "label": "TF Op Name", "type": "string"}, {"id": "occurrences", "label": "Occurrences", "type": "number"}, {"id": "total_time_in_us", "label": "Total Time (us)", "type": "number"}, {"id": "total_self_time_in_us", "label": "Total Self Time (us)", "type": "number"}, {"id": "total_self_time_as_fraction", "label": "Fraction", "type": "number"}, {"id": "measured_flop_rate", "label": "FLOP Rate", "type": "number"}, {"id": "flops", "label": "FLOPs", "type": "number"}, {"id": "measured_memory_bw", "label": "Memory BW", "type": "number"}, {"id": "bound_by", "label": "Bound By", "type": "string"}, {"id": "source_file", "label": "Source File", "type": "string"}, {"id": "source_line", "label": "Source Line", "type": "number"}], "rows": [
 {"c": [{"v": 1}, {"v": 11111}, {"v": "Convolution"}, {"v": "%convolution.1 = ..."}, {"v": "conv2d"}, {"v": 10}, {"v": 1200.0}, {"v": 1000.0}, {"v": 0.5}, {"v": 0.8}, {"v": 500.0}, {"v": 50.0}, {"v": "Compute"}, {"v": "model.py"}, {"v": 42}]},
 {"c": [{"v": 2}, {"v": 22222}, {"v": "Fusion"}, {"v": "%fusion.2 = ..."}, {"v": "gelu"}, {"v": 5}, {"v": 900.0}, {"v": 800.0}, {"v": 0.4}, {"v": 0.2}, {"v": 100.0}, {"v": 80.0}, {"v": "HBM"}, {"v": ""}, {"v": 0}]}]}"#;
-const SERVER: &str = r##"{"cols": [{"id": "rank", "label": "Rank", "type": "number"}, {"id": "program_id", "label": "Program id", "type": "string"}, {"id": "category", "label": "HLO op category", "type": "string"}, {"id": "hlo_op_name", "label": "HLO op name", "type": "string"}, {"id": "hlo_op_expression", "label": "HLO op text", "type": "string"}, {"id": "tf_op_name", "label": "Framework op name", "type": "string"}, {"id": "occurrences", "label": "#Occurrences", "type": "number"}, {"id": "total_time", "label": "Total time (us)", "type": "number"}, {"id": "avg_time", "label": "Avg. time (us)", "type": "number"}, {"id": "total_self_time", "label": "Total self time (us)", "type": "number"}, {"id": "avg_self_time", "label": "Avg. self time (us)", "type": "number"}, {"id": "total_self_time_percent", "label": "Total self time (%)", "type": "number"}, {"id": "cumulative_total_self_time_percent", "label": "Cumulative total self time (%)", "type": "number"}, {"id": "dma_stall_percent", "label": "%time stalled by DMA", "type": "number"}, {"id": "model_flop_rate", "label": "Model GFLOP/s", "type": "number"}, {"id": "normalized_flop_rate", "label": "Normalized GFLOP/s", "type": "number"}, {"id": "measured_memory_bw", "label": "Measured memory BW (GiB/s)", "type": "number"}, {"id": "hbm_bw", "label": "HBM BW (GiB/s)", "type": "number"}, {"id": "cmem_read_bw", "label": "CMEM Read BW (GiB/s)", "type": "number"}, {"id": "cmem_write_bw", "label": "CMEM Write BW (GiB/s)", "type": "number"}, {"id": "operational_intensity", "label": "Operational intensity (FLOPS/Byte)", "type": "number"}, {"id": "bound_by", "label": "Bound by", "type": "string"}, {"id": "hlo_rematerialization", "label": "Rematerialization", "type": "string"}, {"id": "outside_compilation", "label": "Outside Compilation", "type": "string"}, {"id": "autotuned", "label": "Autotuned", "type": "string"}, {"id": "source_info", "label": "Source Info", "type": "string"}, {"id": "core_type", "label": "TPU core type", "type": "string"}, {"id": "parent_op_name", "label": "Parent op name", "type": "string"}, {"id": "vdd_energy", "label": "VDD Energy (J)", "type": "number"}], "rows": [{"c": [{"v": 1}, {"v": "15845321592809624413"}, {"v": "convolution fusion"}, {"v": "fusion.12341"}, {"v": "%fusion.12341 = (f32[32,128,128], f32[32,128,128]) fusion(%arg0, %arg1), kind=kCustom, calls=%fused_computation.12341"}, {"v": "conv2d"}, {"v": 3}, {"v": 1318200.0}, {"v": 439400.0}, {"v": 974132.5}, {"v": 324710.8}, {"v": 99.77}, {"v": 99.77}, {"v": 0.0}, {"v": 1200.5}, {"v": 1150.0}, {"v": 650.2}, {"v": 650.2}, {"v": 0.0}, {"v": 0.0}, {"v": 15.8}, {"v": "Compute"}, {"v": "No"}, {"v": "No"}, {"v": "No"}, {"v": "transformer.py:5841"}, {"v": "TensorCore"}, {"v": "root"}, {"v": 0.0}]}]}"##;
+const SERVER: &str = concat!(
+    r##"{"cols": [{"id": "rank", "label": "Rank", "type": "number"}, {"id": "program_id", "##,
+    r##""label": "Program id", "type": "string"}, {"id": "category", "label": "HLO op "##,
+    r##"category", "type": "string"}, {"id": "hlo_op_name", "label": "HLO op name", "type": "##,
+    r##""string"}, {"id": "hlo_op_expression", "label": "HLO op text", "type": "string"}, "##,
+    r##"{"id": "tf_op_name", "label": "Framework op name", "type": "string"}, {"id": "##,
+    r##""occurrences", "label": "#Occurrences", "type": "number"}, {"id": "total_time", "##,
+    r##""label": "Total time (us)", "type": "number"}, {"id": "avg_time", "label": "Avg. "##,
+    r##"time (us)", "type": "number"}, {"id": "total_self_time", "label": "Total self time "##,
+    r##"(us)", "type": "number"}, {"id": "avg_self_time", "label": "Avg. self time (us)", "##,
+    r##""type": "number"}, {"id": "total_self_time_percent", "label": "Total self time "##,
+    r##"(%)", "type": "number"}, {"id": "cumulative_total_self_time_percent", "label": "##,
+    r##""Cumulative total self time (%)", "type": "number"}, {"id": "dma_stall_percent", "##,
+    r##""label": "%time stalled by DMA", "type": "number"}, {"id": "model_flop_rate", "##,
+    r##""label": "Model GFLOP/s", "type": "number"}, {"id": "normalized_flop_rate", "##,
+    r##""label": "Normalized GFLOP/s", "type": "number"}, {"id": "measured_memory_bw", "##,
+    r##""label": "Measured memory BW (GiB/s)", "type": "number"}, {"id": "hbm_bw", "label": "##,
+    r##""HBM BW (GiB/s)", "type": "number"}, {"id": "cmem_read_bw", "label": "CMEM Read BW "##,
+    r##"(GiB/s)", "type": "number"}, {"id": "cmem_write_bw", "label": "CMEM Write BW "##,
+    r##"(GiB/s)", "type": "number"}, {"id": "operational_intensity", "label": "Operational "##,
+    r##"intensity (FLOPS/Byte)", "type": "number"}, {"id": "bound_by", "label": "Bound by", "##,
+    r##""type": "string"}, {"id": "hlo_rematerialization", "label": "Rematerialization", "##,
+    r##""type": "string"}, {"id": "outside_compilation", "label": "Outside Compilation", "##,
+    r##""type": "string"}, {"id": "autotuned", "label": "Autotuned", "type": "string"}, "##,
+    r##"{"id": "source_info", "label": "Source Info", "type": "string"}, {"id": "##,
+    r##""core_type", "label": "TPU core type", "type": "string"}, {"id": "parent_op_name", "##,
+    r##""label": "Parent op name", "type": "string"}, {"id": "vdd_energy", "label": "VDD "##,
+    r##"Energy (J)", "type": "number"}], "rows": [{"c": [{"v": 1}, {"v": "##,
+    r##""15845321592809624413"}, {"v": "convolution fusion"}, {"v": "fusion.12341"}, {"v": "##,
+    r##""%fusion.12341 = (f32[32,128,128], f32[32,128,128]) fusion(%arg0, %arg1), "##,
+    r##"kind=kCustom, calls=%fused_computation.12341"}, {"v": "conv2d"}, {"v": 3}, {"v": "##,
+    r##"1318200.0}, {"v": 439400.0}, {"v": 974132.5}, {"v": 324710.8}, {"v": 99.77}, {"v": "##,
+    r##"99.77}, {"v": 0.0}, {"v": 1200.5}, {"v": 1150.0}, {"v": 650.2}, {"v": 650.2}, {"v": "##,
+    r##"0.0}, {"v": 0.0}, {"v": 15.8}, {"v": "Compute"}, {"v": "No"}, {"v": "No"}, {"v": "##,
+    r##""No"}, {"v": "transformer.py:5841"}, {"v": "TensorCore"}, {"v": "root"}, {"v": "##,
+    r##"0.0}]}]}"##,
+);
 const LONG_EXPRESSION: &str = "custom_op_instruction_without_standard_hlo_format_that_is_very_long";
 
 fn records(fake: &Fake, pairs: &[(&str, J)]) -> Vec<J> {

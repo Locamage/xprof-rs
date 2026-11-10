@@ -190,7 +190,8 @@ async fn hosts() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "differs from upstream: xprof-rs reads only .xplane.pb files, it has no riegeli decoder, so host1.xplane.riegeli is not listed"]
+#[ignore = "differs from upstream: xprof-rs reads only .xplane.pb files, it has no riegeli \
+    decoder, so host1.xplane.riegeli is not listed"]
 async fn parse_filename_riegeli() {
     let logdir = temp_logdir("riegeli");
     let session = logdir.join("plugins/profile/s");
@@ -556,7 +557,8 @@ async fn hlo_module_list_impl_sorts_module_names() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        "jit__where(2141868631891211743),jit_add(3326385976583000095),jit_add(8254229641153238180),jit_train_step(4869159985936022652)"
+        "jit__where(2141868631891211743),jit_add(3326385976583000095),jit_add(8254229641153238180),\
+            jit_train_step(4869159985936022652)"
     );
     std::fs::remove_dir_all(&logdir).unwrap();
 }

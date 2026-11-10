@@ -38,7 +38,8 @@ fn kernel_details_x_stat_parser() {
     let (registers, static_shared, dynamic_shared, block, grid, occupancy_pct) =
         (10, 128, 256, [32, 8, 4], [3, 2, 1], 50.0);
     let details = format!(
-        "regs:{registers} static_shared:{static_shared} dynamic_shared:{dynamic_shared} grid:{},{},{} block:{},{},{} occ_pct:{occupancy_pct}",
+        "regs:{registers} static_shared:{static_shared} dynamic_shared:{dynamic_shared} \
+            grid:{},{},{} block:{},{},{} occ_pct:{occupancy_pct}",
         grid[0], grid[1], grid[2], block[0], block[1], block[2]
     );
     let (mut kernel, mut occupancy) = (KernelKey::default(), 0.0);

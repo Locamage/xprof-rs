@@ -219,7 +219,10 @@ fn test_get_hosts_empty() {
 
 #[test]
 fn test_get_device_information_success() {
-    let roofline = r#"[{"p": {"device_type": "TPU v5p", "peak_flop_rate": "1234.5", "peak_hbm_bw": "678", "peak_vmem_bw": "910", "ridge_point": "not_a_number"}}]"#;
+    let roofline = concat!(
+        r#"[{"p": {"device_type": "TPU v5p", "peak_flop_rate": "1234.5", "peak_hbm_bw": "#,
+        r#""678", "peak_vmem_bw": "910", "ridge_point": "not_a_number"}}]"#,
+    );
     let result = json(get_device_information(&Fake::fixed(roofline), &args("session_device", &[])));
     assert_eq!(result.at("device_type").str(), Some("TPU v5p"));
     assert_eq!(result.at("peak_flop_rate"), &J::Float(1234.5));

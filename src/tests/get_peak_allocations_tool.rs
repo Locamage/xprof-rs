@@ -4,11 +4,23 @@ use crate::cli::hlo::get_peak_allocations;
 use crate::cli::json::J;
 use std::cell::Cell;
 
-const NOTE: &str = "# Peak Memory Allocations by Module\n\n> [!NOTE]\n> **Aggregation Logic:**\n> - Buffers with similar names (e.g., `name.1`, `name.2`) and identical sizes are aggregated into `name.*`.\n> - Buffers smaller than the threshold are aggregated into 'Others'.\n\n";
-const MODULE_ONE: &str = "## Module: `module1`\nTotal HBM: 100.00 MiB\n\n| Instruction | Size (MiB) |\n| :--- | ---: |\n| `op1` | 2.00 |\n";
-const OP1_2MIB: &str = r#"{"totalBufferAllocationMib": 100.0, "bufferAssignment": {"logicalBuffers": [{"size": "2097152", "definedAt": {"instructionName": "op1"}}]}}"#;
-const OP1_1MIB: &str = r#"{"totalBufferAllocationMib": 100.0, "bufferAssignment": {"logicalBuffers": [{"size": "1048576", "definedAt": {"instructionName": "op1"}}]}}"#;
-const OP2_2MIB: &str = r#"{"totalBufferAllocationMib": 200.0, "bufferAssignment": {"logicalBuffers": [{"size": "2097152", "definedAt": {"instructionName": "op2"}}]}}"#;
+const NOTE: &str = "# Peak Memory Allocations by Module\n\n> [!NOTE]\n> **Aggregation Logic:**\n> \
+    - Buffers with similar names (e.g., `name.1`, `name.2`) and identical sizes are aggregated \
+    into `name.*`.\n> - Buffers smaller than the threshold are aggregated into 'Others'.\n\n";
+const MODULE_ONE: &str = "## Module: `module1`\nTotal HBM: 100.00 MiB\n\n| Instruction | Size \
+    (MiB) |\n| :--- | ---: |\n| `op1` | 2.00 |\n";
+const OP1_2MIB: &str = concat!(
+    r#"{"totalBufferAllocationMib": 100.0, "bufferAssignment": {"logicalBuffers": [{"size": "#,
+    r#""2097152", "definedAt": {"instructionName": "op1"}}]}}"#,
+);
+const OP1_1MIB: &str = concat!(
+    r#"{"totalBufferAllocationMib": 100.0, "bufferAssignment": {"logicalBuffers": [{"size": "#,
+    r#""1048576", "definedAt": {"instructionName": "op1"}}]}}"#,
+);
+const OP2_2MIB: &str = concat!(
+    r#"{"totalBufferAllocationMib": 200.0, "bufferAssignment": {"logicalBuffers": [{"size": "#,
+    r#""2097152", "definedAt": {"instructionName": "op2"}}]}}"#,
+);
 
 type Calls = Vec<(String, Vec<(String, String)>)>;
 
@@ -42,15 +54,26 @@ fn test_get_peak_allocations_success_variants() {
     let cases: [(&[&'static str], &str, &[&str]); 2] = [
         (
             &["module1,module2", OP1_1MIB, OP2_2MIB],
-            r#"[{"module_name": "module2", "total_hbm_mib": 200.0, "top_buffers": [{"instruction": "op2", "size_mib": 2.0}]}, {"module_name": "module1", "total_hbm_mib": 100.0, "top_buffers": [{"instruction": "op1", "size_mib": 1.0}]}]"#,
+            concat!(
+                r#"[{"module_name": "module2", "total_hbm_mib": 200.0, "top_buffers": "#,
+                r#"[{"instruction": "op2", "size_mib": 2.0}]}, {"module_name": "module1", "#,
+                r#""total_hbm_mib": 100.0, "top_buffers": [{"instruction": "op1", "#,
+                r#""size_mib": 1.0}]}]"#,
+            ),
             &["module1", "module2"],
         ),
         (
             &[
                 "module1",
-                r#"{"totalBufferAllocationMib": 100.0, "maxHeap": [{"logicalBufferSizeMib": 1.0, "instructionName": "op1"}]}"#,
+                concat!(
+                    r#"{"totalBufferAllocationMib": 100.0, "maxHeap": "#,
+                    r#"[{"logicalBufferSizeMib": 1.0, "instructionName": "op1"}]}"#,
+                ),
             ],
-            r#"[{"module_name": "module1", "total_hbm_mib": 100.0, "top_buffers": [{"instruction": "op1", "size_mib": 1.0}]}]"#,
+            concat!(
+                r#"[{"module_name": "module1", "total_hbm_mib": 100.0, "top_buffers": "#,
+                r#"[{"instruction": "op1", "size_mib": 1.0}]}]"#,
+            ),
             &["module1"],
         ),
     ];
@@ -87,9 +110,18 @@ fn test_get_peak_allocations_error_markdown() {
 fn test_get_peak_allocations_aggregation() {
     let fake = sequence(&[
         "module1",
-        r#"{"totalBufferAllocationMib": 300.0, "bufferAssignment": {"logicalBuffers": [{"size": "67108864", "definedAt": {"instructionName": "param.1"}},{"size": "67108864", "definedAt": {"instructionName": "param.2"}},{"size": "1048576", "definedAt": {"instructionName": "op1"}}]}}"#,
+        concat!(
+            r#"{"totalBufferAllocationMib": 300.0, "bufferAssignment": {"logicalBuffers": "#,
+            r#"[{"size": "67108864", "definedAt": {"instructionName": "param.1"}},{"size": "#,
+            r#""67108864", "definedAt": {"instructionName": "param.2"}},{"size": "1048576", "#,
+            r#""definedAt": {"instructionName": "op1"}}]}}"#,
+        ),
     ]);
-    let expected = r#"[{"module_name": "module1", "total_hbm_mib": 300.0, "top_buffers": [{"instruction": "param.* (2 occurrences of size 64 MiB)", "size_mib": 128.0}, {"instruction": "op1", "size_mib": 1.0}]}]"#;
+    let expected = concat!(
+        r#"[{"module_name": "module1", "total_hbm_mib": 300.0, "top_buffers": "#,
+        r#"[{"instruction": "param.* (2 occurrences of size 64 MiB)", "size_mib": 128.0}, "#,
+        r#"{"instruction": "op1", "size_mib": 1.0}]}]"#,
+    );
     assert_eq!(
         json(get_peak_allocations(&fake, &args("session_123", &[no_summary()]))),
         parse(expected)
@@ -121,9 +153,18 @@ fn test_get_peak_allocations_limit_variants() {
 fn test_get_peak_allocations_size_threshold() {
     let fake = sequence(&[
         "module1",
-        r#"{"totalBufferAllocationMib": 100.0, "bufferAssignment": {"logicalBuffers": [{"size": "2097152", "definedAt": {"instructionName": "large_op"}},{"size": "524288", "definedAt": {"instructionName": "small_op1"}},{"size": "262144", "definedAt": {"instructionName": "small_op2"}}]}}"#,
+        concat!(
+            r#"{"totalBufferAllocationMib": 100.0, "bufferAssignment": {"logicalBuffers": "#,
+            r#"[{"size": "2097152", "definedAt": {"instructionName": "large_op"}},{"size": "#,
+            r#""524288", "definedAt": {"instructionName": "small_op1"}},{"size": "262144", "#,
+            r#""definedAt": {"instructionName": "small_op2"}}]}}"#,
+        ),
     ]);
-    let expected = r#"[{"module_name": "module1", "total_hbm_mib": 100.0, "top_buffers": [{"instruction": "large_op", "size_mib": 2.0}, {"instruction": "Others (< 1.0 MiB)", "size_mib": 0.75}]}]"#;
+    let expected = concat!(
+        r#"[{"module_name": "module1", "total_hbm_mib": 100.0, "top_buffers": "#,
+        r#"[{"instruction": "large_op", "size_mib": 2.0}, {"instruction": "Others (< 1.0 "#,
+        r#"MiB)", "size_mib": 0.75}]}]"#,
+    );
     assert_eq!(
         json(get_peak_allocations(
             &fake,
@@ -149,9 +190,18 @@ fn test_get_peak_allocations_markdown() {
 fn test_get_peak_allocations_no_aggregation() {
     let fake = sequence(&[
         "module1",
-        r#"{"totalBufferAllocationMib": 100.0, "bufferAssignment": {"logicalBuffers": [{"size": "1048576", "definedAt": {"instructionName": "param.1"}},{"size": "1048576", "definedAt": {"instructionName": "param.2"}},{"size": "524288", "definedAt": {"instructionName": "small_op"}}]}}"#,
+        concat!(
+            r#"{"totalBufferAllocationMib": 100.0, "bufferAssignment": {"logicalBuffers": "#,
+            r#"[{"size": "1048576", "definedAt": {"instructionName": "param.1"}},{"size": "#,
+            r#""1048576", "definedAt": {"instructionName": "param.2"}},{"size": "524288", "#,
+            r#""definedAt": {"instructionName": "small_op"}}]}}"#,
+        ),
     ]);
-    let expected = r#"[{"module_name": "module1", "total_hbm_mib": 100.0, "top_buffers": [{"instruction": "param.1", "size_mib": 1.0}, {"instruction": "param.2", "size_mib": 1.0}, {"instruction": "small_op", "size_mib": 0.5}]}]"#;
+    let expected = concat!(
+        r#"[{"module_name": "module1", "total_hbm_mib": 100.0, "top_buffers": "#,
+        r#"[{"instruction": "param.1", "size_mib": 1.0}, {"instruction": "param.2", "#,
+        r#""size_mib": 1.0}, {"instruction": "small_op", "size_mib": 0.5}]}]"#,
+    );
     assert_eq!(
         json(get_peak_allocations(
             &fake,
@@ -164,7 +214,12 @@ fn test_get_peak_allocations_no_aggregation() {
 #[test]
 fn test_get_peak_allocations_summary_json() {
     let fake = sequence(&["module1", OP1_2MIB]);
-    let expected = r#"{"summary": {"total_modules": 1, "top_modules": [{"module_name": "module1", "total_hbm_mib": 100.0}]}, "modules": [{"module_name": "module1", "total_hbm_mib": 100.0, "top_buffers": [{"instruction": "op1", "size_mib": 2.0}]}]}"#;
+    let expected = concat!(
+        r#"{"summary": {"total_modules": 1, "top_modules": [{"module_name": "module1", "#,
+        r#""total_hbm_mib": 100.0}]}, "modules": [{"module_name": "module1", "#,
+        r#""total_hbm_mib": 100.0, "top_buffers": [{"instruction": "op1", "size_mib": "#,
+        r#"2.0}]}]}"#,
+    );
     assert_eq!(
         json(get_peak_allocations(
             &fake,
@@ -185,7 +240,8 @@ fn test_get_peak_allocations_summary_markdown() {
             &[("output_format", J::from("markdown")), ("include_summary", J::Bool(true))],
         ),
     ));
-    let summary = "## Session Summary\n- Total Modules: 1\n\n| Module | Total HBM (MiB) |\n| :--- | ---: |\n| `module1` | 100.00 |\n\n";
+    let summary = "## Session Summary\n- Total Modules: 1\n\n| Module | Total HBM (MiB) |\n| :--- \
+        | ---: |\n| `module1` | 100.00 |\n\n";
     assert_eq!(result, format!("{NOTE}{summary}{MODULE_ONE}"));
     assert_eq!(*fake.calls.borrow(), calls(&["module1"]));
 }
@@ -220,34 +276,59 @@ fn test_get_module_names_failure_variants() {
 
 #[test]
 fn test_parse_and_aggregate_buffers_logical_buffers() {
-    let module = r#"{"bufferAssignment": {"logicalBuffers": [{"size": "1048576", "definedAt": {"instructionName": "param.1"}}, {"size": "1048576", "definedAt": {"instructionName": "param.2"}}, {"size": "2097152", "definedAt": {"instructionName": "op1"}}]}}"#;
+    let module = concat!(
+        r#"{"bufferAssignment": {"logicalBuffers": [{"size": "1048576", "definedAt": "#,
+        r#"{"instructionName": "param.1"}}, {"size": "1048576", "definedAt": "#,
+        r#"{"instructionName": "param.2"}}, {"size": "2097152", "definedAt": "#,
+        r#"{"instructionName": "op1"}}]}}"#,
+    );
     let result = json(get_peak_allocations(
         &sequence(&["module1", module]),
         &args("session_123", &[no_summary()]),
     ));
-    let expected = r#"[{"instruction": "param.* (2 occurrences of size 1 MiB)", "size_mib": 2.0}, {"instruction": "op1", "size_mib": 2.0}]"#;
+    let expected = concat!(
+        r#"[{"instruction": "param.* (2 occurrences of size 1 MiB)", "size_mib": 2.0}, "#,
+        r#"{"instruction": "op1", "size_mib": 2.0}]"#,
+    );
     assert_eq!(result.items()[0].at("top_buffers"), &parse(expected));
 }
 
 #[test]
 fn test_parse_and_aggregate_buffers_max_heap_fallback() {
-    let module = r#"{"maxHeap": [{"logicalBufferSizeMib": 1.0, "instructionName": "param.1"}, {"logicalBufferSizeMib": 1.0, "instructionName": "param.2"}, {"logicalBufferSizeMib": 2.0, "instructionName": "op1"}]}"#;
+    let module = concat!(
+        r#"{"maxHeap": [{"logicalBufferSizeMib": 1.0, "instructionName": "param.1"}, "#,
+        r#"{"logicalBufferSizeMib": 1.0, "instructionName": "param.2"}, "#,
+        r#"{"logicalBufferSizeMib": 2.0, "instructionName": "op1"}]}"#,
+    );
     let result = json(get_peak_allocations(
         &sequence(&["module1", module]),
         &args("session_123", &[no_summary()]),
     ));
-    let expected = r#"[{"instruction": "param.* (2 occurrences of size 1 MiB)", "size_mib": 2.0}, {"instruction": "op1", "size_mib": 2.0}]"#;
+    let expected = concat!(
+        r#"[{"instruction": "param.* (2 occurrences of size 1 MiB)", "size_mib": 2.0}, "#,
+        r#"{"instruction": "op1", "size_mib": 2.0}]"#,
+    );
     assert_eq!(result.items()[0].at("top_buffers"), &parse(expected));
 }
 
 #[test]
 fn test_parse_and_aggregate_buffers_no_aggregation() {
-    let module = r#"{"bufferAssignment": {"logicalBuffers": [{"size": "1048576", "definedAt": {"instructionName": "param.1"}}, {"size": "1048576", "definedAt": {"instructionName": "param.2"}}, {"size": "2097152", "definedAt": {"instructionName": "op1"}}, {"size": "524288", "definedAt": {"instructionName": "small_op"}}]}}"#;
+    let module = concat!(
+        r#"{"bufferAssignment": {"logicalBuffers": [{"size": "1048576", "definedAt": "#,
+        r#"{"instructionName": "param.1"}}, {"size": "1048576", "definedAt": "#,
+        r#"{"instructionName": "param.2"}}, {"size": "2097152", "definedAt": "#,
+        r#"{"instructionName": "op1"}}, {"size": "524288", "definedAt": {"instructionName": "#,
+        r#""small_op"}}]}}"#,
+    );
     let result = json(get_peak_allocations(
         &sequence(&["module1", module]),
         &args("session_123", &[("aggregate_instructions", J::Bool(false)), no_summary()]),
     ));
-    let expected = r#"[{"instruction": "op1", "size_mib": 2.0}, {"instruction": "param.1", "size_mib": 1.0}, {"instruction": "param.2", "size_mib": 1.0}, {"instruction": "small_op", "size_mib": 0.5}]"#;
+    let expected = concat!(
+        r#"[{"instruction": "op1", "size_mib": 2.0}, {"instruction": "param.1", "size_mib": "#,
+        r#"1.0}, {"instruction": "param.2", "size_mib": 1.0}, {"instruction": "small_op", "#,
+        r#""size_mib": 0.5}]"#,
+    );
     assert_eq!(result.items()[0].at("top_buffers"), &parse(expected));
 }
 

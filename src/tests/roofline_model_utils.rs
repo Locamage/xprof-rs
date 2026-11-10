@@ -5,7 +5,8 @@ const GIBI_IN_GIGA: f64 = (1u64 << 30) as f64 / 1.0e9;
 
 fn ridge_point(peak_gigaflops_per_second: f64, peak_gibibytes_per_second: f64) -> String {
     let text = format!(
-        "run_environment {{ hardware_type: TPU }} perf_env {{ peak_tera_flops_per_second: {} peak_bws_giga_bytes_per_second: [{}] }}",
+        "run_environment {{ hardware_type: TPU }} perf_env {{ peak_tera_flops_per_second: {} \
+            peak_bws_giga_bytes_per_second: [{}] }}",
         peak_gigaflops_per_second / 1e3,
         peak_gibibytes_per_second * GIBI_IN_GIGA
     );

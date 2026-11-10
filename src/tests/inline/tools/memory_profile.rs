@@ -19,5 +19,11 @@ fn byte_counts_and_steps_that_are_too_large() {
         .concat();
     let map = bytes(1, &plane);
     let json = json(&crate::xplane::parse(&map).unwrap(), &map);
-    assert!(json.contains(r#""allocationBytes":"-9223372036854775808","address":"0","tfOpName":"","stepId":"-9223372036854775808""#), "{json}");
+    assert!(
+        json.contains(concat!(
+            r#""allocationBytes":"-9223372036854775808","address":"0","tfOpName":"","#,
+            r#""stepId":"-9223372036854775808""#,
+        )),
+        "{json}"
+    );
 }

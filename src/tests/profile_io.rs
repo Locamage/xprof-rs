@@ -12,7 +12,8 @@ fn served(dir: &std::path::Path) -> Shared {
 }
 
 #[test]
-#[ignore = "differs from upstream: xprof-rs reads only .xplane.pb files, it has no riegeli decoder, so 3.xplane.riegeli is not a profile"]
+#[ignore = "differs from upstream: xprof-rs reads only .xplane.pb files, it has no riegeli \
+    decoder, so 3.xplane.riegeli is not a profile"]
 fn test_get_xplane_basenames() {
     let dir = temp_dir("basenames");
     for (name, content) in

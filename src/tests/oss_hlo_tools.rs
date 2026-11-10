@@ -8,7 +8,9 @@ use crate::cli::json::J;
 use prost::Message;
 
 const MODULE: &str = "module_0001.jit_compute.hlo_proto.pb";
-const GRAPH: &str = "%entry (\n  %x = f32[10] parameter(0)\n  %w = f32[10] parameter(1)\n  %mul = f32[10] multiply(%x, %w)\n  %add = f32[10] add(%mul, %x)\n  ROOT %neg = f32[10] negate(%add)\n)\n";
+const GRAPH: &str = "%entry (\n  %x = f32[10] parameter(0)\n  %w = f32[10] parameter(1)\n  %mul = \
+    f32[10] multiply(%x, %w)\n  %add = f32[10] add(%mul, %x)\n  ROOT %neg = f32[10] \
+    negate(%add)\n)\n";
 
 fn session(name: &str, modules: &[&str]) -> std::path::PathBuf {
     let dir = scratch(name);
@@ -39,7 +41,11 @@ fn test_list_hlo_modules_success() {
 #[test]
 fn test_get_hlo_module_content_success() {
     let dir = session("hlo-content", &[MODULE]);
-    let fake = Fake::fixed("HloModule jit_compute\n\n%entry (\n  %x = f32[10] parameter(0)\n  ROOT %neg = f32[10] negate(%x)\n)\n").in_dir(&dir);
+    let fake = Fake::fixed(
+        "HloModule jit_compute\n\n%entry (\n  %x = f32[10] parameter(0)\n  ROOT %neg = f32[10] \
+            negate(%x)\n)\n",
+    )
+    .in_dir(&dir);
     let content = text(get_hlo_module_content(
         &fake,
         &args(&dir.to_string_lossy(), &[("module_name", J::from("module_0001.jit_compute"))]),

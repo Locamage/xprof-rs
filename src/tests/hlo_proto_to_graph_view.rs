@@ -58,7 +58,10 @@ fn short_txt_type() {
         view(&[("module_name", "fused_while"), ("type", "short_txt"), ("show_metadata", "true")])
             .unwrap();
     assert!(params2.contains("  mul = f32[4]{0} multiply(p0, p1)\n"));
-    assert!(params2.contains("metadata={op_type=\"Mul\" op_name=\"jit(f)/while/body/mul\" source_file=\"f.py\" source_line=7}"));
+    assert!(params2.contains(
+        "metadata={op_type=\"Mul\" op_name=\"jit(f)/while/body/mul\" source_file=\"f.py\" \
+            source_line=7}"
+    ));
 }
 
 #[test]
@@ -70,7 +73,10 @@ fn long_txt_type() {
         view(&[("module_name", "fused_while"), ("type", "long_txt"), ("show_metadata", "true")])
             .unwrap();
     assert!(params2.contains("  %mul = f32[4]{0} multiply(%p0, %p1)\n"));
-    assert!(params2.contains("metadata={op_type=\"Mul\" op_name=\"jit(f)/while/body/mul\" source_file=\"f.py\" source_line=7}"));
+    assert!(params2.contains(
+        "metadata={op_type=\"Mul\" op_name=\"jit(f)/while/body/mul\" source_file=\"f.py\" \
+            source_line=7}"
+    ));
 }
 
 #[test]

@@ -193,7 +193,8 @@ fn to_string_tuple_with_metadata_test() {
     );
     assert_eq!(
         to_string(sharding, true),
-        "{{replicated metadata={op_name=\"d\"}}, {devices=[1,2]3,5}, {maximal device=3 metadata={op_name=\"e\"}}}"
+        "{{replicated metadata={op_name=\"d\"}}, {devices=[1,2]3,5}, {maximal device=3 \
+            metadata={op_name=\"e\"}}}"
     );
 }
 
@@ -244,6 +245,7 @@ fn to_string_with_named_sharding_test() {
     };
     assert_eq!(
         to_string(tuple_sharding, true),
-        "{{mesh['a'=2,'b'=4], [{'a'}, {'b'}]}, {mesh['a'=2,'b'=4], [{'a'}, {'b'}]}, {mesh['a'=2,'b'=4], [{'a'}, {'b'}], metadata={{op_name=\"b\"}, {op_name=\"c\"}}}}"
+        "{{mesh['a'=2,'b'=4], [{'a'}, {'b'}]}, {mesh['a'=2,'b'=4], [{'a'}, {'b'}]}, \
+            {mesh['a'=2,'b'=4], [{'a'}, {'b'}], metadata={{op_name=\"b\"}, {op_name=\"c\"}}}}"
     );
 }

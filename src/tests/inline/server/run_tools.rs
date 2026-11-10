@@ -88,7 +88,10 @@ fn cache_round_trips_and_invalidates_on_file_changes() {
     std::fs::write(dir.join("host.xplane.pb"), plane("/host:CPU", &[])).unwrap();
     assert_eq!(
         json(&dir),
-        r#"["overview_page", "trace_viewer@", "op_profile", "input_pipeline_analyzer", "memory_profile", "roofline_model", "framework_op_stats", "hlo_stats"]"#
+        concat!(
+            r#"["overview_page", "trace_viewer@", "op_profile", "input_pipeline_analyzer", "#,
+            r#""memory_profile", "roofline_model", "framework_op_stats", "hlo_stats"]"#,
+        )
     );
     let written = std::fs::read_to_string(dir.join(CACHE_FILE)).unwrap();
     assert!(written.starts_with("{\n  \"files\": {\n    \"host.xplane.pb\": \"") && written.ends_with("\"\n  },\n  \"tools\": [\n    \"overview_page\",\n    \"trace_viewer@\",\n    \"op_profile\",\n    \"input_pipeline_analyzer\",\n    \"memory_profile\",\n    \"roofline_model\",\n    \"framework_op_stats\",\n    \"hlo_stats\"\n  ],\n  \"version\": 1\n}"), "{written}");

@@ -1,7 +1,8 @@
 use super::opstats_adapter::op_stats;
 use serde_json::Value;
 
-const PERF_ENV: &str = "perf_env { peak_tera_flops_per_second: 10.0 peak_bws_giga_bytes_per_second: [100.0, 100.0, 100.0] }";
+const PERF_ENV: &str = "perf_env { peak_tera_flops_per_second: 10.0 \
+    peak_bws_giga_bytes_per_second: [100.0, 100.0, 100.0] }";
 
 fn create_op_metrics(name: &str, time: u64, category: &str, deduplicated_name: &str) -> String {
     format!(

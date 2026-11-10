@@ -15,10 +15,12 @@ buffer_assignment {
   logical_buffers { id: 2 size: 524288 color: 0 defined_at { instruction_id: 1 shape_index: 0 } }
   logical_buffers { id: 3 size: 1048576 color: 0 defined_at { instruction_id: 2 shape_index: 0 } }
   heap_simulator_traces { %s } }"#;
-const ALLOC_ALLOC_FREE_FREE: &str = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
+const ALLOC_ALLOC_FREE_FREE: &str = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC \
+    buffer_id: 2 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
 const HALF: u64 = 524288;
 
-/// Gives an HLO proto text with one allocation (index 0). Instruction `i` has id `i` and defines the logical buffer with id `i + 1`.
+/// Gives an HLO proto text with one allocation (index 0). Instruction `i` has id `i` and defines
+/// the logical buffer with id `i + 1`.
 fn hlo_text(color: u8, allocation_size: u64, buffers: &[(&str, u64, u64)], trace: &str) -> String {
     let (mut instructions, mut assigned, mut logical) =
         (String::new(), String::new(), String::new());
@@ -29,7 +31,8 @@ fn hlo_text(color: u8, allocation_size: u64, buffers: &[(&str, u64, u64)], trace
         assigned +=
             &format!("assigned {{ logical_buffer_id: {} offset: {offset} size: {size} }} ", id + 1);
         logical += &format!(
-            "logical_buffers {{ id: {} size: {size} color: {color} defined_at {{ instruction_id: {id} shape_index: 0 }} }} ",
+            "logical_buffers {{ id: {} size: {size} color: {color} defined_at {{ instruction_id: \
+                {id} shape_index: 0 }} }} ",
             id + 1
         );
     }
@@ -228,7 +231,9 @@ fn rects_overlap(a: &DoubleRectInfo, b: &DoubleRectInfo) -> bool {
 
 #[test]
 fn test_heap_simulator_trace_share_with_1() {
-    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 \
+        share_with_canonical_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: FREE \
+        buffer_id: 2 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
     assert_eq!(number(&preprocess_result, "peakUnpaddedHeapMib"), 8.0 / (1 << 20) as f64 + 1.0);
@@ -238,7 +243,9 @@ fn test_heap_simulator_trace_share_with_1() {
 
 #[test]
 fn test_heap_simulator_trace_share_with_2() {
-    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 2 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { \
+        kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: \
+        2 }";
     let proto = hlo_proto(&HLO_BASE.replace("%s", trace));
     let preprocess_result = preprocess(&proto, 0);
     assert_eq!(number(&preprocess_result, "peakHeapMib"), 1.5);
@@ -271,7 +278,8 @@ events { kind: ALLOC buffer_id: 4 } events { kind: SHARE_WITH buffer_id: 3 share
         found_fusion_4 |= instruction_name.contains("fusion.4");
         assert!(
             !instruction_name.contains("fusion.1"),
-            "Bar chart shows root canonical name 'fusion.1' instead of sharer name 'fusion.3'. heap_object.instruction_name()={instruction_name}"
+            "Bar chart shows root canonical name 'fusion.1' instead of sharer name 'fusion.3'. \
+                heap_object.instruction_name()={instruction_name}"
         );
     }
     assert!(found_fusion_3, "Expected sharer C's instruction 'fusion.3' in the bar chart");
@@ -304,7 +312,8 @@ fn test_logical_buffers_do_not_overlap() {
                 let (top, bottom) = (boundary(&pair[0], 1), boundary(&pair[1], -1));
                 assert!(
                     (bottom - top).abs() <= 0.05,
-                    "Non-zero gap between adjacent buffers:\nPrev: {} (top: {top})\nNext: {} (bottom: {bottom})",
+                    "Non-zero gap between adjacent buffers:\nPrev: {} (top: {top})\nNext: {} \
+                        (bottom: {bottom})",
                     pair[0].tooltip,
                     pair[1].tooltip
                 );
@@ -324,7 +333,8 @@ fn test_logical_buffers_do_not_overlap() {
     verify_no_overlap(
         &[("fusion.1", 0, HALF), ("fusion.2", 0, HALF)],
         2 * HALF,
-        "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: FREE buffer_id: 2 }",
+        "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: \
+            ALLOC buffer_id: 2 } events { kind: FREE buffer_id: 2 }",
     );
 }
 
@@ -362,7 +372,9 @@ fn scoped_vmem_allocation_hbm_ignores_scoped() {
 
 #[test]
 fn test_convert_allocation_timeline_buffer_blocks() {
-    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: 2 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: FREE buffer_id: 1 } events { \
+        kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 } events { kind: FREE buffer_id: \
+        2 }";
     let preprocess_result = preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     let blocks = list(&preprocess_result, "bufferBlocks");
     assert_eq!(blocks.len(), 2);
@@ -418,7 +430,9 @@ fn test_allocation_timeline_labels_truncation() {
 
 #[test]
 fn test_allocation_timeline_font_size_scaling() {
-    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { kind: ALLOC buffer_id: 3 } events { kind: FREE buffer_id: 1 } events { kind: FREE buffer_id: 2 } events { kind: FREE buffer_id: 3 }";
+    let trace = "events { kind: ALLOC buffer_id: 1 } events { kind: ALLOC buffer_id: 2 } events { \
+        kind: ALLOC buffer_id: 3 } events { kind: FREE buffer_id: 1 } events { kind: FREE \
+        buffer_id: 2 } events { kind: FREE buffer_id: 3 }";
     let result = allocation_timeline(
         &hlo_proto(&hlo_text(
             1,
@@ -470,8 +484,11 @@ fn memory_viewer_matches_xprof_on_synthetic_modules() {
 #[test]
 fn test_heap_simulator_trace_share_with_cycle() {
     for trace in [
-        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 1 share_with_canonical_id: 1 }\nevents { kind: FREE buffer_id: 1 }",
-        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 1 share_with_canonical_id: 2 }\nevents { kind: FREE buffer_id: 1 }",
+        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 1 \
+            share_with_canonical_id: 1 }\nevents { kind: FREE buffer_id: 1 }",
+        "events { kind: ALLOC buffer_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 2 \
+            share_with_canonical_id: 1 }\nevents { kind: SHARE_WITH buffer_id: 1 \
+            share_with_canonical_id: 2 }\nevents { kind: FREE buffer_id: 1 }",
     ] {
         preprocess(&hlo_proto(&HLO_BASE.replace("%s", trace)), 0);
     }

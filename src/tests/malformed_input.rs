@@ -239,7 +239,9 @@ fn recovery_module_that_is_not_valid() {
 #[test]
 fn provenance_with_many_parts() {
     let text = format!(
-        "device_op_metrics_db {{ metrics_db {{ name: \"op\" category: \"fusion\" provenance: \"{}\" occurrences: 1 time_ps: 10 self_time_ps: 10 }} total_time_ps: 10 total_op_time_ps: 10 }}",
+        "device_op_metrics_db {{ metrics_db {{ name: \"op\" category: \"fusion\" provenance: \
+            \"{}\" occurrences: 1 time_ps: 10 self_time_ps: 10 }} total_time_ps: 10 \
+            total_op_time_ps: 10 }}",
         "a/".repeat(100_000)
     );
     let stats = crate::tests::opstats_adapter::op_stats(&text);
@@ -444,7 +446,9 @@ fn op_profile_deeper_than_the_serde_limit() {
     use crate::cli::ops::{get_hlo_op_profile, get_top_hlo_ops};
     use crate::tests::cli_support::{Fake, args, json};
     let chain = |nodes: usize| {
-        let open = "{\"name\": \"n\", \"metrics\": {\"rawTime\": 1}, \"xla\": {\"category\": \"c\"}, \"children\": [".repeat(nodes);
+        let open = "{\"name\": \"n\", \"metrics\": {\"rawTime\": 1}, \"xla\": {\"category\": \
+            \"c\"}, \"children\": ["
+            .repeat(nodes);
         format!(
             "{{\"byCategory\": {}}}{}}}",
             &open[..open.len() - ", \"children\": [".len()],
@@ -459,7 +463,8 @@ fn op_profile_deeper_than_the_serde_limit() {
     let error = get_hlo_op_profile(&Fake::fixed(&chain(99)), &args("s", &[])).unwrap_err();
     assert_eq!(
         error.message,
-        "Failed to parse op_profile proto: ParseError('Message too deep. Max recursion depth is 100')"
+        "Failed to parse op_profile proto: ParseError('Message too deep. Max recursion depth is \
+            100')"
     );
     let top = json(get_top_hlo_ops(&Fake::fixed(&chain(99)), &args("s", &[])));
     assert_eq!(

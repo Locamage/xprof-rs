@@ -79,7 +79,12 @@ fn perf_counters_rows() {
     assert_eq!(
         out,
         PERF_COLUMNS.to_string()
-            + r#"{"c":[{"v":"host"},{"v":3.0},{"v":"counters_0"},{"v":11.0},{"v":"vf_cycles"},{"f":"0x3e8","v":1000.0},{"v":"cycles"},{"v":"set\"a"}]},{"c":[{"v":"host"},{"v":3.0},{"v":"counters_0"},{"v":11.0},{"v":"busy"},{"f":"0x1f4","v":500.0},{"v":""},{"v":""}]}]}"#
+            + concat!(
+                r#"{"c":[{"v":"host"},{"v":3.0},{"v":"counters_0"},{"v":11.0},"#,
+                r#"{"v":"vf_cycles"},{"f":"0x3e8","v":1000.0},{"v":"cycles"},"#,
+                r#"{"v":"set\"a"}]},{"c":[{"v":"host"},{"v":3.0},{"v":"counters_0"},"#,
+                r#"{"v":11.0},{"v":"busy"},{"f":"0x1f4","v":500.0},{"v":""},{"v":""}]}]}"#,
+            )
     );
     assert_eq!(perf_counters(&[]), PERF_COLUMNS.to_string() + "]}");
 }
@@ -91,7 +96,10 @@ fn utilization_viewer_rows() {
     assert_eq!(rows.len(), 21 + 1 + 2 + 32);
     assert_eq!(
         rows[0],
-        r#"[{"v":0.0},{"v":0.0},{"v":11.0},{"v":0.0},{"v":"Scalar Unit"},{"v":0.0},{"v":2000.0},{"v":"instructions"}]},"#
+        concat!(
+            r#"[{"v":0.0},{"v":0.0},{"v":11.0},{"v":0.0},{"v":"Scalar "#,
+            r#"Unit"},{"v":0.0},{"v":2000.0},{"v":"instructions"}]},"#,
+        )
     );
     assert!(out.contains(r#"{"v":"1 MXU Busy"},{"v":500.0},{"v":1000.0},{"v":"cycles"}"#));
     assert!(
@@ -103,8 +111,16 @@ fn utilization_viewer_rows() {
 #[test]
 fn kernel_utilization_report() {
     let out = kernel_utilization(&space(false), &Default::default());
-    assert!(out.starts_with("{\n  \"devices\": [\n    {\n      \"device_id\": 0,\n      \"device_type\": \"TPU v6 Lite\",\n      \"kernels\": [\n        {\n          \"duration_us\": 2.0,\n          \"kernel_name\": \"fusion.0\",\n          \"mxu_cycles_breakdown\": {\n            \"BF16\": 0.0,"));
-    assert!(out.contains("\"mxu_is_anomaly\": false,\n          \"mxu_utilization\": 25.0,\n          \"other_metrics\": {\n            \"1 MXU Busy\": 50.0,"));
+    assert!(out.starts_with(
+        "{\n  \"devices\": [\n    {\n      \"device_id\": 0,\n      \"device_type\": \"TPU v6 \
+            Lite\",\n      \"kernels\": [\n        {\n          \"duration_us\": \
+            2.0,\n          \"kernel_name\": \"fusion.0\",\n          \"mxu_cycles_breakdown\": \
+            {\n            \"BF16\": 0.0,"
+    ));
+    assert!(out.contains(
+        "\"mxu_is_anomaly\": false,\n          \"mxu_utilization\": \
+            25.0,\n          \"other_metrics\": {\n            \"1 MXU Busy\": 50.0,"
+    ));
     assert!(
         out.ends_with(
             "\n          }\n        }\n      ]\n    }\n  ],\n  \"status\": \"SUCCESS\"\n}"

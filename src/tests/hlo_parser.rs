@@ -336,7 +336,9 @@ mod hlo_parser_test_printing {
     golden!(short_constant, negative_nan, nan_payload);
 
     #[test]
-    #[ignore = "differs from upstream: XProf 2.23.2 prints a fully unreduced named sharding as unreduced=max without its axis list (checked over HTTP); XLA prints the axes only for a strict subset of the mesh"]
+    #[ignore = "differs from upstream: XProf 2.23.2 prints a fully unreduced named sharding as \
+        unreduced=max without its axis list (checked over HTTP); XLA prints the axes only for a \
+        strict subset of the mesh"]
     fn parse_named_sharding_scalar_unreduced_max() {
         assert!(
             instruction("parse_named_sharding_scalar_unreduced_max")

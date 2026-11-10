@@ -395,7 +395,8 @@ fn reduce_window_with_a_padded_dimension_that_is_not_in_the_shape() {
     assert!(reduce_window(vec![padded(-1, -1)], &[0]).is_some());
 }
 
-/// Builds `depth` graphs. Each graph after the first holds a parameter and the instructions that `link` makes, and they call the graph before it.
+/// Builds `depth` graphs. Each graph after the first holds a parameter and the instructions that
+/// `link` makes, and they call the graph before it.
 pub fn chained(
     depth: i64,
     link: impl Fn(i64) -> Vec<HloInstructionProto>,

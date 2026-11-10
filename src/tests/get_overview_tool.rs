@@ -3,7 +3,14 @@ use crate::cli::json::J;
 use crate::cli::overview::get_overview;
 use crate::cli::{Error, Kind};
 
-const OVERVIEW: &str = r#"[{"p": {"stat_memory_bw": "800 GiB/s", "stat_step_time": "15ms", "run_environment": "TPU v4", "idle_percent%": "15.5", "compute_percent%": "84.5", "invalid_percent%": "not_a_number", "device_type": "TPU v4"}}, {"cols": [{"id": "host_id", "type": "string"}, {"id": "bns_address", "type": "string"}, {"id": "command_line", "type": "string"}], "rows": [{"c": [{"v": "test_host"}, {"v": "/bns/test/address"}, {"v": "test command --streamz_default_root_labels=xmanager:int:12345"}]}]}]"#;
+const OVERVIEW: &str = concat!(
+    r#"[{"p": {"stat_memory_bw": "800 GiB/s", "stat_step_time": "15ms", "run_environment": "#,
+    r#""TPU v4", "idle_percent%": "15.5", "compute_percent%": "84.5", "invalid_percent%": "#,
+    r#""not_a_number", "device_type": "TPU v4"}}, {"cols": [{"id": "host_id", "type": "#,
+    r#""string"}, {"id": "bns_address", "type": "string"}, {"id": "command_line", "type": "#,
+    r#""string"}], "rows": [{"c": [{"v": "test_host"}, {"v": "/bns/test/address"}, {"v": "#,
+    r#""test command --streamz_default_root_labels=xmanager:int:12345"}]}]}]"#,
+);
 const COMMAND: &str = "test command --streamz_default_root_labels=xmanager:int:12345";
 
 #[test]
@@ -42,16 +49,27 @@ fn test_get_overview_error() {
 
 #[test]
 fn test_get_overview_roofline_fallback() {
-    let fake = Fake::tools(|tool| {
-        match tool {
-        "overview_page" | "overview_page.json" => {
-            Some(r#"[{"p": {"flop_rate_utilization_relative_to_roofline": "0.0%", "memory_bw_utilization_relative_to_hw_limit": "0.0%", "device_type": "TPU v6 Lite"}}]"#.into())
-        }
+    let fake = Fake::tools(|tool| match tool {
+        "overview_page" | "overview_page.json" => Some(
+            concat!(
+                r#"[{"p": {"flop_rate_utilization_relative_to_roofline": "0.0%", "#,
+                r#""memory_bw_utilization_relative_to_hw_limit": "0.0%", "device_type": "TPU "#,
+                r#"v6 Lite"}}]"#,
+            )
+            .into(),
+        ),
         "roofline_model" | "roofline_model.json" => Some(
-            r#"[{"cols": [{"id": "category", "type": "string"}, {"id": "roofline_efficiency", "type": "number"}, {"id": "compute_efficiency", "type": "number"}, {"id": "max_mem_bw_utilization", "type": "number"}, {"id": "bound_by", "type": "string"}, {"id": "operational_intensity", "type": "number"}], "rows": [{"c": [{"v": "Program"}, {"v": 0.1349}, {"v": 0.0076}, {"v": 0.1349}, {"v": "HBM"}, {"v": 25.89}]}]}]"#.into(),
+            concat!(
+                r#"[{"cols": [{"id": "category", "type": "string"}, {"id": "#,
+                r#""roofline_efficiency", "type": "number"}, {"id": "compute_efficiency", "#,
+                r#""type": "number"}, {"id": "max_mem_bw_utilization", "type": "number"}, "#,
+                r#"{"id": "bound_by", "type": "string"}, {"id": "operational_intensity", "#,
+                r#""type": "number"}], "rows": [{"c": [{"v": "Program"}, {"v": 0.1349}, "#,
+                r#"{"v": 0.0076}, {"v": 0.1349}, {"v": "HBM"}, {"v": 25.89}]}]}]"#,
+            )
+            .into(),
         ),
         _ => None,
-    }
     });
     let result = json(get_overview(&fake, &args("session_123", &[])));
     let summary = result.at("performance_summary");

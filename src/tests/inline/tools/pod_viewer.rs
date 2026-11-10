@@ -56,7 +56,13 @@ fn tpu_breakdowns_do_not_unpack_so_every_type_is_zero_and_output_wins_ties() {
         ..Default::default()
     };
     let json = render(&extra);
-    assert!(json.contains(r#""podStatsPerCore":{"2":{"hostName":"tpu","chipId":0,"nodeId":0,"stepNum":0,"totalDurationUs":2.5,"bottleneck":"Output""#), "{json}");
+    assert!(
+        json.contains(concat!(
+            r#""podStatsPerCore":{"2":{"hostName":"tpu","chipId":0,"nodeId":0,"stepNum":0,"#,
+            r#""totalDurationUs":2.5,"bottleneck":"Output""#,
+        )),
+        "{json}"
+    );
     assert!(json.contains(r#""5":{"hostName":"","chipId":0,"nodeId":0,"stepNum":0,"totalDurationUs":0,"bottleneck":"","stepBreakdownUs":{}}"#), "{json}");
 }
 

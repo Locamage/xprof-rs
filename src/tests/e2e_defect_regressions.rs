@@ -6,7 +6,8 @@ use crate::cli::{Kind, hlo, xplane};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-const SHORT_TXT_GRAPH: &str = "ENTRY entry {\n  x = f32[10] parameter(0)\n  w = f32[10] parameter(1)\n  mul = f32[10] multiply(x, w)\n  ROOT neg = f32[10] negate(mul)\n}\n";
+const SHORT_TXT_GRAPH: &str = "ENTRY entry {\n  x = f32[10] parameter(0)\n  w = f32[10] \
+    parameter(1)\n  mul = f32[10] multiply(x, w)\n  ROOT neg = f32[10] negate(mul)\n}\n";
 const SESSION_ID: &str = "2026_08_24_06_33_12";
 
 fn overview(target: &Path) -> J {

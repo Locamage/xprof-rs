@@ -4,7 +4,9 @@ use crate::cli::client::Local;
 use crate::cli::json::J;
 use crate::cli::xplane::verify_numerical_parity;
 
-const DEPENDENCIES: &str = "Required numerical dependencies are not installed in current environment: No module named 'ml_dtypes'. Please install numpy and ml_dtypes (e.g. 'pip install numpy ml_dtypes') to use verify_numerical_parity.";
+const DEPENDENCIES: &str = "Required numerical dependencies are not installed in current \
+    environment: No module named 'ml_dtypes'. Please install numpy and ml_dtypes (e.g. 'pip \
+    install numpy ml_dtypes') to use verify_numerical_parity.";
 
 fn unavailable(argv: &[&str]) {
     let (code, out, err) = run(argv);

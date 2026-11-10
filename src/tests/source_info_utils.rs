@@ -34,7 +34,8 @@ fn source_info_missing_line() {
 fn stack_frame_with_html() {
     assert_eq!(
         source_info_formatted_text("foo.cc", 42, "<embedded module '_launcher'>"),
-        "<div class='source-info-cell' title='&lt;embedded module &#39;_launcher&#39;&gt;'>foo.cc:42</div>"
+        "<div class='source-info-cell' title='&lt;embedded module \
+            &#39;_launcher&#39;&gt;'>foo.cc:42</div>"
     );
 }
 

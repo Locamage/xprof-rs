@@ -11,7 +11,8 @@ fn printed(name: &str) -> String {
 }
 
 #[test]
-#[ignore = "differs from upstream: XProf 2.23.2 prints the backend_config string of the proto verbatim (checked over HTTP), it does not sort its keys"]
+#[ignore = "differs from upstream: XProf 2.23.2 prints the backend_config string of the proto \
+    verbatim (checked over HTTP), it does not sort its keys"]
 fn check_to_string_sorts_backend_config() {
     assert!(
         printed("check_to_string_sorts_backend_config")

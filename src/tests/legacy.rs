@@ -524,7 +524,52 @@ fn memory_viewer_simulates_shared_buffers_like_xprof() {
     assert_eq!(kind, "application/json");
     assert_eq!(
         body,
-        r##"{"heapSizes":[0.015625,0.03125,0.0625,0.046875,0.046875,0.046875,0.015625],"unpaddedHeapSizes":[0.015625,0.03125,0.0625,0.046875,0.046875,0.046875,0.015625],"maxHeap":[{"numbered":0,"label":"p: f32[64,64]{1,0} # x","logicalBufferId":10,"logicalBufferSizeMib":0.015625,"unpaddedShapeMib":0.015625,"instructionName":"p","shapeString":"f32[64,64]{1,0}","tfOpName":"x","groupName":"Parameter","opCode":"parameter"},{"numbered":1,"label":"a: f32[64,64]{1,0} # jit(f)/exp","logicalBufferId":11,"logicalBufferSizeMib":0.015625,"unpaddedShapeMib":0.015625,"instructionName":"a","shapeString":"f32[64,64]{1,0}","tfOpName":"jit(f)/exp","groupName":"Temporary","opCode":"exp"},{"numbered":2,"label":"b: f32[64,128]{1,0} # jit(f)/log","logicalBufferId":12,"logicalBufferSizeMib":0.03125,"unpaddedShapeMib":0.03125,"instructionName":"b","shapeString":"f32[64,128]{1,0}","tfOpName":"jit(f)/log","groupName":"Temporary","opCode":"log"}],"maxHeapBySize":[{"numbered":2,"label":"b: f32[64,128]{1,0} # jit(f)/log","logicalBufferId":12,"logicalBufferSizeMib":0.03125,"unpaddedShapeMib":0.03125,"instructionName":"b","shapeString":"f32[64,128]{1,0}","tfOpName":"jit(f)/log","groupName":"Temporary","opCode":"log"},{"numbered":0,"label":"p: f32[64,64]{1,0} # x","logicalBufferId":10,"logicalBufferSizeMib":0.015625,"unpaddedShapeMib":0.015625,"instructionName":"p","shapeString":"f32[64,64]{1,0}","tfOpName":"x","groupName":"Parameter","opCode":"parameter"},{"numbered":1,"label":"a: f32[64,64]{1,0} # jit(f)/exp","logicalBufferId":11,"logicalBufferSizeMib":0.015625,"unpaddedShapeMib":0.015625,"instructionName":"a","shapeString":"f32[64,64]{1,0}","tfOpName":"jit(f)/exp","groupName":"Temporary","opCode":"exp"}],"logicalBufferSpans":{"11":{"limit":2},"12":{"start":1,"limit":5}},"maxHeapToBySize":[1,2,0],"bySizeToMaxHeap":[2,0,1],"moduleName":"syn","entryComputationName":"main","peakHeapMib":0.0625,"peakUnpaddedHeapMib":0.0625,"peakHeapSizePosition":1,"entryComputationParametersMib":0.015625,"indefiniteLifetimes":[{"sizeMib":0.015625,"attributes":["entry computation parameter","reusable"],"logicalBuffers":[{"id":"10","shape":"f32[64,64]{1,0}","sizeMib":0.015625,"hloName":"p"}],"commonShape":"f32[64,64]{1,0}"}],"totalBufferAllocationMib":0.078125,"indefiniteBufferAllocationMib":0.015625,"hloInstructionNames":["a","b","b","c","c","c",""],"bufferBlocks":[{"logicalBufferId":-1,"name":"Temporary","size":65536,"endStep":6,"category":"Temporary","color":"#ffffff"},{"logicalBufferId":11,"name":"a","size":16384,"endStep":2,"tfOpName":"jit(f)/exp","category":"Temporary","shapeString":"f32[64,64]{1,0}","unpaddedSize":16384,"color":"#2196f3"},{"logicalBufferId":12,"name":"b","offset":16384,"size":32768,"startStep":1,"endStep":5,"tfOpName":"jit(f)/log","category":"Temporary","shapeString":"f32[64,128]{1,0}","unpaddedSize":32768,"color":"#81c784"}]}"##
+        concat!(
+            r##"{"heapSizes":[0.015625,0.03125,0.0625,0.046875,0.046875,0.046875,0.015625],"##,
+            r##""unpaddedHeapSizes":[0.015625,0.03125,0.0625,0.046875,0.046875,0.046875,"##,
+            r##"0.015625],"maxHeap":[{"numbered":0,"label":"p: f32[64,64]{1,0} # "##,
+            r##"x","logicalBufferId":10,"logicalBufferSizeMib":0.015625,"##,
+            r##""unpaddedShapeMib":0.015625,"instructionName":"p","shapeString":"f32[64,"##,
+            r##"64]{1,0}","tfOpName":"x","groupName":"Parameter","opCode":"parameter"},"##,
+            r##"{"numbered":1,"label":"a: f32[64,64]{1,0} # "##,
+            r##"jit(f)/exp","logicalBufferId":11,"logicalBufferSizeMib":0.015625,"##,
+            r##""unpaddedShapeMib":0.015625,"instructionName":"a","shapeString":"f32[64,"##,
+            r##"64]{1,0}","tfOpName":"jit(f)/exp","groupName":"Temporary","opCode":"exp"},"##,
+            r##"{"numbered":2,"label":"b: f32[64,128]{1,0} # "##,
+            r##"jit(f)/log","logicalBufferId":12,"logicalBufferSizeMib":0.03125,"##,
+            r##""unpaddedShapeMib":0.03125,"instructionName":"b","shapeString":"f32[64,"##,
+            r##"128]{1,0}","tfOpName":"jit(f)/log","groupName":"Temporary","opCode":"log"}],"##,
+            r##""maxHeapBySize":[{"numbered":2,"label":"b: f32[64,128]{1,0} # "##,
+            r##"jit(f)/log","logicalBufferId":12,"logicalBufferSizeMib":0.03125,"##,
+            r##""unpaddedShapeMib":0.03125,"instructionName":"b","shapeString":"f32[64,"##,
+            r##"128]{1,0}","tfOpName":"jit(f)/log","groupName":"Temporary","opCode":"log"},"##,
+            r##"{"numbered":0,"label":"p: f32[64,64]{1,0} # "##,
+            r##"x","logicalBufferId":10,"logicalBufferSizeMib":0.015625,"##,
+            r##""unpaddedShapeMib":0.015625,"instructionName":"p","shapeString":"f32[64,"##,
+            r##"64]{1,0}","tfOpName":"x","groupName":"Parameter","opCode":"parameter"},"##,
+            r##"{"numbered":1,"label":"a: f32[64,64]{1,0} # "##,
+            r##"jit(f)/exp","logicalBufferId":11,"logicalBufferSizeMib":0.015625,"##,
+            r##""unpaddedShapeMib":0.015625,"instructionName":"a","shapeString":"f32[64,"##,
+            r##"64]{1,0}","tfOpName":"jit(f)/exp","groupName":"Temporary","opCode":"exp"}],"##,
+            r##""logicalBufferSpans":{"11":{"limit":2},"12":{"start":1,"limit":5}},"##,
+            r##""maxHeapToBySize":[1,2,0],"bySizeToMaxHeap":[2,0,1],"moduleName":"syn","##,
+            r##""entryComputationName":"main","peakHeapMib":0.0625,"##,
+            r##""peakUnpaddedHeapMib":0.0625,"peakHeapSizePosition":1,"##,
+            r##""entryComputationParametersMib":0.015625,"##,
+            r##""indefiniteLifetimes":[{"sizeMib":0.015625,"attributes":["entry computation "##,
+            r##"parameter","reusable"],"logicalBuffers":[{"id":"10","shape":"f32[64,64]{1,"##,
+            r##"0}","sizeMib":0.015625,"hloName":"p"}],"commonShape":"f32[64,64]{1,0}"}],"##,
+            r##""totalBufferAllocationMib":0.078125,"##,
+            r##""indefiniteBufferAllocationMib":0.015625,"hloInstructionNames":["a","b","b","##,
+            r##""c","c","c",""],"bufferBlocks":[{"logicalBufferId":-1,"name":"Temporary","##,
+            r##""size":65536,"endStep":6,"category":"Temporary","color":"#ffffff"},"##,
+            r##"{"logicalBufferId":11,"name":"a","size":16384,"endStep":2,"##,
+            r##""tfOpName":"jit(f)/exp","category":"Temporary","shapeString":"f32[64,64]{1,"##,
+            r##"0}","unpaddedSize":16384,"color":"#2196f3"},{"logicalBufferId":12,"##,
+            r##""name":"b","offset":16384,"size":32768,"startStep":1,"endStep":5,"##,
+            r##""tfOpName":"jit(f)/log","category":"Temporary","shapeString":"f32[64,128]{1,"##,
+            r##"0}","unpaddedSize":32768,"color":"#81c784"}]}"##,
+        )
     );
 }
 
@@ -838,8 +883,10 @@ fn gpu_kernels_join_their_launch_step_and_derive_stream_lines() {
     let json = String::from_utf8(render(&[view], false, crate::trace::json::Args::Event)).unwrap();
     for expected in [
         "/device:GPU:0\"},\"name\":\"process_name\"",
-        "{\"args\":{\"name\":\"XLA Modules - from #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":4}",
-        "{\"args\":{\"name\":\"XLA Ops - from #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":5}",
+        "{\"args\":{\"name\":\"XLA Modules - from \
+            #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":4}",
+        "{\"args\":{\"name\":\"XLA Ops - from \
+            #7\"},\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1001,\"tid\":5}",
         "\"tid\":3735928559,\"name\":\"train 7\"",
         "\"step_name\":\"train 7\"",
         "\"name\":\"Launch Stats for train 7\"",
@@ -994,7 +1041,13 @@ fn cpu_input_waits_come_from_iterator_ops_and_pipeline_stage_roots() {
     ]
     .concat();
     let pipeline = tools::input_pipeline_analyzer::json(&op_stats_of(&bytes(1, &plane)));
-    assert!(pipeline.contains("{\"c\":[{\"v\":\"train 7\"},{\"v\":0.0},{\"v\":0.0},{\"v\":0.0},{\"v\":0.001},{\"v\":0.0},{\"v\":0.003},"), "{pipeline}");
+    assert!(
+        pipeline.contains(
+            "{\"c\":[{\"v\":\"train \
+                7\"},{\"v\":0.0},{\"v\":0.0},{\"v\":0.0},{\"v\":0.001},{\"v\":0.0},{\"v\":0.003},"
+        ),
+        "{pipeline}"
+    );
     assert!(
         pipeline
             .contains("Your program is HIGHLY input-bound because 30.0% of the total step time"),
@@ -1673,7 +1726,8 @@ async fn routes_answer_at_the_root_and_under_the_plugin_prefix_and_generate_cach
         hide_capture_profile_button: true,
         ..Default::default()
     });
-    let config = "{\"enableTabNameLabel\": false, \"hideCaptureProfileButton\": true, \"srcPathPrefix\": \"/src\"}";
+    let config = "{\"enableTabNameLabel\": false, \"hideCaptureProfileButton\": true, \
+        \"srcPathPrefix\": \"/src\"}";
     for uri in ["/config", "/data/plugin/profile/config"] {
         assert_eq!(fetch(&state, uri).await.2, config, "{uri}");
     }

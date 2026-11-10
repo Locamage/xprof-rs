@@ -87,8 +87,13 @@ fn s8_gemm_adjustment() {
 
 #[test]
 fn fp8_gemm_with_fp32_parameter_adjustment() {
-    let config =
-        GEMM_BACKEND_CONFIG.replace(r#""epilogue":"DEFAULT""#, r#""epilogue":"DEFAULT", "lhs_stride":"10485760", "rhs_stride":"26214400", "grad_x":false, "grad_y":false, "damax_output":false"#);
+    let config = GEMM_BACKEND_CONFIG.replace(
+        r#""epilogue":"DEFAULT""#,
+        concat!(
+            r#""epilogue":"DEFAULT", "lhs_stride":"10485760", "rhs_stride":"26214400", "#,
+            r#""grad_x":false, "grad_y":false, "damax_output":false"#,
+        ),
+    );
     let mut rhs = shape(F8E4M3FN, &[5120, 5120]);
     rhs.layout.as_mut().unwrap().minor_to_major = vec![0, 1];
     let mut instructions = vec![

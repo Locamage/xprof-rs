@@ -129,7 +129,10 @@ fn json_event_counter_test() {
 fn write_details_test() {
     let mut space = XSpace::default();
     space.plane("/device:TPU:0").event(1, "op", 0, 1, &[]);
-    assert!(rendered(&space).contains(r#""details":[{"name":"mpmd_pipeline_view","value":false},{"name":"full_dma","value":false}],"#));
+    assert!(rendered(&space).contains(concat!(
+        r#""details":[{"name":"mpmd_pipeline_view","value":false},{"name":"full_dma","#,
+        r#""value":false}],"#,
+    )));
 }
 
 #[test]
@@ -176,9 +179,10 @@ fn complete_event_test() {
     assert!(
         same(
             &json(&out),
-            &json(
-                r#"{"pid":1,"tid":2,"name":"complete_event","ts":1,"dur":0.5,"ph":"X","args":{"uid":0}}"#
-            )
+            &json(concat!(
+                r#"{"pid":1,"tid":2,"name":"complete_event","ts":1,"dur":0.5,"ph":"X","#,
+                r#""args":{"uid":0}}"#,
+            ))
         ),
         "{out}"
     );
@@ -191,9 +195,10 @@ fn complete_event_with_flow_test() {
     assert!(
         same(
             &json(&out),
-            &json(
-                r#"{"pid":1,"tid":2,"name":"complete_event_with_flow","ts":1,"dur":0.5,"bind_id":123,"flow_out":true,"ph":"X","args":{"uid":0}}"#
-            )
+            &json(concat!(
+                r#"{"pid":1,"tid":2,"name":"complete_event_with_flow","ts":1,"dur":0.5,"#,
+                r#""bind_id":123,"flow_out":true,"ph":"X","args":{"uid":0}}"#,
+            ))
         ),
         "{out}"
     );
@@ -202,7 +207,13 @@ fn complete_event_with_flow_test() {
 #[test]
 fn counter_event_test() {
     let json = rendered(&counter_space(&[("counter_event", "arg1", 1_000_000, 100)]));
-    assert!(json.contains(r#"{"pid":1001,"name":"counter_event","ph":"C","event_stats":"arg1","entries":[[1,100]]}"#), "{json}");
+    assert!(
+        json.contains(concat!(
+            r#"{"pid":1001,"name":"counter_event","ph":"C","event_stats":"arg1","entries":[[1,"#,
+            r#"100]]}"#,
+        )),
+        "{json}"
+    );
 }
 
 #[test]
@@ -212,9 +223,10 @@ fn async_event_test() {
     assert!(
         same(
             &json(&out),
-            &json(
-                r#"{"pid":1,"name":"async_event","ts":1,"id":456,"cat":"","ph":"b","args":{"uid":0}}"#
-            )
+            &json(concat!(
+                r#"{"pid":1,"name":"async_event","ts":1,"id":456,"cat":"","ph":"b","#,
+                r#""args":{"uid":0}}"#,
+            ))
         ),
         "{out}"
     );
