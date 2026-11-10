@@ -17,10 +17,12 @@ const NO_GRAPH: &str = "No graph_viewer data found in profile session. Ensure wo
 const SUGGESTIONS: usize = 10;
 const NEIGHBORHOOD_RADIUS: i64 = 2;
 static COMPUTATION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?:ENTRY\s+)?%?([a-zA-Z0-9._-]+)\b.*\{\s*$").expect("regular expression is valid"));
-static INSTRUCTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^%?([a-zA-Z0-9._-]+)\s*=(.*)$").expect("regular expression is valid"));
-static METADATA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)metadata=\{.*?\}").expect("regular expression is valid"));
-static NUMBERED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_]*)\.\d+$").expect("regular expression is valid"));
+    LazyLock::new(|| Regex::new(r"^(?:ENTRY\s+)?%?([a-zA-Z0-9._-]+)\b.*\{\s*$").expect("regular expression should be valid"));
+static INSTRUCTION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^%?([a-zA-Z0-9._-]+)\s*=(.*)$").expect("regular expression should be valid"));
+static METADATA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)metadata=\{.*?\}").expect("regular expression should be valid"));
+static NUMBERED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_]*)\.\d+$").expect("regular expression should be valid"));
 
 pub fn proto_files(client: &dyn Client, session: &str) -> Result<Vec<PathBuf>, Error> {
     let run = client.run_dir(session)?;

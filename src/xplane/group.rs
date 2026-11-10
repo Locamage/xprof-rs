@@ -477,7 +477,7 @@ fn merge(plane: &mut Plane, map: &[u8], index: usize, names: &HashMap<i64, Strin
         }
         let (last, end) = (kept.len() - 1, event.ts + event.dur);
         idle += stat(&event, idle_id).unwrap_or(0);
-        let step = steps.get_mut(&last).expect("entry exists");
+        let step = steps.get_mut(&last).expect("entry should exist");
         if let Some((begin, duration)) = &mut span {
             let other = device_span(&event);
             if other.1 != 0 {

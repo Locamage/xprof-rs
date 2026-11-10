@@ -487,7 +487,7 @@ fn unicode_escape(source: &mut Source, c: char) -> Parsed<Option<u32>> {
     if escape.len() != full {
         return Err(source.error(&format!("incomplete escape {escape}"), escape.len()));
     }
-    let value = u32::from_str_radix(&escape[2..], 16).expect("escape digits are valid");
+    let value = u32::from_str_radix(&escape[2..], 16).expect("escape digits should be valid");
     if value > 0x10FFFF {
         return Err(source.error(&format!("bad escape {escape}"), escape.len()));
     }
@@ -510,7 +510,7 @@ fn class_escape(source: &mut Source, c: char) -> Parsed<Item> {
     }
     if octal(c) {
         let escape = format!("\\{c}{}", source.get_while(2, octal)?);
-        let value = u32::from_str_radix(&escape[1..], 8).expect("escape digits are valid");
+        let value = u32::from_str_radix(&escape[1..], 8).expect("escape digits should be valid");
         if value > 0o377 {
             return Err(source.error(&format!("octal escape value {escape} outside of range 0-0o377"), escape.len()));
         }
@@ -531,7 +531,7 @@ fn escape(source: &mut Source, c: char, state: &State) -> Parsed<Escaped> {
     }
     if c == '0' {
         let digits = source.get_while(2, octal)?;
-        return Ok(Escaped::Item(Item::Literal(u32::from_str_radix(&format!("0{digits}"), 8).expect("escape digits are valid"))));
+        return Ok(Escaped::Item(Item::Literal(u32::from_str_radix(&format!("0{digits}"), 8).expect("escape digits should be valid"))));
     }
     if c.is_ascii_digit() {
         let mut escape = format!("\\{c}");
@@ -539,15 +539,15 @@ fn escape(source: &mut Source, c: char, state: &State) -> Parsed<Escaped> {
             source.advance()?;
             escape.push(next);
             if octal(c) && octal(next) && source.next.and_then(Tok::char).is_some_and(octal) {
-                escape.push(source.get()?.and_then(Tok::char).expect("octal escape has a third digit"));
-                let value = u32::from_str_radix(&escape[1..], 8).expect("escape digits are valid");
+                escape.push(source.get()?.and_then(Tok::char).expect("octal escape should have a third digit"));
+                let value = u32::from_str_radix(&escape[1..], 8).expect("escape digits should be valid");
                 if value > 0o377 {
                     return Err(source.error(&format!("octal escape value {escape} outside of range 0-0o377"), escape.len()));
                 }
                 return Ok(Escaped::Item(Item::Literal(value)));
             }
         }
-        let group: usize = escape[1..].parse().expect("value has valid syntax");
+        let group: usize = escape[1..].parse().expect("value should have valid syntax");
         if group < state.widths.len() {
             if !state.closed(group) {
                 return Err(source.error("cannot refer to an open group", escape.len()));
@@ -575,7 +575,7 @@ fn parse_sub(source: &mut Source, state: &mut State, mut verbose: bool, nested: 
             verbose = state.flags & VERBOSE != 0;
         }
     }
-    Ok(if items.len() == 1 { items.pop().expect("collection is non-empty") } else { vec![Node::Branch(items)] })
+    Ok(if items.len() == 1 { items.pop().expect("collection should be non-empty") } else { vec![Node::Branch(items)] })
 }
 
 fn parse_set(source: &mut Source) -> Parsed<Node> {
@@ -677,7 +677,7 @@ fn parse_flags(source: &mut Source, state: &mut State, first: char) -> Parsed<Op
     let (mut add, mut delete, mut c) = (0, 0, first);
     if c != '-' {
         loop {
-            let value = flag(c).expect("required value is present");
+            let value = flag(c).expect("required value should be present");
             if c == 'L' {
                 return Err(source.error("bad inline flags: cannot use 'L' flag with a str pattern", 0));
             }
@@ -715,7 +715,7 @@ fn parse_flags(source: &mut Source, state: &mut State, first: char) -> Parsed<Op
             return Err(source.error(if next.alpha() { "unknown flag" } else { "missing flag" }, next.len()));
         }
         loop {
-            let value = next.char().and_then(flag).expect("required value is present");
+            let value = next.char().and_then(flag).expect("required value should be present");
             if value & TYPE_FLAGS != 0 {
                 return Err(source.error("bad inline flags: cannot turn off flags 'a', 'u' and 'L'", 0));
             }
@@ -812,7 +812,7 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                 } else {
                     Repeat::Greedy
                 };
-                let item = sub.pop().expect("collection is non-empty");
+                let item = sub.pop().expect("collection should be non-empty");
                 sub.push(Node::Repeat(min, max, kind, Box::new(item)));
             }
             '.' => sub.push(Node::Any),

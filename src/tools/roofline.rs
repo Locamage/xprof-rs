@@ -150,7 +150,7 @@ fn row(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], metrics: &Metrics, 
     cells.extend([Cell::Boolean(place.include), text(&metrics.module.to_string()), text(&source_text(metrics))]);
     if place.gpu {
         let mut cells: Vec<Option<Cell>> = cells.into_iter().map(Some).collect();
-        table.rows.push(GPU_COLUMNS.iter().map(|&index| cells[index].take().expect("required value is present")).collect());
+        table.rows.push(GPU_COLUMNS.iter().map(|&index| cells[index].take().expect("required value should be present")).collect());
     } else {
         table.rows.push(cells);
     }

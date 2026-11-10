@@ -333,7 +333,7 @@ fn load(planes: &[Plane], map: &[u8]) -> Trace {
                     (device, tracks.len() - 1)
                 });
                 let built = event(plane, map, &mut prefixes, ev, (ev.ts as i64).wrapping_add(origin_ps), &mut trace.strings);
-                raw_fragments.get_mut(&device).expect("entry exists")[index].events.push(built);
+                raw_fragments.get_mut(&device).expect("entry should exist")[index].events.push(built);
             }
         }
     }
@@ -796,7 +796,7 @@ impl Writer<'_> {
         let list = [&mut data.event_names, &mut data.annotation_names, &mut data.annotation_texts];
         list.into_iter()
             .nth(which)
-            .expect("required value is present")
+            .expect("required value should be present")
             .push(Interned { iid, text: Some(self.trace.strings.get(id).into()) });
         iid
     }

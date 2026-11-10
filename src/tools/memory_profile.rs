@@ -164,8 +164,10 @@ fn process(allocator: &mut Allocator) {
         for (width, samples, start) in [(width, first, 0), (width + 1, MAX_SNAPSHOTS - first, width * first)] {
             for begin in (0..samples).map(|sample| start + width * sample) {
                 sampled.push(
-                    snapshots
-                        [(begin..begin + width).rev().max_by_key(|&index| in_use(&snapshots[index])).expect("required value is present")]
+                    snapshots[(begin..begin + width)
+                        .rev()
+                        .max_by_key(|&index| in_use(&snapshots[index]))
+                        .expect("required value should be present")]
                     .clone(),
                 );
             }

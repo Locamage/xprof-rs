@@ -159,7 +159,7 @@ async fn call<Req: prost::Message + Send + Sync + 'static, Rep: prost::Message +
     request.set_timeout(deadline);
     let mut client = Grpc::new(channel).max_decoding_message_size(i32::MAX as usize);
     client.ready().await.map_err(|error| Status::unavailable(error.to_string()))?;
-    let reply = client.unary(request, path.parse().expect("service address is valid"), ProstCodec::<Req, Rep>::default()).await?;
+    let reply = client.unary(request, path.parse().expect("service address should be valid"), ProstCodec::<Req, Rep>::default()).await?;
     Ok(reply.into_inner())
 }
 

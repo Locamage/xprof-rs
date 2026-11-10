@@ -94,8 +94,10 @@ pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fr
         fractions.pop_first();
         fractions.pop_last();
     } else if fractions.len() == 2 {
-        let (first, second) =
-            (*fractions.keys().next().expect("iterator is non-empty"), *fractions.keys().last().expect("iterator is non-empty"));
+        let (first, second) = (
+            *fractions.keys().next().expect("iterator should be non-empty"),
+            *fractions.keys().last().expect("iterator should be non-empty"),
+        );
         let (first_ps, second_ps) = (durations[&first] as f64, durations[&second] as f64);
         if second_ps < STEP_DURATION_RATIO * first_ps {
             fractions.remove(&second);

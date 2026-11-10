@@ -41,7 +41,7 @@ impl TfOp<'_> {
     pub fn event_name(&self) -> String {
         match self.category {
             Category::Unknown => self.name.trim_end_matches(|c: char| c.is_ascii_whitespace()).to_string(),
-            Category::TfData => format!("Iterator::{}", self.name.rsplit("::").next().expect("iterator is non-empty")),
+            Category::TfData => format!("Iterator::{}", self.name.rsplit("::").next().expect("iterator should be non-empty")),
             _ => self.kind.to_string(),
         }
     }
@@ -72,8 +72,8 @@ pub fn tf_op(full: &str) -> TfOp<'_> {
         return op(Category::TensorFlow, name, kind);
     }
     let derived = if kind.is_empty() {
-        let last = name.rsplit('/').next().expect("iterator is non-empty");
-        let suffix = last.rsplit('_').next().expect("iterator is non-empty");
+        let last = name.rsplit('/').next().expect("iterator should be non-empty");
+        let suffix = last.rsplit('_').next().expect("iterator should be non-empty");
         if last.len() > suffix.len() && suffix.trim_ascii().parse::<i64>().is_ok() { &last[..last.len() - suffix.len() - 1] } else { last }
     } else {
         kind
@@ -205,10 +205,10 @@ impl Derived {
         let builder = &mut self.lines[line];
         if let Some(top) = (level..builder.last.len()).take_while(|&index| builder.last[index].is_some()).last().filter(|&top| top > level)
         {
-            let max_shrink = (builder.events[builder.last[top].expect("required value is present").0].dur / PS_PER_NS) as i64 - 1;
+            let max_shrink = (builder.events[builder.last[top].expect("required value should be present").0].dur / PS_PER_NS) as i64 - 1;
             let (mut shrink, mut previous) = (0i64, None);
             for index in level..=top {
-                let event = &mut builder.events[builder.last[index].expect("required value is present").0];
+                let event = &mut builder.events[builder.last[index].expect("required value should be present").0];
                 let span = (event.ts, event.dur);
                 if shrink < max_shrink && previous == Some(span) {
                     shrink += 1;
@@ -299,7 +299,7 @@ fn tagger(plane: &Plane) -> impl Fn(&[u8], u32) -> Option<Tags> + Sync + Copy + 
                     *source = plane.text(&stat.value);
                 }
                 Value::Int(_) | Value::Uint(_) if Some(stat.id) == async_id => {
-                    *is_async = stat.value.int().expect("required value is present") as u64;
+                    *is_async = stat.value.int().expect("required value should be present") as u64;
                 }
                 _ => {}
             }
@@ -443,7 +443,11 @@ fn symbols(planes: &[Plane], map: &[u8]) -> Symbols {
                     let source = if metadata.source_file.is_empty() {
                         String::new()
                     } else {
-                        format!("{}:{}", metadata.source_file.rsplit('/').next().expect("iterator is non-empty"), metadata.source_line)
+                        format!(
+                            "{}:{}",
+                            metadata.source_file.rsplit('/').next().expect("iterator should be non-empty"),
+                            metadata.source_line
+                        )
                     };
                     (inst.name, (format!("{}:{}", metadata.op_name, metadata.op_type), source))
                 })
@@ -549,7 +553,7 @@ fn steps(plane: &mut Plane, map: &[u8], names: &HashMap<i64, String>) {
         let meta = derived.meta(0, &key, names.get(&group).map_or("", String::as_str));
         derived.expand_or_add(0, meta, (event.ts, event.ts + event.dur), group, None, 0);
     }
-    let mut line = derived.into_lines(false).pop().expect("collection is non-empty");
+    let mut line = derived.into_lines(false).pop().expect("collection should be non-empty");
     for long in &mut line.longs {
         *long = "".into();
     }
@@ -635,7 +639,7 @@ fn launch_lines(planes: &[Plane], map: &[u8], devices: usize, names: &HashMap<i6
             for event in line.events.iter().filter(|event| !runtime[event.meta as usize]) {
                 let (mut device, mut correlation, mut group) = (None, None, None);
                 for stat in stats(slice(map, event.raw), 4, |id| ids.contains(&Some(id))) {
-                    match ids.iter().position(|id| *id == Some(stat.id)).expect("required value is present") {
+                    match ids.iter().position(|id| *id == Some(stat.id)).expect("required value should be present") {
                         0 => device = stat.value.int(),
                         1 => correlation = stat.value.int(),
                         _ => group = Some(stat.value.signed()),

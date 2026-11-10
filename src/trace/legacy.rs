@@ -352,7 +352,7 @@ pub fn render_within(planes: &[Plane], map: &[u8], limit: usize) -> String {
     let mut parts = Vec::new();
     text(collect(planes, map, limit), &mut |part| parts.push(part));
     let pieces: Vec<&[u8]> = parts.iter().map(Vec::as_slice).collect();
-    String::from_utf8(crate::concat(&pieces)).expect("The pieces are text")
+    String::from_utf8(crate::concat(&pieces)).expect("The pieces should be text")
 }
 
 /// Writes the parts of the text in order. It renders one chunk per thread at a time, so that only a

@@ -1338,7 +1338,7 @@ impl<'a> Printer<'a> {
                         order.push(current);
                         continue;
                     }
-                    stack.last_mut().expect("stack is non-empty").1 += 1;
+                    stack.last_mut().expect("stack should be non-empty").1 += 1;
                     visit(&mut stack, nodes[position]);
                 }
             }
@@ -1523,7 +1523,7 @@ fn print_array(out: &mut String, dimensions: &[i64], oneline: bool, indices: &mu
                 out,
                 "{{ /*i{}={}*/{}",
                 indices.len() - 1,
-                indices.last().expect("indices are non-empty"),
+                indices.last().expect("indices should be non-empty"),
                 if remaining[0] > 0 { linebreak } else { "" }
             );
         }

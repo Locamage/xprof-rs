@@ -15,7 +15,7 @@ const DESCRIPTORS: &[u8] = include_bytes!("../data/hlo_descriptors.pb");
 
 static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
     let mut pool = DescriptorPool::global();
-    pool.decode_file_descriptor_set(DESCRIPTORS).expect("embedded hlo descriptors are valid");
+    pool.decode_file_descriptor_set(DESCRIPTORS).expect("embedded hlo descriptors should be valid");
     pool
 });
 

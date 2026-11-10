@@ -13,9 +13,9 @@ const ACTIVATION_MODES: [&str; 9] = ["none", "sigmoid", "relu", "relu6", "reluX"
 
 static GPU_BACKEND_CONFIG: LazyLock<MessageDescriptor> = LazyLock::new(|| {
     DescriptorPool::decode(&include_bytes!("../data/gpu_backend_descriptors.pb")[..])
-        .expect("embedded gpu descriptors are valid")
+        .expect("embedded gpu descriptors should be valid")
         .get_message_by_name("xla.gpu.GpuBackendConfig")
-        .expect("required value is present")
+        .expect("required value should be present")
 });
 const GRAPH_HTML: &str = include_str!("../data/graph.html");
 const TRIVIAL: &str = "add=add multiply=multiply minimum=min maximum=max xor=xor and=and or=or LE=less-or-equal GE=greater-or-equal \
@@ -885,16 +885,17 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         deserializer.end().ok()?;
     }
     let value =
-        |message: &DynamicMessage, name: &str| message.get_field_by_name(name).expect("field exists in the descriptor").into_owned();
-    let child = |message: &DynamicMessage, name: &str| value(message, name).as_message().expect("field has the expected type").clone();
-    let number = |message: &DynamicMessage, name: &str| value(message, name).as_f64().expect("field has the expected type");
+        |message: &DynamicMessage, name: &str| message.get_field_by_name(name).expect("field should exist in the descriptor").into_owned();
+    let child =
+        |message: &DynamicMessage, name: &str| value(message, name).as_message().expect("field should have the expected type").clone();
+    let number = |message: &DynamicMessage, name: &str| value(message, name).as_f64().expect("field should have the expected type");
     let mut properties: Vec<(&str, String)> = Vec::new();
     if convolution {
         let conv = child(&message, "cudnn_conv_backend_config");
         let (scale, side, activation) = (
             number(&conv, "conv_result_scale"),
             number(&conv, "side_input_scale"),
-            value(&conv, "activation_mode").as_enum_number().expect("field has the expected type"),
+            value(&conv, "activation_mode").as_enum_number().expect("field should have the expected type"),
         );
         if scale != 1.0 {
             properties.push(("conv_result_scale", hlo::general(scale, 6)));
@@ -912,15 +913,17 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         let algorithm = child(&conv, "algorithm");
         let knobs: std::collections::BTreeMap<i64, i64> = value(&algorithm, "tuning_knobs")
             .as_map()
-            .expect("field has the expected type")
+            .expect("field should have the expected type")
             .iter()
-            .map(|(key, value)| (key.as_i64().expect("field has the expected type"), value.as_i64().expect("field has the expected type")))
+            .map(|(key, value)| {
+                (key.as_i64().expect("field should have the expected type"), value.as_i64().expect("field should have the expected type"))
+            })
             .collect();
         properties.push((
             "algo",
             format!(
                 "eng{}{{{}}}",
-                value(&algorithm, "algo_id").as_i64().expect("field has the expected type"),
+                value(&algorithm, "algo_id").as_i64().expect("field should have the expected type"),
                 knobs.iter().map(|(key, value)| format!("k{key}={value}")).join(",")
             ),
         ));
@@ -947,9 +950,9 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         ] {
             let values = value(&numbers, field)
                 .as_list()
-                .expect("field exists in the descriptor")
+                .expect("field should exist in the descriptor")
                 .iter()
-                .map(|item| item.as_i64().expect("field has the expected type"))
+                .map(|item| item.as_i64().expect("field should have the expected type"))
                 .join(",");
             if !optional || !values.is_empty() {
                 parts.push(format!("{name}={{{values}}}"));
@@ -957,17 +960,18 @@ fn gpu_properties(opcode: &str, target: &str, element_type: i32, config: &[u8]) 
         }
         properties.push(("", parts.join("<br/>")));
         if gemm.has_field_by_name("selected_algorithm") {
-            properties.push(("algorithm", value(&gemm, "selected_algorithm").as_i64().expect("field has the expected type").to_string()));
+            properties
+                .push(("algorithm", value(&gemm, "selected_algorithm").as_i64().expect("field should have the expected type").to_string()));
         }
-        let epilogue = value(&gemm, "epilogue").as_enum_number().expect("field has the expected type");
+        let epilogue = value(&gemm, "epilogue").as_enum_number().expect("field should have the expected type");
         if epilogue != 0 {
             let name = gemm
                 .descriptor()
                 .get_field_by_name("epilogue")
-                .expect("field has the expected type")
+                .expect("field should have the expected type")
                 .kind()
                 .as_enum()
-                .expect("field has the expected type")
+                .expect("field should have the expected type")
                 .get_value(epilogue)
                 .map_or_else(String::new, |value| value.name().to_string());
             properties.push(("epilogue", name));

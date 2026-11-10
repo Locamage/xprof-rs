@@ -184,7 +184,7 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
             *name = *id;
         };
         if *tag != 1 {
-            name(&mut interner, &mut series.metadata.as_mut().expect("series metadata is present").name_ref);
+            name(&mut interner, &mut series.metadata.as_mut().expect("series metadata should be present").name_ref);
         }
         for (index, metadata) in series.event_metadata.iter_mut().enumerate() {
             if let Some(slot) = series.name_refs.get_mut(index) {

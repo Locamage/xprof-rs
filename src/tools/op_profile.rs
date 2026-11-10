@@ -226,7 +226,7 @@ impl<'a> Builder<'a> {
                     parent = self.child(
                         PROVENANCE_NODE,
                         parent,
-                        if position + 1 == parts.len() { part.split(':').next().expect("iterator is non-empty") } else { part },
+                        if position + 1 == parts.len() { part.split(':').next().expect("iterator should be non-empty") } else { part },
                     );
                     update(metrics, &mut self.nodes[parent].metrics);
                 }
@@ -300,7 +300,7 @@ impl<'a> Builder<'a> {
 
     fn deduplicate(&mut self, node: usize) {
         let top = &self.nodes[self.nodes[node].children[0]];
-        let top_xla = top.xla.clone().expect("required value is present");
+        let top_xla = top.xla.clone().expect("required value should be present");
         let name = Cow::Owned(format!("{} and its duplicate(s)", top.name));
         let mut xla = Xla {
             expression: top_xla.expression,
@@ -609,7 +609,7 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
     proto_double(&mut out, safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64));
     out.push('}');
     pieces.push(out);
-    String::from_utf8(crate::concat(&pieces.iter().map(String::as_bytes).collect::<Vec<_>>())).expect("The pieces are text")
+    String::from_utf8(crate::concat(&pieces.iter().map(String::as_bytes).collect::<Vec<_>>())).expect("The pieces should be text")
 }
 
 /// The value that the JSON reader gives for `json_trees` without the tree for the busy time.

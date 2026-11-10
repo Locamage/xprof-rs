@@ -118,7 +118,7 @@ fn intersect<T>(mut source: HashMap<i64, T>, destination: &mut HashMap<i64, T>, 
     }
     destination.retain(|step, _| source.contains_key(step));
     for (step, value) in destination.iter_mut() {
-        merge(value, source.remove(step).expect("entry exists"));
+        merge(value, source.remove(step).expect("entry should exist"));
     }
 }
 
@@ -218,7 +218,7 @@ struct Nest<T>(Vec<(Span, u64, T)>);
 impl<T> Nest<T> {
     fn push(&mut self, span: Span, item: T, finish: &mut impl FnMut(T, Span, u64)) {
         while self.0.last().is_some_and(|top| !top.0.includes(span)) {
-            let (span, children, item) = self.0.pop().expect("collection is non-empty");
+            let (span, children, item) = self.0.pop().expect("collection should be non-empty");
             finish(item, span, span.duration.saturating_sub(children));
         }
         if let Some(top) = self.0.last_mut() {
@@ -418,7 +418,7 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
                     add_interval(intervals, event.ts.wrapping_add(origin), (event.ts + event.dur).wrapping_add(origin));
                 }
             }
-            let own: [Option<i64>; 4] = own[..4].try_into().expect("slice has the expected length");
+            let own: [Option<i64>; 4] = own[..4].try_into().expect("slice should have the expected length");
             Some((index, event, own, if event.group == NONE_GROUP { own[0]? } else { event.group }))
         });
         if step_line {

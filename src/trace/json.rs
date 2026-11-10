@@ -472,7 +472,7 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
     let total: usize = views.iter().map(|view| view.events.len()).sum();
     let (min_ps, max_ps) =
         (views.iter().map(|view| view.trace.min_ps).min().unwrap_or(0), views.iter().map(|view| view.trace.max_ps).max().unwrap_or(0));
-    let seconds = |ps: u64| format!("{}", format!("{:.5e}", ps as f64 / 1e9).parse::<f64>().expect("value has valid syntax"));
+    let seconds = |ps: u64| format!("{}", format!("{:.5e}", ps as f64 / 1e9).parse::<f64>().expect("value should have valid syntax"));
     let mut out = String::with_capacity(total * 140 + 4096);
     out.push_str("{\"displayTimeUnit\":\"ns\",\"metadata\":{\"highres-ticks\":true}, \"codeLink\":\"\",\"useNewBackend\": false,");
     let tpu = views.iter().any(|view| !view.trace.tpu_devices.is_empty());
@@ -575,8 +575,8 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
         text
     };
     let mut bounds = vec![0];
-    while *bounds.last().expect("required value is present") < ordered.len() {
-        let mut end = (bounds.last().expect("required value is present") + 4096).min(ordered.len());
+    while *bounds.last().expect("required value should be present") < ordered.len() {
+        let mut end = (bounds.last().expect("required value should be present") + 4096).min(ordered.len());
         while end < ordered.len()
             && is_counter(&ordered[end])
             && counter_key(&ordered[end - 1]) == counter_key(&ordered[end])

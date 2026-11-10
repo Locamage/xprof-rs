@@ -152,7 +152,7 @@ fn collect<'a>(out: &mut Vec<Record<'a>>, metrics: &'a Metrics, previous: &mut O
 }
 
 fn hlo_op_name(expression: &str) -> &str {
-    let name = expression.split(" = ").next().expect("iterator is non-empty");
+    let name = expression.split(" = ").next().expect("iterator should be non-empty");
     name.strip_prefix('%').unwrap_or(name)
 }
 
@@ -216,7 +216,7 @@ pub fn json(stats: &OpStats) -> String {
             row.extend([
                 text(roof.bound_by),
                 yes_no(
-                    metrics.long_name.split('=').next().expect("iterator is non-empty").contains(".remat")
+                    metrics.long_name.split('=').next().expect("iterator should be non-empty").contains(".remat")
                         || metrics.provenance.contains("rematted_computation"),
                 ),
                 yes_no(

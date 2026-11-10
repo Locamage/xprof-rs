@@ -584,13 +584,13 @@ fn sessions(logdir: &Path) -> Vec<(String, PathBuf)> {
     }
     let (mut found, mut pending) = (Vec::new(), vec![(logdir.to_path_buf(), String::new())]);
     while let Some((dir, prefix)) = pending.pop() {
-        found.extend(
-            list(&dir.join("plugins/profile"), unlinked_dir).into_iter().map(|session| {
-                (format!("{prefix}{}", session.file_name().expect("path has a valid file name").to_string_lossy()), session)
-            }),
-        );
+        found.extend(list(&dir.join("plugins/profile"), unlinked_dir).into_iter().map(|session| {
+            (format!("{prefix}{}", session.file_name().expect("path should have a valid file name").to_string_lossy()), session)
+        }));
         pending.extend(list(&dir, unlinked_dir).into_iter().filter(|child| child.file_name().is_some_and(|name| name != "plugins")).map(
-            |child| (child.clone(), format!("{prefix}{}/", child.file_name().expect("path has a valid file name").to_string_lossy())),
+            |child| {
+                (child.clone(), format!("{prefix}{}/", child.file_name().expect("path should have a valid file name").to_string_lossy()))
+            },
         ));
     }
     found
@@ -631,7 +631,7 @@ fn response(status: StatusCode, content_type: &str, body: impl Into<Body>) -> Re
         .header(header::CONTENT_TYPE, content_type)
         .header("x-served-by", "xprof-rs")
         .body(body.into())
-        .expect("response headers are valid")
+        .expect("response headers should be valid")
 }
 
 async fn assets(request: Request) -> Response {
@@ -662,7 +662,7 @@ async fn assets(request: Request) -> Response {
     // time.
     reply.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     reply.headers_mut().insert(header::VARY, HeaderValue::from_static("accept-encoding"));
-    reply.headers_mut().insert(header::ETAG, HeaderValue::from_str(&tag).expect("etag is a valid header value"));
+    reply.headers_mut().insert(header::ETAG, HeaderValue::from_str(&tag).expect("etag should be a valid header value"));
     reply
 }
 
@@ -682,10 +682,10 @@ fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool, ends: Option<
                 let start = if index == 0 { GZIP_HEADER.len() } else { ends[index - 1] };
                 flate2::Decompress::new(false)
                     .decompress(&body[start..end], out, flate2::FlushDecompress::Sync)
-                    .expect("compressed body is valid");
+                    .expect("compressed body should be valid");
             });
         } else {
-            flate2::read::GzDecoder::new(&body[..]).read_to_end(&mut raw).expect("compressed body is valid");
+            flate2::read::GzDecoder::new(&body[..]).read_to_end(&mut raw).expect("compressed body should be valid");
         }
         *reply.body_mut() = Body::from(raw);
     }
@@ -696,7 +696,8 @@ fn negotiate(mut reply: Response, body: Bytes, accepts_gzip: bool, ends: Option<
 /// only the last part is shorter than `GZIP_CHUNK`.
 fn decoded_len(body: &[u8], ends: &[usize]) -> usize {
     let full = (ends.len() - 1) * GZIP_CHUNK;
-    full + u32::from_le_bytes(body[body.len() - 4..].try_into().expect("slice has the expected length")).wrapping_sub(full as u32) as usize
+    full + u32::from_le_bytes(body[body.len() - 4..].try_into().expect("slice should have the expected length")).wrapping_sub(full as u32)
+        as usize
 }
 
 /// Resolves the deepest part of the path that exists. The parts after it must be plain names, and
@@ -991,7 +992,7 @@ async fn data_csv(State(state): State<Shared>, Query(params): Query<Params>, uri
         let quote = |text: &str| format!("\"{}\"", text.replace('"', "\"\""));
         let cell = |value: &serde_json::Value| match value {
             serde_json::Value::Number(number) if number.is_f64() => {
-                tools::table::repr(number.as_f64().expect("field has the expected type"))
+                tools::table::repr(number.as_f64().expect("field should have the expected type"))
             }
             serde_json::Value::Number(number) => number.to_string(),
             serde_json::Value::String(text) => text.clone(),
@@ -1020,7 +1021,7 @@ async fn data_csv(State(state): State<Shared>, Query(params): Query<Params>, uri
         let mut reply = response(StatusCode::OK, "text/csv", csv);
         reply.headers_mut().insert(
             header::CONTENT_DISPOSITION,
-            HeaderValue::from_str(&format!("attachment; filename=\"{name}.csv\"")).expect("filename is a valid header value"),
+            HeaderValue::from_str(&format!("attachment; filename=\"{name}.csv\"")).expect("filename should be a valid header value"),
         );
         reply
     };
@@ -1550,7 +1551,7 @@ fn state(settings: &Settings) -> Shared {
         open_uri_pattern: settings
             .open_uri_pattern
             .as_deref()
-            .map(|pattern| regex::Regex::new(&format!("^(?:{pattern})$")).expect("pattern validated by arguments")),
+            .map(|pattern| regex::Regex::new(&format!("^(?:{pattern})$")).expect("the arguments should have validated the pattern")),
         staging: Mutex::default(),
         staged: Mutex::default(),
         staging_permits: Arc::new(Semaphore::new(4)),
@@ -1684,7 +1685,7 @@ async fn open(State(state): State<Shared>, method: Method, Query(params): Query<
             let mut reply = response(StatusCode::SEE_OTHER, "text/plain", "");
             reply
                 .headers_mut()
-                .insert(header::LOCATION, HeaderValue::from_str(&location).expect("redirect location is a valid header value"));
+                .insert(header::LOCATION, HeaderValue::from_str(&location).expect("redirect location should be a valid header value"));
             reply
         }
         Some(Err(error)) => {

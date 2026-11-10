@@ -287,7 +287,9 @@ pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
     keys.dedup();
     let slots: Vec<u32> = metas
         .iter()
-        .map(|template| key(template).map_or(u32::MAX, |key| keys.binary_search(&key).expect("key is in the sorted collection") as u32))
+        .map(|template| {
+            key(template).map_or(u32::MAX, |key| keys.binary_search(&key).expect("key should be in the sorted collection") as u32)
+        })
         .collect();
     let sums: Vec<u8> =
         metas.iter().map(|template| template.as_ref().map_or(0, |(_, metrics)| crate::tools::roofline::sums(metrics))).collect();
@@ -679,7 +681,7 @@ pub fn convert_tensor_core(
                     if top.2.0 <= span.0 && top.2.0.saturating_add(top.2.1) >= span.0.saturating_add(span.1) {
                         break;
                     }
-                    finish(stack.pop().expect("collection is non-empty"));
+                    finish(stack.pop().expect("collection should be non-empty"));
                 }
                 if let Some(top) = stack.last_mut() {
                     top.3 = top.3.saturating_add(span.1);
@@ -833,7 +835,7 @@ pub fn load_kept(map: crate::input::Input, fused: bool, part: Part) -> anyhow::R
             &planes,
             &map,
             |db| {
-                modules = parsing.take().expect("parser task is available").join().expect("worker thread did not panic");
+                modules = parsing.take().expect("parser task should be available").join().expect("worker thread should not panic");
                 if !modules.is_empty() {
                     crate::hlo::attach_fused(&modules, db);
                 }
@@ -842,7 +844,7 @@ pub fn load_kept(map: crate::input::Input, fused: bool, part: Part) -> anyhow::R
             spans,
         );
         if let Some(parsing) = parsing {
-            modules = parsing.join().expect("worker thread did not panic");
+            modules = parsing.join().expect("worker thread should not panic");
         }
         (stats, modules, underived)
     });
@@ -956,9 +958,9 @@ fn op_stats(planes: &[Plane], map: &[u8], fuse: impl FnOnce(&mut Db) + Send, par
         let extra = scope.spawn(|| steps(planes, map, &templates, part, !combined));
         let device = scope.spawn(device);
         (
-            device.join().expect("worker thread did not panic"),
-            extra.join().expect("worker thread did not panic"),
-            side.join().expect("worker thread did not panic"),
+            device.join().expect("worker thread should not panic"),
+            extra.join().expect("worker thread should not panic"),
+            side.join().expect("worker thread should not panic"),
         )
     });
     crate::release(templates);
