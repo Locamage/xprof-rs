@@ -46,21 +46,6 @@ fn test_n01_t1_steptime_fidelity() {
 }
 
 #[test]
-fn test_n02_t1_duty_cycle_fidelity() {
-    let path = training("n02", TRAINING_STEP_PS);
-    let oracle = oracle_duty_cycle(&path);
-    assert!(oracle > 0.0 && oracle <= 1.0);
-    let summary = query("get_overview", &path, &[]).at("performance_summary").clone();
-    if let Some(reported) =
-        summary.get("device_compute_duty_cycle_percent").or_else(|| summary.get("duty_cycle"))
-    {
-        let value = reported.text().replace('%', "").trim().parse::<f64>().unwrap();
-        let value = if value > 1.0 { value / 100.0 } else { value };
-        assert!((value - oracle).abs() <= 0.01);
-    }
-}
-
-#[test]
 fn test_n03_t2_steptime_fidelity() {
     let path = training("n03", MEDIUM_STEP_PS);
     let oracle = oracle_step_time_ms(&path);

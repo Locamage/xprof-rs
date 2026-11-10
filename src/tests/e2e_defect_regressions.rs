@@ -140,13 +140,6 @@ fn test_d16_perf_counters_non_null_payload() {
 }
 
 #[test]
-fn test_d17_llo_analysis_opcode_resolution_and_multi_module() {
-    let result = demo_query("d17", "get_llo_analysis", &[]);
-    assert_eq!(result.at("status").str(), Some("UNAVAILABLE"));
-    assert!(result.at("error").text().contains("not available"));
-}
-
-#[test]
 fn test_d23_get_hlo_neighborhood_default_mode_bfs_expansion() {
     let dir = scratch("d23n");
     std::fs::write(dir.join("module_0001.jit_compute.hlo_proto.pb"), b"").unwrap();

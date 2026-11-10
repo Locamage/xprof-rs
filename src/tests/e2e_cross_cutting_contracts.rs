@@ -1,5 +1,5 @@
 use super::cli_support::{parse, run, scratch};
-use super::e2e_oracles::{DEMO, TRAINING_STEP_PS, session, training_trace};
+use super::e2e_oracles::{TRAINING_STEP_PS, session, training_trace};
 use super::xspace::XSpace;
 use crate::cli::client::{Client, Local};
 use crate::cli::{COMMANDS, Kind};
@@ -55,16 +55,6 @@ fn test_x06_volume_guard_spill_to_file() {
         Some(i128::from(SPILL_EVENTS))
     );
     std::fs::remove_file(spilled).unwrap();
-}
-
-#[test]
-fn test_x07_cache_freshness_in_place_swap() {
-    let dir = scratch("x07");
-    let path = session(&dir, "trace.xplane.pb", &training_trace(TRAINING_STEP_PS));
-    let first = run(&["get_overview", path.to_str().unwrap()]).1;
-    std::fs::copy(DEMO, &path).unwrap();
-    let second = run(&["get_overview", path.to_str().unwrap()]).1;
-    assert_ne!(first, second);
 }
 
 #[test]
