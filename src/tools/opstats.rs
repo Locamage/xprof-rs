@@ -117,7 +117,8 @@ pub struct OpStats {
     pub perf: Perf,
     pub tpu: bool,
     pub host: Db,
-    /// The sums of the durations of the enqueues of infeed, and of the times between them, on the host.
+    /// The sums of the durations of the enqueues of infeed, and of the times between them, on the
+    /// host.
     pub infeed_enqueue: (u64, u64),
     pub extra: Arc<crate::xplane::steps::Extra>,
     pub programs: HashMap<u64, String>,
@@ -128,7 +129,8 @@ pub fn safe_divide(dividend: f64, divisor: f64) -> f64 {
     if (-1e-10..1e-10).contains(&divisor) { 0.0 } else { dividend / divisor }
 }
 
-/// The C++ conversion of a double to `uint64_t` on x86-64. NaN or a value that is too large gives 2^63, and a negative value wraps.
+/// The C++ conversion of a double to `uint64_t` on x86-64. NaN or a value that is too large gives
+/// 2^63, and a negative value wraps.
 pub fn cpp_u64(value: f64) -> u64 {
     const HALF: f64 = (1u64 << 63) as f64;
     let truncate = |value: f64| {
@@ -265,7 +267,8 @@ fn from_metadata(
     (key.0.zip(key.1), out)
 }
 
-/// The templates of the operations of one plane. Each operation with a key has a slot, and the slots are in the order of the keys.
+/// The templates of the operations of one plane. Each operation with a key has a slot, and the
+/// slots are in the order of the keys.
 #[derive(Default)]
 pub struct Templates {
     metas: Vec<Template>,
@@ -657,7 +660,8 @@ impl Db {
             return db;
         };
         db.merge(&mut index, first, update_cores);
-        // Parts of one trace list the same operations in the same order, so they merge position by position in parallel.
+        // Parts of one trace list the same operations in the same order, so they merge position by
+        // position in parallel.
         let same = |part: &&&Self| {
             part.metrics.len() == db.metrics.len()
                 && part
@@ -739,8 +743,8 @@ impl Db {
     }
 }
 
-/// `span` is the first start and the last end of the derived operations, if the plane does not have them.
-/// With `programs`, the same reads of the events also give the programs of the steps.
+/// `span` is the first start and the last end of the derived operations, if the plane does not have
+/// them. With `programs`, the same reads of the events also give the programs of the steps.
 pub fn convert_tensor_core(
     plane: &Plane,
     map: &[u8],
@@ -843,7 +847,8 @@ pub enum Part {
     All,
 }
 
-/// Prepared planes with the modules that borrow their file. Fields drop in order, so the modules drop before the file.
+/// Prepared planes with the modules that borrow their file. Fields drop in order, so the modules
+/// drop before the file.
 pub struct Kept {
     modules: Vec<(u64, crate::hlo::Module<'static>)>,
     pub fused: bool,
@@ -859,10 +864,12 @@ impl Kept {
         &self.map
     }
 
-    /// Adds the regions and the groups, and with `derived`, the derived lines, if the planes do not have them.
+    /// Adds the regions and the groups, and with `derived`, the derived lines, if the planes do not
+    /// have them.
     pub fn finish(&mut self, derived: bool) {
         let underived = self.underived.get_or_insert_with(|| {
-            // Before the groups, the planes are as `load_kept` parsed them, and the host plane can have no events.
+            // Before the groups, the planes are as `load_kept` parsed them, and the host plane can
+            // have no events.
             self.planes = crate::xplane::parse(&self.map).unwrap_or_default();
             crate::group(&mut self.planes, &self.map, false)
         });
@@ -882,7 +889,8 @@ impl Kept {
         self.fused = true;
     }
 
-    /// Adds the parts of the op statistics that `part` has and the statistics do not have. `part` comes after the part of the statistics.
+    /// Adds the parts of the op statistics that `part` has and the statistics do not have. `part`
+    /// comes after the part of the statistics.
     pub fn upgrade(&mut self, stats: &mut OpStats, part: Part) {
         self.finish(false);
         let (planes, map) = (&self.planes, &self.map[..]);
@@ -916,7 +924,8 @@ fn all_templates(planes: &[Plane], map: &[u8]) -> Vec<Templates> {
         .collect()
 }
 
-/// The steps that `part` has. The programs of the steps on a GPU come with the other fields. Without `read`, the steps do not have the programs.
+/// The steps that `part` has. The programs of the steps on a GPU come with the other fields.
+/// Without `read`, the steps do not have the programs.
 fn steps(
     planes: &[Plane],
     map: &[u8],
@@ -937,7 +946,8 @@ fn steps(
     }
 }
 
-/// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
+/// Without `fused`, the operations have no fused children. Only the op profile and the HLO
+/// statistics use them.
 pub fn load_kept(
     map: crate::input::Input,
     fused: bool,
@@ -946,13 +956,15 @@ pub fn load_kept(
     let Some(mut planes) = crate::parse_checked(&map, part == Part::Device)? else {
         return Ok(None);
     };
-    // The modules come from the metadata plane only, so they parse at the same time as the groups and the op statistics.
+    // The modules come from the metadata plane only, so they parse at the same time as the groups
+    // and the op statistics.
     let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) {
         crate::hlo::protos(&planes, &map)
     } else {
         Vec::new()
     };
-    // The operations of the TPUs do not use the groups, and of the derived lines, the op statistics use only the span that `op_span` gives.
+    // The operations of the TPUs do not use the groups, and of the derived lines, the op statistics
+    // use only the span that `op_span` gives.
     let grouped = part > Part::Device
         || planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX));
     let spans = !crate::xplane::derive::is_grouped(&planes);
@@ -1044,7 +1056,8 @@ impl OpStats {
     }
 }
 
-/// Without `Part::All`, the host operations are empty. `fuse` adds the fused children to the operations of the TPUs.
+/// Without `Part::All`, the host operations are empty. `fuse` adds the fused children to the
+/// operations of the TPUs.
 fn op_stats(
     planes: &[Plane],
     map: &[u8],
@@ -1086,7 +1099,8 @@ fn op_stats(
         fuse(&mut db);
         ((db, Vec::new()), programs)
     };
-    // Each part runs on a thread outside the pool, so no part waits for the work of another that the pool stole.
+    // Each part runs on a thread outside the pool, so no part waits for the work of another that
+    // the pool stole.
     let (((db, kernels), step_programs), mut extra, ((host, infeed_enqueue), programs)) =
         std::thread::scope(|scope| {
             let side = scope.spawn(|| {

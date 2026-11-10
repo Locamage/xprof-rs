@@ -416,7 +416,8 @@ pub fn op_span(plane: &Plane, map: &[u8]) -> Option<(u64, u64)> {
                     .map(|event| (event.ts, event.ts + event.dur))
                     .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)));
             }
-            // In time order, the first op has the first start. From the back, no earlier event ends after `last` when its start plus the longest duration is not after `last`.
+            // In time order, the first op has the first start. From the back, no earlier event ends
+            // after `last` when its start plus the longest duration is not after `last`.
             let first = events.iter().position(&mut op)?;
             let longest = events.iter().map(|event| event.dur).max().unwrap_or(0);
             let mut last = 0;
@@ -435,7 +436,8 @@ pub fn op_span(plane: &Plane, map: &[u8]) -> Option<(u64, u64)> {
 
 pub fn derive(plane: &mut Plane, map: &[u8]) {
     let (tags, scan) = (meta_tags(plane, map), tagger(plane));
-    // The events to derive from, in time order, with their groups and whether their own stats have tags. Few events have such stats, thus a map keeps their tags.
+    // The events to derive from, in time order, with their groups and whether their own stats have
+    // tags. Few events have such stats, thus a map keeps their tags.
     let mut order: Vec<(Position, i64, bool)> = Vec::new();
     for (line_index, line) in plane.lines.iter().enumerate() {
         order.par_extend(line.events.par_iter().enumerate().filter_map(|(index, event)| {
@@ -466,9 +468,11 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
         })
         .collect();
     let mut derived = Derived::new(&TPU_LINES, 0, "", false);
-    // The same texts always give the same metadata. Thus the code parses each pair of texts one time.
+    // The same texts always give the same metadata. Thus the code parses each pair of texts one
+    // time.
     let mut cache: FxHashMap<(&str, &str), Parsed> = FxHashMap::default();
-    // Most events have the texts of their metadata, thus `by_meta` keeps the parse of the texts of each metadata.
+    // Most events have the texts of their metadata, thus `by_meta` keeps the parse of the texts of
+    // each metadata.
     let mut by_meta: Vec<Option<Parsed>> = vec![None; tags.len()];
     for &((start, dur, line_index, index), group, own) in &order {
         let meta = event(line_index, index).meta as usize;

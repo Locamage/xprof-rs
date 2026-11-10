@@ -1,4 +1,5 @@
-//! Python `re` patterns. The parse follows `re._parser` of Python 3.12, so a bad pattern gives the message of Python. The search uses `fancy-regex`.
+//! Python `re` patterns. The parse follows `re._parser` of Python 3.12, so a bad pattern gives the
+//! message of Python. The search uses `fancy-regex`.
 
 use super::json::py_repr;
 use std::collections::HashMap;
@@ -21,7 +22,8 @@ const DEBUG: u32 = 128;
 const ASCII: u32 = 256;
 const TYPE_FLAGS: u32 = ASCII | LOCALE | UNICODE;
 const GLOBAL_FLAGS: u32 = DEBUG | TEMPLATE;
-/// Not a Python flag. It tells `emit` to count the repeats in the `fancy-regex` machine, because the `regex` machine of a large count is too large.
+/// Not a Python flag. It tells `emit` to count the repeats in the `fancy-regex` machine, because
+/// the `regex` machine of a large count is too large.
 const COUNTED: u32 = 1 << 16;
 
 /// The groups of lower case characters with the same upper case, from `re._casefix` of Python 3.12.
@@ -61,7 +63,8 @@ static LOWERED: LazyLock<[Vec<(u32, u32)>; 2]> = LazyLock::new(|| {
     })
 });
 
-/// `_sre.unicode_tolower`, or `_sre.ascii_tolower` for the `a` flag. It is the first character of the full lower case.
+/// `_sre.unicode_tolower`, or `_sre.ascii_tolower` for the `a` flag. It is the first character of
+/// the full lower case.
 fn lower(c: u32, ascii: bool) -> u32 {
     match char::from_u32(c) {
         Some(c) if ascii => c.to_ascii_lowercase() as u32,
@@ -79,7 +82,9 @@ fn cased(c: u32, ascii: bool) -> bool {
     }
 }
 
-/// The items of a set that Python matches without case. Python puts the lower case of each item, and the other characters of its `CASE_GROUPS`, in the set. Then a character matches if its lower case is in the set.
+/// The items of a set that Python matches without case. Python puts the lower case of each item,
+/// and the other characters of its `CASE_GROUPS`, in the set. Then a character matches if its lower
+/// case is in the set.
 fn fold(items: &[Item], ascii: bool) -> Vec<Item> {
     let inside = |c: u32| {
         items.iter().any(|item| {
@@ -114,7 +119,8 @@ fn combine(flags: u32, add: u32, delete: u32) -> u32 {
     (if add & TYPE_FLAGS != 0 { flags & !TYPE_FLAGS } else { flags } | add) & !delete
 }
 
-/// The set that Python checks the first character of a match against, if a group changes the `a` or `u` flag of the set. Python makes the check with the global flags.
+/// The set that Python checks the first character of a match against, if a group changes the `a` or
+/// `u` flag of the set. Python makes the check with the global flags.
 fn first_set(mut seq: &[Node], global: u32) -> Option<(bool, Vec<Item>)> {
     let mut flags = global;
     loop {
@@ -154,7 +160,8 @@ fn first_set(mut seq: &[Node], global: u32) -> Option<(bool, Vec<Item>)> {
     }
 }
 
-/// A set that Python can check as the first character: with a category, and with no cased character for the `i` flag.
+/// A set that Python can check as the first character: with a category, and with no cased character
+/// for the `i` flag.
 fn plain(items: &[Item], flags: u32) -> bool {
     let ascii = flags & ASCII != 0;
     items.iter().any(|item| matches!(item, Item::Category(_)))
@@ -181,7 +188,8 @@ impl Pattern {
 /// The text of the Python `RecursionError`.
 pub const RECURSION: &str = "maximum recursion depth exceeded";
 
-/// `re.compile(pattern)`. The error is the text of the Python exception. Python stops with `RECURSION` when the parse goes `frames` calls deep.
+/// `re.compile(pattern)`. The error is the text of the Python exception. Python stops with
+/// `RECURSION` when the parse goes `frames` calls deep.
 pub fn compile(pattern: &str, frames: usize) -> Result<Pattern, String> {
     let chars: Vec<char> = pattern.chars().collect();
     let mut state = State {
@@ -506,7 +514,8 @@ fn octal(c: char) -> bool {
     ('0'..='7').contains(&c)
 }
 
-/// The `\x`, `\u`, `\U`, and `\N` escapes, and the escapes that are the same in a set and outside it.
+/// The `\x`, `\u`, `\U`, and `\N` escapes, and the escapes that are the same in a set and outside
+/// it.
 fn unicode_escape(source: &mut Source, c: char) -> Parsed<Option<u32>> {
     let (digits, full) = match c {
         'x' => (2, 4),
@@ -1260,7 +1269,8 @@ fn emit(seq: &[Node], flags: u32, state: &State, end: bool, out: &mut String) {
                     r"(?:(?<={word})(?={word})|(?<!{word})(?!{word})(?:(?<=[\s\S])|(?=[\s\S])))"
                 ),
             }),
-            // `fancy-regex` does not repeat a match with no width. Such a repeat is one try of the match.
+            // `fancy-regex` does not repeat a match with no width. Such a repeat is one try of the
+            // match.
             Node::Repeat(min, max, kind, item)
                 if width(std::slice::from_ref(&**item), state).1 == 0 =>
             {
@@ -1336,7 +1346,8 @@ fn emit(seq: &[Node], flags: u32, state: &State, end: bool, out: &mut String) {
                 }
                 out.push(')');
             }
-            // A Python look-around is atomic. A look-behind goes back by its fixed width, then looks ahead, because `fancy-regex` cannot look behind a reference.
+            // A Python look-around is atomic. A look-behind goes back by its fixed width, then
+            // looks ahead, because `fancy-regex` cannot look behind a reference.
             Node::Assert(behind, negate, body) => {
                 let back = if *behind { width(body, state).0 } else { 0 };
                 out.push_str(match (back > 0, negate) {

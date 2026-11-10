@@ -96,7 +96,8 @@ fn value_text(value: Value) -> String {
     }
 }
 
-/// Runs `scan` on every line of every trace file, with its plane, its index and the capture window. The lines run in parallel. The results keep the order of the planes and of the lines.
+/// Runs `scan` on every line of every trace file, with its plane, its index and the capture window.
+/// The lines run in parallel. The results keep the order of the planes and of the lines.
 fn scan_lines<R: Send>(
     paths: &[PathBuf],
     scan: impl Fn(&Plane, usize, Capture) -> R + Sync,
@@ -104,7 +105,8 @@ fn scan_lines<R: Send>(
     scan_until(paths, |plane, index, _, capture| scan(plane, index, capture), |_| 0, usize::MAX)
 }
 
-/// The results of `scan` for each line, in the order of the files. The scan stops after `limit` events. `count` gives the number of events in a result.
+/// The results of `scan` for each line, in the order of the files. The scan stops after `limit`
+/// events. `count` gives the number of events in a result.
 fn scan_until<R: Send>(
     paths: &[PathBuf],
     scan: impl Fn(&Plane, usize, usize, Capture) -> R + Sync,
@@ -120,7 +122,8 @@ fn scan_until<R: Send>(
                 .iter()
                 .flat_map(|plane| (0..plane.lines.len()).map(move |index| (plane, index)))
                 .collect();
-            // A few lines can hold most of the events. The largest lines start first, so that the scan does not wait for a large line at the end.
+            // A few lines can hold most of the events. The largest lines start first, so that the
+            // scan does not wait for a large line at the end.
             let mut order: Vec<usize> = (0..lines.len()).collect();
             order.sort_unstable_by_key(|&at| {
                 std::cmp::Reverse(lines[at].0.lines[lines[at].1].len())
@@ -192,7 +195,8 @@ fn visit_line(
     })
 }
 
-/// The name of an event and if it matches. Only the events with a number as name need work for each event.
+/// The name of an event and if it matches. Only the events with a number as name need work for each
+/// event.
 struct Names<'a> {
     pattern: &'a Pattern,
     known: FxHashMap<u64, (String, bool, bool)>,
@@ -394,7 +398,8 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
                     0usize,
                     Names::new(&events_re),
                 );
-                // The slot in `found` of each metadata with a name that is not a number. `None` is a name that does not match.
+                // The slot in `found` of each metadata with a name that is not a number. `None` is
+                // a name that does not match.
                 let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
                 if keep(plane) {
                     visit_line(plane, index, capture, |visit| {
@@ -605,7 +610,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         Some(value) => Err(format!("'{}' object is not iterable", super::kind(value))),
     };
     let compute = || -> Result<Out, Error> {
-        // A pattern that Python cannot use is an error at the first event that comes to it. A bad regex finds the pattern as text.
+        // A pattern that Python cannot use is an error at the first event that comes to it. A bad
+        // regex finds the pattern as text.
         let patterns: Vec<Result<(Option<Pattern>, &str), String>> = match &matchers {
             Ok(matchers) => matchers
                 .iter()
@@ -641,7 +647,8 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                             }
                         }))
             };
-            // The slot in `durations` of each metadata with a name that is not a number, for the events without `tf_op_name`. `None` is a name that the filters skip.
+            // The slot in `durations` of each metadata with a name that is not a number, for the
+            // events without `tf_op_name`. `None` is a name that the filters skip.
             let mut slots: FxHashMap<u64, Option<usize>> = FxHashMap::default();
             visit_line(plane, index, None, |visit| {
                 let &mut (skipped, modules) = kind.get_or_insert_with(|| {

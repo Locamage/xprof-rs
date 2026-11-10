@@ -52,7 +52,8 @@ pub fn slice_end(value: &J, len: usize) -> Result<usize, Error> {
     Ok(if end < 0 { (len as i128 + end).max(0) as usize } else { end.min(len as i128) as usize })
 }
 
-/// The error of `heapq.nlargest(n, items)` for a float `n` above 0. A float 1 takes the path of `max`.
+/// The error of `heapq.nlargest(n, items)` for a float `n` above 0. A float 1 takes the path of
+/// `max`.
 pub fn nlargest_float(value: Option<&J>, n: f64, size: usize) -> Option<&'static str> {
     if !matches!(value, Some(J::Float(_))) || n <= 0.0 || n == 1.0 {
         None
@@ -273,7 +274,8 @@ pub fn round(value: f64, digits: usize) -> f64 {
     if value.is_finite() { format!("{value:.digits$}").parse().unwrap_or(value) } else { value }
 }
 
-/// `numerator / denominator`, rounded one time, as Python divides two integers. The quotient gets at least 55 bits, and a last bit records a remainder.
+/// `numerator / denominator`, rounded one time, as Python divides two integers. The quotient gets
+/// at least 55 bits, and a last bit records a remainder.
 pub fn ratio(numerator: i128, denominator: u64) -> f64 {
     let (magnitude, denominator) = (numerator.unsigned_abs(), u128::from(denominator));
     if magnitude == 0 {
@@ -321,7 +323,8 @@ pub fn stdev(values: &[f64]) -> f64 {
         })
         .filter(|&(mantissa, _)| mantissa != 0)
         .collect();
-    // The result does not change with the scale, so the scale comes from the values that are not zero.
+    // The result does not change with the scale, so the scale comes from the values that are not
+    // zero.
     let low = parts.iter().map(|(_, exponent)| *exponent).min().unwrap_or(0);
     let count = BigInt::from(values.len());
     let (sum, squares) = if parts.iter().all(|&(mantissa, exponent)| {
@@ -409,7 +412,8 @@ impl Args {
         self.string("session_id", "")
     }
 
-    /// The number for a comparison such as `limit > 0`. Python cannot compare the other kinds with a number, also `None`.
+    /// The number for a comparison such as `limit > 0`. Python cannot compare the other kinds with
+    /// a number, also `None`.
     pub fn compared(&self, name: &str, default: f64, operator: &str) -> Result<f64, Error> {
         match self.raw(name) {
             None => Ok(default),
@@ -440,7 +444,8 @@ impl Args {
     }
 }
 
-/// The text that the native converter gets for an option, or `None` when the converter does not get the option.
+/// The text that the native converter gets for an option, or `None` when the converter does not get
+/// the option.
 pub fn packed(key: &str, value: &J) -> Result<Option<String>, Error> {
     match value {
         J::Null | J::List(_) | J::Tuple(_) | J::Map(_) | J::Dict(_) => Ok(None),
@@ -453,7 +458,8 @@ pub fn packed(key: &str, value: &J) -> Result<Option<String>, Error> {
     }
 }
 
-/// The error of an option that the native converter cannot get. First, the client finds the session and its traces, because the converter packs the options after this step.
+/// The error of an option that the native converter cannot get. First, the client finds the session
+/// and its traces, because the converter packs the options after this step.
 pub fn unpackable(client: &dyn Client, session: &str, error: Error) -> Error {
     client.run_dir(session).and_then(|dir| client.xspace_paths(&dir)).err().unwrap_or(error)
 }
@@ -943,7 +949,8 @@ async fn latest(
     Ok(None)
 }
 
-/// Syncs a remote logdir or session to the cache of the server, and returns the local logdir. A remote session then names its local copy.
+/// Syncs a remote logdir or session to the cache of the server, and returns the local logdir. A
+/// remote session then names its local copy.
 fn mirror(
     url: &str,
     logdir: bool,

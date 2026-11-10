@@ -16,7 +16,8 @@ const IMPLICIT_ROOTS: [&str; 4] =
     ["Steps", "Sparse Core Steps", "XLA Modules", "Sparse Core Modules"];
 const FANOUT_LIMIT: usize = 64;
 const NO_PARENT: u32 = u32::MAX;
-/// The events of a chunk that `run` decodes on one thread. The tests use a small value, so that they have many chunks.
+/// The events of a chunk that `run` decodes on one thread. The tests use a small value, so that
+/// they have many chunks.
 const CHUNK: usize = if cfg!(test) { 4 } else { 1024 };
 const IDLE: &str = "step_idle_time_ps";
 const OFFSET: &str = "device_offset_ps";
@@ -147,7 +148,8 @@ pub struct Groups {
 }
 
 struct Graph {
-    /// The first node, the plane and the line of each job that has its own nodes, in the order of the nodes.
+    /// The first node, the plane and the line of each job that has its own nodes, in the order of
+    /// the nodes.
     starts: Vec<(u32, u32, u32)>,
     kids: Members,
     parents: Members,
@@ -196,7 +198,8 @@ fn csr(nodes: usize, parts: &[&[(u32, u32)]], by_child: bool) -> Members {
         *offset += sum;
         *offset
     });
-    // The offset of a node goes from its end to its start while the edges go in from the last one, so that the targets of a node keep their order.
+    // The offset of a node goes from its end to its start while the edges go in from the last one,
+    // so that the targets of a node keep their order.
     let mut targets = vec![0u32; offsets[nodes] as usize];
     for edge in edges().rev() {
         let offset = &mut offsets[key(edge)];
@@ -221,7 +224,8 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
         None
     };
     let generic = matches!(job.kind, Kind::Generic);
-    // Only a child line keeps a list of its events and their nodes. The node of another event comes from its index.
+    // Only a child line keeps a list of its events and their nodes. The node of another event comes
+    // from its index.
     let mut children: Vec<(&Ev, u32)> = Vec::new();
     if let Kind::Child(base, grouping) = job.kind {
         let (parents, mut parent) = (&plane.lines[grouping].events, 0);
@@ -248,7 +252,9 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
             (&line.events[index], job.base + index as u32)
         }
     };
-    // Chunks decode their events in parallel. When a nested event empties the stack of its chunk, its parent can be in the stack of the chunks before it. Then the merge finds the parent. An edge without a parent stays, and `csr` ignores it.
+    // Chunks decode their events in parallel. When a nested event empties the stack of its chunk,
+    // its parent can be in the stack of the chunks before it. Then the merge finds the parent. An
+    // edge without a parent stays, and `csr` ignores it.
     let parts: Vec<_> = (0..count.div_ceil(CHUNK))
         .into_par_iter()
         .map(|chunk| {
@@ -268,7 +274,8 @@ fn run(planes: &[Plane], map: &[u8], job: &Job, typing: &Typing) -> Out {
                     fresh = plane.links(event.meta, slice(map, event.raw), ordinal);
                     &fresh
                 } else if meta.base.is_none() && meta.root.is_none() && meta.role == [0; ROLES] {
-                    // Without base stats, a root or a role, the links of the metadata have no values that a job uses.
+                    // Without base stats, a root or a role, the links of the metadata have no
+                    // values that a job uses.
                     &empty
                 } else {
                     &*plain

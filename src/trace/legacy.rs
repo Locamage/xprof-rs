@@ -14,7 +14,8 @@ const MAX_EVENTS: usize = 5_000_000;
 const EVENTS_PER_CHUNK: usize = 16_384;
 const BARRIER: &str = "barrier-cores";
 const SAMPLES: usize = 1 << 18;
-/// The sampled place of `limit` is at most this far from its true place, except with a very small probability: the standard deviation is at most 256.
+/// The sampled place of `limit` is at most this far from its true place, except with a very small
+/// probability: the standard deviation is at most 256.
 const SAMPLE_MARGIN: usize = 2048;
 
 type Devices = BTreeMap<i64, (String, BTreeMap<u32, String>)>;
@@ -163,8 +164,10 @@ fn lines<'a>(jobs: &[(i64, &'a Plane)]) -> Vec<(&'a Plane, &'a Line)> {
         .collect()
 }
 
-/// The time of the last event that a trace of `limit` events keeps, and the number of the kept events at that time. There is none when the trace keeps all events.
-/// The `select` of the event times. A sorted sample of the times gives a range near the place of `limit`, and one pass finds the cut when it is in that range.
+/// The time of the last event that a trace of `limit` events keeps, and the number of the kept
+/// events at that time. There is none when the trace keeps all events. The `select` of the event
+/// times. A sorted sample of the times gives a range near the place of `limit`, and one pass finds
+/// the cut when it is in that range.
 fn cut(lines: &[(&Plane, &Line)], limit: usize) -> Option<(u64, usize)> {
     let values = || {
         lines.par_iter().flat_map_iter(|&(plane, line)| {
@@ -178,7 +181,8 @@ fn cut(lines: &[(&Plane, &Line)], limit: usize) -> Option<(u64, usize)> {
     if total <= limit {
         return None;
     }
-    // The sample has the events at each `step` place of all the lines, so each time in the sample stands for `step` events.
+    // The sample has the events at each `step` place of all the lines, so each time in the sample
+    // stands for `step` events.
     let (step, mut start, mut sample) = ((total / SAMPLES).max(1), 0, Vec::new());
     for &(plane, line) in lines {
         sample.extend(
@@ -279,7 +283,8 @@ fn collect(planes: &[Plane], map: &[u8], limit: usize) -> (Devices, Vec<Event>) 
     (devices, events)
 }
 
-/// The value at the last place in the first `limit` sorted values, and the number of values equal to it in those places. There is no such value when all values fit.
+/// The value at the last place in the first `limit` sorted values, and the number of values equal
+/// to it in those places. There is no such value when all values fit.
 fn select<I: ParallelIterator<Item = u64>>(
     values: impl Fn() -> I,
     limit: usize,
@@ -320,7 +325,8 @@ pub fn barrier_durations(planes: &[Plane], map: &[u8]) -> Vec<f64> {
     barriers_within(planes, map, MAX_EVENTS)
 }
 
-/// The durations of the barrier events in the trace that `render` gives with `limit` events, without the events of the trace.
+/// The durations of the barrier events in the trace that `render` gives with `limit` events,
+/// without the events of the trace.
 pub fn barriers_within(planes: &[Plane], map: &[u8], limit: usize) -> Vec<f64> {
     let lines = lines(&jobs(planes));
     let cut = cut(&lines, limit);
@@ -377,7 +383,8 @@ pub fn render(planes: &[Plane], map: &[u8]) -> String {
     render_within(planes, map, MAX_EVENTS)
 }
 
-/// The trace, in parts. It frees the planes before it writes the text, because the text uses only the events that it takes from them.
+/// The trace, in parts. It frees the planes before it writes the text, because the text uses only
+/// the events that it takes from them.
 pub fn render_owned(planes: Vec<Plane>, map: &[u8], emit: &mut impl FnMut(Vec<u8>)) {
     let collected = collect(&planes, map, MAX_EVENTS);
     crate::release(planes);
@@ -393,7 +400,8 @@ pub fn render_within(planes: &[Plane], map: &[u8], limit: usize) -> String {
     String::from_utf8(crate::concat(&pieces)).expect("The pieces are text")
 }
 
-/// Writes the parts of the text in order. It renders one chunk per thread at a time, so that only a few parts are in memory.
+/// Writes the parts of the text in order. It renders one chunk per thread at a time, so that only a
+/// few parts are in memory.
 fn text((devices, events): (Devices, Vec<Event>), emit: &mut impl FnMut(Vec<u8>)) {
     let mut out = String::from(
         "{\"displayTimeUnit\":\"ns\",\"metadata\":{\"highres-ticks\":true},\n\"traceEvents\":[\n",

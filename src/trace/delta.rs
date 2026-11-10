@@ -144,7 +144,8 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
     let track = |&(host, index): &(u32, u32)| {
         (host, views[host as usize].trace.events[index as usize].track)
     };
-    // The series hold the indices of the trace names and of the context types. The interned IDs come after, in the order of the series.
+    // The series hold the indices of the trace names and of the context types. The interned IDs
+    // come after, in the order of the series.
     let mut built: Vec<(u32, u32, Series)> = ordered
         .par_chunk_by(|left, right| track(left) == track(right))
         .map(|run| {
@@ -229,7 +230,8 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
         }
     }
     response.interned_strings = interner.0.into_iter().collect();
-    // Protobuf writes the fields in the order of their tags, so the series come before the other fields of the response.
+    // Protobuf writes the fields in the order of their tags, so the series come before the other
+    // fields of the response.
     built.sort_by_key(|(_, tag, _)| *tag);
     let parts: Vec<Vec<u8>> = built
         .into_par_iter()

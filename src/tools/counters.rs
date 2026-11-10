@@ -108,7 +108,8 @@ pub fn valid_besides_events(buf: &[u8]) -> bool {
     valid(buf, Message::Space, true, false)
 }
 
-/// With `split` and `events`, a line checks only its own fields, and then parts of about `SPLIT` bytes check all of their fields in parallel.
+/// With `split` and `events`, a line checks only its own fields, and then parts of about `SPLIT`
+/// bytes check all of their fields in parallel.
 fn valid(buf: &[u8], message: Message, split: bool, events: bool) -> bool {
     const SPLIT: usize = 1 << 16;
     let split = split && events && matches!(message, Message::Line);
@@ -725,7 +726,8 @@ pub fn corrupt(paths: &[std::path::PathBuf]) -> bool {
     paths.iter().any(|path| crate::read_file(path).is_ok_and(|map| !valid_space(&map)))
 }
 
-/// Renders a trace if it is valid. The render reads a trace that is not valid without a panic, so it runs at the same time as the check.
+/// Renders a trace if it is valid. The render reads a trace that is not valid without a panic, so
+/// it runs at the same time as the check.
 pub fn checked<T: Send>(map: &[u8], render: impl FnOnce(&[u8]) -> T + Send) -> Option<T> {
     let (valid, rendered) = rayon::join(|| valid_space(map), || render(map));
     valid.then_some(rendered)

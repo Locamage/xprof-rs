@@ -296,13 +296,15 @@ static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
     (index["xla.HloProto"], checks)
 });
 
-/// If C++ protobuf parses the bytes as an `xla.HloProto`. It rejects a bad field, text that is not UTF-8, and more than 100 levels of messages.
+/// If C++ protobuf parses the bytes as an `xla.HloProto`. It rejects a bad field, text that is not
+/// UTF-8, and more than 100 levels of messages.
 pub fn parses_hlo(buf: &[u8]) -> bool {
     parses(Some(CHECKS.0), buf, &mut 0, 100, 0)
 }
 
-/// A field with an unexpected wire type is an unknown field. An unknown group continues to the end-group tag that has its number.
-/// The nested messages of a large message parse at the same time.
+/// A field with an unexpected wire type is an unknown field. An unknown group continues to the
+/// end-group tag that has its number. The nested messages of a large message parse at the same
+/// time.
 fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, group: u32) -> bool {
     let checks = message.map_or(&[][..], |message| &CHECKS.1[message]);
     let (split, mut nested) = (group == 0 && buf.len() >= PARALLEL_BYTES, Vec::new());

@@ -272,8 +272,9 @@ enum Op {
     Graph(usize),
 }
 
-/// The result of the analysis of one graph. `properties` holds the writes of this analysis and the properties of the nodes of each fused graph that it calls.
-/// `log` keeps the order of the writes and of the calls. The properties of a call are the properties of all the graphs under it.
+/// The result of the analysis of one graph. `properties` holds the writes of this analysis and the
+/// properties of the nodes of each fused graph that it calls. `log` keeps the order of the writes
+/// and of the calls. The properties of a call are the properties of all the graphs under it.
 struct Nested {
     sum: Props,
     properties: FxHashMap<usize, Props>,
@@ -290,7 +291,8 @@ struct Context<'m> {
     nested: RefCell<Vec<Option<Cached>>>,
     /// The number of nodes that analyze or enter each graph.
     callers: Vec<usize>,
-    /// Tells that more than one analysis can visit a node. This occurs only when the entry has a caller or a wrapped graph has more than one.
+    /// Tells that more than one analysis can visit a node. This occurs only when the entry has a
+    /// caller or a wrapped graph has more than one.
     revisits: bool,
 }
 
@@ -335,8 +337,9 @@ impl<'m> Context<'m> {
         self.insts[node].get_or_init(|| self.module.inst(node))
     }
 
-    /// The analysis of a graph does not depend on the caller, so one result serves all the callers. Before the analysis of `graph`, it
-    /// analyzes the graphs under it from the lowest index up. Callees have a lower index than their callers, so no analysis recurses.
+    /// The analysis of a graph does not depend on the caller, so one result serves all the callers.
+    /// Before the analysis of `graph`, it analyzes the graphs under it from the lowest index up.
+    /// Callees have a lower index than their callers, so no analysis recurses.
     fn nested(&self, graph: usize) -> Cached {
         if let Some(found) = self.nested.borrow()[graph].clone() {
             return found;
@@ -378,8 +381,9 @@ impl<'m> Context<'m> {
         analyze(graph)
     }
 
-    /// Gives the properties of each node after the analysis of `top`. A later call of a graph hides all the earlier writes under that graph,
-    /// so a walk from the last entry of the log back reads each graph one time.
+    /// Gives the properties of each node after the analysis of `top`. A later call of a graph hides
+    /// all the earlier writes under that graph, so a walk from the last entry of the log back reads
+    /// each graph one time.
     fn resolve<'a>(&self, top: &'a Nested, cache: &'a [Option<Cached>]) -> Vec<Option<&'a Props>> {
         let (mut found, mut seen) =
             (vec![None; self.module.nodes.len()], vec![false; self.module.graphs.len()]);
@@ -471,7 +475,8 @@ impl<'m> Context<'m> {
         self.elementwise_with(node, graphs)
     }
 
-    /// Reads the fusion results of the called graphs from `graphs`. Callees come before their callers in a valid module.
+    /// Reads the fusion results of the called graphs from `graphs`. Callees come before their
+    /// callers in a valid module.
     fn elementwise_with(&self, node: usize, graphs: &[bool]) -> bool {
         match self.opcode(node) {
             "fusion" => self.module.nodes[node]
@@ -506,7 +511,8 @@ struct Analysis<'c, 'm> {
     bottleneck: bool,
     properties: FxHashMap<usize, Props>,
     log: Vec<Op>,
-    /// With revisits, the graphs under the calls in the log, and the nodes that they have properties for.
+    /// With revisits, the graphs under the calls in the log, and the nodes that they have
+    /// properties for.
     called: (FxHashSet<usize>, FxHashSet<usize>),
     sum: Props,
     state: FxHashMap<usize, u8>,
@@ -541,7 +547,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
         self.properties.entry(node).or_default().slot(key)
     }
 
-    /// Adds the graphs under a call to `graph` and their nodes to `called`. With revisits, the cached graphs do not change.
+    /// Adds the graphs under a call to `graph` and their nodes to `called`. With revisits, the
+    /// cached graphs do not change.
     fn cover(&mut self, graph: usize) {
         let cache = self.context.nested.borrow();
         let (graphs, nodes) = &mut self.called;
@@ -603,7 +610,8 @@ impl<'c, 'm> Analysis<'c, 'm> {
             .map(|&graph| context.root(graph))
     }
 
-    /// Visits the root of the graph that an async-start wraps as its last child. When this visit does the work, the async-start keeps the state that the root leaves.
+    /// Visits the root of the graph that an async-start wraps as its last child. When this visit
+    /// does the work, the async-start keeps the state that the root leaves.
     fn dfs(&mut self, root: usize) -> Status {
         let context = self.context;
         let (mut stack, mut last) = (vec![root], None);
@@ -709,8 +717,9 @@ impl<'c, 'm> Analysis<'c, 'm> {
         Ok(sum)
     }
 
-    /// Copies the properties of the nodes of a fused graph, because the fusion reads them. The fusion writes all of them again, so when
-    /// only this visit of the fusion calls the graph, it moves them.
+    /// Copies the properties of the nodes of a fused graph, because the fusion reads them. The
+    /// fusion writes all of them again, so when only this visit of the fusion calls the graph, it
+    /// moves them.
     fn copy_fused(&mut self, graph: usize) {
         let context = self.context;
         let nodes = &context.module.graphs[graph].nodes;

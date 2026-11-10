@@ -40,14 +40,18 @@ const STREAMING_THRESHOLD: usize = 500_000;
 pub const MAX_SERIAL: u32 = 256;
 const BAD_TIMESTAMP: u64 = u64::MAX / 2;
 const LEVEL_CHUNK: usize = 1 << 16;
-/// From this event count, and from the share of the events of one thread, the level passes of a track run at the same time, a part of `PART` events apart. The tests use small values, and no share.
+/// From this event count, and from the share of the events of one thread, the level passes of a
+/// track run at the same time, a part of `PART` events apart. The tests use small values, and no
+/// share.
 const PIPELINE: usize = if cfg!(test) { 2 } else { 1 << 20 };
 const PART: usize = if cfg!(test) { 4 } else { 1 << 16 };
-/// The state of an event in `assign_levels`: its level in the low bits, or `UNASSIGNED`, and the kind bits above them.
+/// The state of an event in `assign_levels`: its level in the low bits, or `UNASSIGNED`, and the
+/// kind bits above them.
 const UNASSIGNED: u8 = 0x0f;
 const UNBOUND_KIND: u8 = 0x10;
 const FLOW_KIND: u8 = 0x20;
-/// The events of a bucket of the sort, and of a part of the conversion. The tests use small values, so that they have many buckets and parts.
+/// The events of a bucket of the sort, and of a part of the conversion. The tests use small values,
+/// so that they have many buckets and parts.
 const BUCKET: usize = if cfg!(test) { 4 } else { 1 << 16 };
 const MAX_BUCKETS: usize = 256;
 const UNIT: usize = if cfg!(test) { 8 } else { 1 << 16 };
@@ -74,7 +78,8 @@ pub struct Event {
     pub dur: u64,
     pub group: i64,
     pub raw: (u32, u32),
-    /// The index of the flow in `flow_ids`. In the build, the place of the flow ID in the flow IDs of the conversion unit of the event.
+    /// The index of the flow in `flow_ids`. In the build, the place of the flow ID in the flow IDs
+    /// of the conversion unit of the event.
     pub flow: u32,
     pub name: u32,
     pub track: u32,
@@ -214,7 +219,8 @@ fn hex_float(text: &str) -> Option<f64> {
     })
 }
 
-/// The conversion of a C++ `double` to `uint64_t` on x86-64: a negative value wraps, and a value out of range gives 2^63.
+/// The conversion of a C++ `double` to `uint64_t` on x86-64: a negative value wraps, and a value
+/// out of range gives 2^63.
 pub fn to_u64(value: f64) -> u64 {
     if (0.0..(1u128 << 64) as f64).contains(&value) {
         value as u64
@@ -467,7 +473,9 @@ impl<T> Slots<T> {
     }
 }
 
-/// Changes the counts of each group in each unit into the first slot of the group in the unit. The groups come one after the other, and in a group, the units keep their order. Gives the start of each group, and the total at the end.
+/// Changes the counts of each group in each unit into the first slot of the group in the unit. The
+/// groups come one after the other, and in a group, the units keep their order. Gives the start of
+/// each group, and the total at the end.
 fn into_cursors(units: &mut [Vec<u32>], groups: usize) -> Vec<usize> {
     let (mut bounds, mut next) = (Vec::with_capacity(groups + 1), 0);
     for group in 0..groups {
@@ -480,7 +488,8 @@ fn into_cursors(units: &mut [Vec<u32>], groups: usize) -> Vec<usize> {
     bounds
 }
 
-/// Calls `visit` with the index of the job, the index in the line and the event, for the input indices in `range`.
+/// Calls `visit` with the index of the job, the index in the line and the event, for the input
+/// indices in `range`.
 fn each_event<'a>(
     inputs: &'a [Vec<Ev>],
     starts: &[usize],
@@ -502,11 +511,14 @@ fn each_event<'a>(
     }
 }
 
-/// The events, the extra names, the extra arguments, the start of each bucket, and the flow IDs of each conversion unit.
+/// The events, the extra names, the extra arguments, the start of each bucket, and the flow IDs of
+/// each conversion unit.
 type Converted = (Vec<Event>, Vec<Box<str>>, Vec<Vec<String>>, Vec<usize>, Vec<Vec<u64>>);
 
-/// Gives the events in buckets of time, and the start of each bucket. All events of a bucket come before the events of the next bucket, and in a bucket, the events keep their input order.
-/// `inputs` has the events of each job. The conversion frees the events of a job when it has all of them, so the input and the output are not both full at the same time.
+/// Gives the events in buckets of time, and the start of each bucket. All events of a bucket come
+/// before the events of the next bucket, and in a bucket, the events keep their input order.
+/// `inputs` has the events of each job. The conversion frees the events of a job when it has all of
+/// them, so the input and the output are not both full at the same time.
 fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layout) -> Converted {
     let (extra, extra_base, args) = (
         Mutex::new(Vec::<Box<str>>::new()),
@@ -543,7 +555,8 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
         samples.par_sort_unstable();
         (1..buckets).map(|bucket| samples[bucket * samples.len() / buckets]).collect()
     };
-    // Most events of a line come in time order, so the search first checks the bucket of the event before.
+    // Most events of a line come in time order, so the search first checks the bucket of the event
+    // before.
     let bucket = |last: &mut usize, job: usize, event: &Ev| {
         let key = key(job, event);
         if (*last > 0 && splitters[*last - 1] > key)
@@ -565,7 +578,8 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
         })
         .collect();
     let bounds = into_cursors(&mut cursors, buckets);
-    // An event without link stats has the links of its metadata, thus `plain` keeps these links for each job and metadata.
+    // An event without link stats has the links of its metadata, thus `plain` keeps these links for
+    // each job and metadata.
     let converted = |job: usize,
                      index: usize,
                      event: &Ev,
@@ -649,7 +663,8 @@ fn convert(planes: &[Plane], mut inputs: Vec<Vec<Ev>>, map: &[u8], layout: &Layo
                     } else {
                         converted(job, index, event, &mut plain, &mut flows, unit)
                     };
-                    // SAFETY: the cursors of the units give each input index a different slot below `total`.
+                    // SAFETY: the cursors of the units give each input index a different slot below
+                    // `total`.
                     unsafe { slots.write(*slot as usize, out) };
                     *slot += 1;
                 });
@@ -711,7 +726,9 @@ impl Trace {
         });
         events.truncate(events.partition_point(|event| event.ts != u64::MAX));
         let part = events.len().div_ceil(rayon::current_num_threads() * 4).max(1);
-        // Each part gives its new async tracks and flows in the order of their first event, and these get ids in the order of the parts. A part counts the events of each track, and of each of its new async tracks.
+        // Each part gives its new async tracks and flows in the order of their first event, and
+        // these get ids in the order of the parts. A part counts the events of each track, and of
+        // each of its new async tracks.
         let units: Vec<_> = events
             .par_chunks(part)
             .enumerate()
@@ -791,7 +808,8 @@ impl Trace {
                         event.flow = flow_index[&flow_id(event.flow)];
                     }
                     let slot = &mut cursors[event.track as usize];
-                    // SAFETY: the cursors of the units give each event a different slot below `events.len()`.
+                    // SAFETY: the cursors of the units give each event a different slot below
+                    // `events.len()`.
                     unsafe { slots.write(*slot as usize, (unit * part + offset) as u32) };
                     *slot += 1;
                 }
@@ -862,7 +880,8 @@ impl Trace {
                     .filter(|(_, serial)| *serial < MAX_SERIAL)
                 {
                     let slot = &mut cursors[event.level as usize];
-                    // SAFETY: the cursors of the chunks give each counted event a different slot below the last bound.
+                    // SAFETY: the cursors of the chunks give each counted event a different slot
+                    // below the last bound.
                     unsafe { slots.write(*slot as usize, (chunk * LEVEL_CHUNK + offset) as u32) };
                     *slot += 1;
                 }
@@ -978,7 +997,8 @@ impl Trace {
         let mut out = Vec::with_capacity(sources.iter().map(|source| source.len()).sum());
         let mut heap: Vec<&[u32]> =
             sources.into_iter().filter(|source| !source.is_empty()).collect();
-        // The events are in order, so an event before another compares less, unless the two are equal.
+        // The events are in order, so an event before another compares less, unless the two are
+        // equal.
         let tied = |index: u32| self.ties[index as usize / 64] >> (index % 64) & 1 != 0;
         let after = |a: &[u32], b: &[u32]| {
             b[0] < a[0]
@@ -1130,7 +1150,8 @@ fn assign_levels(
         );
         let (done, lock, wake): (Vec<AtomicUsize>, _, _) =
             ((0..SPLIT).map(|_| AtomicUsize::new(0)).collect(), Mutex::new(()), Condvar::new());
-        // The pass of a level reads the levels that the pass before it gave, so it stays behind that pass. The passes after all events have a level change nothing.
+        // The pass of a level reads the levels that the pass before it gave, so it stays behind
+        // that pass. The passes after all events have a level change nothing.
         let pass = |level: usize| {
             let (mut row, resolution) = (Row::default(), LAYER_PS[level]);
             for start in (0..compact.len()).step_by(PART) {

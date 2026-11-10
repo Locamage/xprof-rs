@@ -337,7 +337,8 @@ pub fn repr_into(out: &mut String, value: f64) {
     );
 }
 
-/// Tells if `value` is `odd / 2 * 10^place`. Then two shortest texts are equally near, and Python writes the text with the even last digit.
+/// Tells if `value` is `odd / 2 * 10^place`. Then two shortest texts are equally near, and Python
+/// writes the text with the even last digit.
 fn halfway(value: f64, odd: u128, place: i32) -> bool {
     let bits = value.to_bits();
     let (mut mantissa, mut power) = (bits & ((1 << 52) - 1), ((bits >> 52) & 0x7ff) as i32);

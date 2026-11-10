@@ -34,10 +34,12 @@ pub struct View<'a> {
     pub events: Vec<u32>,
 }
 
-/// The plane, the map, the stack frames, the keys of the frames, and whether the frame of the event has marks.
+/// The plane, the map, the stack frames, the keys of the frames, and whether the frame of the event
+/// has marks.
 type Extra<'a> = (&'a Plane, &'a [u8], &'a mut Vec<String>, Option<&'a [u64]>, bool);
 
-/// The arguments in a trace response. A search takes its stack frames from the table of the full trace; one event has its own table.
+/// The arguments in a trace response. A search takes its stack frames from the table of the full
+/// trace; one event has its own table.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Args {
     Brief,
@@ -76,7 +78,8 @@ fn number(out: &mut String, value: u64) {
     out.push_str(itoa::Buffer::new().format(value));
 }
 
-/// Writes `%.17g` of `ps / 1e6` as glibc does. Below 100 ps, `%g` uses an exponent, and `snprintf` writes the text.
+/// Writes `%.17g` of `ps / 1e6` as glibc does. Below 100 ps, `%g` uses an exponent, and `snprintf`
+/// writes the text.
 pub fn micros(out: &mut String, ps: u64) {
     let value = ps as f64 / 1e6;
     if ps < 100 {
@@ -131,7 +134,8 @@ fn long_text(text: Cow<'_, str>) -> Cow<'_, str> {
     }
 }
 
-/// The hash of "@@" and `text`, in words of 8 bytes. The first word has "@@" and the first 6 bytes of the text.
+/// The hash of "@@" and `text`, in words of 8 bytes. The first word has "@@" and the first 6 bytes
+/// of the text.
 fn fingerprint(text: &str) -> u64 {
     let shift = |value: u64| value ^ (value >> 47);
     let mix = |hash: u64, word: [u8; 8]| {

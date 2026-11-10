@@ -85,7 +85,8 @@ pub fn split(buf: &[u8], number: u32) -> (Vec<u8>, Vec<&[u8]>) {
     (rest, matched)
 }
 
-/// Writes `%.*g` as glibc does. The C library of macOS does not write the sign of a NaN as glibc does.
+/// Writes `%.*g` as glibc does. The C library of macOS does not write the sign of a NaN as glibc
+/// does.
 pub fn general(value: f64, precision: usize) -> String {
     if value.is_nan() {
         return if value.is_sign_negative() { "-nan" } else { "nan" }.into();
@@ -103,7 +104,8 @@ pub fn general(value: f64, precision: usize) -> String {
     String::from_utf8_lossy(&buffer[..length as usize]).into_owned()
 }
 
-/// Writes `%.15g` when it gives back `value`, and `%.17g` if not. For a normal `value`, a shortest form of 15 or fewer digits is equal to `%.15g`.
+/// Writes `%.15g` when it gives back `value`, and `%.17g` if not. For a normal `value`, a shortest
+/// form of 15 or fewer digits is equal to `%.15g`.
 pub fn round_trip(out: &mut String, value: f64) {
     use std::io::Write as _;
     if !value.is_normal() {
@@ -899,7 +901,8 @@ pub fn by_options(dir: &Path, params: &HashMap<String, String>) -> Option<Arc<Mo
     }
 }
 
-/// Lists the modules of a session. When there are none, it extracts them first. Two requests do not extract at the same time.
+/// Lists the modules of a session. When there are none, it extracts them first. Two requests do not
+/// extract at the same time.
 pub fn extracted(dir: &Path, xspaces: &[PathBuf]) -> Option<Vec<String>> {
     static EXTRACTING: Mutex<()> = Mutex::new(());
     let _held = EXTRACTING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

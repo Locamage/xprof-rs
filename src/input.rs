@@ -1,7 +1,9 @@
-//! The bytes of a profile file. On Linux, a large file on a local file system is mapped, thus the process does not keep a second copy of the page cache.
+//! The bytes of a profile file. On Linux, a large file on a local file system is mapped, thus the
+//! process does not keep a second copy of the page cache.
 //!
-//! A read lease keeps the mapped bytes valid. Before another process writes or truncates the file, the system sends `SIGIO` and waits. Then a thread copies the bytes
-//! into private memory at the same address, and gives back the lease.
+//! A read lease keeps the mapped bytes valid. Before another process writes or truncates the file,
+//! the system sends `SIGIO` and waits. Then a thread copies the bytes into private memory at the
+//! same address, and gives back the lease.
 
 use std::fs::File;
 
@@ -105,7 +107,8 @@ struct Lease {
 
 #[cfg(target_os = "linux")]
 impl Lease {
-    /// Puts a private copy of the bytes at the same address, then gives back the lease. Readers see the same bytes during the change.
+    /// Puts a private copy of the bytes at the same address, then gives back the lease. Readers see
+    /// the same bytes during the change.
     fn copy(&self) -> bool {
         let copy = unsafe {
             libc::mmap(
@@ -164,7 +167,8 @@ static LISTENING: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
         {
             return;
         }
-        // During a lease break, `F_GETLEASE` gives `F_UNLCK`. A lease that the thread cannot copy stays, and the writer waits for the lease break time of the system.
+        // During a lease break, `F_GETLEASE` gives `F_UNLCK`. A lease that the thread cannot copy
+        // stays, and the writer waits for the lease break time of the system.
         LEASES.lock().expect("lock poisoned").retain(|lease| unsafe { libc::fcntl(lease.fd, libc::F_GETLEASE) } == libc::F_RDLCK || !lease.copy());
     };
     if std::thread::Builder::new().name("leases".into()).spawn(listen).is_err() {

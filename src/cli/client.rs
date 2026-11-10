@@ -175,14 +175,16 @@ pub(super) fn latest_run(dir: &Path) -> Option<PathBuf> {
 #[derive(Default)]
 pub struct Local {
     pub logdir: Option<PathBuf>,
-    /// Loads traces with the fused children at once, for a command that needs them after other data.
+    /// Loads traces with the fused children at once, for a command that needs them after other
+    /// data.
     pub fused: bool,
     pub loaded: Mutex<HashMap<PathBuf, Option<Arc<OpStats>>>>,
     pub kept: RwLock<HashMap<PathBuf, Kept>>,
 }
 
 impl Local {
-    /// The op statistics of all the hosts. The process loads each file one time and extends it when a tool needs more.
+    /// The op statistics of all the hosts. The process loads each file one time and extends it when
+    /// a tool needs more.
     fn stats(&self, paths: &[PathBuf], fused: bool, part: Part) -> Option<Arc<OpStats>> {
         let (mut loaded, mut kept) =
             (self.loaded.lock().expect("lock poisoned"), self.kept.write().expect("lock poisoned"));
@@ -213,7 +215,8 @@ impl Local {
         OpStats::combine(&all)
     }
 
-    /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU plane needs the trace derivation.
+    /// Reads the prepared planes of a file. It reuses the planes of the op statistics when no GPU
+    /// plane needs the trace derivation.
     fn prepared<T>(&self, path: &Path, read: impl FnOnce(&[Plane], &[u8]) -> T) -> Option<T> {
         if let Some(kept) = self.kept.write().expect("lock poisoned").get_mut(path).filter(|kept| {
             !kept.planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX))
@@ -396,7 +399,8 @@ impl Client for Local {
                     .map_err(|message| Error::new(Kind::Value, message));
             }
             "utilization_viewer" | "perf_counters" => {
-                // The process does not read or check a trace again after it read the trace one time.
+                // The process does not read or check a trace again after it read the trace one
+                // time.
                 let known = (name == "utilization_viewer" && paths.len() == 1)
                     .then(|| {
                         self.kept

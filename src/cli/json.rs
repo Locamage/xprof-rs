@@ -17,7 +17,8 @@ pub enum J {
     Str(String),
     List(Vec<Self>),
     Map(Vec<(String, Self)>),
-    /// The tuples, sets and dicts of the command line, which Python keeps apart from lists and objects.
+    /// The tuples, sets and dicts of the command line, which Python keeps apart from lists and
+    /// objects.
     Tuple(Vec<Self>),
     Set(Vec<Self>),
     Dict(Vec<(Self, Self)>),
@@ -399,7 +400,8 @@ pub fn py_repr(text: &str) -> String {
     out
 }
 
-/// The code splits a container of this length or more at its top-level commas. It parses the parts in parallel.
+/// The code splits a container of this length or more at its top-level commas. It parses the parts
+/// in parallel.
 const SPLIT: usize = 1 << 16;
 /// The code splits containers only at this many levels or fewer. Each level scans its text again.
 const SPLIT_LEVELS: usize = 8;
@@ -424,7 +426,8 @@ fn backslashes_before(bytes: &[u8], index: usize) -> usize {
     bytes[..index].iter().rev().take_while(|&&byte| byte == b'\\').count()
 }
 
-/// The commas in `bytes[start..end]` at the lowest depth the range reaches, the depth change, and that lowest depth.
+/// The commas in `bytes[start..end]` at the lowest depth the range reaches, the depth change, and
+/// that lowest depth.
 fn chunk_commas(
     bytes: &[u8],
     start: usize,
@@ -455,8 +458,9 @@ fn chunk_commas(
     Some((commas, depth, lowest))
 }
 
-/// Splits the inside of a container at its top-level commas. Threads scan the chunks in parallel. A chunk starts in a
-/// string when the earlier chunks hold an odd number of quotes. A quote after an odd run of backslashes does not count.
+/// Splits the inside of a container at its top-level commas. Threads scan the chunks in parallel. A
+/// chunk starts in a string when the earlier chunks hold an odd number of quotes. A quote after an
+/// odd run of backslashes does not count.
 fn parts(text: &str) -> Option<Vec<&str>> {
     let bytes = text.as_bytes();
     let size = (bytes.len() / rayon::current_num_threads()).max(SPLIT);

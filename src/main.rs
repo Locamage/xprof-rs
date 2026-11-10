@@ -42,7 +42,8 @@ use trace::json::{Args, View, quoted, render};
 use trace::{MAX_SERIAL, Options, Trace};
 use xplane::Plane;
 
-/// The physical memory, which sizes the caches and the number of loads at once. A load needs about four to six times the size of its file.
+/// The physical memory, which sizes the caches and the number of loads at once. A load needs about
+/// four to six times the size of its file.
 static MEMORY: LazyLock<u64> = LazyLock::new(|| {
     let (pages, size) =
         unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES), libc::sysconf(libc::_SC_PAGESIZE)) };
@@ -54,7 +55,8 @@ const POLL: Duration = Duration::from_secs(30);
 const FRESH: Duration = Duration::from_secs(2);
 const WATCHED_SESSIONS: usize = 8;
 const CONCURRENT_PREFETCHES: usize = 1;
-/// The prefetch starts a load only after this time without requests. A load at the same time as a request makes the request slow.
+/// The prefetch starts a load only after this time without requests. A load at the same time as a
+/// request makes the request slow.
 const QUIET: Duration = Duration::from_secs(1);
 const GZIP_CHUNK: usize = 1 << 20;
 const GZIP_BATCH: usize = 64;
@@ -257,7 +259,8 @@ struct Rendered {
     status: StatusCode,
     headers: HeaderMap,
     body: Bytes,
-    /// If the body is gzip, the end of each deflate part in it. A part decodes alone to `GZIP_CHUNK` bytes, or to the rest for the last part.
+    /// If the body is gzip, the end of each deflate part in it. A part decodes alone to
+    /// `GZIP_CHUNK` bytes, or to the rest for the last part.
     gzipped: Option<Arc<[usize]>>,
 }
 
@@ -340,7 +343,8 @@ fn private_dir(dir: &Path) -> std::io::Result<PathBuf> {
     dir.canonicalize()
 }
 
-/// A FUSE mount of a store (rclone mount, gcsfuse) reads fast only in order. On rclone, 4 parallel reads give 1 MB/s.
+/// A FUSE mount of a store (rclone mount, gcsfuse) reads fast only in order. On rclone, 4 parallel
+/// reads give 1 MB/s.
 fn on_fuse(file: &std::fs::File) -> bool {
     let mut info: libc::statfs = unsafe { std::mem::zeroed() };
     if unsafe { libc::fstatfs(std::os::fd::AsRawFd::as_raw_fd(file), &raw mut info) } != 0 {
@@ -383,7 +387,8 @@ fn file_safe(text: &str) -> String {
         .collect()
 }
 
-/// Writes a new file, then moves it to the path. A reader sees the full old file or the full new file. Two writers of the same path do not truncate the file of the other.
+/// Writes a new file, then moves it to the path. A reader sees the full old file or the full new
+/// file. Two writers of the same path do not truncate the file of the other.
 fn replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     static WRITES: AtomicUsize = AtomicUsize::new(0);
     let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -397,7 +402,8 @@ fn replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .inspect_err(|_| _ = std::fs::remove_file(&partial))
 }
 
-/// On ext4, a rename that replaces a large file waits until the disk has the new data. An exchange of the two files does not wait.
+/// On ext4, a rename that replaces a large file waits until the disk has the new data. An exchange
+/// of the two files does not wait.
 #[cfg(target_os = "linux")]
 fn swap(partial: &Path, path: &Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
@@ -433,7 +439,8 @@ fn prepare(path: &Path) -> anyhow::Result<(input::Input, Vec<Plane>)> {
     Ok((map, planes))
 }
 
-/// A file that is not a valid `XSpace` gives `None`. The parse checks the events, and the check of the other fields runs at the same time.
+/// A file that is not a valid `XSpace` gives `None`. The parse checks the events, and the check of
+/// the other fields runs at the same time.
 fn parse_checked(map: &[u8], bare: bool) -> anyhow::Result<Option<Vec<Plane>>> {
     let stats = AtomicBool::new(true);
     let (valid, planes) = rayon::join(
@@ -469,7 +476,8 @@ fn derive(planes: &mut [Plane], map: &[u8]) {
         .for_each(|plane| xplane::derive::derive(plane, map));
 }
 
-/// Adds the regions, the groups, and the derived lines of the GPUs, but not the derived lines of the TPUs. Gives `false` if the planes have their groups already.
+/// Adds the regions, the groups, and the derived lines of the GPUs, but not the derived lines of
+/// the TPUs. Gives `false` if the planes have their groups already.
 fn group(planes: &mut [Plane], map: &[u8], trace: bool) -> bool {
     planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
     let ungrouped = !xplane::derive::is_grouped(planes);
@@ -505,7 +513,8 @@ fn release(garbage: impl Send + 'static) {
     });
 }
 
-/// An empty vector with room for `capacity` items. On Linux, a large vector asks for huge pages, so that its first writes take fewer page faults.
+/// An empty vector with room for `capacity` items. On Linux, a large vector asks for huge pages, so
+/// that its first writes take fewer page faults.
 fn huge_vec<T>(capacity: usize) -> Vec<T> {
     let items: Vec<T> = Vec::with_capacity(capacity);
     #[cfg(target_os = "linux")]
@@ -514,7 +523,8 @@ fn huge_vec<T>(capacity: usize) -> Vec<T> {
             items.as_ptr().addr().next_multiple_of(HUGE_PAGE),
             (items.as_ptr().addr() + capacity * std::mem::size_of::<T>()) / HUGE_PAGE * HUGE_PAGE,
         );
-        // SAFETY: the range is in the allocation of `items`. The advice does not change its contents.
+        // SAFETY: the range is in the allocation of `items`. The advice does not change its
+        // contents.
         unsafe {
             libc::madvise(
                 std::ptr::with_exposed_provenance_mut(start),
@@ -526,7 +536,9 @@ fn huge_vec<T>(capacity: usize) -> Vec<T> {
     items
 }
 
-/// Frees `items`, and gives its pages back to the system at once. For a large block of another thread, mimalloc only marks the pages as free, and the system takes them back only when it is short of memory.
+/// Frees `items`, and gives its pages back to the system at once. For a large block of another
+/// thread, mimalloc only marks the pages as free, and the system takes them back only when it is
+/// short of memory.
 fn discard<T>(items: Vec<T>) {
     #[cfg(target_os = "linux")]
     if items.capacity() * std::mem::size_of::<T>() >= DISCARD_BYTES {
@@ -535,7 +547,8 @@ fn discard<T>(items: Vec<T>) {
             items.as_ptr().addr().next_multiple_of(page),
             (items.as_ptr().addr() + items.capacity() * std::mem::size_of::<T>()) / page * page,
         );
-        // SAFETY: the pages are in the allocation of `items`, and the drop below does not read their contents.
+        // SAFETY: the pages are in the allocation of `items`, and the drop below does not read
+        // their contents.
         unsafe {
             libc::madvise(
                 std::ptr::with_exposed_provenance_mut(start),
@@ -733,7 +746,8 @@ async fn assets(request: Request) -> Response {
             None,
         )
     };
-    // The names of the files do not change between versions, so the browser must ask again each time.
+    // The names of the files do not change between versions, so the browser must ask again each
+    // time.
     reply.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     reply.headers_mut().insert(header::VARY, HeaderValue::from_static("accept-encoding"));
     reply
@@ -742,7 +756,8 @@ async fn assets(request: Request) -> Response {
     reply
 }
 
-/// Sets a gzip body without changes when the client accepts gzip, and decoded when it does not. The parts of `ends` decode in parallel.
+/// Sets a gzip body without changes when the client accepts gzip, and decoded when it does not. The
+/// parts of `ends` decode in parallel.
 fn negotiate(
     mut reply: Response,
     body: Bytes,
@@ -776,7 +791,8 @@ fn negotiate(
     reply
 }
 
-/// The length of the decoded gzip `body` of `gzip`. The trailer has the length modulo 2^32, and only the last part is shorter than `GZIP_CHUNK`.
+/// The length of the decoded gzip `body` of `gzip`. The trailer has the length modulo 2^32, and
+/// only the last part is shorter than `GZIP_CHUNK`.
 fn decoded_len(body: &[u8], ends: &[usize]) -> usize {
     let full = (ends.len() - 1) * GZIP_CHUNK;
     full + u32::from_le_bytes(
@@ -785,7 +801,8 @@ fn decoded_len(body: &[u8], ends: &[usize]) -> usize {
     .wrapping_sub(full as u32) as usize
 }
 
-/// Resolves the deepest part of the path that exists. The parts after it must be plain names, and the first of them must not be a symlink to a path that does not exist.
+/// Resolves the deepest part of the path that exists. The parts after it must be plain names, and
+/// the first of them must not be a symlink to a path that does not exist.
 fn confine(state: &State_, path: &Path) -> Option<PathBuf> {
     let parts: Vec<Component> = path.components().collect();
     let (found, real) = (0..=parts.len()).rev().find_map(|found| {
@@ -901,7 +918,9 @@ fn accepts_gzip(headers: &HeaderMap) -> bool {
     weight("gzip").or_else(|| weight("*")).is_some_and(|weight| weight > 0.0)
 }
 
-/// A gzip body from parts of `GZIP_CHUNK` bytes that compress in parallel, and the end of each part. It compresses the body as it comes, `GZIP_BATCH` parts at a time, and keeps the last part until `finish`, because only the last part ends the stream.
+/// A gzip body from parts of `GZIP_CHUNK` bytes that compress in parallel, and the end of each
+/// part. It compresses the body as it comes, `GZIP_BATCH` parts at a time, and keeps the last part
+/// until `finish`, because only the last part ends the stream.
 struct Gzip {
     pending: Vec<u8>,
     packed: Vec<u8>,
@@ -951,7 +970,8 @@ impl Gzip {
                     flate2::Compress::new(flate2::Compression::fast(), false),
                     Vec::with_capacity(chunk.len() / 2 + 128),
                 );
-                // The writer of flate2 can stop a sync flush when its buffer is full. This loop gives more space until the flush is complete.
+                // The writer of flate2 can stop a sync flush when its buffer is full. This loop
+                // gives more space until the flush is complete.
                 loop {
                     let consumed = deflate.total_in() as usize;
                     let status = deflate
@@ -1061,7 +1081,8 @@ async fn hosts(State(state): State<Shared>, Query(params): Query<Params>) -> Res
     let files = xplanes(&dir);
     let mut names: Vec<String> = files.iter().map(|path| host_name(path)).collect();
     let tool = params.get("tag").map_or("", String::as_str);
-    // The browser asks for the hosts before it asks for the data of a tool. The load of a single host starts now, and the request for the data joins it.
+    // The browser asks for the hosts before it asks for the data of a tool. The load of a single
+    // host starts now, and the request for the data joins it.
     if let [file] = &files[..] {
         let file = file.clone();
         if tool == "trace_viewer@" {
@@ -1682,7 +1703,8 @@ async fn serve(state: Shared, dir: PathBuf, params: Params) -> Response {
 }
 
 static STARTED: LazyLock<Instant> = LazyLock::new(Instant::now);
-/// The number of requests in progress, and the end of the last request in milliseconds after `STARTED`.
+/// The number of requests in progress, and the end of the last request in milliseconds after
+/// `STARTED`.
 static ACTIVE: AtomicUsize = AtomicUsize::new(0);
 static LAST: AtomicU64 = AtomicU64::new(0);
 
@@ -2161,7 +2183,8 @@ fn main() -> anyhow::Result<()> {
     let threads = std::thread::available_parallelism().map_or(1, usize::from).min(MAX_THREADS);
     rayon::ThreadPoolBuilder::new().num_threads(threads).build_global()?;
     let purge_delay = unsafe { libmimalloc_sys::mi_option_get(PURGE_DELAY) };
-    // A command exits right after its output. To give freed memory back to the system before the exit only costs time.
+    // A command exits right after its output. To give freed memory back to the system before the
+    // exit only costs time.
     unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, -1) };
     let argv: Vec<String> = std::env::args_os()
         .skip(1)

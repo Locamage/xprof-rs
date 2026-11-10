@@ -25,7 +25,9 @@ const STATISTIC_FILLS: &str =
     "#f7d4cc #f8b2a3 #f9a28f #fa917b #fb8066 #fc7052 #fd5f3d #fd4e29 #fe3e14 #ff2d00";
 const BROWN: &str = "all-gather all-gather-start all-gather-done all-reduce reduce-scatter all-reduce-start all-reduce-done all-to-all collective-broadcast collective-reduce collective-permute collective-permute-start collective-permute-done infeed outfeed partition-id ragged-all-to-all recv recv-done send send-done replica-id";
 
-/// The template literal gets the DOT text without changes, as in the original tool. When the text can end the literal, start an expression, or end the script, the special characters get a backslash.
+/// The template literal gets the DOT text without changes, as in the original tool. When the text
+/// can end the literal, start an expression, or end the script, the special characters get a
+/// backslash.
 pub fn wrap_dot_html(dot: &str, engine: &str) -> String {
     let hostile = dot.contains('`')
         || dot.contains("${")

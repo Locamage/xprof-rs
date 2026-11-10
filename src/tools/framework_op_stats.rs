@@ -113,7 +113,8 @@ fn host_line(
                 tf_op.map(|value| plane.text_cow(&value)).filter(|full| !full.is_empty()),
             )
         };
-        // The threads decode the stats of a block of events, and then one thread adds the activities in order.
+        // The threads decode the stats of a block of events, and then one thread adds the
+        // activities in order.
         for block in line.events.chunks(HOST_BLOCK) {
             let decoded: Vec<_> = block.par_iter().with_min_len(1024).map(decode).collect();
             for (event, (op, eager, tf_op)) in block.iter().zip(decoded) {
@@ -192,7 +193,8 @@ pub fn host_db(planes: &[Plane], map: &[u8]) -> (Db, (u64, u64)) {
     ]
     .map(|wanted| plane.id(wanted));
     let (mut ops, mut parsed) = (FxHashMap::default(), vec![false; plane.meta.len()]);
-    // Without stages, the ops come from the metadata only, and the lines look up only the metadata of their events.
+    // Without stages, the ops come from the metadata only, and the lines look up only the metadata
+    // of their events.
     let stages = if ids[2].is_none() && ids[4].is_none() {
         ops = plane
             .meta

@@ -31,7 +31,8 @@ static NAMES: LazyLock<HashMap<&str, (bool, [u8; ROLES])>> = LazyLock::new(|| {
 static LONGEST_NAME: LazyLock<usize> =
     LazyLock::new(|| NAMES.keys().map(|name| name.len()).max().unwrap_or(0));
 
-/// If the event name is internal, and its roles in the connections. The length check skips the long names of the HLO operations.
+/// If the event name is internal, and its roles in the connections. The length check skips the long
+/// names of the HLO operations.
 fn known(name: &[u8]) -> (bool, [u8; ROLES]) {
     (name.len() <= *LONGEST_NAME)
         .then(|| std::str::from_utf8(name).ok().and_then(|name| NAMES.get(name)))
@@ -107,7 +108,8 @@ const CONNECTIONS: [Connection; ROLES] = [
     },
 ];
 
-/// The number of a stat for the event links. A producer, consumer or connection stat that is not an integer gives 0.
+/// The number of a stat for the event links. A producer, consumer or connection stat that is not an
+/// integer gives 0.
 fn number(kind: usize, value: &Value) -> Option<i64> {
     if matches!(kind, PT..=C | REQUEST_ID..=PID | STEP_ID | ITER_NUM) {
         Some(value.int().unwrap_or(0))
@@ -128,7 +130,8 @@ pub fn varint(buf: &[u8], pos: &mut usize) -> Option<u64> {
         *pos += 1;
         return Some(u64::from(first));
     }
-    // A varint of at most 8 bytes ends at the first byte without the high bit. One load gives its bytes, and three steps join their 7-bit groups.
+    // A varint of at most 8 bytes ends at the first byte without the high bit. One load gives its
+    // bytes, and three steps join their 7-bit groups.
     if let Some(chunk) = buf.get(*pos..).and_then(<[u8]>::first_chunk::<8>) {
         let word = u64::from_le_bytes(*chunk);
         let stops = !word & 0x8080_8080_8080_8080;
@@ -218,7 +221,8 @@ pub struct Ev {
     pub eager: Option<bool>,
     /// The event has a field of stats.
     pub has_stats: bool,
-    /// A stat of the event can have a kind of `STATS`. Without one, the links of the event come only from its metadata.
+    /// A stat of the event can have a kind of `STATS`. Without one, the links of the event come
+    /// only from its metadata.
     pub linked: bool,
 }
 
@@ -278,7 +282,8 @@ pub struct Meta {
     step: Option<String>,
     base: Option<Box<Stats>>,
     role: [u8; ROLES],
-    /// If C++ protobuf parses the HLO proto of the metadata. The first call of `hlo::protos` sets it.
+    /// If C++ protobuf parses the HLO proto of the metadata. The first call of `hlo::protos` sets
+    /// it.
     pub hlo_parses: OnceLock<bool>,
 }
 
@@ -522,7 +527,8 @@ pub fn parse(buf: &[u8]) -> anyhow::Result<Vec<Plane>> {
     parse_checking(buf, None, false)
 }
 
-/// Clears `checked` if a stat of an event does not pass the check of `valid_stat`. With `bare` and no GPU planes, the lines of the host plane have no events.
+/// Clears `checked` if a stat of an event does not pass the check of `valid_stat`. With `bare` and
+/// no GPU planes, the lines of the host plane have no events.
 pub fn parse_checking(
     buf: &[u8],
     checked: Option<&AtomicBool>,
@@ -660,7 +666,8 @@ impl Plane {
         Ok(plane)
     }
 
-    /// Adds to `out` the metadata of an entry of the map of event metadata (with `event`) or of stat metadata. An entry can have more than one value.
+    /// Adds to `out` the metadata of an entry of the map of event metadata (with `event`) or of
+    /// stat metadata. An entry can have more than one value.
     fn entry(
         &self,
         start: usize,

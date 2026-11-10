@@ -265,7 +265,8 @@ fn nest<T>(items: impl Iterator<Item = (Span, T)>, mut finish: impl FnMut(T, Spa
     open.end(&mut finish);
 }
 
-/// The programs of the steps of a TPU core. Each step line and each program line replaces the data of the lines before it, so only the last of each counts.
+/// The programs of the steps of a TPU core. Each step line and each program line replaces the data
+/// of the lines before it, so only the last of each counts.
 pub struct Programs<'a> {
     templates: &'a Templates,
     steps: Option<usize>,
@@ -718,7 +719,8 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
     events
 }
 
-/// An interval that starts in the last interval, and not before it, joins the last interval. This does not change the result of `merged_active`.
+/// An interval that starts in the last interval, and not before it, joins the last interval. This
+/// does not change the result of `merged_active`.
 fn add_interval(intervals: &mut Intervals, begin: u64, end: u64) {
     match intervals.last_mut() {
         Some(last) if last.0 <= begin && begin <= last.1 => last.1 = last.1.max(end),
@@ -742,7 +744,8 @@ fn merged_active(mut intervals: Vec<(u64, u64)>) -> u64 {
     sum.wrapping_add(stop.wrapping_sub(start))
 }
 
-/// With `input_only`, the steps keep only the time on the host that is input, because a device has the other times.
+/// With `input_only`, the steps keep only the time on the host that is input, because a device has
+/// the other times.
 pub fn host_steps(plane: &Plane, map: &[u8], origin: u64, input_only: bool) -> StepEvents {
     let id = |name| plane.id(name);
     let mut ids = [id("group_id"), id("step_name"), id("_ipl_stage_name"), id("_ct"), id("_c")];
@@ -766,7 +769,8 @@ pub fn host_steps(plane: &Plane, map: &[u8], origin: u64, input_only: bool) -> S
     if parents.is_empty() {
         ids[3..].fill(None);
     }
-    // For each name: if it is a marker, and the kind of its time. `None` has no time, and `Some(None)` is input or compute, from the stack.
+    // For each name: if it is a marker, and the kind of its time. `None` has no time, and
+    // `Some(None)` is input or compute, from the stack.
     let kinds: Vec<(bool, Option<Option<u32>>)> = plane
         .meta
         .iter()
@@ -1006,7 +1010,8 @@ fn add_metrics(total: &mut [Metrics; 2], part: &[Metrics; 2], times: [u64; 2]) {
     }
 }
 
-/// The fields of `Extra` that do not come from the steps: the hosts, the errors, the warnings, and the kind and number of devices.
+/// The fields of `Extra` that do not come from the steps: the hosts, the errors, the warnings, and
+/// the kind and number of devices.
 pub fn header(planes: &[Plane], map: &[u8]) -> Extra {
     let texts = |tag: u32| {
         let mut seen = HashSet::new();
@@ -1058,7 +1063,8 @@ pub fn header(planes: &[Plane], map: &[u8]) -> Extra {
     extra
 }
 
-/// The header and the programs of the steps. On a GPU, the steps have other fields that the roofline model reads, so `extra` must make them.
+/// The header and the programs of the steps. On a GPU, the steps have other fields that the
+/// roofline model reads, so `extra` must make them.
 pub fn programs(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
     let mut extra = header(planes, map);
     let devices =
@@ -1106,7 +1112,8 @@ pub fn add_programs(extra: &mut Extra, devices: Vec<HashMap<i64, StepPrograms>>)
     extra.program_steps = sequence;
 }
 
-/// Without `read`, the steps do not have the programs, and the caller adds them with `add_programs`.
+/// Without `read`, the steps do not have the programs, and the caller adds them with
+/// `add_programs`.
 pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates], read: bool) -> Extra {
     let mut extra = header(planes, map);
     let hostname = extra.hostnames[0].clone();

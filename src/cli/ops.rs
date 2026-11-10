@@ -310,7 +310,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         &wrap,
     )?;
     let wrapped = |error: Error| Error::new(Kind::Runtime, format!("{wrap}{}", error.repr()));
-    // Python reads `top_n` only when the view uses it. A float is good for a comparison but not for a slice.
+    // Python reads `top_n` only when the view uses it. A float is good for a comparison but not for
+    // a slice.
     let top_n = |sliced: fn(f64) -> bool| {
         let top_n = args.compared("top_n", 15.0, ">").map_err(wrapped)?;
         if matches!(args.raw("top_n"), Some(J::Float(_))) && sliced(top_n) {

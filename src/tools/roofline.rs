@@ -214,7 +214,8 @@ pub fn program(db: &Db) -> ([Metrics; 2], u64) {
     program
 }
 
-/// The number of program sums that an operation adds to: none for the operations that contain others, only the first for infeed and outfeed, else both.
+/// The number of program sums that an operation adds to: none for the operations that contain
+/// others, only the first for infeed and outfeed, else both.
 pub fn sums(metrics: &Metrics) -> u8 {
     match category(metrics) {
         "call" | "conditional" | "while" | "megacore fusion" => 0,
@@ -223,7 +224,8 @@ pub fn sums(metrics: &Metrics) -> u8 {
     }
 }
 
-/// Adds an operation to the first `count` sums, with the given flops, model flops and bytes, and with `memory` times `scale`.
+/// Adds an operation to the first `count` sums, with the given flops, model flops and bytes, and
+/// with `memory` times `scale`.
 pub fn add_scaled(
     (sums, infeed_outfeed): &mut ([Metrics; 2], u64),
     count: u8,
@@ -345,7 +347,8 @@ fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool, 
     }
 }
 
-/// The rows of the table. The overview command needs only the first row, and the device information needs no row.
+/// The rows of the table. The overview command needs only the first row, and the device information
+/// needs no row.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Rows {
     All,

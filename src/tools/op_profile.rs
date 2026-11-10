@@ -356,7 +356,8 @@ impl<'a> Builder<'a> {
         self.nodes[node].xla = Some(xla);
     }
 
-    /// Adds the JSON text of the tree at `root` to `pieces`. The subtrees of the first `parallel` levels with more than one child are written in parallel.
+    /// Adds the JSON text of the tree at `root` to `pieces`. The subtrees of the first `parallel`
+    /// levels with more than one child are written in parallel.
     fn write(&self, pieces: &mut Vec<String>, root: usize, parallel: usize) {
         let mut out = String::new();
         self.open(&mut out, root);
@@ -391,7 +392,8 @@ impl<'a> Builder<'a> {
         pieces.push(out);
     }
 
-    /// The metrics of a node in the order of the JSON text. Each entry has the values and their count.
+    /// The metrics of a node in the order of the JSON text. Each entry has the values and their
+    /// count.
     fn fields(&self, index: usize) -> [(&'static str, [f64; 3], usize); 10] {
         let metrics = &self.nodes[index].metrics;
         let time_ns = pico_to_nano(metrics.time_ps);
@@ -586,7 +588,8 @@ fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> Vec<String> {
     pieces
 }
 
-/// The sums of the `rawTime` of the leaves of the tree by category, in the order of the JSON tree. `class` gives the sum for the name and the category of a leaf.
+/// The sums of the `rawTime` of the leaves of the tree by category, in the order of the JSON tree.
+/// `class` gives the sum for the name and the category of a leaf.
 pub fn category_times(stats: &OpStats, class: impl Fn(&str, &str) -> usize + Copy) -> [f64; 3] {
     fn walk(nodes: &[Node], index: usize, class: impl Fn(&str, &str) -> usize + Copy) -> [f64; 3] {
         let node = &nodes[index];
@@ -649,7 +652,8 @@ pub fn json(stats: &OpStats, group_by: Option<&str>) -> String {
     json_trees(stats, group_by, true)
 }
 
-/// Without `with_busy`, the output has no tree for the busy time. The command line tools use no such tree.
+/// Without `with_busy`, the output has no tree for the busy time. The command line tools use no
+/// such tree.
 pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> String {
     let grouping = grouping(group_by);
     let device = HARDWARE[hardware(&stats.extra.device_type) as usize];

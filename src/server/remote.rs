@@ -185,7 +185,8 @@ impl Remote {
             Err(_) => Err(unreadable(format!("No answer in {LIST_TIMEOUT:?}"))),
         };
         if dir == self.mirror || dir.ends_with(Path::new("plugins/profile")) {
-            // The walk lists `plugins/profile` of each run for its sessions. The folders of each level list in parallel.
+            // The walk lists `plugins/profile` of each run for its sessions. The folders of each
+            // level list in parallel.
             let (listing, mut pending) = (&listing, vec![(key, dir != self.mirror)]);
             while !pending.is_empty() {
                 let listed: Vec<_> = stream::iter(std::mem::take(&mut pending))
@@ -373,7 +374,8 @@ pub async fn mirror(State(state): State<Shared>, request: Request, next: Next) -
             (None, None, run) => run.and_then(|run| run_dir(&state, run)).into_iter().collect(),
         }
     };
-    // The list of all sessions walks the whole store, so a request for a session that the mirror has does not wait for it.
+    // The list of all sessions walks the whole store, so a request for a session that the mirror
+    // has does not wait for it.
     let mut dirs = wanted();
     if runs || dirs.is_empty() || dirs.iter().any(|dir| !dir.is_dir()) {
         if let Err(message) = remote.sync(&remote.mirror, false).await {

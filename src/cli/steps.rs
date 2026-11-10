@@ -524,7 +524,8 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     Ok(out.into())
 }
 
-/// The index of the sum for the time of a leaf of the op profile: 0 for compute, 1 for HBM, 2 for ICI.
+/// The index of the sum for the time of a leaf of the op profile: 0 for compute, 1 for HBM, 2 for
+/// ICI.
 pub fn time_class(name: &str, category: &str) -> usize {
     let (name, category) = (name.to_lowercase(), category.to_lowercase());
     let matches = |patterns: &[&str]| {
