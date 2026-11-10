@@ -533,21 +533,10 @@ pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         return Ok(Out::Text(output));
     }
     if data.len() > XSPACE_SPILL_BYTES {
-        let safe = |text: &str| {
-            text.chars()
-                .map(|character| {
-                    if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
-                        character
-                    } else {
-                        '_'
-                    }
-                })
-                .collect::<String>()
-        };
         let name = if host.is_empty() {
-            safe(&session)
+            crate::file_safe(&session)
         } else {
-            format!("{}.{}", safe(&session), safe(&host))
+            format!("{}.{}", crate::file_safe(&session), crate::file_safe(&host))
         };
         let path = PathBuf::from(format!("/tmp/xspace_{name}.pb"));
         crate::replace_file(&path, &data)

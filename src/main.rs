@@ -375,6 +375,14 @@ fn read_file(path: &Path) -> std::io::Result<input::Input> {
     Ok(bytes.into())
 }
 
+/// The text with each character other than an ASCII letter, digit, `_` or `-` made `_`, for a
+/// file name.
+fn file_safe(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect()
+}
+
 /// Writes a new file, then moves it to the path. A reader sees the full old file or the full new file. Two writers of the same path do not truncate the file of the other.
 fn replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     static WRITES: AtomicUsize = AtomicUsize::new(0);
@@ -1151,16 +1159,11 @@ async fn data_csv(
                 csv += &(cells.join(",") + "\n");
             }
         }
-        let sanitize = |text: &str| {
-            text.chars()
-                .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-                .collect::<String>()
-        };
         let host = params.get("host").and_then(|host| host.rsplit('-').next()).unwrap_or("");
         let name = [
-            sanitize(params.get("tag").map_or("data", String::as_str)),
-            sanitize(params.get("run").map_or("", String::as_str)),
-            sanitize(host),
+            file_safe(params.get("tag").map_or("data", String::as_str)),
+            file_safe(params.get("run").map_or("", String::as_str)),
+            file_safe(host),
         ]
         .into_iter()
         .filter(|part| !part.is_empty())
