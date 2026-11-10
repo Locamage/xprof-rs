@@ -29,12 +29,42 @@ const MAD_THRESHOLD: f64 = 0.1;
 const MODIFIED_Z: f64 = 0.6745;
 const THIRD_PARTY_RULES: [&str; 1] = ["BarrierCoresRule"];
 const COLLECTIVES: [&str; 17] = [
-    "all-reduce", "all-reduce fusion", "all-reduce-scatter fusion", "all-to-all", "all-gather", "all-gather-start", "all-gather-done", "all-gather fusion", "reduce-scatter", "collective-permute",
-    "collective-permute-done", "collective-permute-start", "megacore fusion", "host recv", "host recv-done", "host send", "host send-done",
+    "all-reduce",
+    "all-reduce fusion",
+    "all-reduce-scatter fusion",
+    "all-to-all",
+    "all-gather",
+    "all-gather-start",
+    "all-gather-done",
+    "all-gather fusion",
+    "reduce-scatter",
+    "collective-permute",
+    "collective-permute-done",
+    "collective-permute-start",
+    "megacore fusion",
+    "host recv",
+    "host recv-done",
+    "host send",
+    "host send-done",
 ];
-const DATA_SHUFFLE: [&str; 14] =
-    ["broadcast", "concatenate", "data formatting", "dynamic-slice", "dynamic-update-slice", "gather", "pad", "reverse", "scatter", "select", "select-and-scatter", "shuffle", "slice", "sort"];
-const ASYNC_DONE_PREFIXES: [&str; 5] = ["all-gather", "all-reduce", "all-to-all", "ragged-all-to-allreduce-gather", "reduce-scatter"];
+const DATA_SHUFFLE: [&str; 14] = [
+    "broadcast",
+    "concatenate",
+    "data formatting",
+    "dynamic-slice",
+    "dynamic-update-slice",
+    "gather",
+    "pad",
+    "reverse",
+    "scatter",
+    "select",
+    "select-and-scatter",
+    "shuffle",
+    "slice",
+    "sort",
+];
+const ASYNC_DONE_PREFIXES: [&str; 5] =
+    ["all-gather", "all-reduce", "all-to-all", "ragged-all-to-allreduce-gather", "reduce-scatter"];
 
 pub(crate) type Data<T> = Result<T, String>;
 type Results = BTreeMap<String, Fractions>;
@@ -106,7 +136,8 @@ struct Straggler {
 }
 
 fn stat_average(values: impl Iterator<Item = f32>) -> Option<f64> {
-    let (sum, count) = values.fold((0.0f64, 0u64), |(sum, count), value| (sum + f64::from(value), count + 1));
+    let (sum, count) =
+        values.fold((0.0f64, 0u64), |(sum, count), value| (sum + f64::from(value), count + 1));
     (count > 0).then(|| f64::from((sum / count as f64) as f32))
 }
 
@@ -130,16 +161,33 @@ fn input_percent(data: &dyn ToolData) -> Data<f64> {
 
 fn percent_of_input(data: &dyn ToolData, enqueue: bool) -> Data<f64> {
     let input = data.input_pipeline()?;
-    let other = input.demanded_file_read_us + input.advanced_file_read_us + input.preprocessing_us + input.unclassified_non_enqueue_us;
+    let other = input.demanded_file_read_us
+        + input.advanced_file_read_us
+        + input.preprocessing_us
+        + input.unclassified_non_enqueue_us;
     let total = input.enqueue_us + other;
-    Ok(if total == 0.0 { 0.0 } else { (if enqueue { input.enqueue_us } else { other }) / total * 100.0 })
+    Ok(if total == 0.0 {
+        0.0
+    } else {
+        (if enqueue { input.enqueue_us } else { other }) / total * 100.0
+    })
 }
 
 fn step_fractions(data: &dyn ToolData, categories: &[&str]) -> Data<Vec<f32>> {
     let steps = data.steps()?;
     let fractions = steps.iter().filter(|step| !step.cores.is_empty()).filter_map(|step| {
-        let total: u64 = step.cores.iter().filter(|(core, _)| *core < SPARSE_CORE_START).map(|(_, duration)| duration).sum();
-        let matched: u64 = step.categories.iter().filter(|(category, _)| categories.contains(&category.as_str())).map(|(_, time)| time).sum();
+        let total: u64 = step
+            .cores
+            .iter()
+            .filter(|(core, _)| *core < SPARSE_CORE_START)
+            .map(|(_, duration)| duration)
+            .sum();
+        let matched: u64 = step
+            .categories
+            .iter()
+            .filter(|(category, _)| categories.contains(&category.as_str()))
+            .map(|(_, time)| time)
+            .sum();
         (total != 0).then(|| matched as f32 / total as f32)
     });
     Ok(fractions.collect())
@@ -159,18 +207,30 @@ fn data_shuffle_percent(data: &dyn ToolData) -> Data<f64> {
 
 fn tpu_percent(data: &dyn ToolData, sparse_core: bool) -> Data<f64> {
     let input = data.input_pipeline()?;
-    let (idle, sparse) = input.tpu.ok_or_else(|| "Failed to unpack TpuStepTimeBreakdown.".to_string())?;
-    Ok(if input.step_time_ms == 0.0 { 0.0 } else { (if sparse_core { sparse } else { idle }) / input.step_time_ms * 100.0 })
+    let (idle, sparse) =
+        input.tpu.ok_or_else(|| "Failed to unpack TpuStepTimeBreakdown.".to_string())?;
+    Ok(if input.step_time_ms == 0.0 {
+        0.0
+    } else {
+        (if sparse_core { sparse } else { idle }) / input.step_time_ms * 100.0
+    })
 }
 
 fn event_percent(data: &dyn ToolData, event: &str) -> Data<f64> {
     let fractions = data.event_fractions(event)?;
-    Ok(stat_average(fractions.chips.values().flatten().copied()).map_or(0.0, |average| average * 100.0))
+    Ok(stat_average(fractions.chips.values().flatten().copied())
+        .map_or(0.0, |average| average * 100.0))
 }
 
 fn host_event_percents(data: &dyn ToolData, event: &str) -> Data<Vec<(String, f64)>> {
     let fractions = data.event_fractions(event)?;
-    Ok(fractions.hosts.iter().filter_map(|(host, values)| Some((host.clone(), stat_average(values.iter().copied())? * 100.0))).collect())
+    Ok(fractions
+        .hosts
+        .iter()
+        .filter_map(|(host, values)| {
+            Some((host.clone(), stat_average(values.iter().copied())? * 100.0))
+        })
+        .collect())
 }
 
 fn stragglers(data: &dyn ToolData, event: &str) -> Data<Vec<Straggler>> {
@@ -178,8 +238,10 @@ fn stragglers(data: &dyn ToolData, event: &str) -> Data<Vec<Straggler>> {
     if hosts.len() < 3 {
         return Ok(Vec::new());
     }
-    let center = median(hosts.iter().map(|(_, percent)| *percent).collect());
-    let mad = median(hosts.iter().map(|(_, percent)| (percent - center).abs()).collect());
+    let percentiles: Vec<f64> = hosts.iter().map(|(_, percent)| *percent).collect();
+    let center = median(percentiles);
+    let deviations: Vec<f64> = hosts.iter().map(|(_, percent)| (percent - center).abs()).collect();
+    let mad = median(deviations);
     Ok(hosts
         .into_iter()
         .filter_map(|(hostname, percent)| {
@@ -197,7 +259,9 @@ fn stragglers(data: &dyn ToolData, event: &str) -> Data<Vec<Straggler>> {
 
 fn async_done_percent(data: &dyn ToolData) -> Data<f64> {
     let root = data.op_profile()?;
-    let Some(first) = root.children.first() else { return Ok(0.0) };
+    let Some(first) = root.children.first() else {
+        return Ok(0.0);
+    };
     let time: f64 = first
         .children
         .iter()
@@ -210,7 +274,10 @@ fn async_done_percent(data: &dyn ToolData) -> Data<f64> {
 }
 
 fn peak_memory_percent(data: &dyn ToolData) -> Data<f64> {
-    let (usage, capacity) = data.memory()?.iter().fold((0.0, 0.0), |(usage, capacity), (peak, total)| (usage + peak, capacity + total));
+    let (usage, capacity) = data
+        .memory()?
+        .iter()
+        .fold((0.0, 0.0), |(usage, capacity), (peak, total)| (usage + peak, capacity + total));
     Ok(usage / capacity * 100.0)
 }
 
@@ -273,9 +340,22 @@ fn data_transfer_bound(data: &dyn ToolData) -> Data<String> {
 }
 
 fn debug_print(data: &dyn ToolData) -> Data<String> {
-    let high: Vec<(String, f64)> = host_event_percents(data, DEBUG_PRINT).unwrap_or_default().into_iter().filter(|(_, percent)| *percent >= DEBUG_PRINT_PERCENT).collect();
-    let max_percent = high.iter().fold(0.0f64, |max, (_, percent)| if *percent > max { *percent } else { max });
-    let list: String = high.iter().map(|(host, percent)| format!("<li>Host <b>{host}</b> average debug_print time fraction: <b>{}%</b></li>", one(*percent))).collect();
+    let high: Vec<(String, f64)> = host_event_percents(data, DEBUG_PRINT)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(_, percent)| *percent >= DEBUG_PRINT_PERCENT)
+        .collect();
+    let max_percent =
+        high.iter().fold(0.0f64, |max, (_, percent)| if *percent > max { *percent } else { max });
+    let list: String = high
+        .iter()
+        .map(|(host, percent)| {
+            format!(
+                "<li>Host <b>{host}</b> average debug_print time fraction: <b>{}%</b></li>",
+                one(*percent)
+            )
+        })
+        .collect();
     Ok(format!(
         "<p>Your program is likely bottlenecked by <b>{DEBUG_PRINT}</b> operations: <b> up to {}% of step time</b> is spent on these operations on some hosts. This often indicates the debug print operations causes busy waiting for other workers in a distributed training setup. Please consider the following optimizations:</p><ul><li><b>Investigate Hosts with High Debug Print Time:</b> The following hosts have high debug_print time fraction compared to others:<ul>{list}</ul></li><li><b>Check for debug print usage:</b> Check for <code>jax.debug.print</code> calls in your code.</li></ul>",
         one(max_percent)
@@ -330,23 +410,85 @@ fn sparse_core_offload(data: &dyn ToolData) -> Data<String> {
 }
 
 pub(crate) const RULES: [Rule; 12] = [
-    Rule { name: "BarrierCoresRule", meets: |data| event_percent(data, SPECIAL_OP).is_ok_and(|percent| percent >= SPECIAL_OP_PERCENT), generate: barrier_cores },
-    Rule { name: "CollectiveBoundRule", meets: |data| collective_percent(data).is_ok_and(|percent| percent >= COLLECTIVE_PERCENT), generate: collective_bound },
-    Rule { name: "ComputeBoundRule", meets: |data| matches!((hbm(data), mxu(data)), (Ok(hbm), Ok(mxu)) if mxu > MXU_HIGH && hbm < HBM_LOW), generate: compute_bound },
-    Rule { name: "DataShuffleBoundRule", meets: |data| data_shuffle_percent(data).is_ok_and(|percent| percent >= DATA_SHUFFLE_PERCENT), generate: data_shuffle_bound },
-    Rule { name: "DataTransferBoundRule", meets: |data| input_bound(data) && percent_of_input(data, true).is_ok_and(|percent| percent >= DATA_TRANSFER_PERCENT), generate: data_transfer_bound },
-    Rule { name: "DebugPrintRule", meets: |data| host_event_percents(data, DEBUG_PRINT).is_ok_and(|hosts| hosts.iter().any(|(_, percent)| *percent >= DEBUG_PRINT_PERCENT)), generate: debug_print },
-    Rule { name: "HostProcessingBoundRule", meets: |data| input_bound(data) && percent_of_input(data, false).is_ok_and(|percent| percent >= HOST_PROCESSING_PERCENT), generate: host_processing_bound },
+    Rule {
+        name: "BarrierCoresRule",
+        meets: |data| {
+            event_percent(data, SPECIAL_OP).is_ok_and(|percent| percent >= SPECIAL_OP_PERCENT)
+        },
+        generate: barrier_cores,
+    },
+    Rule {
+        name: "CollectiveBoundRule",
+        meets: |data| collective_percent(data).is_ok_and(|percent| percent >= COLLECTIVE_PERCENT),
+        generate: collective_bound,
+    },
+    Rule {
+        name: "ComputeBoundRule",
+        meets: |data| matches!((hbm(data), mxu(data)), (Ok(hbm), Ok(mxu)) if mxu > MXU_HIGH && hbm < HBM_LOW),
+        generate: compute_bound,
+    },
+    Rule {
+        name: "DataShuffleBoundRule",
+        meets: |data| {
+            data_shuffle_percent(data).is_ok_and(|percent| percent >= DATA_SHUFFLE_PERCENT)
+        },
+        generate: data_shuffle_bound,
+    },
+    Rule {
+        name: "DataTransferBoundRule",
+        meets: |data| {
+            input_bound(data)
+                && percent_of_input(data, true)
+                    .is_ok_and(|percent| percent >= DATA_TRANSFER_PERCENT)
+        },
+        generate: data_transfer_bound,
+    },
+    Rule {
+        name: "DebugPrintRule",
+        meets: |data| {
+            host_event_percents(data, DEBUG_PRINT)
+                .is_ok_and(|hosts| hosts.iter().any(|(_, percent)| *percent >= DEBUG_PRINT_PERCENT))
+        },
+        generate: debug_print,
+    },
+    Rule {
+        name: "HostProcessingBoundRule",
+        meets: |data| {
+            input_bound(data)
+                && percent_of_input(data, false)
+                    .is_ok_and(|percent| percent >= HOST_PROCESSING_PERCENT)
+        },
+        generate: host_processing_bound,
+    },
     Rule {
         name: "InputBoundRule",
         meets: |data| {
-            input_bound(data) && matches!((percent_of_input(data, false), percent_of_input(data, true)), (Ok(other), Ok(enqueue)) if other.abs() < ZERO_EPSILON && enqueue.abs() < ZERO_EPSILON)
+            input_bound(data)
+                && matches!((percent_of_input(data, false), percent_of_input(data, true)), (Ok(other), Ok(enqueue)) if other.abs() < ZERO_EPSILON && enqueue.abs() < ZERO_EPSILON)
         },
         generate: input_bound_text,
     },
-    Rule { name: "MemoryBoundRule", meets: |data| matches!((hbm(data), mxu(data)), (Ok(hbm), Ok(mxu)) if hbm > HBM_HIGH && mxu < MXU_LOW), generate: memory_bound },
-    Rule { name: "TensorCoreIdleBoundRule", meets: |data| latency_bound(data) && tpu_percent(data, false).is_ok_and(|percent| percent > TENSOR_CORE_IDLE_PERCENT), generate: tensor_core_idle_bound },
-    Rule { name: "SparseCoreBoundRule", meets: |data| latency_bound(data) && tpu_percent(data, true).is_ok_and(|percent| percent > SPARSE_CORE_PERCENT), generate: sparse_core_bound },
+    Rule {
+        name: "MemoryBoundRule",
+        meets: |data| matches!((hbm(data), mxu(data)), (Ok(hbm), Ok(mxu)) if hbm > HBM_HIGH && mxu < MXU_LOW),
+        generate: memory_bound,
+    },
+    Rule {
+        name: "TensorCoreIdleBoundRule",
+        meets: |data| {
+            latency_bound(data)
+                && tpu_percent(data, false).is_ok_and(|percent| percent > TENSOR_CORE_IDLE_PERCENT)
+        },
+        generate: tensor_core_idle_bound,
+    },
+    Rule {
+        name: "SparseCoreBoundRule",
+        meets: |data| {
+            latency_bound(data)
+                && tpu_percent(data, true).is_ok_and(|percent| percent > SPARSE_CORE_PERCENT)
+        },
+        generate: sparse_core_bound,
+    },
     Rule {
         name: "SparseCoreOffloadRule",
         meets: |data| matches!((async_done_percent(data), peak_memory_percent(data)), (Ok(async_done), Ok(memory)) if async_done > ASYNC_DONE_PERCENT && memory < MEMORY_HIGH),
@@ -383,7 +525,10 @@ struct Session {
 
 impl ToolData for Session {
     fn event_fractions(&self, event: &str) -> Data<Fractions> {
-        let fractions = self.fractions.as_ref().ok_or_else(|| "Can't parse an xspace of the session as binary proto".to_string())?;
+        let fractions = self
+            .fractions
+            .as_ref()
+            .ok_or_else(|| "Can't parse an xspace of the session as binary proto".to_string())?;
         fractions.get(event).cloned().ok_or_else(|| format!("Event not found: {event}"))
     }
 }
@@ -395,12 +540,17 @@ fn session_fractions(paths: &[PathBuf]) -> Option<Results> {
         let mut planes = crate::parse_checked(&map, false).ok()??;
         crate::finish(&mut planes, &map, true);
         let hostname = crate::xplane::fields(&map).find_map(|(tag, field)| match (tag, field) {
-            (4, crate::xplane::Field::Bytes(_, name)) => Some(String::from_utf8_lossy(name).into_owned()),
+            (4, crate::xplane::Field::Bytes(_, name)) => {
+                Some(String::from_utf8_lossy(name).into_owned())
+            }
             _ => None,
         });
         let hostname = hostname.unwrap_or_else(|| crate::host_name(path));
         for event in ANALYZED_EVENTS {
-            accumulate(analyze(&planes, &map, &hostname, event), fractions.entry(event.to_string()).or_default());
+            accumulate(
+                analyze(&planes, &map, &hostname, event),
+                fractions.entry(event.to_string()).or_default(),
+            );
         }
         crate::release((map, planes));
     }
@@ -408,7 +558,9 @@ fn session_fractions(paths: &[PathBuf]) -> Option<Results> {
 }
 
 pub fn json(paths: &[PathBuf]) -> Option<String> {
-    run(&Session { fractions: session_fractions(paths) }, &THIRD_PARTY_RULES).ok().map(|suggestions| render(&suggestions))
+    run(&Session { fractions: session_fractions(paths) }, &THIRD_PARTY_RULES)
+        .ok()
+        .map(|suggestions| render(&suggestions))
 }
 
 #[cfg(test)]

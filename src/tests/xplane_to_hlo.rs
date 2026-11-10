@@ -12,13 +12,20 @@ fn set_up() -> PathBuf {
 }
 
 fn named(name: &str) -> HloProto {
-    HloProto { hlo_module: Some(HloModuleProto { name: name.into(), ..Default::default() }), ..Default::default() }
+    HloProto {
+        hlo_module: Some(HloModuleProto { name: name.into(), ..Default::default() }),
+        ..Default::default()
+    }
 }
 
 fn write_dummy_hlo_with_node(profile_dir: &Path, module_name: &str, node_name: &str) {
     let mut hlo = named(module_name);
     let instruction = HloInstructionProto { name: node_name.into(), ..Default::default() };
-    hlo.hlo_module.as_mut().unwrap().computations.push(HloComputationProto { instructions: vec![instruction], ..Default::default() });
+    hlo.hlo_module
+        .as_mut()
+        .unwrap()
+        .computations
+        .push(HloComputationProto { instructions: vec![instruction], ..Default::default() });
     write_module(profile_dir, module_name, &hlo);
 }
 
@@ -36,13 +43,17 @@ fn get_hlo_proto_by_node_name_success() {
     write_module(&profile_dir, "empty_module", &HloProto::default());
     write_dummy_hlo_with_node(&profile_dir, "other_module", "other_node");
     write_dummy_hlo_with_node(&profile_dir, "my_module", "my_target_node");
-    assert_eq!(by_node_name(&profile_dir, "my_target_node"), Err("No program shape found in the proto".to_string()));
+    assert_eq!(
+        by_node_name(&profile_dir, "my_target_node"),
+        Err("No program shape found in the proto".to_string())
+    );
 }
 
 #[test]
 fn get_hlo_proto_by_node_name_not_found() {
     let profile_dir = set_up();
-    std::fs::write(profile_dir.join("bad_module.hlo_proto.pb"), "this is not a valid proto").unwrap();
+    std::fs::write(profile_dir.join("bad_module.hlo_proto.pb"), "this is not a valid proto")
+        .unwrap();
     write_dummy_hlo_with_node(&profile_dir, "my_module", "other_node");
     assert!(by_node_name(&profile_dir, "my_target_node").unwrap_err().contains("not found"));
 }
@@ -58,7 +69,9 @@ fn get_hlo_proto_by_node_name_ignores_other_files() {
 #[test]
 fn get_hlo_proto_by_node_name_invalid_dir() {
     let invalid_profile_dir = crate::tests::temp_dir().join("xprof-rs-non_existent_dir");
-    assert!(by_node_name(&invalid_profile_dir, "my_target_node").unwrap_err().contains("not found"));
+    assert!(
+        by_node_name(&invalid_profile_dir, "my_target_node").unwrap_err().contains("not found")
+    );
 }
 
 #[test]
@@ -73,7 +86,11 @@ fn get_hlo_proto_by_program_id_success() {
 fn get_hlo_proto_by_program_id_not_found() {
     let profile_dir = set_up();
     assert!(by_options(&profile_dir, &options(&[("program_id", "prog_456")])).is_none());
-    assert!(serve(&profile_dir, &options(&[("type", "pbtxt"), ("program_id", "prog_456")])).unwrap_err().contains("not found"));
+    assert!(
+        serve(&profile_dir, &options(&[("type", "pbtxt"), ("program_id", "prog_456")]))
+            .unwrap_err()
+            .contains("not found")
+    );
 }
 
 #[test]
@@ -96,5 +113,7 @@ fn get_hlo_proto_by_options_success_program_id() {
 fn get_hlo_proto_by_options_failure() {
     let profile_dir = set_up();
     assert!(by_options(&profile_dir, &options(&[])).is_none());
-    assert!(serve(&profile_dir, &options(&[("type", "pbtxt")])).unwrap_err().contains("Can not load"));
+    assert!(
+        serve(&profile_dir, &options(&[("type", "pbtxt")])).unwrap_err().contains("Can not load")
+    );
 }

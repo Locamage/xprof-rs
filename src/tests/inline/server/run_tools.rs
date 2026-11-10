@@ -6,7 +6,10 @@ fn plane(name: &str, rest: &[Vec<u8>]) -> Vec<u8> {
 }
 
 fn counter_line(stat: u64) -> Vec<u8> {
-    bytes(3, &bytes(4, &[number(1, 1), bytes(4, &[number(1, stat), number(4, 7)].concat())].concat()))
+    bytes(
+        3,
+        &bytes(4, &[number(1, 1), bytes(4, &[number(1, stat), number(4, 7)].concat())].concat()),
+    )
 }
 
 #[test]
@@ -21,17 +24,35 @@ fn tool_list_follows_planes_of_the_first_host() {
     assert_eq!(
         sorted(tools(&space).unwrap()),
         [
-            "overview_page", "trace_viewer@", "graph_viewer", "op_profile", "input_pipeline_analyzer", "kernel_stats", "memory_profile", "memory_viewer", "roofline_model", "perf_counters",
-            "framework_op_stats", "hlo_stats", "megascale_stats", "kernel_utilization", "utilization_viewer"
+            "overview_page",
+            "trace_viewer@",
+            "graph_viewer",
+            "op_profile",
+            "input_pipeline_analyzer",
+            "kernel_stats",
+            "memory_profile",
+            "memory_viewer",
+            "roofline_model",
+            "perf_counters",
+            "framework_op_stats",
+            "hlo_stats",
+            "megascale_stats",
+            "kernel_utilization",
+            "utilization_viewer"
         ]
     );
 }
 
 #[test]
 fn counters_count_only_on_tensor_core_events_carrying_the_stat() {
-    let unused = [plane("/device:TPU:0", &[named(5, 9, "counter_value"), counter_line(8)]), plane("/host:CPU", &[named(5, 8, "counter_value"), counter_line(8)])].concat();
+    let unused = [
+        plane("/device:TPU:0", &[named(5, 9, "counter_value"), counter_line(8)]),
+        plane("/host:CPU", &[named(5, 8, "counter_value"), counter_line(8)]),
+    ]
+    .concat();
     assert_eq!(tools(&unused).unwrap(), BASE_TOOLS);
-    let second_cpu = [plane("/host:CPU", &[]), plane("/host:CPU", &[named(4, 1, "MegaScale: Recv")])].concat();
+    let second_cpu =
+        [plane("/host:CPU", &[]), plane("/host:CPU", &[named(4, 1, "MegaScale: Recv")])].concat();
     assert!(!tools(&second_cpu).unwrap().contains(&"megascale_stats"));
 }
 
@@ -46,12 +67,18 @@ fn malformed_or_non_utf8_spaces_are_rejected() {
 
 #[test]
 fn strings_escape_like_python_json() {
-    assert_eq!(python_string("a\"\\\n\u{1}é😀\u{7f}"), "\"a\\\"\\\\\\n\\u0001\\u00e9\\ud83d\\ude00\\u007f\"");
+    assert_eq!(
+        python_string("a\"\\\n\u{1}é😀\u{7f}"),
+        "\"a\\\"\\\\\\n\\u0001\\u00e9\\ud83d\\ude00\\u007f\""
+    );
 }
 
 #[test]
 fn python_sort_puts_unknown_tools_last_alphabetically() {
-    assert_eq!(sorted(["zeta", "trace_viewer", "trace_viewer@", "alpha", "hlo_stats"]), ["trace_viewer@", "hlo_stats", "alpha", "zeta"]);
+    assert_eq!(
+        sorted(["zeta", "trace_viewer", "trace_viewer@", "alpha", "hlo_stats"]),
+        ["trace_viewer@", "hlo_stats", "alpha", "zeta"]
+    );
 }
 
 #[test]
@@ -59,10 +86,14 @@ fn cache_round_trips_and_invalidates_on_file_changes() {
     let dir = crate::tests::temp_dir().join(format!("xprof-rs-run-tools-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("host.xplane.pb"), plane("/host:CPU", &[])).unwrap();
-    assert_eq!(json(&dir), r#"["overview_page", "trace_viewer@", "op_profile", "input_pipeline_analyzer", "memory_profile", "roofline_model", "framework_op_stats", "hlo_stats"]"#);
+    assert_eq!(
+        json(&dir),
+        r#"["overview_page", "trace_viewer@", "op_profile", "input_pipeline_analyzer", "memory_profile", "roofline_model", "framework_op_stats", "hlo_stats"]"#
+    );
     let written = std::fs::read_to_string(dir.join(CACHE_FILE)).unwrap();
     assert!(written.starts_with("{\n  \"files\": {\n    \"host.xplane.pb\": \"") && written.ends_with("\"\n  },\n  \"tools\": [\n    \"overview_page\",\n    \"trace_viewer@\",\n    \"op_profile\",\n    \"input_pipeline_analyzer\",\n    \"memory_profile\",\n    \"roofline_model\",\n    \"framework_op_stats\",\n    \"hlo_stats\"\n  ],\n  \"version\": 1\n}"), "{written}");
-    std::fs::write(dir.join(CACHE_FILE), written.replace("\"hlo_stats\"\n", "\"other\"\n")).unwrap();
+    std::fs::write(dir.join(CACHE_FILE), written.replace("\"hlo_stats\"\n", "\"other\"\n"))
+        .unwrap();
     assert!(json(&dir).ends_with("\"framework_op_stats\", \"other\"]"));
     std::fs::write(dir.join("host.xplane.pb"), b"\x0f").unwrap();
     assert_eq!(json(&dir), "[]");
@@ -71,10 +102,19 @@ fn cache_round_trips_and_invalidates_on_file_changes() {
 
 #[test]
 fn demo_sessions_cache_under_the_temp_directory() {
-    assert_eq!(cache_path(Path::new("/logs/run/plugins/profile/s")), Path::new("/logs/run/plugins/profile/s/.cached_tools.json"));
+    assert_eq!(
+        cache_path(Path::new("/logs/run/plugins/profile/s")),
+        Path::new("/logs/run/plugins/profile/s/.cached_tools.json")
+    );
     let demo = cache_path(Path::new("/logs/demo/plugins/profile/s"));
-    assert!(demo.to_string_lossy().ends_with("_.cached_tools.json") && demo.file_name().unwrap().len() == "xprof_0123456789abcdef_.cached_tools.json".len());
-    assert_eq!(cache_path(Path::new("/logs/mydemo/plugins/profile/s")), Path::new("/logs/mydemo/plugins/profile/s/.cached_tools.json"));
+    assert!(
+        demo.to_string_lossy().ends_with("_.cached_tools.json")
+            && demo.file_name().unwrap().len() == "xprof_0123456789abcdef_.cached_tools.json".len()
+    );
+    assert_eq!(
+        cache_path(Path::new("/logs/mydemo/plugins/profile/s")),
+        Path::new("/logs/mydemo/plugins/profile/s/.cached_tools.json")
+    );
 }
 
 const TOOLS_1: [&str; 1] = ["tool1"];
@@ -85,7 +125,11 @@ fn tools_cache_dir(name: &str) -> PathBuf {
 }
 
 fn saved(dir: &Path, tools: &[&str]) {
-    save(&dir.join(CACHE_FILE), dir, &tools.iter().map(std::string::ToString::to_string).collect::<Vec<_>>());
+    save(
+        &dir.join(CACHE_FILE),
+        dir,
+        &tools.iter().map(std::string::ToString::to_string).collect::<Vec<_>>(),
+    );
 }
 
 fn loaded(dir: &Path) -> Option<Vec<Value>> {
@@ -140,7 +184,12 @@ fn test_load_file_mtime_changed() {
     std::fs::write(&file, "").unwrap();
     saved(&dir, &TOOLS_1);
     let modified = std::fs::metadata(&file).unwrap().modified().unwrap();
-    std::fs::File::options().write(true).open(&file).unwrap().set_modified(modified + std::time::Duration::from_secs(1)).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(modified + std::time::Duration::from_secs(1))
+        .unwrap();
     assert_eq!(loaded(&dir), None);
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -219,10 +268,16 @@ fn test_save_load_after_creating_directory() {
 #[test]
 fn test_get_xplane_file_states_success() {
     let dir = tools_cache_dir("file-states");
-    for (name, content) in [("1.xplane.pb", "test"), ("2.txt", "test2"), ("3.xplane.riegeli", "test3")] {
+    for (name, content) in
+        [("1.xplane.pb", "test"), ("2.txt", "test2"), ("3.xplane.riegeli", "test3")]
+    {
         std::fs::write(dir.join(name), content).unwrap();
     }
     let states = file_states(&dir).unwrap();
-    assert!(states.contains_key("1.xplane.pb") && states.contains_key("3.xplane.riegeli") && !states.contains_key("2.txt"));
+    assert!(
+        states.contains_key("1.xplane.pb")
+            && states.contains_key("3.xplane.riegeli")
+            && !states.contains_key("2.txt")
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }

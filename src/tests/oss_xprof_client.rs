@@ -4,7 +4,8 @@ use crate::cli::client::{Client, Local};
 use std::path::PathBuf;
 
 fn listing(dir: &std::path::Path) -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().path()).collect();
+    let mut found: Vec<PathBuf> =
+        std::fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().path()).collect();
     found.sort();
     found
 }
@@ -16,7 +17,9 @@ fn test_set_logdir_none() {
 
 #[test]
 fn test_set_logdir_str() {
-    assert!(Local { logdir: Some(PathBuf::from("/tmp/test")), ..Default::default() }.logdir().is_some());
+    assert!(
+        Local { logdir: Some(PathBuf::from("/tmp/test")), ..Default::default() }.logdir().is_some()
+    );
 }
 
 #[test]
@@ -70,7 +73,10 @@ fn test_external_atomic_fingerprint_storage() {
     std::fs::create_dir_all(&run).unwrap();
     std::fs::write(run.join("host.xplane.pb"), b"trace_data").unwrap();
     let before = listing(&run);
-    assert_eq!(Local::default().fetch("overview_page.json", &run.to_string_lossy(), &[]).unwrap(), None);
+    assert_eq!(
+        Local::default().fetch("overview_page.json", &run.to_string_lossy(), &[]).unwrap(),
+        None
+    );
     assert_eq!(listing(&run), before);
 }
 

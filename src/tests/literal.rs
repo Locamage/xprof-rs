@@ -3,7 +3,12 @@ use crate::hlo::text::{Printer, Style};
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
-static LITERALS: LazyLock<Module<'static>> = LazyLock::new(|| Module::parse(Cow::Owned(std::fs::read(format!("{}/tests/data/literal/literals.pb", env!("CARGO_MANIFEST_DIR"))).unwrap())));
+static LITERALS: LazyLock<Module<'static>> = LazyLock::new(|| {
+    Module::parse(Cow::Owned(
+        std::fs::read(format!("{}/tests/data/literal/literals.pb", env!("CARGO_MANIFEST_DIR")))
+            .unwrap(),
+    ))
+});
 
 fn to_string(name: &str) -> String {
     let module = &*LITERALS;
@@ -61,7 +66,10 @@ fn r2_to_string() {
 
 #[test]
 fn r3_to_string() {
-    assert_eq!(to_string("r3"), "s32[3,2,1] {\n{\n  {1},\n  {2}\n},\n{\n  {3},\n  {4}\n},\n{\n  {5},\n  {6}\n}\n}");
+    assert_eq!(
+        to_string("r3"),
+        "s32[3,2,1] {\n{\n  {1},\n  {2}\n},\n{\n  {3},\n  {4}\n},\n{\n  {5},\n  {6}\n}\n}"
+    );
 }
 
 #[test]
@@ -73,12 +81,18 @@ fn r6_to_string() {
 #[test]
 fn create_r3_from_array3d() {
     assert_eq!(LITERALS.nodes[LITERALS.find("r3_from_array").unwrap()].shape.dimensions, [2, 3, 2]);
-    assert_eq!(to_string("r3_from_array"), "f32[2,3,2] {\n{\n  { 1, 2 },\n  { 3, 4 },\n  { 5, 6 }\n},\n{\n  { 7, 8 },\n  { 9, 10 },\n  { 11, 12 }\n}\n}");
+    assert_eq!(
+        to_string("r3_from_array"),
+        "f32[2,3,2] {\n{\n  { 1, 2 },\n  { 3, 4 },\n  { 5, 6 }\n},\n{\n  { 7, 8 },\n  { 9, 10 },\n  { 11, 12 }\n}\n}"
+    );
 }
 
 #[test]
 fn literal_r4_f32_projected_stringifies() {
-    assert_eq!(LITERALS.nodes[LITERALS.find("r4_projected").unwrap()].shape.dimensions, [1, 2, 3, 2]);
+    assert_eq!(
+        LITERALS.nodes[LITERALS.find("r4_projected").unwrap()].shape.dimensions,
+        [1, 2, 3, 2]
+    );
     let expected = "f32[1,2,3,2] {\n{ /*i0=0*/\n{ /*i1=0*/\n  { 1, 2 },\n  { 1001, 1002 },\n  { 2001, 2002 }\n},\n{ /*i1=1*/\n  { 1, 2 },\n  { 1001, 1002 },\n  { 2001, 2002 }\n}\n}\n}";
     assert_eq!(to_string("r4_projected"), expected);
 }

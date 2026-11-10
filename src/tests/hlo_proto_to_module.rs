@@ -68,7 +68,10 @@ fn assert_consecutive_ids_and_operands() {
     assert!(module.valid);
     let entry = &module.graphs[module.entry];
     assert_eq!(entry.nodes.len(), 3);
-    assert_eq!(entry.nodes.iter().map(|&node| node - entry.nodes[0]).collect::<Vec<_>>(), [0, 1, 2]);
+    assert_eq!(
+        entry.nodes.iter().map(|&node| node - entry.nodes[0]).collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
     let parameter = entry.parameters[0];
     assert_eq!(module.nodes[parameter].name, "arg0.1");
     assert_eq!(parameter - entry.nodes[0], 0);

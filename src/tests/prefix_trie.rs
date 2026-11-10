@@ -22,7 +22,8 @@ fn with_data(prefix: &str) -> Vec<(String, usize)> {
 }
 
 fn expected(keys: &[(&str, usize)]) -> Vec<(String, usize)> {
-    let mut keys: Vec<(String, usize)> = keys.iter().map(|&(key, id)| (key.to_string(), id)).collect();
+    let mut keys: Vec<(String, usize)> =
+        keys.iter().map(|&(key, id)| (key.to_string(), id)).collect();
     keys.sort();
     keys
 }
@@ -49,7 +50,10 @@ fn prefix_search_on_trie_with_multiple_keys_prefix_not_found() {
 
 #[test]
 fn prefix_search_on_trie_with_multiple_keys_empty_prefix() {
-    assert_eq!(with_data(""), expected(&[("abc", 0), ("abcd", 1), ("abcd", 4), ("abce", 2), ("a", 3), ("def", 5)]));
+    assert_eq!(
+        with_data(""),
+        expected(&[("abc", 0), ("abcd", 1), ("abcd", 4), ("abce", 2), ("a", 3), ("def", 5)])
+    );
 }
 
 #[test]

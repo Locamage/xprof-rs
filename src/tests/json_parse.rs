@@ -11,9 +11,16 @@ impl Random {
 
 fn value(random: &mut Random, depth: usize, out: &mut String) {
     match random.below(if depth == 0 { 4 } else { 7 }) {
-        0 => out.push_str(["null", "true", "-0", "12345678901234567890123", "1.5e300", "-7"][random.below(6)]),
+        0 => out.push_str(
+            ["null", "true", "-0", "12345678901234567890123", "1.5e300", "-7"][random.below(6)],
+        ),
         1..=3 => {
-            let text: String = (0..random.below(12)).map(|_| ["\\", "\"", "\\\\\\", "\"\\\"", ",", "[", "}", ":", "é", "\n", "a"][random.below(11)]).collect();
+            let text: String = (0..random.below(12))
+                .map(|_| {
+                    ["\\", "\"", "\\\\\\", "\"\\\"", ",", "[", "}", ":", "é", "\n", "a"]
+                        [random.below(11)]
+                })
+                .collect();
             out.push_str(&serde_json::to_string(&text).unwrap());
         }
         4 | 5 => {
@@ -70,7 +77,9 @@ fn split_parse_matches_serde() {
                 1 => broken.insert(at, b"\"\\,]}"[random.below(5)]),
                 _ => broken[at] = b"\"\\,[{"[random.below(5)],
             }
-            let Ok(broken) = String::from_utf8(broken) else { continue };
+            let Ok(broken) = String::from_utf8(broken) else {
+                continue;
+            };
             assert_eq!(J::parse(&broken), serde_json::from_str(&broken).ok());
         }
     }

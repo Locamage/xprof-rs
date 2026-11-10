@@ -10,8 +10,17 @@ use std::sync::Arc;
 
 pub const IDLE: &str = "IDLE";
 const CUSTOM_CALL: &str = "custom-call";
-const EVENT_STATS: [&str; 9] =
-    ["vdd_energy_j", "min_duration_ps", "dma_stall_duration_ps", "bytes_accessed", "model_flops", "flops", "device_offset_ps", "device_duration_ps", "Time Scale Multiplier"];
+const EVENT_STATS: [&str; 9] = [
+    "vdd_energy_j",
+    "min_duration_ps",
+    "dma_stall_duration_ps",
+    "bytes_accessed",
+    "model_flops",
+    "flops",
+    "device_offset_ps",
+    "device_duration_ps",
+    "Time Scale Multiplier",
+];
 const VDD_ENERGY: u8 = 0;
 const MIN_DURATION: u8 = 1;
 const DMA_STALL: u8 = 2;
@@ -122,7 +131,9 @@ pub fn safe_divide(dividend: f64, divisor: f64) -> f64 {
 /// The C++ conversion of a double to `uint64_t` on x86-64. NaN or a value that is too large gives 2^63, and a negative value wraps.
 pub fn cpp_u64(value: f64) -> u64 {
     const HALF: f64 = (1u64 << 63) as f64;
-    let truncate = |value: f64| if (-HALF..HALF).contains(&value) { value as i64 } else { i64::MIN };
+    let truncate = |value: f64| {
+        if (-HALF..HALF).contains(&value) { value as i64 } else { i64::MIN }
+    };
     let direct = truncate(value);
     (direct | (truncate(value - HALF) & (direct >> 63))) as u64
 }
@@ -147,7 +158,9 @@ fn children(raw: &[u8]) -> Vec<usize> {
             Field::Bytes(_, packed) => {
                 let mut position = 0;
                 while position < packed.len() {
-                    let Some(id) = varint(packed, &mut position) else { break };
+                    let Some(id) = varint(packed, &mut position) else {
+                        break;
+                    };
                     ids.push(id as usize);
                 }
             }
@@ -174,11 +187,29 @@ fn breakdown(data: &[u8]) -> Vec<(u8, u64, u64)> {
 }
 
 /// The stats of an operation metadata that `from_metadata` reads, in the order of their kinds.
-const METADATA_STATS: [&str; 12] =
-    ["program_id", "symbol_id", "hlo_category", "tf_op", "flops", "model_flops", "bytes_accessed", "memory_access_breakdown", "deduplicated_name", "source", "source_stack", ""];
+const METADATA_STATS: [&str; 12] = [
+    "program_id",
+    "symbol_id",
+    "hlo_category",
+    "tf_op",
+    "flops",
+    "model_flops",
+    "bytes_accessed",
+    "memory_access_breakdown",
+    "deduplicated_name",
+    "source",
+    "source_stack",
+    "",
+];
 
 /// `kinds` has the index in `METADATA_STATS` of each stat id.
-fn from_metadata(plane: &Plane, map: &[u8], kinds: &[u8], meta: usize, path: &mut Vec<usize>) -> (Option<(u64, u64)>, Metrics) {
+fn from_metadata(
+    plane: &Plane,
+    map: &[u8],
+    kinds: &[u8],
+    meta: usize,
+    path: &mut Vec<usize>,
+) -> (Option<(u64, u64)>, Metrics) {
     path.push(meta);
     let (meta, mut out, mut key) = (&plane.meta[meta], Metrics::default(), (None, None));
     if meta.display.is_empty() {
@@ -189,7 +220,9 @@ fn from_metadata(plane: &Plane, map: &[u8], kinds: &[u8], meta: usize, path: &mu
     }
     let raw = slice(map, meta.raw);
     for stat in stats(raw, 5, |_| true) {
-        let Some(&kind) = kinds.get(stat.id) else { continue };
+        let Some(&kind) = kinds.get(stat.id) else {
+            continue;
+        };
         let text = || ArcStr::from(&*plane.text_cow(&stat.value));
         let number = stat.value.int().unwrap_or(0) as u64;
         match kind {
@@ -207,7 +240,11 @@ fn from_metadata(plane: &Plane, map: &[u8], kinds: &[u8], meta: usize, path: &mu
             }
             8 => out.deduplicated_name = text(),
             9 => {
-                if let Some((file, line)) = plane.text_cow(&stat.value).split_once(':').and_then(|(file, line)| Some((file.into(), line.parse::<i32>().ok()?))) {
+                if let Some((file, line)) = plane
+                    .text_cow(&stat.value)
+                    .split_once(':')
+                    .and_then(|(file, line)| Some((file.into(), line.parse::<i32>().ok()?)))
+                {
                     let source = out.source.get_or_insert_with(Source::default);
                     (source.file, source.line) = (file, line);
                 }
@@ -218,7 +255,10 @@ fn from_metadata(plane: &Plane, map: &[u8], kinds: &[u8], meta: usize, path: &mu
     }
     for child in children(raw) {
         if child < plane.meta.len() && path.len() < MAX_DEPTH && !path.contains(&child) {
-            out.children.metrics.push(Metrics { occurrences: 1, ..from_metadata(plane, map, kinds, child, path).1 });
+            out.children.metrics.push(Metrics {
+                occurrences: 1,
+                ..from_metadata(plane, map, kinds, child, path).1
+            });
         }
     }
     path.pop();
@@ -242,14 +282,40 @@ pub fn templates(plane: &Plane, map: &[u8]) -> Templates {
             *slot = true;
         }
     }
-    let kinds: Vec<u8> = plane.stat_names.iter().map(|name| METADATA_STATS.iter().position(|known| *known == &**name).unwrap_or(METADATA_STATS.len() - 1) as u8).collect();
-    let metas: Vec<Template> = used.par_iter().enumerate().map(|(meta, &used)| used.then(|| from_metadata(plane, map, &kinds, meta, &mut Vec::new()))).collect();
-    let key = |template: &Template| template.as_ref().and_then(|(key, _)| key.filter(|key| key.1 != 0));
+    let kinds: Vec<u8> = plane
+        .stat_names
+        .iter()
+        .map(|name| {
+            METADATA_STATS
+                .iter()
+                .position(|known| *known == &**name)
+                .unwrap_or(METADATA_STATS.len() - 1) as u8
+        })
+        .collect();
+    let metas: Vec<Template> = used
+        .par_iter()
+        .enumerate()
+        .map(|(meta, &used)| used.then(|| from_metadata(plane, map, &kinds, meta, &mut Vec::new())))
+        .collect();
+    let key =
+        |template: &Template| template.as_ref().and_then(|(key, _)| key.filter(|key| key.1 != 0));
     let mut keys: Vec<(u64, u64)> = metas.iter().filter_map(key).collect();
     keys.sort_unstable();
     keys.dedup();
-    let slots = metas.iter().map(|template| key(template).map_or(u32::MAX, |key| keys.binary_search(&key).unwrap() as u32)).collect();
-    let sums = metas.iter().map(|template| template.as_ref().map_or(0, |(_, metrics)| crate::tools::roofline::sums(metrics))).collect();
+    let slots: Vec<u32> = metas
+        .iter()
+        .map(|template| {
+            key(template).map_or(u32::MAX, |key| {
+                keys.binary_search(&key).expect("key is in the sorted collection") as u32
+            })
+        })
+        .collect();
+    let sums: Vec<u8> = metas
+        .iter()
+        .map(|template| {
+            template.as_ref().map_or(0, |(_, metrics)| crate::tools::roofline::sums(metrics))
+        })
+        .collect();
     Templates { metas, slots, sums, keys: keys.len() }
 }
 
@@ -257,7 +323,18 @@ pub struct EventReader(Vec<u8>);
 
 impl EventReader {
     pub fn new(plane: &Plane) -> Self {
-        Self(plane.stat_names.iter().map(|name| EVENT_STATS.iter().position(|known| *known == &**name).map_or(UNREAD, |kind| kind as u8)).collect())
+        Self(
+            plane
+                .stat_names
+                .iter()
+                .map(|name| {
+                    EVENT_STATS
+                        .iter()
+                        .position(|known| *known == &**name)
+                        .map_or(UNREAD, |kind| kind as u8)
+                })
+                .collect(),
+        )
     }
 
     pub fn read(&self, map: &[u8], event: &Ev) -> EventStats {
@@ -273,10 +350,16 @@ impl EventReader {
     }
 
     fn add(&self, body: &[u8], out: &mut EventStats) {
-        let Some(Stat { id, value }) = stat(body, |id| self.0.get(id).is_some_and(|&kind| kind != UNREAD)) else { return };
+        let Some(Stat { id, value }) =
+            stat(body, |id| self.0.get(id).is_some_and(|&kind| kind != UNREAD))
+        else {
+            return;
+        };
         let number = value.int().unwrap_or(0) as u64;
         match (self.0[id], &value) {
-            (VDD_ENERGY, Value::Double(value)) => out.vdd_energy = Some(out.vdd_energy.unwrap_or(0.0) + value),
+            (VDD_ENERGY, Value::Double(value)) => {
+                out.vdd_energy = Some(out.vdd_energy.unwrap_or(0.0) + value);
+            }
             (MIN_DURATION, _) => out.min_time_ps = Some(number),
             (DMA_STALL, _) => out.dma_stall_ps = number,
             (BYTES_ACCESSED, _) => out.custom[0] += number,
@@ -284,7 +367,13 @@ impl EventReader {
             (FLOPS, _) => out.custom[2] += number,
             (DEVICE_OFFSET, _) => _ = out.offset.get_or_insert(number),
             (DEVICE_DURATION, _) => _ = out.duration.get_or_insert(number),
-            (TIME_SCALE, value) => _ = out.scale.get_or_insert(if let Value::Double(factor) = value { *factor } else { 0.0 }),
+            (TIME_SCALE, value) => {
+                _ = out.scale.get_or_insert(if let Value::Double(factor) = value {
+                    *factor
+                } else {
+                    0.0
+                });
+            }
             _ => {}
         }
     }
@@ -333,15 +422,51 @@ impl Accumulator<'_> {
         }
         let occurrences = totals.occurrences;
         let flops = totals.flops_v2 * occurrences as f64;
-        (flops, if totals.model_flops_v2 > 0.0 { totals.model_flops_v2 * occurrences as f64 } else { flops }, totals.bytes_accessed.saturating_mul(occurrences))
+        (
+            flops,
+            if totals.model_flops_v2 > 0.0 {
+                totals.model_flops_v2 * occurrences as f64
+            } else {
+                flops
+            },
+            totals.bytes_accessed.saturating_mul(occurrences),
+        )
     }
 
     fn adjusted(self) -> Metrics {
         let (flops_v2, model_flops_v2, bytes_accessed) = self.counts();
         let occurrences = self.totals.occurrences;
-        let memory = self.template.memory.iter().map(|&(operation, space, bytes)| (operation, space, bytes.saturating_mul(occurrences))).collect();
-        let Totals { time_ps, self_time_ps, normalized_time_ps, min_time_ps, dma_stall_ps, vdd_energy, core_type, .. } = self.totals;
-        Metrics { occurrences, time_ps, normalized_time_ps, min_time_ps, self_time_ps, dma_stall_ps, flops_v2, model_flops_v2, bytes_accessed, memory, vdd_energy, core_type, ..Default::default() }
+        let memory = self
+            .template
+            .memory
+            .iter()
+            .map(|&(operation, space, bytes)| (operation, space, bytes.saturating_mul(occurrences)))
+            .collect();
+        let Totals {
+            time_ps,
+            self_time_ps,
+            normalized_time_ps,
+            min_time_ps,
+            dma_stall_ps,
+            vdd_energy,
+            core_type,
+            ..
+        } = self.totals;
+        Metrics {
+            occurrences,
+            time_ps,
+            normalized_time_ps,
+            min_time_ps,
+            self_time_ps,
+            dma_stall_ps,
+            flops_v2,
+            model_flops_v2,
+            bytes_accessed,
+            memory,
+            vdd_energy,
+            core_type,
+            ..Default::default()
+        }
     }
 }
 
@@ -357,14 +482,32 @@ impl<'a> Builder<'a> {
         Builder { templates, positions: vec![u32::MAX; templates.keys], entries: Vec::new() }
     }
 
-    pub fn add(&mut self, event: &Ev, stats: &EventStats, (time_ps, self_time_ps): (u64, u64), tensor_core: bool) {
+    pub fn add(
+        &mut self,
+        event: &Ev,
+        stats: &EventStats,
+        (time_ps, self_time_ps): (u64, u64),
+        tensor_core: bool,
+    ) {
         let (meta, min_time_ps) = (event.meta as usize, stats.min_time_ps.unwrap_or(event.dur));
         let slot = self.templates.slots[meta];
-        let (Some(position), Some((_, template))) = (self.positions.get_mut(slot as usize), &self.templates.metas[meta]) else { return };
+        let (Some(position), Some((_, template))) =
+            (self.positions.get_mut(slot as usize), &self.templates.metas[meta])
+        else {
+            return;
+        };
         let fresh = *position == u32::MAX;
         if fresh {
             *position = self.entries.len() as u32;
-            self.entries.push((slot, Accumulator { template, custom: template.category == CUSTOM_CALL, sums: self.templates.sums[meta], totals: Totals { min_time_ps, ..Default::default() } }));
+            self.entries.push((
+                slot,
+                Accumulator {
+                    template,
+                    custom: template.category == CUSTOM_CALL,
+                    sums: self.templates.sums[meta],
+                    totals: Totals { min_time_ps, ..Default::default() },
+                },
+            ));
         }
         let entry = &mut self.entries[*position as usize].1;
         let totals = &mut entry.totals;
@@ -372,11 +515,13 @@ impl<'a> Builder<'a> {
         totals.time_ps += time_ps;
         totals.self_time_ps += self_time_ps;
         totals.dma_stall_ps += stats.dma_stall_ps;
-        totals.normalized_time_ps += if tensor_core { cpp_u64(time_ps as f64 * stats.scale.unwrap_or(1.0)) } else { 0 };
+        totals.normalized_time_ps +=
+            if tensor_core { cpp_u64(time_ps as f64 * stats.scale.unwrap_or(1.0)) } else { 0 };
         totals.core_type = if tensor_core { TENSOR_CORE } else { 0 };
         totals.min_time_ps = totals.min_time_ps.min(min_time_ps);
         if stats.vdd_energy.is_some() || totals.vdd_energy.is_some() {
-            totals.vdd_energy = Some(stats.vdd_energy.unwrap_or(0.0) + totals.vdd_energy.unwrap_or(0.0));
+            totals.vdd_energy =
+                Some(stats.vdd_energy.unwrap_or(0.0) + totals.vdd_energy.unwrap_or(0.0));
         }
         if fresh || entry.custom {
             let custom = if entry.custom { stats.custom } else { [0; 3] };
@@ -387,7 +532,12 @@ impl<'a> Builder<'a> {
     }
 
     fn sorted(self) -> impl Iterator<Item = Accumulator<'a>> {
-        let mut order: Vec<u64> = self.entries.iter().enumerate().map(|(index, &(slot, _))| u64::from(slot) << 32 | index as u64).collect();
+        let mut order: Vec<u64> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, &(slot, _))| u64::from(slot) << 32 | index as u64)
+            .collect();
         order.sort_unstable();
         order.into_iter().map(move |key| self.entries[key as u32 as usize].1)
     }
@@ -411,7 +561,10 @@ impl<'a> Builder<'a> {
                 ..entry.adjusted()
             };
             db.total_op_time_ps += metrics.self_time_ps;
-            db.normalized_total_op_time_ps += cpp_u64(metrics.self_time_ps as f64 * safe_divide(metrics.normalized_time_ps as f64, metrics.time_ps as f64));
+            db.normalized_total_op_time_ps += cpp_u64(
+                metrics.self_time_ps as f64
+                    * safe_divide(metrics.normalized_time_ps as f64, metrics.time_ps as f64),
+            );
             db.metrics.push(metrics);
         }
         db
@@ -421,13 +574,23 @@ impl<'a> Builder<'a> {
         let (mut total_op_time_ps, mut program) = (0, Default::default());
         for entry in self.sorted() {
             total_op_time_ps += entry.totals.self_time_ps;
-            add_scaled(&mut program, entry.sums, (entry.totals.core_type, entry.totals.time_ps), entry.counts(), &entry.template.memory, entry.totals.occurrences);
+            add_scaled(
+                &mut program,
+                entry.sums,
+                (entry.totals.core_type, entry.totals.time_ps),
+                entry.counts(),
+                &entry.template.memory,
+                entry.totals.occurrences,
+            );
         }
         (total_op_time_ps, program)
     }
 }
 
-pub fn combine_memory(source: impl IntoIterator<Item = impl Borrow<(u8, u64, u64)>>, destination: &mut Vec<(u8, u64, u64)>) {
+pub fn combine_memory(
+    source: impl IntoIterator<Item = impl Borrow<(u8, u64, u64)>>,
+    destination: &mut Vec<(u8, u64, u64)>,
+) {
     for entry in source {
         let &(operation, space, bytes) = entry.borrow();
         match destination.iter_mut().find(|entry| entry.0 == operation && entry.1 == space) {
@@ -457,44 +620,97 @@ fn absorb(destination: &mut Metrics, metrics: &Metrics, update_cores: bool) {
     if destination.core_type == 0 {
         destination.core_type = metrics.core_type;
     }
-    destination.min_time_ps = if destination.occurrences == 0 { metrics.min_time_ps } else { destination.min_time_ps.min(metrics.min_time_ps) };
+    destination.min_time_ps = if destination.occurrences == 0 {
+        metrics.min_time_ps
+    } else {
+        destination.min_time_ps.min(metrics.min_time_ps)
+    };
     destination.is_eager |= metrics.is_eager;
     destination.autotuned |= metrics.autotuned;
     if update_cores {
         destination.num_cores += metrics.num_cores;
     }
-    add!(destination, metrics, occurrences, time_ps, self_time_ps, normalized_time_ps, flops_v2, model_flops_v2, bytes_accessed, dma_stall_ps);
+    add!(
+        destination,
+        metrics,
+        occurrences,
+        time_ps,
+        self_time_ps,
+        normalized_time_ps,
+        flops_v2,
+        model_flops_v2,
+        bytes_accessed,
+        dma_stall_ps
+    );
     combine_memory(&metrics.memory, &mut destination.memory);
     if metrics.vdd_energy.is_some() || destination.vdd_energy.is_some() {
-        destination.vdd_energy = Some(metrics.vdd_energy.unwrap_or(0.0) + destination.vdd_energy.unwrap_or(0.0));
+        destination.vdd_energy =
+            Some(metrics.vdd_energy.unwrap_or(0.0) + destination.vdd_energy.unwrap_or(0.0));
     }
 }
 
 impl Db {
     pub fn combined<'a>(parts: impl IntoIterator<Item = &'a Self>, update_cores: bool) -> Self {
-        let (mut db, mut index, parts) = (Self::default(), FxHashMap::default(), parts.into_iter().collect::<Vec<_>>());
-        let Some((first, rest)) = parts.split_first() else { return db };
+        let (mut db, mut index, parts) =
+            (Self::default(), FxHashMap::default(), parts.into_iter().collect::<Vec<_>>());
+        let Some((first, rest)) = parts.split_first() else {
+            return db;
+        };
         db.merge(&mut index, first, update_cores);
         // Parts of one trace list the same operations in the same order, so they merge position by position in parallel.
-        let same = |part: &&&Self| part.metrics.len() == db.metrics.len() && part.metrics.par_iter().zip(&db.metrics).all(|(a, b)| a.module == b.module && a.name == b.name);
+        let same = |part: &&&Self| {
+            part.metrics.len() == db.metrics.len()
+                && part
+                    .metrics
+                    .par_iter()
+                    .zip(&db.metrics)
+                    .all(|(a, b)| a.module == b.module && a.name == b.name)
+        };
         let (aligned, rest) = rest.split_at(rest.iter().take_while(same).count());
         for part in aligned {
             add!(db, part, total_time_ps, total_op_time_ps, normalized_total_op_time_ps);
         }
-        db.metrics.par_iter_mut().enumerate().for_each(|(position, destination)| aligned.iter().for_each(|part| absorb(destination, &part.metrics[position], update_cores)));
-        rest.iter().for_each(|part| db.merge(&mut index, part, update_cores));
+        db.metrics.par_iter_mut().enumerate().for_each(|(position, destination)| {
+            for part in aligned {
+                absorb(destination, &part.metrics[position], update_cores);
+            }
+        });
+        for part in rest {
+            db.merge(&mut index, part, update_cores);
+        }
         db
     }
 
-    fn merge(&mut self, index: &mut FxHashMap<(u64, ArcStr), usize>, source: &Self, update_cores: bool) {
+    fn merge(
+        &mut self,
+        index: &mut FxHashMap<(u64, ArcStr), usize>,
+        source: &Self,
+        update_cores: bool,
+    ) {
         add!(self, source, total_time_ps, total_op_time_ps, normalized_total_op_time_ps);
         for (position, metrics) in source.metrics.iter().enumerate() {
-            let aligned = self.metrics.get(position).is_some_and(|known| known.module == metrics.module && known.name == metrics.name);
-            absorb(if aligned { &mut self.metrics[position] } else { self.entry(index, metrics.module, &metrics.name) }, metrics, update_cores);
+            let aligned = self
+                .metrics
+                .get(position)
+                .is_some_and(|known| known.module == metrics.module && known.name == metrics.name);
+            absorb(
+                if aligned {
+                    &mut self.metrics[position]
+                } else {
+                    self.entry(index, metrics.module, &metrics.name)
+                },
+                metrics,
+                update_cores,
+            );
         }
     }
 
-    pub fn entry(&mut self, index: &mut FxHashMap<(u64, ArcStr), usize>, module: u64, name: &ArcStr) -> &mut Metrics {
+    pub fn entry(
+        &mut self,
+        index: &mut FxHashMap<(u64, ArcStr), usize>,
+        module: u64,
+        name: &ArcStr,
+    ) -> &mut Metrics {
         let position = *index.entry((module, name.clone())).or_insert_with(|| {
             self.metrics.push(Metrics { module, name: name.clone(), ..Default::default() });
             self.metrics.len() - 1
@@ -505,21 +721,35 @@ impl Db {
     pub fn with_idle(mut self, total_time_ps: u64) -> Self {
         self.total_time_ps = total_time_ps.max(self.total_op_time_ps);
         let idle = self.total_time_ps.wrapping_sub(self.total_op_time_ps);
-        self.metrics.push(Metrics { name: IDLE.into(), category: IDLE.into(), time_ps: idle, self_time_ps: idle, ..Default::default() });
+        self.metrics.push(Metrics {
+            name: IDLE.into(),
+            category: IDLE.into(),
+            time_ps: idle,
+            self_time_ps: idle,
+            ..Default::default()
+        });
         self
     }
 
     pub fn sorted(&self) -> Vec<&Metrics> {
         let mut result: Vec<&Metrics> = self.metrics.iter().collect();
-        result.sort_by(|a, b| b.self_time_ps.cmp(&a.self_time_ps).then_with(|| a.name.cmp(&b.name)));
+        result
+            .sort_by(|a, b| b.self_time_ps.cmp(&a.self_time_ps).then_with(|| a.name.cmp(&b.name)));
         result
     }
 }
 
 /// `span` is the first start and the last end of the derived operations, if the plane does not have them.
 /// With `programs`, the same reads of the events also give the programs of the steps.
-pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, span: Option<(u64, u64)>, programs: bool) -> (Db, HashMap<i64, crate::xplane::steps::StepPrograms>) {
-    let ((mut first, mut last), mut builder, reader) = (span.unwrap_or((u64::MAX, 0)), Builder::new(templates), EventReader::new(plane));
+pub fn convert_tensor_core(
+    plane: &Plane,
+    map: &[u8],
+    templates: &Templates,
+    span: Option<(u64, u64)>,
+    programs: bool,
+) -> (Db, HashMap<i64, crate::xplane::steps::StepPrograms>) {
+    let ((mut first, mut last), mut builder, reader) =
+        (span.unwrap_or((u64::MAX, 0)), Builder::new(templates), EventReader::new(plane));
     let mut programs = programs.then(|| crate::xplane::steps::Programs::new(plane, templates));
     for (line_index, line) in plane.lines.iter().enumerate() {
         let is_step = line.name == "Steps" || line.name == "Sparse Core Steps";
@@ -529,10 +759,23 @@ pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, spa
             continue;
         }
         let mut stack: Vec<(&Ev, EventStats, (u64, u64), u64)> = Vec::new();
-        let mut finish = |(event, stats, span, children): (&Ev, EventStats, (u64, u64), u64)| builder.add(event, &stats, (span.1, span.1.saturating_sub(children)), true);
+        let mut finish = |(event, stats, span, children): (&Ev, EventStats, (u64, u64), u64)| {
+            builder.add(event, &stats, (span.1, span.1.saturating_sub(children)), true);
+        };
         // The reads of a chunk run in parallel. One chunk at a time keeps the memory small.
-        for (index, (event, stats)) in
-            line.events.chunks(1 << 14).flat_map(|chunk| chunk.iter().zip(chunk.par_iter().with_min_len(1024).map(|event| reader.read(map, event)).collect::<Vec<_>>())).enumerate()
+        for (index, (event, stats)) in line
+            .events
+            .chunks(1 << 14)
+            .flat_map(|chunk| {
+                chunk.iter().zip(
+                    chunk
+                        .par_iter()
+                        .with_min_len(1024)
+                        .map(|event| reader.read(map, event))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .enumerate()
         {
             if let Some(programs) = programs.as_deref_mut() {
                 programs.add(line_index, line, index, event, &stats);
@@ -545,10 +788,12 @@ pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, spa
             last = last.max(span.0.saturating_add(span.1));
             if is_op && line.labels.is_empty() {
                 while let Some(top) = stack.last() {
-                    if top.2.0 <= span.0 && top.2.0.saturating_add(top.2.1) >= span.0.saturating_add(span.1) {
+                    if top.2.0 <= span.0
+                        && top.2.0.saturating_add(top.2.1) >= span.0.saturating_add(span.1)
+                    {
                         break;
                     }
-                    finish(stack.pop().unwrap());
+                    finish(stack.pop().expect("collection is non-empty"));
                 }
                 if let Some(top) = stack.last_mut() {
                     top.3 = top.3.saturating_add(span.1);
@@ -556,20 +801,35 @@ pub fn convert_tensor_core(plane: &Plane, map: &[u8], templates: &Templates, spa
                 stack.push((event, stats, span, 0));
             }
         }
-        stack.into_iter().rev().for_each(finish);
+        for frame in stack.into_iter().rev() {
+            finish(frame);
+        }
     }
-    (builder.finish().with_idle(last.wrapping_sub(first)), programs.map(crate::xplane::steps::Programs::finish).unwrap_or_default())
+    (
+        builder.finish().with_idle(last.wrapping_sub(first)),
+        programs.map(crate::xplane::steps::Programs::finish).unwrap_or_default(),
+    )
 }
 
 fn perf_env(plane: &Plane) -> Perf {
     let bandwidths = [
-        "peak_hbm_bw_gigabytes_per_second", "peak_sram_rd_bw_gigabytes_per_second", "peak_sram_wr_bw_gigabytes_per_second", "peak_cmem_rd_bw_gigabytes_per_second",
-        "peak_cmem_wr_bw_gigabytes_per_second", "peak_vmem_rd_bw_gigabytes_per_second", "peak_vmem_wr_bw_gigabytes_per_second",
+        "peak_hbm_bw_gigabytes_per_second",
+        "peak_sram_rd_bw_gigabytes_per_second",
+        "peak_sram_wr_bw_gigabytes_per_second",
+        "peak_cmem_rd_bw_gigabytes_per_second",
+        "peak_cmem_wr_bw_gigabytes_per_second",
+        "peak_vmem_rd_bw_gigabytes_per_second",
+        "peak_vmem_wr_bw_gigabytes_per_second",
     ]
     .map(|name| plane.own_double(name))
     .to_vec();
     let peak_tera_flops = plane.own_double("peak_teraflops_per_second");
-    Perf { peak_tera_flops, ridge_point: peak_tera_flops * 1e3 / bandwidths[0], cmem: bandwidths[3] > 0.0 || bandwidths[4] > 0.0, bandwidths }
+    Perf {
+        peak_tera_flops,
+        ridge_point: peak_tera_flops * 1e3 / bandwidths[0],
+        cmem: bandwidths[3] > 0.0 || bandwidths[4] > 0.0,
+        bandwidths,
+    }
 }
 
 /// The parts of the op statistics that a tool reads. Each part has the parts before it.
@@ -617,7 +877,12 @@ impl Kept {
             let modules = crate::hlo::parse_modules(crate::hlo::protos(&self.planes, &self.map));
             crate::hlo::attach_fused(&modules, &mut stats.db);
             // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The bytes of `map` do not move.
-            self.modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
+            self.modules = unsafe {
+                std::mem::transmute::<
+                    Vec<(u64, crate::hlo::Module<'_>)>,
+                    Vec<(u64, crate::hlo::Module<'static>)>,
+                >(modules)
+            };
         }
         self.fused = true;
     }
@@ -626,7 +891,10 @@ impl Kept {
     pub fn upgrade(&mut self, stats: &mut OpStats, part: Part) {
         self.finish(false);
         let (planes, map) = (&self.planes, &self.map[..]);
-        let (mut extra, host) = rayon::join(|| steps(planes, map, &all_templates(planes, map), part, true), || (part == Part::All).then(|| crate::tools::framework_op_stats::host_db(planes, map)));
+        let (mut extra, host) = rayon::join(
+            || steps(planes, map, &all_templates(planes, map), part, true),
+            || (part == Part::All).then(|| crate::tools::framework_op_stats::host_db(planes, map)),
+        );
         if stats.tpu {
             crate::xplane::steps::fix(&mut extra, &stats.db);
         }
@@ -639,11 +907,28 @@ impl Kept {
 }
 
 fn all_templates(planes: &[Plane], map: &[u8]) -> Vec<Templates> {
-    planes.par_iter().map(|plane| if is_tensor_core(&plane.name) { templates(plane, map) } else { Templates::default() }).collect()
+    planes
+        .par_iter()
+        .map(
+            |plane| {
+                if is_tensor_core(&plane.name) {
+                    templates(plane, map)
+                } else {
+                    Templates::default()
+                }
+            },
+        )
+        .collect()
 }
 
 /// The steps that `part` has. The programs of the steps on a GPU come with the other fields. Without `read`, the steps do not have the programs.
-fn steps(planes: &[Plane], map: &[u8], templates: &[Templates], part: Part, read: bool) -> crate::xplane::steps::Extra {
+fn steps(
+    planes: &[Plane],
+    map: &[u8],
+    templates: &[Templates],
+    part: Part,
+    read: bool,
+) -> crate::xplane::steps::Extra {
     match part {
         Part::Device => crate::xplane::steps::header(planes, map),
         Part::Programs if crate::xplane::gpu::devices(planes).is_empty() => {
@@ -658,12 +943,23 @@ fn steps(planes: &[Plane], map: &[u8], templates: &[Templates], part: Part, read
 }
 
 /// Without `fused`, the operations have no fused children. Only the op profile and the HLO statistics use them.
-pub fn load_kept(map: crate::input::Input, fused: bool, part: Part) -> anyhow::Result<Option<(Arc<OpStats>, Kept)>> {
-    let Some(mut planes) = crate::parse_checked(&map, part == Part::Device)? else { return Ok(None) };
+pub fn load_kept(
+    map: crate::input::Input,
+    fused: bool,
+    part: Part,
+) -> anyhow::Result<Option<(Arc<OpStats>, Kept)>> {
+    let Some(mut planes) = crate::parse_checked(&map, part == Part::Device)? else {
+        return Ok(None);
+    };
     // The modules come from the metadata plane only, so they parse at the same time as the groups and the op statistics.
-    let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) { crate::hlo::protos(&planes, &map) } else { Vec::new() };
+    let protos = if fused && planes.iter().any(|plane| plane.name.starts_with("/device:TPU:")) {
+        crate::hlo::protos(&planes, &map)
+    } else {
+        Vec::new()
+    };
     // The operations of the TPUs do not use the groups, and of the derived lines, the op statistics use only the span that `op_span` gives.
-    let grouped = part > Part::Device || planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX));
+    let grouped = part > Part::Device
+        || planes.iter().any(|plane| plane.name.starts_with(crate::xplane::gpu::PREFIX));
     let spans = !crate::xplane::derive::is_grouped(&planes);
     let (stats, modules, underived) = std::thread::scope(|scope| {
         let mut parsing = Some(scope.spawn(|| crate::hlo::parse_modules(protos)));
@@ -673,7 +969,11 @@ pub fn load_kept(map: crate::input::Input, fused: bool, part: Part) -> anyhow::R
             &planes,
             &map,
             |db| {
-                modules = parsing.take().unwrap().join().unwrap();
+                modules = parsing
+                    .take()
+                    .expect("parser task is available")
+                    .join()
+                    .expect("worker thread did not panic");
                 if !modules.is_empty() {
                     crate::hlo::attach_fused(&modules, db);
                 }
@@ -682,17 +982,24 @@ pub fn load_kept(map: crate::input::Input, fused: bool, part: Part) -> anyhow::R
             spans,
         );
         if let Some(parsing) = parsing {
-            modules = parsing.join().unwrap();
+            modules = parsing.join().expect("worker thread did not panic");
         }
         (stats, modules, underived)
     });
     // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The bytes of `map` do not move.
-    let modules = unsafe { std::mem::transmute::<Vec<(u64, crate::hlo::Module<'_>)>, Vec<(u64, crate::hlo::Module<'static>)>>(modules) };
+    let modules = unsafe {
+        std::mem::transmute::<
+            Vec<(u64, crate::hlo::Module<'_>)>,
+            Vec<(u64, crate::hlo::Module<'static>)>,
+        >(modules)
+    };
     Ok(Some((Arc::new(stats), Kept { modules, fused, part, underived, map, planes })))
 }
 
 pub fn load(path: &std::path::Path) -> anyhow::Result<Option<Arc<OpStats>>> {
-    let Some((stats, kept)) = load_kept(crate::read_file(path)?, true, Part::All)? else { return Ok(None) };
+    let Some((stats, kept)) = load_kept(crate::read_file(path)?, true, Part::All)? else {
+        return Ok(None);
+    };
     crate::release(kept);
     Ok(Some(stats))
 }
@@ -704,10 +1011,15 @@ impl OpStats {
         if all.len() == 1 {
             return Some(first.clone());
         }
-        let (db, host) = (Db::combined(all.iter().map(|stats| &stats.db), true), Db::combined(all.iter().map(|stats| &stats.host), false));
+        let (db, host) = (
+            Db::combined(all.iter().map(|stats| &stats.db), true),
+            Db::combined(all.iter().map(|stats| &stats.host), false),
+        );
         let (mut programs, mut perf) = (HashMap::new(), Perf::default());
         for stats in &all {
-            stats.programs.iter().for_each(|(&id, name)| _ = programs.entry(id).or_insert_with(|| name.clone()));
+            for (&id, name) in &stats.programs {
+                _ = programs.entry(id).or_insert_with(|| name.clone());
+            }
             if stats.perf.peak_tera_flops > 0.0 {
                 perf.peak_tera_flops = stats.perf.peak_tera_flops;
             }
@@ -718,17 +1030,38 @@ impl OpStats {
                 perf.ridge_point = stats.perf.ridge_point;
             }
         }
-        let mut extra = crate::xplane::steps::combine(&all.iter().map(|stats| &*stats.extra).collect::<Vec<_>>());
+        let mut extra = crate::xplane::steps::combine(
+            &all.iter().map(|stats| &*stats.extra).collect::<Vec<_>>(),
+        );
         (extra.megacore, extra.merged_vmem) = (false, false);
         let extra = Arc::new(extra);
         let tpu = all.iter().any(|stats| stats.tpu);
-        let infeed_enqueue = all.iter().fold((0, 0), |sum, stats| (sum.0 + stats.infeed_enqueue.0, sum.1 + stats.infeed_enqueue.1));
-        Some(Arc::new(Self { db, perf, tpu, host, infeed_enqueue, extra, programs, kernels: crate::xplane::gpu::sorted_kernels(all.iter().flat_map(|stats| stats.kernels.iter().cloned()).collect()) }))
+        let infeed_enqueue = all.iter().fold((0, 0), |sum, stats| {
+            (sum.0 + stats.infeed_enqueue.0, sum.1 + stats.infeed_enqueue.1)
+        });
+        Some(Arc::new(Self {
+            db,
+            perf,
+            tpu,
+            host,
+            infeed_enqueue,
+            extra,
+            programs,
+            kernels: crate::xplane::gpu::sorted_kernels(
+                all.iter().flat_map(|stats| stats.kernels.iter().cloned()).collect(),
+            ),
+        }))
     }
 }
 
 /// Without `Part::All`, the host operations are empty. `fuse` adds the fused children to the operations of the TPUs.
-fn op_stats(planes: &[Plane], map: &[u8], fuse: impl FnOnce(&mut Db) + Send, part: Part, spans: bool) -> OpStats {
+fn op_stats(
+    planes: &[Plane],
+    map: &[u8],
+    fuse: impl FnOnce(&mut Db) + Send,
+    part: Part,
+    spans: bool,
+) -> OpStats {
     let first = planes.iter().find(|plane| plane.name.starts_with("/device:TPU:"));
     let tpu = first.is_some();
     let gpus = crate::xplane::gpu::devices(planes);
@@ -747,7 +1080,13 @@ fn op_stats(planes: &[Plane], map: &[u8], fuse: impl FnOnce(&mut Db) + Send, par
                 if !is_tensor_core(&plane.name) {
                     return (None, HashMap::new());
                 }
-                let (db, programs) = convert_tensor_core(plane, map, templates, spans.then(|| crate::xplane::derive::op_span(plane, map)).flatten(), combined);
+                let (db, programs) = convert_tensor_core(
+                    plane,
+                    map,
+                    templates,
+                    spans.then(|| crate::xplane::derive::op_span(plane, map)).flatten(),
+                    combined,
+                );
                 (Some(db), programs)
             })
             .unzip();
@@ -758,17 +1097,33 @@ fn op_stats(planes: &[Plane], map: &[u8], fuse: impl FnOnce(&mut Db) + Send, par
         ((db, Vec::new()), programs)
     };
     // Each part runs on a thread outside the pool, so no part waits for the work of another that the pool stole.
-    let (((db, kernels), step_programs), mut extra, ((host, infeed_enqueue), programs)) = std::thread::scope(|scope| {
-        let side = scope.spawn(|| {
-            rayon::join(
-                || if part == Part::All { crate::tools::framework_op_stats::host_db(planes, map) } else { Default::default() },
-                || crate::hlo::protos(planes, map).into_par_iter().map(|(id, proto)| (id, crate::hlo::module_name(proto))).collect::<HashMap<u64, String>>(),
+    let (((db, kernels), step_programs), mut extra, ((host, infeed_enqueue), programs)) =
+        std::thread::scope(|scope| {
+            let side = scope.spawn(|| {
+                rayon::join(
+                    || {
+                        if part == Part::All {
+                            crate::tools::framework_op_stats::host_db(planes, map)
+                        } else {
+                            Default::default()
+                        }
+                    },
+                    || {
+                        crate::hlo::protos(planes, map)
+                            .into_par_iter()
+                            .map(|(id, proto)| (id, crate::hlo::module_name(proto)))
+                            .collect::<HashMap<u64, String>>()
+                    },
+                )
+            });
+            let extra = scope.spawn(|| steps(planes, map, &templates, part, !combined));
+            let device = scope.spawn(device);
+            (
+                device.join().expect("worker thread did not panic"),
+                extra.join().expect("worker thread did not panic"),
+                side.join().expect("worker thread did not panic"),
             )
         });
-        let extra = scope.spawn(|| steps(planes, map, &templates, part, !combined));
-        let device = scope.spawn(device);
-        (device.join().unwrap(), extra.join().unwrap(), side.join().unwrap())
-    });
     crate::release(templates);
     if combined {
         crate::xplane::steps::add_programs(&mut extra, step_programs);
@@ -776,6 +1131,9 @@ fn op_stats(planes: &[Plane], map: &[u8], fuse: impl FnOnce(&mut Db) + Send, par
     if tpu {
         crate::xplane::steps::fix(&mut extra, &db);
     }
-    let perf = first.map_or_else(|| gpus.first().map_or_else(Perf::default, |plane| crate::xplane::gpu::perf_env(plane)), perf_env);
+    let perf = first.map_or_else(
+        || gpus.first().map_or_else(Perf::default, |plane| crate::xplane::gpu::perf_env(plane)),
+        perf_env,
+    );
     OpStats { db, perf, tpu, host, infeed_enqueue, extra: Arc::new(extra), programs, kernels }
 }

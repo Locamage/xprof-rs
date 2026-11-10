@@ -45,13 +45,22 @@ fn counter_line() {
            }"#,
     );
     let mut counters: HashMap<&str, BTreeMap<u64, Option<i64>>> = HashMap::new();
-    for (name, event) in events_by_name(&trace).into_iter().filter(|(name, _)| name.contains("Counter")) {
-        let value = stats(slice(&map, event.raw), 4, |_| true).next().and_then(|stat| stat.value.int());
+    for (name, event) in
+        events_by_name(&trace).into_iter().filter(|(name, _)| name.contains("Counter"))
+    {
+        let value =
+            stats(slice(&map, event.raw), 4, |_| true).next().and_then(|stat| stat.value.int());
         counters.entry(name).or_default().insert(event.ts, value);
     }
     let expected = HashMap::from([
-        ("Counter 1", BTreeMap::from([(PICOS_PER_SECOND, Some(100)), (2 * PICOS_PER_SECOND, Some(200))])),
-        ("Counter 2", BTreeMap::from([(PICOS_PER_SECOND, Some(300)), (2 * PICOS_PER_SECOND, Some(400))])),
+        (
+            "Counter 1",
+            BTreeMap::from([(PICOS_PER_SECOND, Some(100)), (2 * PICOS_PER_SECOND, Some(200))]),
+        ),
+        (
+            "Counter 2",
+            BTreeMap::from([(PICOS_PER_SECOND, Some(300)), (2 * PICOS_PER_SECOND, Some(400))]),
+        ),
     ]);
     assert_eq!(counters, expected);
 }
@@ -65,7 +74,11 @@ fn async_line() {
              event_metadata { key: 11 value: { id: 11 name: "Async Op" } }
            }"#,
     );
-    let found: Vec<(u64, u64)> = events_by_name(&trace).into_iter().filter(|(name, _)| *name == "Async Op").map(|(_, event)| (event.ts, event.dur)).collect();
+    let found: Vec<(u64, u64)> = events_by_name(&trace)
+        .into_iter()
+        .filter(|(name, _)| *name == "Async Op")
+        .map(|(_, event)| (event.ts, event.dur))
+        .collect();
     assert_eq!(found, [(2 * PICOS_PER_SECOND, PICOS_PER_SECOND)]);
 }
 
@@ -83,6 +96,15 @@ fn subprocess_host_trace_converts_to_trace_events() {
              event_metadata { key: 1 value: { id: 1 name: "Event 1" } }
            }"#,
     );
-    let devices: HashMap<&str, u32> = events_by_name(&trace).into_iter().map(|(name, event)| (name, trace.device(event))).collect();
-    assert_eq!(devices, HashMap::from([("Event 1", HOST_THREADS_DEVICE_ID), ("Event 2", HOST_THREADS_DEVICE_ID + 1)]));
+    let devices: HashMap<&str, u32> = events_by_name(&trace)
+        .into_iter()
+        .map(|(name, event)| (name, trace.device(event)))
+        .collect();
+    assert_eq!(
+        devices,
+        HashMap::from([
+            ("Event 1", HOST_THREADS_DEVICE_ID),
+            ("Event 2", HOST_THREADS_DEVICE_ID + 1)
+        ])
+    );
 }

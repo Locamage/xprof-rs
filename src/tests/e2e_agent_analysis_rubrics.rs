@@ -40,7 +40,11 @@ fn test_a06_hlo_op_profile_category_macro_breakdown_rubric() {
     let hints = result.at("navigation_hints");
     assert!(hints.has("available_categories") && hints.has("drill_down_into_top_category"));
     for category in result.at("category_summary").items() {
-        assert!(category.has("category") && category.has("total_self_time_ms") && category.has("fraction_of_total_time"));
+        assert!(
+            category.has("category")
+                && category.has("total_self_time_ms")
+                && category.has("fraction_of_total_time")
+        );
     }
 }
 
@@ -53,7 +57,11 @@ fn test_a07_hlo_op_profile_grouped_navigation_rubric() {
     for (_, ops) in result.at("grouped_operations").entries() {
         assert!(matches!(ops, J::List(_)));
         for op in ops.items() {
-            assert!(["name", "category", "category_fraction", "total_self_time_ms"].iter().all(|key| op.has(key)));
+            assert!(
+                ["name", "category", "category_fraction", "total_self_time_ms"]
+                    .iter()
+                    .all(|key| op.has(key))
+            );
         }
     }
 }
@@ -62,13 +70,30 @@ fn test_a07_hlo_op_profile_grouped_navigation_rubric() {
 fn test_a08_hlo_op_profile_category_drill_down_rubric() {
     let dir = scratch("a08");
     let path = demo(&dir);
-    let macro_view = parse(&run(&["get_hlo_op_profile", path.to_str().unwrap(), "--view=category"]).1);
+    let macro_view =
+        parse(&run(&["get_hlo_op_profile", path.to_str().unwrap(), "--view=category"]).1);
     let target = macro_view.at("category_summary").items()[0].at("category").text();
-    let result = parse(&run(&["get_hlo_op_profile", path.to_str().unwrap(), &format!("--category={target}"), "--top_n=5"]).1);
+    let result = parse(
+        &run(&[
+            "get_hlo_op_profile",
+            path.to_str().unwrap(),
+            &format!("--category={target}"),
+            "--top_n=5",
+        ])
+        .1,
+    );
     assert_eq!(result.at("category").text(), target);
-    assert!(["total_self_time_ms", "fraction_of_total_time", "operations", "navigation_hints"].iter().all(|key| result.has(key)));
+    assert!(
+        ["total_self_time_ms", "fraction_of_total_time", "operations", "navigation_hints"]
+            .iter()
+            .all(|key| result.has(key))
+    );
     let hints = result.at("navigation_hints");
-    assert!(hints.has("inspect_top_op_ast") && hints.has("inspect_graph") && hints.has("back_to_categories"));
+    assert!(
+        hints.has("inspect_top_op_ast")
+            && hints.has("inspect_graph")
+            && hints.has("back_to_categories")
+    );
     for op in result.at("operations").items() {
         assert!(op.has("name") && op.has("total_self_time_ms") && op.has("category_fraction"));
     }
@@ -76,8 +101,11 @@ fn test_a08_hlo_op_profile_category_drill_down_rubric() {
 
 #[test]
 fn test_a09_hlo_op_profile_tree_view_rubric() {
-    let result = query("a09", "get_hlo_op_profile", &["--view=tree", "--path=by_category", "--depth=2"]);
-    assert!(["by_category", "by_program", "root"].contains(&result.at("current_path").text().as_str()));
+    let result =
+        query("a09", "get_hlo_op_profile", &["--view=tree", "--path=by_category", "--depth=2"]);
+    assert!(
+        ["by_category", "by_program", "root"].contains(&result.at("current_path").text().as_str())
+    );
     assert_eq!(result.at("depth_limit").int(), Some(2));
     let hints = result.at("navigation_hints");
     assert!(hints.has("available_child_paths") && hints.has("navigate_deeper_into_child"));

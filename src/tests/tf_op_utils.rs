@@ -3,9 +3,17 @@ use crate::xplane::derive::{Category, Category::*, tf_op};
 
 fn check(full: &str, category: Category, name: &str, kind: &str, event_name: &str) {
     let op = tf_op(full);
-    assert_eq!((op.category, op.name, op.kind, op.event_name().as_str()), (category, name, kind, event_name), "{full}");
+    assert_eq!(
+        (op.category, op.name, op.kind, op.event_name().as_str()),
+        (category, name, kind, event_name),
+        "{full}"
+    );
     let parsed = parse_tf_op(full);
-    assert_eq!((parsed.known, parsed.name.as_str(), parsed.kind.as_str()), (category != Category::Unknown, name, kind), "{full}");
+    assert_eq!(
+        (parsed.known, parsed.name.as_str(), parsed.kind.as_str()),
+        (category != Category::Unknown, name, kind),
+        "{full}"
+    );
 }
 
 macro_rules! checks { ($($name:ident: $($arg:expr),*;)*) => { $(#[test] fn $name() { check($($arg),*) })* } }
@@ -36,13 +44,22 @@ checks! {
 #[test]
 fn infeed_enqueue_test() {
     let full = "input_pipeline_task0/while/body/_1/InfeedQueue/enqueue/1:InfeedEnqueueTuple";
-    check(full, Category::TensorFlow, "input_pipeline_task0/while/body/_1/InfeedQueue/enqueue/1", "InfeedEnqueueTuple", "InfeedEnqueueTuple");
+    check(
+        full,
+        Category::TensorFlow,
+        "input_pipeline_task0/while/body/_1/InfeedQueue/enqueue/1",
+        "InfeedEnqueueTuple",
+        "InfeedEnqueueTuple",
+    );
     assert!(tf_op(full).kind.starts_with("InfeedEnqueue"));
 }
 
 #[test]
 fn name_scope_test() {
     let op = tf_op("scope-1/scope2/OpName:OpType");
-    assert_eq!((op.category, op.name, op.kind), (Category::TensorFlow, "scope-1/scope2/OpName", "OpType"));
+    assert_eq!(
+        (op.category, op.name, op.kind),
+        (Category::TensorFlow, "scope-1/scope2/OpName", "OpType")
+    );
     assert_eq!(op.scopes(), ["scope-1", "scope2"]);
 }

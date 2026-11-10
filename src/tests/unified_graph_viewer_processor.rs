@@ -58,7 +58,13 @@ fn handle_missing_hlo_proto() {
 fn handle_success() {
     let session_dir = session();
     write_module(&session_dir, "my_module", &hlo_proto(DUMMY_HLO));
-    let options: HashMap<String, String> =
-        [("module_name", "my_module"), ("type", "short_txt"), ("graph_width", "1"), ("merge_fusion", "false")].map(|(key, value)| (key.to_string(), value.to_string())).into();
+    let options: HashMap<String, String> = [
+        ("module_name", "my_module"),
+        ("type", "short_txt"),
+        ("graph_width", "1"),
+        ("merge_fusion", "false"),
+    ]
+    .map(|(key, value)| (key.to_string(), value.to_string()))
+    .into();
     assert!(!serve(&session_dir, &options).unwrap().0.is_empty());
 }

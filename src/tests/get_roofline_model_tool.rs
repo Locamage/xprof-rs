@@ -14,7 +14,10 @@ fn test_get_roofline_model_success() {
     let data = table(
         r#"{"c": [{"v": "Total"}, {"v": 0.0}, {"v": "Program"}, {"v": "Program"}, {"v": 1.0}, {"v": 100000.0}, {"v": 0.0}, {"v": 0.0}, {"v": 7181.72}, {"v": 6440.89}, {"v": 258.31}, {"v": 205.79}, {"v": 25.89}, {"v": "HBM"}, {"v": 0.1349}, {"v": 0.0076}, {"v": 0.1349}, {"v": "0"}, {"v": ""}]}, {"c": [{"v": "Total"}, {"v": 1.0}, {"v": "all-reduce"}, {"v": "psum.118"}, {"v": 10.0}, {"v": 50000.0}, {"v": 50000.0}, {"v": 0.50}, {"v": 100.0}, {"v": 90.0}, {"v": 200.0}, {"v": 180.0}, {"v": 0.25}, {"v": "HBM"}, {"v": 0.1631}, {"v": 0.0001}, {"v": 0.1631}, {"v": "12345"}, {"v": "<div title='file.py:10'>file.py:10</div>"}]}"#,
     );
-    let parsed = json(get_roofline_model(&Fake::fixed(&data), &args("test_session", &[("top_n", J::Int(5))])));
+    let parsed = json(get_roofline_model(
+        &Fake::fixed(&data),
+        &args("test_session", &[("top_n", J::Int(5))]),
+    ));
     let program = parsed.at("program");
     assert_eq!(program.at("bound_by").str(), Some("HBM"));
     assert_eq!(program.at("roofline_efficiency_percent").str(), Some("13.49%"));
@@ -41,7 +44,10 @@ fn test_get_roofline_model_custom_call_opaque() {
     let data = table(
         r#"{"c": [{"v": "Total"}, {"v": 0.0}, {"v": "Program"}, {"v": "Program"}, {"v": 1.0}, {"v": 100000.0}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": "Unknown"}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": "0"}, {"v": ""}]}, {"c": [{"v": "Total"}, {"v": 1.0}, {"v": "custom-call"}, {"v": "custom-call.1"}, {"v": 1.0}, {"v": 50000.0}, {"v": 50000.0}, {"v": 1.0}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": "Unknown"}, {"v": 0.0}, {"v": 0.0}, {"v": 0.0}, {"v": "12345"}, {"v": ""}]}"#,
     );
-    let parsed = json(get_roofline_model(&Fake::fixed(&data), &args("test_session", &[("top_n", J::Int(5))])));
+    let parsed = json(get_roofline_model(
+        &Fake::fixed(&data),
+        &args("test_session", &[("top_n", J::Int(5))]),
+    ));
     assert_eq!(parsed.at("program").at("bound_by").str(), Some("CustomCall (opaque)"));
     let operations = parsed.at("top_operations").items();
     assert_eq!(operations.len(), 1);
@@ -57,12 +63,16 @@ fn test_get_roofline_model_no_data() {
 
 #[test]
 fn test_get_roofline_model_invalid_data() {
-    assert_eq!(get_roofline_model(&Fake::fixed("{}"), &args("test_session", &[])).unwrap_err().kind, Kind::Value);
+    assert_eq!(
+        get_roofline_model(&Fake::fixed("{}"), &args("test_session", &[])).unwrap_err().kind,
+        Kind::Value
+    );
 }
 
 #[test]
 fn test_get_roofline_model_bypass_cache() {
     let fake = Fake::tools(|_| None);
     get_roofline_model(&fake, &args("test_session", &[("bypass_cache", J::Bool(true))])).unwrap();
-    assert!(fake.calls.borrow().iter().any(|(tool, params)| tool == "roofline_model.json" && *params == [("bypass_cache".to_string(), "True".to_string())]));
+    assert!(fake.calls.borrow().iter().any(|(tool, params)| tool == "roofline_model.json"
+        && *params == [("bypass_cache".to_string(), "True".to_string())]));
 }

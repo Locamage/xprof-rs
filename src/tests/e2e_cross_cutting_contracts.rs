@@ -11,7 +11,12 @@ const SPILL_EVENTS: i64 = 80_000;
 fn test_x01_four_input_forms() {
     let dir = scratch("x01");
     let path = session(&dir, "host.xplane.pb", &training_trace(TRAINING_STEP_PS));
-    let step = |target: &std::path::Path| parse(&run(&["get_overview", target.to_str().unwrap()]).1).at("performance_summary").at("steptime_ms_average").clone();
+    let step = |target: &std::path::Path| {
+        parse(&run(&["get_overview", target.to_str().unwrap()]).1)
+            .at("performance_summary")
+            .at("steptime_ms_average")
+            .clone()
+    };
     assert_eq!(step(&path), step(path.parent().unwrap()));
     assert_eq!(step(&path).str(), Some("20.00"));
 }
@@ -45,7 +50,10 @@ fn test_x06_volume_guard_spill_to_file() {
     let spilled = std::path::PathBuf::from(result.at("file_path").str().unwrap());
     assert!(spilled.exists());
     assert!(result.at("size_bytes").int().unwrap() > 10 * 1024 * 1024);
-    assert_eq!(parse(&std::fs::read_to_string(&spilled).unwrap()).at("returned").int(), Some(i128::from(SPILL_EVENTS)));
+    assert_eq!(
+        parse(&std::fs::read_to_string(&spilled).unwrap()).at("returned").int(),
+        Some(i128::from(SPILL_EVENTS))
+    );
     std::fs::remove_file(spilled).unwrap();
 }
 

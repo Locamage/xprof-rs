@@ -1,15 +1,21 @@
 use crate::tools::inference_profile::{
-    BatchDetail, InferenceStats, ModelIdDatabase, PerBatchSizeAggregatedResult, PerHostInferenceStats, PerModelInferenceStats, RequestDetail, TensorEventDetail, TensorPatternResult,
+    BatchDetail, InferenceStats, ModelIdDatabase, PerBatchSizeAggregatedResult,
+    PerHostInferenceStats, PerModelInferenceStats, RequestDetail, TensorEventDetail,
+    TensorPatternResult,
 };
 use crate::tools::opstats::{Db, OpStats};
 use crate::xplane::{self, Ev, NONE_GROUP, Plane};
 use prost::Message;
-use prost_reflect::{DescriptorPool, DynamicMessage, MapKey, MessageDescriptor, ReflectMessage, Value};
+use prost_reflect::{
+    DescriptorPool, DynamicMessage, MapKey, MessageDescriptor, ReflectMessage, Value,
+};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 
-static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| DescriptorPool::decode(&include_bytes!("../../tests/data/test_descriptors.pb")[..]).unwrap());
+static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
+    DescriptorPool::decode(&include_bytes!("../../tests/data/test_descriptors.pb")[..]).unwrap()
+});
 
 pub const HOST: &str = "/host:CPU";
 const UNMODELED_OP_METRICS: [&str; 4] = ["flops", "model_flops", "fingerprint", "precision_stats"];
@@ -132,13 +138,20 @@ macro_rules! v_from { ($($kind:ty => $variant:ident),*) => { $(impl From<$kind> 
 v_from!(i32 => Int, i64 => Int, u64 => Uint, f64 => Double, &str => Str, String => Str);
 
 pub fn op_stats(spaces: &[XSpace]) -> Option<Arc<OpStats>> {
-    let all: Vec<Option<Arc<OpStats>>> = spaces.iter().map(|space| crate::tests::with_file(&space.encode_to_vec(), crate::tools::opstats::load).unwrap()).collect();
+    let all: Vec<Option<Arc<OpStats>>> = spaces
+        .iter()
+        .map(|space| {
+            crate::tests::with_file(&space.encode_to_vec(), crate::tools::opstats::load).unwrap()
+        })
+        .collect();
     OpStats::combine(&all)
 }
 
 pub fn grouped(space: &XSpace) -> (Vec<u8>, Vec<Plane>, Option<HashMap<i64, String>>) {
     let (map, mut planes) = space.parsed();
-    planes.iter_mut().for_each(|plane| plane.add_threadpool_regions(&map));
+    for plane in &mut planes {
+        plane.add_threadpool_regions(&map);
+    }
     let names = crate::xplane::group::group(&mut planes, &map).map(|groups| groups.names);
     (map, planes, names)
 }
@@ -159,8 +172,13 @@ pub fn op_metrics_db(db: &Db) -> DynamicMessage {
     let mut message = DynamicMessage::new(descriptor("tensorflow.profiler.OpMetricsDb"));
     for metrics in &db.metrics {
         let mut op = DynamicMessage::new(descriptor("tensorflow.profiler.OpMetrics"));
-        let strings =
-            [("name", &metrics.name), ("long_name", &metrics.long_name), ("category", &metrics.category), ("provenance", &metrics.provenance), ("deduplicated_name", &metrics.deduplicated_name)];
+        let strings = [
+            ("name", &metrics.name),
+            ("long_name", &metrics.long_name),
+            ("category", &metrics.category),
+            ("provenance", &metrics.provenance),
+            ("deduplicated_name", &metrics.deduplicated_name),
+        ];
         for (field, text) in strings {
             op.set_field_by_name(field, Value::String(text.to_string()));
         }
@@ -190,7 +208,8 @@ pub fn op_metrics_db(db: &Db) -> DynamicMessage {
             .memory
             .iter()
             .map(|&(operation, space, bytes)| {
-                let mut entry = DynamicMessage::new(descriptor("tensorflow.profiler.OpMetrics.MemoryAccessed"));
+                let mut entry =
+                    DynamicMessage::new(descriptor("tensorflow.profiler.OpMetrics.MemoryAccessed"));
                 entry.set_field_by_name("operation_type", Value::EnumNumber(operation.into()));
                 entry.set_field_by_name("memory_space", Value::U64(space));
                 entry.set_field_by_name("bytes_accessed", Value::U64(bytes));
@@ -208,9 +227,18 @@ pub fn op_metrics_db(db: &Db) -> DynamicMessage {
         if !metrics.children.metrics.is_empty() || metrics.children.total_time_ps != 0 {
             op.set_field_by_name("children", Value::Message(op_metrics_db(&metrics.children)));
         }
-        message.get_field_by_name_mut("metrics_db").unwrap().as_list_mut().unwrap().push(Value::Message(op));
+        message
+            .get_field_by_name_mut("metrics_db")
+            .unwrap()
+            .as_list_mut()
+            .unwrap()
+            .push(Value::Message(op));
     }
-    for (field, number) in [("total_time_ps", db.total_time_ps), ("total_op_time_ps", db.total_op_time_ps), ("normalized_total_op_time_ps", db.normalized_total_op_time_ps)] {
+    for (field, number) in [
+        ("total_time_ps", db.total_time_ps),
+        ("total_op_time_ps", db.total_op_time_ps),
+        ("normalized_total_op_time_ps", db.normalized_total_op_time_ps),
+    ] {
         message.set_field_by_name(field, Value::U64(number));
     }
     message
@@ -223,9 +251,18 @@ fn without_unmodeled(message: &mut DynamicMessage) {
         }
     }
     for name in ["metrics_db", "children"] {
-        let Some(field) = message.descriptor().get_field_by_name(name).filter(|field| message.has_field(field)) else { continue };
+        let Some(field) =
+            message.descriptor().get_field_by_name(name).filter(|field| message.has_field(field))
+        else {
+            continue;
+        };
         match message.get_field_mut(&field) {
-            Value::List(items) => items.iter_mut().filter_map(|item| item.as_message_mut()).for_each(without_unmodeled),
+            Value::List(items) => {
+                let messages = items.iter_mut().filter_map(|item| item.as_message_mut());
+                for message in messages {
+                    without_unmodeled(message);
+                }
+            }
             Value::Message(child) => without_unmodeled(child),
             _ => {}
         }
@@ -233,9 +270,15 @@ fn without_unmodeled(message: &mut DynamicMessage) {
 }
 
 pub fn assert_db(db: &Db, expected: &str) {
-    let mut expected = DynamicMessage::parse_text_format(descriptor("tensorflow.profiler.OpMetricsDb"), expected).unwrap();
+    let mut expected =
+        DynamicMessage::parse_text_format(descriptor("tensorflow.profiler.OpMetricsDb"), expected)
+            .unwrap();
     without_unmodeled(&mut expected);
-    let canonical = |message: &DynamicMessage| DynamicMessage::decode(message.descriptor(), &message.encode_to_vec()[..]).unwrap().to_text_format();
+    let canonical = |message: &DynamicMessage| {
+        DynamicMessage::decode(message.descriptor(), &message.encode_to_vec()[..])
+            .unwrap()
+            .to_text_format()
+    };
     assert_eq!(canonical(&op_metrics_db(db)), canonical(&expected));
 }
 
@@ -261,7 +304,12 @@ fn float(message: &DynamicMessage, name: &str) -> f64 {
 }
 
 fn messages(message: &DynamicMessage, name: &str) -> Vec<DynamicMessage> {
-    field(message, name).as_list().unwrap().iter().map(|item| item.as_message().unwrap().clone()).collect()
+    field(message, name)
+        .as_list()
+        .unwrap()
+        .iter()
+        .map(|item| item.as_message().unwrap().clone())
+        .collect()
 }
 
 fn child(message: &DynamicMessage, name: &str) -> DynamicMessage {
@@ -287,13 +335,21 @@ fn request(message: &DynamicMessage) -> RequestDetail {
         write_to_device_time_ps: number("write_to_device_time_ps"),
         read_from_device_time_ps: number("read_from_device_time_ps"),
         batching_request_delay_ps: number("batching_request_delay_ps"),
-        related_batch_ids: field(message, "related_batch_ids").as_list().unwrap().iter().map(|id| id.as_i64().unwrap()).collect(),
+        related_batch_ids: field(message, "related_batch_ids")
+            .as_list()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_i64().unwrap())
+            .collect(),
         batching_request_size: integer(message, "batching_request_size") as i32,
         host_preprocessing_ps: number("host_preprocessing_ps"),
         host_batch_formation_ps: number("host_batch_formation_ps"),
         host_runtime_ps: number("host_runtime_ps"),
         host_postprocessing_ps: number("host_postprocessing_ps"),
-        tensor_event_details: messages(message, "tensor_event_details").iter().map(tensor_event).collect(),
+        tensor_event_details: messages(message, "tensor_event_details")
+            .iter()
+            .map(tensor_event)
+            .collect(),
         host_id: integer(message, "host_id") as i32,
         percentile: float(message, "percentile"),
         idle_time_ps: float(message, "idle_time_ps"),
@@ -307,24 +363,43 @@ fn batch(message: &DynamicMessage) -> BatchDetail {
         start_time_ps: number("start_time_ps"),
         end_time_ps: number("end_time_ps"),
         batch_delay_ps: number("batch_delay_ps"),
-        related_request_ids: field(message, "related_request_ids").as_list().unwrap().iter().map(|id| id.as_i64().unwrap()).collect(),
+        related_request_ids: field(message, "related_request_ids")
+            .as_list()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_i64().unwrap())
+            .collect(),
         padding_amount: integer(message, "padding_amount") as i32,
         batch_size_after_padding: integer(message, "batch_size_after_padding") as i32,
         model_id_index: integer(message, "model_id_index") as i32,
-        tensor_event_detail: message.has_field_by_name("tensor_event_detail").then(|| tensor_event(&child(message, "tensor_event_detail"))),
+        tensor_event_detail: message
+            .has_field_by_name("tensor_event_detail")
+            .then(|| tensor_event(&child(message, "tensor_event_detail"))),
         host_id: integer(message, "host_id") as i32,
         percentile: float(message, "percentile"),
         device_time_ps: number("device_time_ps"),
-        program_ids: field(message, "program_ids").as_list().unwrap().iter().map(|id| id.as_u64().unwrap()).collect(),
+        program_ids: field(message, "program_ids")
+            .as_list()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_u64().unwrap())
+            .collect(),
     }
 }
 
 fn tensor_results(message: &DynamicMessage) -> Vec<TensorPatternResult> {
-    let percentile = |time: &DynamicMessage| (float(time, "percentile"), integer(time, "time_ps") as u64);
+    let percentile =
+        |time: &DynamicMessage| (float(time, "percentile"), integer(time, "time_ps") as u64);
     let result = |result: &DynamicMessage| TensorPatternResult {
         tensor_pattern_index: integer(result, "tensor_pattern_index") as i32,
         count: integer(result, "count") as u64,
-        linearize_delinearize_percentile_time: messages(result, "linearize_delinearize_percentile_time").iter().map(percentile).collect(),
+        linearize_delinearize_percentile_time: messages(
+            result,
+            "linearize_delinearize_percentile_time",
+        )
+        .iter()
+        .map(percentile)
+        .collect(),
     };
     messages(message, "tensor_pattern_results").iter().map(result).collect()
 }
@@ -346,18 +421,33 @@ fn per_model(message: &DynamicMessage) -> PerModelInferenceStats {
         aggregated_batch_detail: batch(&child(message, "aggregated_batch_detail")),
         batch_throughput: float(message, "batch_throughput"),
         batch_average_latency_us: float(message, "batch_average_latency_us"),
-        tensor_pattern_results: tensor_results(&child(message, "tensor_transfer_aggregated_result")),
-        per_batch_size_aggregated_result: messages(message, "per_batch_size_aggregated_result").iter().map(per_batch_size).collect(),
+        tensor_pattern_results: tensor_results(&child(
+            message,
+            "tensor_transfer_aggregated_result",
+        )),
+        per_batch_size_aggregated_result: messages(message, "per_batch_size_aggregated_result")
+            .iter()
+            .map(per_batch_size)
+            .collect(),
     }
 }
 
-fn keyed<T>(message: &DynamicMessage, name: &str, convert: impl Fn(&DynamicMessage) -> T) -> BTreeMap<i32, T> {
+fn keyed<T>(
+    message: &DynamicMessage,
+    name: &str,
+    convert: impl Fn(&DynamicMessage) -> T,
+) -> BTreeMap<i32, T> {
     let entries = field(message, name).as_map().unwrap().clone();
-    entries.iter().map(|(key, value)| (key.as_i32().unwrap(), convert(value.as_message().unwrap()))).collect()
+    entries
+        .iter()
+        .map(|(key, value)| (key.as_i32().unwrap(), convert(value.as_message().unwrap())))
+        .collect()
 }
 
 pub fn inference_stats(text: &str) -> InferenceStats {
-    let message = DynamicMessage::parse_text_format(descriptor("tensorflow.profiler.InferenceStats"), text).unwrap();
+    let message =
+        DynamicMessage::parse_text_format(descriptor("tensorflow.profiler.InferenceStats"), text)
+            .unwrap();
     let models = child(&message, "model_id_db");
     let per_host = |host: &DynamicMessage| PerHostInferenceStats {
         request_details: messages(host, "request_details").iter().map(request).collect(),
@@ -368,21 +458,48 @@ pub fn inference_stats(text: &str) -> InferenceStats {
         inference_stats_per_host: keyed(&message, "inference_stats_per_host", per_host),
         inference_stats_per_model: keyed(&message, "inference_stats_per_model", per_model),
         model_id_db: ModelIdDatabase {
-            ids: field(&models, "ids").as_list().unwrap().iter().map(|id| id.as_str().unwrap().to_string()).collect(),
-            id_to_index: id_to_index.iter().map(|(key, value)| (if let MapKey::String(key) = key { key.clone() } else { String::new() }, value.as_i32().unwrap())).collect(),
+            ids: field(&models, "ids")
+                .as_list()
+                .unwrap()
+                .iter()
+                .map(|id| id.as_str().unwrap().to_string())
+                .collect(),
+            id_to_index: id_to_index
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        if let MapKey::String(key) = key { key.clone() } else { String::new() },
+                        value.as_i32().unwrap(),
+                    )
+                })
+                .collect(),
             ..Default::default()
         },
-        tensor_patterns: field(&child(&message, "tensor_pattern_db"), "tensor_pattern").as_list().unwrap().iter().map(|pattern| pattern.as_str().unwrap().to_string()).collect(),
+        tensor_patterns: field(&child(&message, "tensor_pattern_db"), "tensor_pattern")
+            .as_list()
+            .unwrap()
+            .iter()
+            .map(|pattern| pattern.as_str().unwrap().to_string())
+            .collect(),
         ..Default::default()
     }
 }
 
 pub fn tensor_transfer(text: &str) -> Vec<TensorPatternResult> {
-    tensor_results(&DynamicMessage::parse_text_format(descriptor("tensorflow.profiler.TensorTransferAggregatedResult"), text).unwrap())
+    tensor_results(
+        &DynamicMessage::parse_text_format(
+            descriptor("tensorflow.profiler.TensorTransferAggregatedResult"),
+            text,
+        )
+        .unwrap(),
+    )
 }
 
 pub fn parse_text<T: Message + Default>(name: &str, text: &str) -> T {
-    T::decode(&DynamicMessage::parse_text_format(descriptor(name), text).unwrap().encode_to_vec()[..]).unwrap()
+    T::decode(
+        &DynamicMessage::parse_text_format(descriptor(name), text).unwrap().encode_to_vec()[..],
+    )
+    .unwrap()
 }
 
 impl XEvent {
@@ -398,7 +515,11 @@ impl XSpace {
 
     pub fn plane(&mut self, name: &str) -> &mut XPlane {
         let index = self.planes.iter().position(|plane| plane.name == name).unwrap_or_else(|| {
-            self.planes.push(XPlane { id: self.planes.len() as i64, name: name.into(), ..Default::default() });
+            self.planes.push(XPlane {
+                id: self.planes.len() as i64,
+                name: name.into(),
+                ..Default::default()
+            });
             self.planes.len() - 1
         });
         &mut self.planes[index]
@@ -413,7 +534,14 @@ impl XSpace {
         self.plane(HOST)
     }
 
-    pub fn tpu(&mut self, ordinal: i32, device_type: &str, peak_teraflops: f64, peak_hbm: f64, sparse_core: Option<i32>) -> &mut XPlane {
+    pub fn tpu(
+        &mut self,
+        ordinal: i32,
+        device_type: &str,
+        peak_teraflops: f64,
+        peak_hbm: f64,
+        sparse_core: Option<i32>,
+    ) -> &mut XPlane {
         let name = match sparse_core {
             Some(core) => format!("/device:TPU:{ordinal} SparseCore {core}"),
             None => format!("/device:TPU:{ordinal}"),
@@ -438,13 +566,29 @@ impl XSpace {
 
 impl XPlane {
     pub fn event_metadata(&mut self, name: &str) -> &mut XEventMetadata {
-        let id = self.event_metadata.values().find(|meta| meta.name == name).map_or(self.event_metadata.len() as i64 + 1, |meta| meta.id);
-        self.event_metadata.entry(id).or_insert_with(|| XEventMetadata { id, name: name.into(), ..Default::default() })
+        let id = self
+            .event_metadata
+            .values()
+            .find(|meta| meta.name == name)
+            .map_or(self.event_metadata.len() as i64 + 1, |meta| meta.id);
+        self.event_metadata.entry(id).or_insert_with(|| XEventMetadata {
+            id,
+            name: name.into(),
+            ..Default::default()
+        })
     }
 
     pub fn stat_metadata(&mut self, name: &str) -> i64 {
-        let id = self.stat_metadata.values().find(|meta| meta.name == name).map_or(self.stat_metadata.len() as i64 + 1, |meta| meta.id);
-        self.stat_metadata.entry(id).or_insert_with(|| XStatMetadata { id, name: name.into(), ..Default::default() });
+        let id = self
+            .stat_metadata
+            .values()
+            .find(|meta| meta.name == name)
+            .map_or(self.stat_metadata.len() as i64 + 1, |meta| meta.id);
+        self.stat_metadata.entry(id).or_insert_with(|| XStatMetadata {
+            id,
+            name: name.into(),
+            ..Default::default()
+        });
         id
     }
 
@@ -492,11 +636,24 @@ impl XPlane {
         line
     }
 
-    pub fn event(&mut self, line: i64, name: &str, offset_ps: i64, duration_ps: i64, stats: &[(&str, V)]) -> &mut XEvent {
+    pub fn event(
+        &mut self,
+        line: i64,
+        name: &str,
+        offset_ps: i64,
+        duration_ps: i64,
+        stats: &[(&str, V)],
+    ) -> &mut XEvent {
         let metadata_id = self.event_metadata(name).id;
         let stats = self.stats(stats);
         let line = self.line(line);
-        line.events.push(XEvent { metadata_id, offset_ps: Some(offset_ps), duration_ps, stats, ..Default::default() });
+        line.events.push(XEvent {
+            metadata_id,
+            offset_ps: Some(offset_ps),
+            duration_ps,
+            stats,
+            ..Default::default()
+        });
         line.events.last_mut().unwrap()
     }
 

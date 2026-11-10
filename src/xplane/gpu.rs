@@ -38,8 +38,7 @@ const ROCM: [(&str, [f64; 4], f64); 4] = [
     ("gfx950", [256.0, 256.0, 256.0, 4096.0], 256.0),
 ];
 const TENSOR_CORE_KERNELS: &str = "16816 c1688 conv1x1 conv2d_c1_k1 dgrad_1x1_stride_2x2 direct_group first_layer_wgrad_kernel h1688 h884 hmma i16832 i8816 s884 s1688 xmma_gemm xmma_implicit_gemm xmma_sparse_conv xmma_sparse_gemm xmma_warp_specialized_implicit_gemm";
-const TENSOR_CORE_SUFFIXES: &str =
-    "Conv2D Conv2DBackpropFilter Conv2DBackpropInput Conv3D DepthwiseConv2dNative DepthwiseConv2dNativeBackpropFilter DepthwiseConv2dNativeBackpropInput /MatMul FusedMatMul /CudnnRNN XlaDot XlaDotV2";
+const TENSOR_CORE_SUFFIXES: &str = "Conv2D Conv2DBackpropFilter Conv2DBackpropInput Conv3D DepthwiseConv2dNative DepthwiseConv2dNativeBackpropFilter DepthwiseConv2dNativeBackpropInput /MatMul FusedMatMul /CudnnRNN XlaDot XlaDotV2";
 const TENSOR_CORE_INFIXES: &str = "BatchMatMul CudnnRNNV CudnnRNNForward CudnnRNNBackprop";
 const KERNEL_COLUMNS: [(&str, &str, &str); 15] = [
     ("rank", "number", "Rank"),
@@ -59,7 +58,19 @@ const KERNEL_COLUMNS: [(&str, &str, &str); 15] = [
     ("max_duration_us", "number", "Max Duration (\u{3bc}s)"),
 ];
 const STATS: [&str; 14] = [
-    "tf_op", "hlo_op", "program_id", "kernel_details", "correlation_id", "group_id", "is_eager", "equation", "cuda_graph_exec_id", "hlo_module", "scope_range_id", "cuda_graph_id", "flops",
+    "tf_op",
+    "hlo_op",
+    "program_id",
+    "kernel_details",
+    "correlation_id",
+    "group_id",
+    "is_eager",
+    "equation",
+    "cuda_graph_exec_id",
+    "hlo_module",
+    "scope_range_id",
+    "cuda_graph_id",
+    "flops",
     "bytes_accessed",
 ];
 const UNWANTED: u8 = u8::MAX;
@@ -89,7 +100,8 @@ pub struct Info {
 
 pub type Infos = FxHashMap<u64, FxHashMap<String, Info>>;
 type Names = FxHashMap<u64, FxHashSet<String>>;
-type Launch<'a> = (u32, Cow<'a, str>, Cow<'a, str>, Cow<'a, str>, Option<u64>, Option<Cow<'a, str>>);
+type Launch<'a> =
+    (u32, Cow<'a, str>, Cow<'a, str>, Cow<'a, str>, Option<u64>, Option<Cow<'a, str>>);
 
 pub struct Scanner<'a> {
     plane: &'a Plane,
@@ -184,7 +196,9 @@ impl<'a> Scanner<'a> {
 
     pub fn scan(&self, event: &Ev) -> Stats<'a> {
         let mut values = [const { None }; STATS.len()];
-        for stat in stats(slice(self.map, event.raw), 4, |id| self.slots.get(id).is_some_and(|&slot| slot != UNWANTED)) {
+        for stat in stats(slice(self.map, event.raw), 4, |id| {
+            self.slots.get(id).is_some_and(|&slot| slot != UNWANTED)
+        }) {
             values[self.slots[stat.id] as usize] = Some(stat.value);
         }
         Stats { plane: self.plane, values }
@@ -209,7 +223,11 @@ impl<'a> Stats<'a> {
     }
 
     pub fn unsigned(&self, slot: usize) -> Option<u64> {
-        self.values[slot].as_ref().map(|value| if let Value::Uint(value) = value { *value } else { 0 })
+        self.values[slot].as_ref().map(
+            |value| {
+                if let Value::Uint(value) = value { *value } else { 0 }
+            },
+        )
     }
 
     pub fn program(&self) -> Option<u64> {
@@ -219,7 +237,9 @@ impl<'a> Stats<'a> {
     pub fn hlo_op(&self) -> Option<Cow<'a, str>> {
         self.has(HLO_OP).then(|| match self.text(HLO_OP) {
             Cow::Borrowed(text) => Cow::Borrowed(text.rsplit("::").next().unwrap_or_default()),
-            Cow::Owned(text) => Cow::Owned(text.rsplit("::").next().unwrap_or_default().to_string()),
+            Cow::Owned(text) => {
+                Cow::Owned(text.rsplit("::").next().unwrap_or_default().to_string())
+            }
         })
     }
 }
@@ -227,9 +247,14 @@ impl<'a> Stats<'a> {
 pub fn groups(plane: &Plane, map: &[u8]) -> Vec<Vec<Option<i64>>> {
     let id = plane.id("group_id");
     let own = |event: &Ev| {
-        if event.group == NONE_GROUP { event_stat(slice(map, event.raw), id).and_then(|value| value.int()) } else { Some(event.group) }
+        if event.group == NONE_GROUP {
+            event_stat(slice(map, event.raw), id).and_then(|value| value.int())
+        } else {
+            Some(event.group)
+        }
     };
-    let mut result: Vec<Vec<Option<i64>>> = plane.lines.iter().map(|line| line.events.iter().map(own).collect()).collect();
+    let mut result: Vec<Vec<Option<i64>>> =
+        plane.lines.iter().map(|line| line.events.iter().map(own).collect()).collect();
     if id.is_none() && result.iter().flatten().all(Option::is_none) {
         return result;
     }
@@ -238,7 +263,12 @@ pub fn groups(plane: &Plane, map: &[u8]) -> Vec<Vec<Option<i64>>> {
         .iter()
         .enumerate()
         .filter(|(_, line)| !is_derived(line.id))
-        .flat_map(|(line_index, line)| line.events.iter().enumerate().map(move |(index, event)| (event.ts, event.dur, line_index, index)))
+        .flat_map(|(line_index, line)| {
+            line.events
+                .iter()
+                .enumerate()
+                .map(move |(index, event)| (event.ts, event.dur, line_index, index))
+        })
         .collect();
     order.sort_by_key(|&(ts, dur, _, _)| (ts, dur));
     let mut current = None;
@@ -255,7 +285,9 @@ fn caps(plane: &Plane) -> Caps {
     let mut caps = Caps::default();
     for (name, value) in &plane.own {
         let number = if let Own::Int(number) = value { *number as u64 } else { 0 };
-        let text = || if let Own::Text(text) = value { text.clone() } else { String::new() };
+        let text = || {
+            if let Own::Text(text) = value { text.clone() } else { String::new() }
+        };
         match &**name {
             "clock_rate" => caps.clock_ghz = number as f64 / 1000000.0,
             "core_count" => caps.cores = number,
@@ -272,7 +304,9 @@ fn caps(plane: &Plane) -> Caps {
 
 fn gfx_version(caps: &Caps) -> &str {
     let name = caps.name.as_str();
-    if name.strip_prefix("gfx").is_some_and(|suffix| suffix.len() >= 3 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())) {
+    if name.strip_prefix("gfx").is_some_and(|suffix| {
+        suffix.len() >= 3 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }) {
         return name;
     }
     match (caps.major, caps.minor) {
@@ -290,17 +324,26 @@ fn flops_per_core(caps: &Caps) -> f64 {
     match caps.vendor.as_str() {
         "Nvidia" => {
             let wanted = caps.major * 1000 + caps.minor * 10;
-            let entry = CUDA_FLOPS.iter().find(|(key, _)| *key == wanted).or_else(|| CUDA_FLOPS.iter().rev().find(|(key, _)| *key < wanted)).unwrap_or(&CUDA_FLOPS[0]);
+            let entry = CUDA_FLOPS
+                .iter()
+                .find(|(key, _)| *key == wanted)
+                .or_else(|| CUDA_FLOPS.iter().rev().find(|(key, _)| *key < wanted))
+                .unwrap_or(&CUDA_FLOPS[0]);
             max_scaled(entry.1, caps.clock_ghz)
         }
-        "AMD" => ROCM.iter().find(|(name, _, _)| *name == gfx_version(caps)).map_or(0.0, |(_, values, _)| max_scaled(*values, caps.clock_ghz)),
+        "AMD" => ROCM
+            .iter()
+            .find(|(name, _, _)| *name == gfx_version(caps))
+            .map_or(0.0, |(_, values, _)| max_scaled(*values, caps.clock_ghz)),
         _ => 0.0,
     }
 }
 
 fn shared_memory_per_core(caps: &Caps) -> f64 {
     match caps.vendor.as_str() {
-        "Nvidia" => (if caps.major <= 2 { 32.0 * 4.0 / 2.0 } else { 32.0 * 8.0 }) * caps.clock_ghz * 1e9,
+        "Nvidia" => {
+            (if caps.major <= 2 { 32.0 * 4.0 / 2.0 } else { 32.0 * 8.0 }) * caps.clock_ghz * 1e9
+        }
         "AMD" => match ROCM.iter().find(|(name, _, _)| *name == gfx_version(caps)) {
             Some((_, _, bytes)) if *bytes > 0.0 => bytes * caps.clock_ghz * 1e9,
             _ => 0.0,
@@ -348,8 +391,13 @@ pub fn perf_env(plane: &Plane) -> Perf {
     }
     let hbm = caps.bandwidth as f64 / 1e9;
     let shared = caps.cores as f64 * (shared_memory_per_core(&caps) / 1e9);
-    let sram = |name: &str| Some(plane.own_double(name)).filter(|&value| value > 0.0).unwrap_or(shared);
-    let bandwidths = vec![hbm, sram("peak_sram_rd_bw_gigabytes_per_second"), sram("peak_sram_wr_bw_gigabytes_per_second")];
+    let sram =
+        |name: &str| Some(plane.own_double(name)).filter(|&value| value > 0.0).unwrap_or(shared);
+    let bandwidths = vec![
+        hbm,
+        sram("peak_sram_rd_bw_gigabytes_per_second"),
+        sram("peak_sram_wr_bw_gigabytes_per_second"),
+    ];
     Perf { peak_tera_flops, ridge_point: peak_tera_flops * 1e3 / hbm, bandwidths, cmem: false }
 }
 
@@ -364,11 +412,26 @@ pub fn tf_op_fullname(kind: &str, name: &str) -> String {
 fn stack(module: &Module, mut frame: i32) -> String {
     let index = msg(&module.proto.stack_frame_index);
     let mut out = String::new();
-    let get = |list: &[String], id: i32| usize::try_from(id - 1).ok().and_then(|id| list.get(id)).cloned().unwrap_or_default();
+    let get = |list: &[String], id: i32| {
+        usize::try_from(id - 1).ok().and_then(|id| list.get(id)).cloned().unwrap_or_default()
+    };
     for _ in 0..index.stack_frames.len() {
-        let Some(entry) = usize::try_from(frame).ok().and_then(|frame| index.stack_frames.get(frame.wrapping_sub(1))) else { break };
-        let Some(location) = usize::try_from(entry.file_location_id - 1).ok().and_then(|id| index.file_locations.get(id)) else { break };
-        let (file, function) = (get(&index.file_names, location.file_name_id), get(&index.function_names, location.function_name_id));
+        let Some(entry) = usize::try_from(frame)
+            .ok()
+            .and_then(|frame| index.stack_frames.get(frame.wrapping_sub(1)))
+        else {
+            break;
+        };
+        let Some(location) = usize::try_from(entry.file_location_id - 1)
+            .ok()
+            .and_then(|id| index.file_locations.get(id))
+        else {
+            break;
+        };
+        let (file, function) = (
+            get(&index.file_names, location.file_name_id),
+            get(&index.function_names, location.function_name_id),
+        );
         if file.is_empty() && function.is_empty() && location.line == 0 && location.column == 0 {
             break;
         }
@@ -379,14 +442,26 @@ fn stack(module: &Module, mut frame: i32) -> String {
 }
 
 fn source(module: &Module, metadata: &crate::hlo::xla::OpMetadata) -> Source {
-    let frames = if metadata.stack_frame_id != 0 { stack(module, metadata.stack_frame_id) } else { String::new() };
+    let frames = if metadata.stack_frame_id != 0 {
+        stack(module, metadata.stack_frame_id)
+    } else {
+        String::new()
+    };
     if !metadata.source_file.is_empty() {
-        return Source { file: metadata.source_file.as_str().into(), line: metadata.source_line, stack: frames.into() };
+        return Source {
+            file: metadata.source_file.as_str().into(),
+            line: metadata.source_line,
+            stack: frames.into(),
+        };
     }
     let first = frames.split('\n').next().unwrap_or_default();
     let parts: Vec<&str> = first.split(':').collect();
     if !frames.is_empty() && parts.len() >= 2 {
-        return Source { file: parts[0].into(), line: parts[1].parse().unwrap_or(-1), stack: frames.as_str().into() };
+        return Source {
+            file: parts[0].into(),
+            line: parts[1].parse().unwrap_or(-1),
+            stack: frames.as_str().into(),
+        };
     }
     Source { line: -1, ..Default::default() }
 }
@@ -397,7 +472,9 @@ fn wanted(devices: &[&Plane], map: &[u8]) -> Names {
         .map(|plane| {
             let scanner = Scanner::new(plane, map);
             let mut found = Names::default();
-            for event in plane.lines.iter().filter(|line| !is_derived(line.id)).flat_map(|line| &line.events) {
+            for event in
+                plane.lines.iter().filter(|line| !is_derived(line.id)).flat_map(|line| &line.events)
+            {
                 let stats = scanner.scan(event);
                 if let (Some(program), Some(name)) = (stats.program(), stats.hlo_op()) {
                     let names = found.entry(program).or_default();
@@ -433,7 +510,15 @@ fn info(module: &Module, printer: &Printer, node: usize) -> Info {
 }
 
 pub fn infos(planes: &[Plane], map: &[u8], devices: &[&Plane]) -> Infos {
-    let (wanted, modules) = rayon::join(|| wanted(devices, map), || protos(planes, map).into_par_iter().map(|(program, proto)| (program, Module::parse(Cow::Borrowed(proto)))).collect::<Vec<_>>());
+    let (wanted, modules) = rayon::join(
+        || wanted(devices, map),
+        || {
+            protos(planes, map)
+                .into_par_iter()
+                .map(|(program, proto)| (program, Module::parse(Cow::Borrowed(proto))))
+                .collect::<Vec<_>>()
+        },
+    );
     modules
         .into_par_iter()
         .filter_map(|(program, module)| Some((program, module, wanted.get(&program)?)))
@@ -445,16 +530,21 @@ pub fn infos(planes: &[Plane], map: &[u8], devices: &[&Plane]) -> Infos {
             for (node, entry) in module.nodes.iter().enumerate() {
                 index.entry(entry.name.as_str()).or_insert(node);
             }
-            let nodes: Vec<(&String, usize)> = names.iter().filter_map(|name| Some((name, *index.get(name.as_str())?))).collect();
+            let nodes: Vec<(&String, usize)> =
+                names.iter().filter_map(|name| Some((name, *index.get(name.as_str())?))).collect();
             let (costs, mut found) = rayon::join(
                 || costs(&module),
                 || {
                     let printer = Printer::new(&module, Style::Expression, false);
-                    nodes.par_iter().map(|&(name, node)| (name.clone(), info(&module, &printer, node))).collect::<FxHashMap<String, Info>>()
+                    nodes
+                        .par_iter()
+                        .map(|&(name, node)| (name.clone(), info(&module, &printer, node)))
+                        .collect::<FxHashMap<String, Info>>()
                 },
             );
             for (name, node) in nodes {
-                found.get_mut(name).unwrap().cost = costs.as_ref().and_then(|costs| costs.get(node).cloned());
+                found.get_mut(name).expect("entry exists").cost =
+                    costs.as_ref().and_then(|costs| costs.get(node).cloned());
             }
             (program, found)
         })
@@ -464,9 +554,15 @@ pub fn infos(planes: &[Plane], map: &[u8], devices: &[&Plane]) -> Infos {
 impl<'a> Builder<'a> {
     fn enter(&mut self, op: &Tracker) {
         let Some(info) = op.info else { return };
-        let metrics = self.db.entry(&mut self.index, op.program, &op.name.as_str().into());
-        if metrics.occurrences == 0 && metrics.category.is_empty() && metrics.provenance.is_empty() {
-            metrics.category = if info.category.is_empty() { UNKNOWN_CATEGORY.into() } else { info.category.clone() };
+        let name: ArcStr = op.name.as_str().into();
+        let metrics = self.db.entry(&mut self.index, op.program, &name);
+        if metrics.occurrences == 0 && metrics.category.is_empty() && metrics.provenance.is_empty()
+        {
+            metrics.category = if info.category.is_empty() {
+                UNKNOWN_CATEGORY.into()
+            } else {
+                info.category.clone()
+            };
             metrics.provenance = info.provenance.clone();
             if !info.deduplicated.is_empty() {
                 metrics.deduplicated_name = info.deduplicated.clone();
@@ -486,8 +582,10 @@ impl<'a> Builder<'a> {
         metrics.self_time_ps += op.duration;
         let cost = info.cost.as_ref();
         let (flops, bytes) = (op.flops as i64, op.bytes as i64);
-        let device_flops = cost.filter(|cost| cost.device_flops > 0).map_or(flops, |cost| cost.device_flops);
-        let bytes = cost.filter(|cost| cost.bytes_accessed > 0).map_or(bytes, |cost| cost.bytes_accessed);
+        let device_flops =
+            cost.filter(|cost| cost.device_flops > 0).map_or(flops, |cost| cost.device_flops);
+        let bytes =
+            cost.filter(|cost| cost.bytes_accessed > 0).map_or(bytes, |cost| cost.bytes_accessed);
         let model = cost.filter(|cost| cost.model_flops > 0).map_or(flops, |cost| cost.model_flops);
         metrics.flops_v2 += device_flops as f64 * op.occurrences as f64;
         if model == 0 {
@@ -495,10 +593,20 @@ impl<'a> Builder<'a> {
         } else {
             metrics.model_flops_v2 += model as f64 * op.occurrences as f64;
         }
-        metrics.bytes_accessed = metrics.bytes_accessed.wrapping_add((bytes as u64).wrapping_mul(op.occurrences));
+        metrics.bytes_accessed =
+            metrics.bytes_accessed.wrapping_add((bytes as u64).wrapping_mul(op.occurrences));
         if let Some(cost) = cost {
-            let breakdown: Vec<(u8, u64, u64)> =
-                cost.memory.iter().map(|&(read, space, bytes)| (if read { READ } else { WRITE }, space, u64::try_from(bytes).unwrap_or(0).wrapping_mul(op.occurrences))).collect();
+            let breakdown: Vec<(u8, u64, u64)> = cost
+                .memory
+                .iter()
+                .map(|&(read, space, bytes)| {
+                    (
+                        if read { READ } else { WRITE },
+                        space,
+                        u64::try_from(bytes).unwrap_or(0).wrapping_mul(op.occurrences),
+                    )
+                })
+                .collect();
             combine_memory(&breakdown, &mut metrics.memory);
         }
         self.db.total_op_time_ps += op.duration;
@@ -509,8 +617,18 @@ impl<'a> Builder<'a> {
         self.enter(&current);
     }
 
-    fn hlo_op(&mut self, info: &'a Info, name: Cow<str>, stats: &Stats, group: Option<i64>, map: &[u8], event: &Ev) {
-        if *name != self.current.name || group.is_none_or(|group| group as u64 != self.current.group) {
+    fn hlo_op(
+        &mut self,
+        info: &'a Info,
+        name: Cow<str>,
+        stats: &Stats,
+        group: Option<i64>,
+        map: &[u8],
+        event: &Ev,
+    ) {
+        if *name != self.current.name
+            || group.is_none_or(|group| group as u64 != self.current.group)
+        {
             self.flush();
         }
         let current = &mut self.current;
@@ -543,9 +661,23 @@ impl<'a> Builder<'a> {
     fn tf_op(&mut self, tf_op: &str, event_name: &str, stats: &Stats, event: &Ev) {
         self.flush();
         let op = parse_tf_op(tf_op);
-        let info = Info { category: op.kind.into(), provenance: tf_op.into(), deduplicated: ArcStr::new(), expression: ArcStr::new(), source: Source { line: -1, ..Default::default() }, cost: None };
+        let info = Info {
+            category: op.kind.into(),
+            provenance: tf_op.into(),
+            deduplicated: ArcStr::new(),
+            expression: ArcStr::new(),
+            source: Source { line: -1, ..Default::default() },
+            cost: None,
+        };
         let name = format!("{}/{event_name}", op.name);
-        self.enter(&Tracker { info: Some(&info), name, eager: event.eager.unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0), occurrences: 1, duration: event.dur, ..Default::default() });
+        self.enter(&Tracker {
+            info: Some(&info),
+            name,
+            eager: event.eager.unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0),
+            occurrences: 1,
+            duration: event.dur,
+            ..Default::default()
+        });
     }
 }
 
@@ -555,21 +687,37 @@ impl<'a> Launches<'a> {
         if event.dur == 0 || details.is_empty() {
             return;
         }
-        let launch = (event.meta, details, stats.text(TF_OP), stats.text(EQUATION), stats.program(), stats.hlo_op());
+        let launch = (
+            event.meta,
+            details,
+            stats.text(TF_OP),
+            stats.text(EQUATION),
+            stats.program(),
+            stats.hlo_op(),
+        );
         let position = *self.index.entry(launch.clone()).or_insert_with(|| {
             self.totals.push((launch, [0, u64::MAX, 0, 0]));
             self.totals.len() - 1
         });
         let totals = &mut self.totals[position].1;
-        *totals = [totals[0] + duration, totals[1].min(duration), totals[2].max(duration), totals[3] + 1];
+        *totals =
+            [totals[0] + duration, totals[1].min(duration), totals[2].max(duration), totals[3] + 1];
     }
 }
 
-pub fn device_plane(plane: &Plane, map: &[u8], infos: &Infos, origin: i64) -> (Db, Vec<KernelReport>) {
+pub fn device_plane(
+    plane: &Plane,
+    map: &[u8],
+    infos: &Infos,
+    origin: i64,
+) -> (Db, Vec<KernelReport>) {
     let (scanner, groups) = (Scanner::new(plane, map), groups(plane, map));
-    let (mut builder, mut launches) = (Builder { vdd: plane.id("vdd_energy_j"), ..Default::default() }, Launches::default());
+    let (mut builder, mut launches) =
+        (Builder { vdd: plane.id("vdd_energy_j"), ..Default::default() }, Launches::default());
     let (mut first, mut last) = (i64::MAX, 0i64);
-    for (line_index, line) in plane.lines.iter().enumerate().filter(|(_, line)| !is_derived(line.id)) {
+    for (line_index, line) in
+        plane.lines.iter().enumerate().filter(|(_, line)| !is_derived(line.id))
+    {
         let base = (line.timestamp_ns - origin) * 1000;
         for (event, group) in line.events.iter().zip(&groups[line_index]) {
             let offset = event.ts as i64 - base;
@@ -579,21 +727,32 @@ pub fn device_plane(plane: &Plane, map: &[u8], infos: &Infos, origin: i64) -> (D
             launches.add(event, &stats);
             match stats.hlo_op() {
                 Some(name) => {
-                    if let Some(info) = stats.program().and_then(|program| infos.get(&program)?.get(&*name)) {
+                    if let Some(info) =
+                        stats.program().and_then(|program| infos.get(&program)?.get(&*name))
+                    {
                         builder.hlo_op(info, name, &stats, *group, map, event);
                     }
                 }
-                None if !stats.text(TF_OP).is_empty() => builder.tf_op(&stats.text(TF_OP), &plane.meta[event.meta as usize].full_name(map), &stats, event),
+                None if !stats.text(TF_OP).is_empty() => builder.tf_op(
+                    &stats.text(TF_OP),
+                    &plane.meta[event.meta as usize].full_name(map),
+                    &stats,
+                    event,
+                ),
                 None => {}
             }
         }
         builder.flush();
     }
-    (builder.db.with_idle(if last != 0 { (last - first) as u64 } else { 0 }), kernel_reports(plane, map, infos, launches.totals))
+    (
+        builder.db.with_idle(if last != 0 { (last - first) as u64 } else { 0 }),
+        kernel_reports(plane, map, infos, launches.totals),
+    )
 }
 
 fn tensor_core_eligible(op_name: &str) -> bool {
-    TENSOR_CORE_SUFFIXES.split(' ').any(|suffix| op_name.ends_with(suffix)) || TENSOR_CORE_INFIXES.split(' ').any(|part| op_name.contains(part))
+    TENSOR_CORE_SUFFIXES.split(' ').any(|suffix| op_name.ends_with(suffix))
+        || TENSOR_CORE_INFIXES.split(' ').any(|part| op_name.contains(part))
 }
 
 fn einsum_eligible(equation: &str) -> bool {
@@ -623,16 +782,30 @@ pub(crate) fn launch_params(details: &str, key: &mut KernelKey, occupancy: &mut 
     }
 }
 
-fn kernel_reports(plane: &Plane, map: &[u8], infos: &Infos, launches: Vec<(Launch, [u64; 4])>) -> Vec<KernelReport> {
+fn kernel_reports(
+    plane: &Plane,
+    map: &[u8],
+    infos: &Infos,
+    launches: Vec<(Launch, [u64; 4])>,
+) -> Vec<KernelReport> {
     let mut reports = Vec::with_capacity(launches.len());
-    for ((meta, details, tf_op, equation, program, hlo_op), [total_ns, min_ns, max_ns, occurrences]) in launches {
+    for (
+        (meta, details, tf_op, equation, program, hlo_op),
+        [total_ns, min_ns, max_ns, occurrences],
+    ) in launches
+    {
         let name = plane.meta[meta as usize].full_name(map).into_owned();
-        let mut key = KernelKey { tensor_core: TENSOR_CORE_KERNELS.split(' ').any(|pattern| name.contains(pattern)), name, ..Default::default() };
+        let mut key = KernelKey {
+            tensor_core: TENSOR_CORE_KERNELS.split(' ').any(|pattern| name.contains(pattern)),
+            name,
+            ..Default::default()
+        };
         let mut occupancy = 0.0;
         launch_params(&details, &mut key, &mut occupancy);
         if !tf_op.is_empty() {
             key.op_name = parse_tf_op(&tf_op).name;
-            key.eligible = einsum_eligible(&equation) || tensor_core_eligible(&key.op_name) || key.tensor_core;
+            key.eligible =
+                einsum_eligible(&equation) || tensor_core_eligible(&key.op_name) || key.tensor_core;
         }
         if let Some(info) = hlo_op.and_then(|name| infos.get(&program?)?.get(&*name)) {
             key.op_name = info.provenance.to_string();
@@ -646,7 +819,8 @@ fn kernel_reports(plane: &Plane, map: &[u8], infos: &Infos, launches: Vec<(Launc
 pub fn device(planes: &[Plane], map: &[u8], gpus: &[&Plane]) -> (Db, Vec<KernelReport>) {
     let infos = infos(planes, map, gpus);
     let origin = crate::xplane::origin_ns(planes);
-    let parts: Vec<(Db, Vec<KernelReport>)> = gpus.par_iter().map(|plane| device_plane(plane, map, &infos, origin)).collect();
+    let parts: Vec<(Db, Vec<KernelReport>)> =
+        gpus.par_iter().map(|plane| device_plane(plane, map, &infos, origin)).collect();
     let db = Db::combined(parts.iter().map(|(part, _)| part), true);
     (db, top_kernels(parts.into_iter().flat_map(|(_, reports)| reports)))
 }
@@ -676,7 +850,8 @@ pub fn sorted_kernels(mut reports: Vec<KernelReport>) -> Vec<KernelReport> {
 pub fn by_op_name(reports: &[KernelReport]) -> HashMap<&str, (bool, u64, u64)> {
     let mut result: HashMap<&str, (bool, u64, u64)> = HashMap::new();
     for report in reports {
-        let entry = result.entry(report.key.op_name.as_str()).or_insert((report.key.eligible, 0, 0));
+        let entry =
+            result.entry(report.key.op_name.as_str()).or_insert((report.key.eligible, 0, 0));
         entry.1 += report.total_ns;
         if report.key.tensor_core {
             entry.2 += report.total_ns;

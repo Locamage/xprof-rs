@@ -8,7 +8,17 @@ fn create_session_snapshot() -> Vec<u8> {
     let device_plane = xspace.gpu(0);
     device_plane.add_stat("global_chip_id", 0);
     device_plane.named_line(0, "Stream 1");
-    device_plane.event(0, "KernelA", 0, 0, &[("counter_value", 123u64.into()), ("performance_counter_description", "Description A".into()), ("performance_counter_sets", "Set A".into())]);
+    device_plane.event(
+        0,
+        "KernelA",
+        0,
+        0,
+        &[
+            ("counter_value", 123u64.into()),
+            ("performance_counter_description", "Description A".into()),
+            ("performance_counter_sets", "Set A".into()),
+        ],
+    );
     xspace.encode_to_vec()
 }
 

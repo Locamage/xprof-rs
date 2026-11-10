@@ -17,13 +17,27 @@ fn recorded(bytes: &[u8]) -> Vec<Value> {
 }
 
 fn params(case: &serde_json::Value) -> HashMap<String, String> {
-    case["params"].as_object().unwrap().iter().map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string())).collect()
+    case["params"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string()))
+        .collect()
 }
 
-fn canonical_id(text: &str, at: usize, prefix: &str, ids: &mut HashMap<String, usize>, out: &mut String) -> usize {
+fn canonical_id(
+    text: &str,
+    at: usize,
+    prefix: &str,
+    ids: &mut HashMap<String, usize>,
+    out: &mut String,
+) -> usize {
     let digits = text[at..].bytes().take_while(u8::is_ascii_digit).count();
     let next = ids.len();
-    out.push_str(&format!("{prefix}{}", ids.entry(format!("{prefix}{}", &text[at..at + digits])).or_insert(next)));
+    out.push_str(&format!(
+        "{prefix}{}",
+        ids.entry(format!("{prefix}{}", &text[at..at + digits])).or_insert(next)
+    ));
     at + digits
 }
 
@@ -42,7 +56,8 @@ fn canonical_line(line: &str, ids: &mut HashMap<String, usize>) -> String {
     let leading = line.len() - line.trim_start().len();
     while at < line.len() {
         let rest = &line[at..];
-        let node_start = (at == leading || line[..at].ends_with("-> ")) && rest.starts_with(|c: char| c.is_ascii_digit());
+        let node_start = (at == leading || line[..at].ends_with("-> "))
+            && rest.starts_with(|c: char| c.is_ascii_digit());
         if rest.starts_with("cluster_") && rest[8..].starts_with(|c: char| c.is_ascii_digit()) {
             at = canonical_id(&line, at + 8, "cluster_", ids, &mut out);
         } else if node_start {
@@ -61,7 +76,9 @@ fn canonical_graph(text: &str) -> String {
     let (mut hover, mut lines) = (Vec::new(), Vec::new());
     for line in text.lines() {
         let trimmed = line.trim();
-        if (trimmed.starts_with("%23node") || trimmed.starts_with("%23clust")) && trimmed.contains(":hover") {
+        if (trimmed.starts_with("%23node") || trimmed.starts_with("%23clust"))
+            && trimmed.contains(":hover")
+        {
             hover.push(trimmed.to_string());
         } else if !trimmed.is_empty() {
             lines.push(canonical_line(line, &mut ids));
@@ -101,7 +118,8 @@ fn canonical_trace(mut trace: Value, streaming: bool) -> Value {
         if streaming && let Some(flow) = event.get("bind_id").map(&mut canonical) {
             event.insert("bind_id".into(), flow);
         }
-        if let Some(flow) = event.get("args").and_then(|args| args.get("flow")).map(&mut canonical) {
+        if let Some(flow) = event.get("args").and_then(|args| args.get("flow")).map(&mut canonical)
+        {
             event["args"]["flow"] = flow;
         }
     }
@@ -110,7 +128,8 @@ fn canonical_trace(mut trace: Value, streaming: bool) -> Value {
 
 fn cores_in_any_host_order(mut pod: Value) -> Value {
     for step in pod["podStatsSequence"]["podStatsMap"].as_array_mut().into_iter().flatten() {
-        let mut cores: Vec<Value> = step["podStatsPerCore"].as_object().unwrap().values().cloned().collect();
+        let mut cores: Vec<Value> =
+            step["podStatsPerCore"].as_object().unwrap().values().cloned().collect();
         cores.sort_by_key(|core| core["hostName"].to_string());
         step["podStatsPerCore"] = Value::from(cores);
     }
@@ -118,10 +137,19 @@ fn cores_in_any_host_order(mut pod: Value) -> Value {
 }
 
 fn equivalent(path: &str, body: &str, expected: &str) -> bool {
-    let (Ok(actual), Ok(reference)) = (serde_json::from_str::<Value>(body), serde_json::from_str::<Value>(expected)) else { return body == expected };
-    match ["tag=trace_viewer%40", "tag=trace_viewer&", "tag=pod_viewer"].iter().position(|tag| path.contains("profile/data?") && path.contains(tag)) {
+    let (Ok(actual), Ok(reference)) =
+        (serde_json::from_str::<Value>(body), serde_json::from_str::<Value>(expected))
+    else {
+        return body == expected;
+    };
+    match ["tag=trace_viewer%40", "tag=trace_viewer&", "tag=pod_viewer"]
+        .iter()
+        .position(|tag| path.contains("profile/data?") && path.contains(tag))
+    {
         Some(2) => same(&cores_in_any_host_order(actual), &cores_in_any_host_order(reference)),
-        Some(kind) => same(&canonical_trace(actual, kind == 0), &canonical_trace(reference, kind == 0)),
+        Some(kind) => {
+            same(&canonical_trace(actual, kind == 0), &canonical_trace(reference, kind == 0))
+        }
         None => same(&actual, &reference),
     }
 }
@@ -134,7 +162,11 @@ async fn synthetic_gpu_profiles_answer_every_tool_like_xprof() {
         let session = root.join(variant.file_name().unwrap()).join("plugins/profile/s");
         std::fs::create_dir_all(&session).unwrap();
         for file in std::fs::read_dir(&variant).unwrap().map(|entry| entry.unwrap().path()) {
-            std::fs::write(session.join(file.file_stem().unwrap()), gunzip(&std::fs::read(&file).unwrap())).unwrap();
+            std::fs::write(
+                session.join(file.file_stem().unwrap()),
+                gunzip(&std::fs::read(&file).unwrap()),
+            )
+            .unwrap();
         }
     }
     let state = state(&Settings { logdir: root.clone(), ..Default::default() });
@@ -142,7 +174,10 @@ async fn synthetic_gpu_profiles_answer_every_tool_like_xprof() {
         let path = case["path"].as_str().unwrap();
         let (status, _, body) = fetch(&state, path).await;
         assert_eq!(u64::from(status.as_u16()), case["status"].as_u64().unwrap(), "{path}");
-        assert!(status != 200 || equivalent(path, &body, case["body"].as_str().unwrap()), "{path}\n{body}");
+        assert!(
+            status != 200 || equivalent(path, &body, case["body"].as_str().unwrap()),
+            "{path}\n{body}"
+        );
     }
     std::fs::remove_dir_all(&root).unwrap();
 }

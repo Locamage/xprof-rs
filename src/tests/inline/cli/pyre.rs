@@ -28,7 +28,10 @@ fn bad_patterns_give_the_messages_of_python() {
         ("(?(2)a|b)", "invalid group reference 2 at position 3"),
         ("(a)(?(1)a|b|c)", "conditional backref with more than two branches at position 11"),
         ("a\nb)", "unbalanced parenthesis at position 3 (line 2, column 2)"),
-        ("(?P<a>x)(?P<a>y)", "redefinition of group name 'a' as group 2; was group 1 at position 12"),
+        (
+            "(?P<a>x)(?P<a>y)",
+            "redefinition of group name 'a' as group 2; was group 1 at position 12",
+        ),
         ("(?P<a b>x)", "bad character in group name 'a b' at position 4"),
         ("(?P", "unexpected end of pattern at position 3"),
         ("(?", "unexpected end of pattern at position 2"),
@@ -264,9 +267,25 @@ fn the_search_gives_the_result_of_python() {
 
 #[test]
 fn a_deep_pattern_stops_where_python_stops() {
-    let nest = |open: &str, close: &str, count: usize| format!("{}a{}", open.repeat(count), close.repeat(count));
-    for (open, close, count, frames) in [("(", ")", 492, 986), ("(?:", ")*", 492, 986), ("(?(1)", ")", 984, 986), ("(", ")", 490, 982), ("(?(1)", ")", 980, 982)] {
-        assert_ne!(compile(&format!("(a){}", nest(open, close, count)), frames).err().as_deref(), Some(RECURSION), "{open} {count}");
-        assert_eq!(compile(&format!("(a){}", nest(open, close, count + 1)), frames).err().as_deref(), Some(RECURSION), "{open} {count}");
+    let nest = |open: &str, close: &str, count: usize| {
+        format!("{}a{}", open.repeat(count), close.repeat(count))
+    };
+    for (open, close, count, frames) in [
+        ("(", ")", 492, 986),
+        ("(?:", ")*", 492, 986),
+        ("(?(1)", ")", 984, 986),
+        ("(", ")", 490, 982),
+        ("(?(1)", ")", 980, 982),
+    ] {
+        assert_ne!(
+            compile(&format!("(a){}", nest(open, close, count)), frames).err().as_deref(),
+            Some(RECURSION),
+            "{open} {count}"
+        );
+        assert_eq!(
+            compile(&format!("(a){}", nest(open, close, count + 1)), frames).err().as_deref(),
+            Some(RECURSION),
+            "{open} {count}"
+        );
     }
 }
