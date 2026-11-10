@@ -38,53 +38,20 @@ pub trait Client {
         Ok(host_names(&self.xspace_paths(&self.run_dir(session)?)?))
     }
 
-    fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
-        let mut params =
-            vec![("trace_filter_config", r#"{"device_regexes": ["TPU:0", "GPU:0"]}"#.to_string())];
-        params.extend(self.hosts(session).ok()?.first().map(|host| ("hosts", host.clone())));
-        let trace = serde_json::from_slice::<serde_json::Value>(
-            &self.fetch("trace_viewer.json", session, &params).ok().flatten()?,
-        )
-        .ok()?;
-        let events = trace.get("traceEvents")?.as_array()?;
-        Some(
-            events
-                .iter()
-                .filter(|event| {
-                    event.get("name").and_then(|name| name.as_str()) == Some("barrier-cores")
-                })
-                .map(|event| event.get("dur").and_then(serde_json::Value::as_f64).unwrap_or(0.0))
-                .collect(),
-        )
-    }
+    /// The durations of the `barrier-cores` events of the first host.
+    fn barrier_durations(&self, session: &str) -> Option<Vec<f64>>;
 
     /// The compute, HBM and ICI sums of the times of the leaves of the op profile by category.
-    fn category_times(&self, session: &str, params: &Params) -> Option<[f64; 3]> {
-        let profile = self
-            .fetch_text("hlo_op_profile.json", session, params)
-            .ok()
-            .flatten()
-            .and_then(|raw| super::json::J::parse(&raw));
-        let times = profile
-            .as_ref()
-            .map(|profile| super::ops::field(profile, "by_category"))
-            .filter(|node| matches!(node, super::json::J::Map(_)) && node.truthy())
-            .map(super::steps::hlo_times);
-        crate::release(profile);
-        times
-    }
+    fn category_times(&self, session: &str, params: &Params) -> Option<[f64; 3]>;
 
     /// The roofline table, of which the device information reads the properties only.
-    fn roofline_properties(&self, session: &str, params: &Params) -> Result<Option<String>, Error> {
-        self.fetch_text("roofline_model.json", session, params)
-    }
+    fn roofline_properties(&self, session: &str, params: &Params) -> Result<Option<String>, Error>;
 
     /// The roofline table, of which the overview reads the first row only.
-    fn roofline_total(&self, session: &str) -> Option<String> {
-        self.fetch_text("roofline_model.json", session, &[])
-            .ok()?
-            .or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
-    }
+    fn roofline_total(&self, session: &str) -> Option<String>;
+
+    /// The op profile of a session, as the JSON reader gives it.
+    fn op_profile(&self, session: &str, params: &Params) -> Result<Option<J>, Error>;
 
     fn fetch_text(
         &self,
@@ -96,20 +63,6 @@ pub trait Client {
             String::from_utf8(data)
                 .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
         }))
-    }
-
-    /// The op profile of a session, as the JSON reader gives it.
-    fn op_profile(&self, session: &str, params: &Params) -> Result<Option<J>, Error> {
-        let data = self.fetch_either("op_profile", "hlo_op_profile.json", session, params)?;
-        data.map(|data| {
-            J::parse(&data).ok_or_else(|| {
-                Error::new(
-                    Kind::Value,
-                    "Failed to parse op_profile proto: ParseError('Failed to load JSON')",
-                )
-            })
-        })
-        .transpose()
     }
 
     fn fetch_either(

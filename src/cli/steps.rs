@@ -533,24 +533,6 @@ pub fn time_class(name: &str, category: &str) -> usize {
     if matches(&ICI_PATTERNS) { 2 } else { usize::from(matches(&HBM_PATTERNS)) }
 }
 
-pub fn hlo_times(node: &J) -> [f64; 3] {
-    let metrics = node.at("metrics");
-    let children = node.at("children").items();
-    let mut times = [0.0; 3];
-    if children.is_empty() && metrics.at("occurrences").float().unwrap_or(0.0) > 0.0 {
-        let category = node.at("xla").get("category").map_or(String::new(), J::text);
-        times[time_class(&node.at("name").text(), &category)] += Some(metrics.at("rawTime"))
-            .filter(|value| value.truthy())
-            .and_then(J::float)
-            .unwrap_or(0.0);
-    }
-    for child in children.iter().filter(|child| matches!(child, J::Map(_))) {
-        let child = hlo_times(child);
-        times = std::array::from_fn(|index| times[index] + child[index]);
-    }
-    times
-}
-
 fn barrier(client: &dyn Client, session: &str) -> (f64, usize) {
     let durations = client.barrier_durations(session).unwrap_or_default();
     if durations.is_empty() {
