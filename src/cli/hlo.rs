@@ -615,14 +615,27 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
     }
     let listed: Vec<J> = modules
         .iter()
-        .map(|(name, hbm, kept)| obj! {"module_name" => name, "total_hbm_mib" => hbm, "top_buffers" => kept.iter().map(|(instruction, size)| obj! {"instruction" => instruction, "size_mib" => *size}).collect::<Vec<_>>()})
+        .map(|(name, hbm, kept)| {
+            obj! {
+                "module_name" => name,
+                "total_hbm_mib" => hbm,
+                "top_buffers" => kept.iter().map(|(instruction, size)| obj! {
+                    "instruction" => instruction,
+                    "size_mib" => *size,
+                }).collect::<Vec<_>>(),
+            }
+        })
         .collect();
     if summary {
         let top: Vec<J> = modules
             .iter()
             .map(|(name, hbm, _)| obj! {"module_name" => name, "total_hbm_mib" => hbm})
             .collect();
-        return Ok(obj! {"summary" => obj! {"total_modules" => total, "top_modules" => top}, "modules" => listed}.into());
+        return Ok(obj! {
+            "summary" => obj! {"total_modules" => total, "top_modules" => top},
+            "modules" => listed,
+        }
+        .into());
     }
     Ok(J::List(listed).into())
 }

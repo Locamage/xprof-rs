@@ -360,7 +360,13 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
                 if (skipped as f64) < offset.clone()? {
                     skipped += 1;
                 } else if max_events.clone()? <= 0.0 || (listed.len() as f64) < limit {
-                    listed.push(obj! {"plane" => plane.clone(), "line_id" => line, "event" => name, "offset_ps" => offset_ps, "duration_ps" => duration_ps});
+                    listed.push(obj! {
+                        "plane" => plane.clone(),
+                        "line_id" => line,
+                        "event" => name,
+                        "offset_ps" => offset_ps,
+                        "duration_ps" => duration_ps,
+                    });
                 }
             }
         }
@@ -371,9 +377,12 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
             ));
         }
         let returned = listed.len();
-        Ok(
-            obj! {"events" => listed, "returned" => returned, "total_matched" => matched, "truncated" => matched as f64 > returned as f64 + skip},
-        )
+        Ok(obj! {
+            "events" => listed,
+            "returned" => returned,
+            "total_matched" => matched,
+            "truncated" => matched as f64 > returned as f64 + skip,
+        })
     };
     Ok(compute()
         .map_err(rethrow(format!("Error listing XPlane events for session {session}: ")))?
@@ -469,9 +478,13 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
             std::cmp::Reverse(result.at("total_duration_ps").int().unwrap_or(0))
         });
         let count = results.len();
-        Ok(
-            obj! {"aggregates" => results, "returned" => count, "total_matched" => count, "events_scanned" => scanned, "truncated" => scanned > MAX_SCANNED},
-        )
+        Ok(obj! {
+            "aggregates" => results,
+            "returned" => count,
+            "total_matched" => count,
+            "events_scanned" => scanned,
+            "truncated" => scanned > MAX_SCANNED,
+        })
     };
     Ok(compute()
         .map_err(rethrow(format!("Error aggregating XPlane events for session {session}: ")))?
@@ -770,7 +783,10 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
                 "total_device_duration_ms" => total_ns as f64 / 1_000_000.0,
                 "kernel_records" => records,
                 "step_durations_us" => steps.clone(),
-                "stats" => obj! {"mean_us" => round(mean, 4), "std_us" => round(if steps.len() > 1 { stdev(&steps) } else { 0.0 }, 4)},
+                "stats" => obj! {
+                    "mean_us" => round(mean, 4),
+                    "std_us" => round(if steps.len() > 1 { stdev(&steps) } else { 0.0 }, 4),
+                },
             };
             return Ok(if format == "dict" { Out::Value(report) } else { report.into() });
         }
@@ -842,7 +858,10 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
                 ),
             );
         }
-        let mut report = obj! {"avg_step_time_ms" => round(fsum(durations.iter().copied()) / durations.len() as f64, 4), "step_count" => durations.len()};
+        let mut report = obj! {
+            "avg_step_time_ms" => round(fsum(durations.iter().copied()) / durations.len() as f64, 4),
+            "step_count" => durations.len(),
+        };
         if cut > 0 {
             report.set("truncated_by_capture", cut);
         }
@@ -979,7 +998,13 @@ fn llo(client: &dyn Client, args: &Args, failure: &str) -> Result<Out, Error> {
         serialized(client, &session, &host).map(drop)
     };
     compute().map_err(rethrow("Error analyzing LLO data: "))?;
-    Ok(obj! {"status" => "UNAVAILABLE", "reason" => "LLO_DATA_ABSENT", "error" => failure, "remediation" => LLO_REMEDIATION}.into())
+    Ok(obj! {
+        "status" => "UNAVAILABLE",
+        "reason" => "LLO_DATA_ABSENT",
+        "error" => failure,
+        "remediation" => LLO_REMEDIATION,
+    }
+    .into())
 }
 
 pub fn get_llo_analysis(client: &dyn Client, args: &Args) -> Result<Out, Error> {

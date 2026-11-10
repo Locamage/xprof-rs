@@ -369,7 +369,13 @@ pub fn memory_profile(client: &dyn Client, session: &str, bypass: bool) -> Resul
             None => Ok(obj! {
                 "memory_capacity_gib" => -1.0,
                 "peak_memory_usage_gib" => -1.0,
-                "peak_usage_details" => obj! {"stack_reservation_gib" => -1.0, "heap_allocation_gib" => -1.0, "free_memory_gib" => -1.0, "fragmentation_percent" => -1.0, "utilization_percent" => -1.0},
+                "peak_usage_details" => obj! {
+                    "stack_reservation_gib" => -1.0,
+                    "heap_allocation_gib" => -1.0,
+                    "free_memory_gib" => -1.0,
+                    "fragmentation_percent" => -1.0,
+                    "utilization_percent" => -1.0,
+                },
             }),
         };
     };
@@ -407,7 +413,10 @@ pub fn get_kpi_metrics(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         "mxu_utilization_percent" => pick(summary, "mxu_utilization_percent"),
         "roofline_utilization" => pick(summary, "flop_rate_utilization_relative_to_roofline"),
         "peak_hbm_gib" => pick(&memory, "peak_memory_usage_gib"),
-        "accelerator_info" => obj! {"device_type" => pick(run, "device_type"), "device_core_count" => pick(run, "device_core_count")},
+        "accelerator_info" => obj! {
+            "device_type" => pick(run, "device_type"),
+            "device_core_count" => pick(run, "device_core_count"),
+        },
     }
     .into())
 }
@@ -486,7 +495,10 @@ pub fn get_hosts(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     if hosts.is_empty() {
         return fail(Kind::FileNotFound, format!("No hosts found for session {session}."));
     }
-    Ok(obj! {"hosts" => hosts.into_iter().map(|host| obj! {"hostname" => host}).collect::<Vec<_>>()}.into())
+    Ok(obj! {
+        "hosts" => hosts.into_iter().map(|host| obj! {"hostname" => host}).collect::<Vec<_>>(),
+    }
+    .into())
 }
 
 fn strip_html(text: &J) -> String {
@@ -506,9 +518,10 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
         let data =
             client.fetch_either("roofline_model.json", "roofline_model", &session, &params)?;
         let Some(data) = data else {
-            return Ok(
-                obj! {"status" => "NO_DATA", "message" => format!("No roofline model data found for session {}.", py_repr(&session))},
-            );
+            return Ok(obj! {
+                "status" => "NO_DATA",
+                "message" => format!("No roofline model data found for session {}.", py_repr(&session)),
+            });
         };
         let parsed = parsed(&data)?;
         let table = parsed.items().first().ok_or_else(|| {
@@ -521,9 +534,11 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
         let rows: Vec<J> =
             table.at("rows").items().iter().map(|row| row_dict(table, row)).collect();
         let Some(program) = rows.first() else {
-            return Ok(
-                obj! {"status" => "NO_DATA", "message" => "Roofline model table has no rows", "device_info" => info},
-            );
+            return Ok(obj! {
+                "status" => "NO_DATA",
+                "message" => "Roofline model table has no rows",
+                "device_info" => info,
+            });
         };
         let number = |row: &J, key: &str| row.at(key).float().unwrap_or(0.0);
         let utilization = |util: &str, bandwidth: &str, peaks: [&str; 2]| {
@@ -621,7 +636,12 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
         {
             summary.set("bound_by", "CustomCall (opaque)");
         }
-        let mut output = obj! {"program" => summary, "device_info" => info, "top_operations" => operations, "total_operations_analyzed" => total};
+        let mut output = obj! {
+            "program" => summary,
+            "device_info" => info,
+            "top_operations" => operations,
+            "total_operations_analyzed" => total,
+        };
         if custom {
             output.set("guidance", CUSTOM_CALL_GUIDANCE);
         }
@@ -721,7 +741,10 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
         (rows, header.into_iter().filter(|field| !field.is_empty()).collect())
     };
     if rows.is_empty() {
-        return obj! {"status" => "NO_DATA", "message" => "No hardware performance counter events found in trace"};
+        return obj! {
+            "status" => "NO_DATA",
+            "message" => "No hardware performance counter events found in trace",
+        };
     }
     let mut warnings = Vec::new();
     let mut selected: Vec<&J> = rows.iter().collect();
@@ -741,7 +764,10 @@ pub fn utilization(raw: &str, host: i64, device: i64, node: i64) -> J {
         }
     }
     if selected.is_empty() {
-        return obj! {"status" => "NO_DATA", "message" => format!("No data found for Host {host} Device {device} Node {node}")};
+        return obj! {
+            "status" => "NO_DATA",
+            "message" => format!("No data found for Host {host} Device {device} Node {node}"),
+        };
     }
     let named = |name: &str| {
         percentage(
@@ -831,7 +857,10 @@ pub fn utilization_viewer(
     )?;
     Ok(match raw {
         None => {
-            obj! {"status" => "NO_DATA", "message" => format!("No data returned for session {session}")}
+            obj! {
+                "status" => "NO_DATA",
+                "message" => format!("No data returned for session {session}"),
+            }
         }
         Some(raw) => {
             let [host, device, node] = indices.map_err(rethrow_repr(format!(

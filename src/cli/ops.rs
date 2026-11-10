@@ -254,7 +254,11 @@ fn tree(node: &J, depth: i64, limit: f64, prefix: &str) -> J {
     } else {
         Vec::new()
     };
-    let mut result = obj! {"name" => name, "path" => path, "total_self_time_ms" => round(number(node, "raw_time") / 1e9, 4)};
+    let mut result = obj! {
+        "name" => name,
+        "path" => path,
+        "total_self_time_ms" => round(number(node, "raw_time") / 1e9, 4),
+    };
     if present(node, "xla") {
         if field(field(node, "xla"), "category").truthy() {
             result.set("category", field(field(node, "xla"), "category"));
@@ -455,7 +459,12 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
                     format!("xprof get_hlo_op_profile <trace> --category='{communication}'"),
                 );
             }
-            Ok(obj! {"total_profile_time_ms" => round(total_ms, 4), "category_summary" => summary, "navigation_hints" => hints}.into())
+            Ok(obj! {
+                "total_profile_time_ms" => round(total_ms, 4),
+                "category_summary" => summary,
+                "navigation_hints" => hints,
+            }
+            .into())
         }
         "tree" => tree_view(root, args, wrapped),
         _ => {
@@ -630,7 +639,14 @@ pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         flat.retain(|op| op.at("category").text().trim().to_lowercase() == target);
     }
     if flat.is_empty() {
-        return Ok(obj! {"top_by_time" => J::List(Vec::new()), "top_by_flops" => J::List(Vec::new()), "top_by_bytes_accessed" => J::List(Vec::new()), "total_matched" => 0, "has_by_program" => present(&profile, "by_program")}.into());
+        return Ok(obj! {
+            "top_by_time" => J::List(Vec::new()),
+            "top_by_flops" => J::List(Vec::new()),
+            "top_by_bytes_accessed" => J::List(Vec::new()),
+            "total_matched" => 0,
+            "has_by_program" => present(&profile, "by_program"),
+        }
+        .into());
     }
     let limit = args.compared("limit", 10.0, ">")?;
     if let Some(message) = super::nlargest_float(args.raw("limit"), limit, flat.len()) {
@@ -650,7 +666,12 @@ pub fn get_top_hlo_ops(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         CUSTOM_CALLS.contains(&op.at("category").text().to_lowercase().as_str())
             || op.at("name").text().to_lowercase().contains("custom-call")
     });
-    let mut result = obj! {"top_by_time" => by_time, "top_by_flops" => by_flops, "top_by_bytes_accessed" => by_bytes, "total_matched" => flat.len()};
+    let mut result = obj! {
+        "top_by_time" => by_time,
+        "top_by_flops" => by_flops,
+        "top_by_bytes_accessed" => by_bytes,
+        "total_matched" => flat.len(),
+    };
     if custom {
         result.set("guidance", super::overview::CUSTOM_CALL_GUIDANCE);
     }

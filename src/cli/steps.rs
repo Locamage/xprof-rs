@@ -509,7 +509,10 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         found = overview_steps(&data).map(|summary| (Vec::new(), Some(summary)));
     }
     let Some((steps, summary)) = found else {
-        return Ok(obj! {"status" => "NO_DATA", "message" => format!("No step trace data found for session '{session}' (the trace may lack step markers). Consider using 'list_xplane_events' to get more performance insights.")}.into());
+        return Ok(obj! {
+            "status" => "NO_DATA",
+            "message" => format!("No step trace data found for session '{session}' (the trace may lack step markers). Consider using 'list_xplane_events' to get more performance insights."),
+        }.into());
     };
     let limit = args.compared("limit", DEFAULT_STEP_LIMIT, ">")?;
     if limit > 0.0 && matches!(args.raw("limit"), Some(J::Float(_))) {
