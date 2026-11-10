@@ -400,31 +400,26 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
                     visit_line(plane, index, capture, |visit| {
                         count += 1;
                         let duration = || (visit.duration_ns() * 1000.0).trunc() as i128;
-                        if let Some(slot) = slots.get(&visit.event.meta) {
-                            if let Some(slot) = *slot {
-                                let (values, cut) = &mut found[slot];
-                                values.push(duration());
-                                if visit.cut {
-                                    *cut += 1;
-                                }
+                        let slot = if let Some(&slot) = slots.get(&visit.event.meta) {
+                            slot
+                        } else {
+                            let (name, matched) = names.resolve(visit);
+                            let slot = matched.then(|| {
+                                found.get_index_of(&*name).unwrap_or_else(|| {
+                                    found.insert_full(name.to_string(), (Vec::new(), 0)).0
+                                })
+                            });
+                            if let Cow::Borrowed(_) = name {
+                                slots.insert(visit.event.meta, slot);
                             }
-                            return count < cap;
-                        }
-                        let (name, matched) = names.resolve(visit);
-                        let slot = matched.then(|| {
-                            found.get_index_of(&*name).unwrap_or_else(|| {
-                                found.insert_full(name.to_string(), (Vec::new(), 0)).0
-                            })
-                        });
+                            slot
+                        };
                         if let Some(slot) = slot {
                             let (values, cut) = &mut found[slot];
                             values.push(duration());
                             if visit.cut {
                                 *cut += 1;
                             }
-                        }
-                        if let Cow::Borrowed(_) = name {
-                            slots.insert(visit.event.meta, slot);
                         }
                         count < cap
                     });
