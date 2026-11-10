@@ -321,13 +321,14 @@ fn merge_host_steps_test() {
         device.event(0, "jit_something(1)", offset, duration, &[("run_id", run.into()), ("queue_id", 0.into())]);
     }
     device.named_line(1, "Steps");
-    for (index, (offset, duration)) in spans.into_iter().enumerate() {
+    let device_durations = [10, 300, 50, 25];
+    for (index, ((offset, duration), device_duration)) in spans.into_iter().zip(device_durations).enumerate() {
         device.event(
             1,
             &index.to_string(),
             offset,
             duration,
-            &[("device_offset_ps", offset.into()), ("device_duration_ps", duration.into())],
+            &[("device_offset_ps", offset.into()), ("device_duration_ps", device_duration.into())],
         );
     }
     device.named_line(2, "XLA Ops");
@@ -347,7 +348,7 @@ fn merge_host_steps_test() {
     }
     let (_, planes, names) = grouped(&space);
     assert_eq!(names.unwrap().len(), 1);
-    assert_eq!(device_step_span(&planes, 1, "Steps"), [(1000, 1205, (1000, 1205))]);
+    assert_eq!(device_step_span(&planes, 1, "Steps"), [(1000, 1205, (1000, 1315))]);
     assert_eq!(device_step_span(&planes, 2, "Sparse Core Steps"), [(1000, 1205, (1000, 1205))]);
 }
 
