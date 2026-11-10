@@ -64,7 +64,12 @@ async fn trace_options_from_tool_options_test() {
             serde_json::from_str::<serde_json::Value>(&body).unwrap()["details"].clone()
         }
     };
-    let expected = |dma: bool| serde_json::json!([{"name": "mpmd_pipeline_view", "value": false}, {"name": "full_dma", "value": dma}]);
+    let expected = |dma: bool| {
+        serde_json::json!([
+            {"name": "mpmd_pipeline_view", "value": false},
+            {"name": "full_dma", "value": dma},
+        ])
+    };
     assert_eq!(full_dma("").await, expected(false));
     assert_eq!(
         full_dma("&full_dma=true&enable_legacy_dcn=true&mpmd_pipeline_view=true").await,
@@ -84,12 +89,18 @@ fn trace_options_to_details_test() {
     assert_eq!(details(&device_space("/host:CPU"), true), mpmd_only);
     assert_eq!(
         details(&device_space("/device:TPU:0"), true),
-        serde_json::json!([{"name": "mpmd_pipeline_view", "value": false}, {"name": "full_dma", "value": true}])
+        serde_json::json!([
+            {"name": "mpmd_pipeline_view", "value": false},
+            {"name": "full_dma", "value": true},
+        ])
     );
     assert_eq!(details(&device_space("/device:GPU:0"), true), mpmd_only);
     assert_eq!(
         details(&device_space("/device:TPU:0"), false),
-        serde_json::json!([{"name": "mpmd_pipeline_view", "value": false}, {"name": "full_dma", "value": false}])
+        serde_json::json!([
+            {"name": "mpmd_pipeline_view", "value": false},
+            {"name": "full_dma", "value": false},
+        ])
     );
 }
 

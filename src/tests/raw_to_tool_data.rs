@@ -109,7 +109,8 @@ async fn graph_viewer(name: &str, graph_type: &str) -> (StatusCode, HeaderMap, S
     let (_, _, modules) =
         super::legacy::fetch(&state, "/data/plugin/profile/module_list?run=run/s").await;
     let module = modules.split(',').next().unwrap().replace('(', "%28").replace(')', "%29");
-    let reply = super::legacy::fetch(&state, &format!("/data/plugin/profile/data?run=run/s&tag=graph_viewer&host=h&module_name={module}&{graph_type}")).await;
+    let query = format!("run=run/s&tag=graph_viewer&host=h&module_name={module}&{graph_type}");
+    let reply = super::legacy::fetch(&state, &format!("/data/plugin/profile/data?{query}")).await;
     std::fs::remove_dir_all(&dir).unwrap();
     reply
 }

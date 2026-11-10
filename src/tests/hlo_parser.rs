@@ -30,9 +30,24 @@ macro_rules! corpus {
             #[test]
             $(#[$attribute])*
             fn $name() {
-                let fixture = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/hlo_parser_test/", $suite, "/", stringify!($name), ".pb"));
-                let expected = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/hlo_parser_test/", $suite, "/", stringify!($name), ".hlo"));
-                assert_eq!(super::canonical(expected), super::canonical(&super::module_string(fixture, $style)));
+                let fixture = include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/data/hlo_parser_test/",
+                    $suite,
+                    "/",
+                    stringify!($name),
+                    ".pb"
+                ));
+                let expected = include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/data/hlo_parser_test/",
+                    $suite,
+                    "/",
+                    stringify!($name),
+                    ".hlo"
+                ));
+                let printed = super::module_string(fixture, $style);
+                assert_eq!(super::canonical(expected), super::canonical(&printed));
             }
         )*
     };
@@ -284,51 +299,103 @@ mod hlo_parser_test_printing {
         printer.module_text().unwrap()
     }
 
-    macro_rules! printed { ($($name:ident $(@ $fixture:literal)?: $key:literal = $original:literal,)*) => { $(#[test] fn $name() { assert!(instruction([$($fixture,)? stringify!($name)][0]).contains(&format!("{}={}", $key, $original))); })* } }
+    macro_rules! printed {
+        ($($name:ident $(@ $fixture:literal)?: $key:literal = $original:literal,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let printed = instruction([$($fixture,)? stringify!($name)][0]);
+                    assert!(printed.contains(&format!("{}={}", $key, $original)));
+                }
+            )*
+        };
+    }
 
-    macro_rules! golden { ($($name:ident),*) => { $(#[test] fn $name() { assert_eq!(module_text(stringify!($name), Style::Long), include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/hlo_parser_test/printing/", stringify!($name), ".hlo"))); })* } }
+    macro_rules! golden {
+        ($($name:ident),*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let expected = include_str!(concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/tests/data/hlo_parser_test/printing/",
+                        stringify!($name),
+                        ".hlo"
+                    ));
+                    assert_eq!(module_text(stringify!($name), Style::Long), expected);
+                }
+            )*
+        };
+    }
 
     printed! {
         parse_sharding: "sharding" = r#"{maximal device=42}"#,
-        parse_named_sharding_unreduced_max: "sharding" = r#"{mesh['x'=2], [{}], unreduced=max{'x'}}"#,
-        parse_sharding_partial_replication: "sharding" = r#"{devices=[2,2]0,1,2,3 last_tile_dim_replicate}"#,
-        parse_sharding_sub_group: "sharding" = r#"{devices=[2,2,2,2]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 last_tile_dims={manual, replicated}}"#,
+        parse_named_sharding_unreduced_max:
+            "sharding" = r#"{mesh['x'=2], [{}], unreduced=max{'x'}}"#,
+        parse_sharding_partial_replication:
+            "sharding" = r#"{devices=[2,2]0,1,2,3 last_tile_dim_replicate}"#,
+        parse_sharding_sub_group:
+            "sharding" = r#"{devices=[2,2,2,2]0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 last_tile_dims={manual, replicated}}"#,
         parse_named_sharding1: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'a'}, {'b'}]}"#,
-        parse_named_sharding2: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'a'}, {'c', 'b'}]}"#,
-        parse_named_sharding_open_dims: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'b', 'a'}, {'c', 'd', ?}]}"#,
-        parse_named_sharding_sub_axes1: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'a'}, {'b':(2)2}]}"#,
-        parse_named_sharding_sub_axes2: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'b':(2)2}, {'d':(4)2, 'c'}]}"#,
-        parse_named_sharding_sub_axes_open_dims: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'b':(2)2}, {'d':(4)2, 'c', ?}]}"#,
-        parse_named_sharding_non_iota_mesh: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=4,'d'=2], device_ids=([4,16]T(1,0)), [{'a'}]}"#,
-        parse_named_sharding_non_iota_mesh_device_list: "sharding" = r#"{mesh['x'=2,'y'=2], device_ids=(0,2,1,3), [{'x'}]}"#,
+        parse_named_sharding2:
+            "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'a'}, {'c', 'b'}]}"#,
+        parse_named_sharding_open_dims:
+            "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'b', 'a'}, {'c', 'd', ?}]}"#,
+        parse_named_sharding_sub_axes1:
+            "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'a'}, {'b':(2)2}]}"#,
+        parse_named_sharding_sub_axes2:
+            "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'b':(2)2}, {'d':(4)2, 'c'}]}"#,
+        parse_named_sharding_sub_axes_open_dims:
+            "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'b':(2)2}, {'d':(4)2, 'c', ?}]}"#,
+        parse_named_sharding_non_iota_mesh:
+            "sharding" = r#"{mesh['a'=2,'b'=4,'c'=4,'d'=2], device_ids=([4,16]T(1,0)), [{'a'}]}"#,
+        parse_named_sharding_non_iota_mesh_device_list:
+            "sharding" = r#"{mesh['x'=2,'y'=2], device_ids=(0,2,1,3), [{'x'}]}"#,
         parse_named_sharding_empty_mesh_replicated: "sharding" = r#"{mesh[], replicated}"#,
         parse_named_sharding_fully_replicated: "sharding" = r#"{mesh['a'=2,'b'=4], replicated}"#,
-        parse_named_sharding_replicated_axes: "sharding" = r#"{mesh['a'=2,'b'=4], [{'a'}], replicated={'b'}}"#,
+        parse_named_sharding_replicated_axes:
+            "sharding" = r#"{mesh['a'=2,'b'=4], [{'a'}], replicated={'b'}}"#,
         parse_named_sharding_maximal: "sharding" = r#"{maximal_mesh[device_id=5]}"#,
-        parse_named_sharding_with_special_characters: "sharding" = r#"{mesh['a.b'=2,'<axis> def'=4,'z/w'=2], [{'a.b'}, {'<axis> def':(2)2, 'z/w'}]}"#,
+        parse_named_sharding_with_special_characters:
+            "sharding" = r#"{mesh['a.b'=2,'<axis> def'=4,'z/w'=2], [{'a.b'}, {'<axis> def':(2)2, 'z/w'}]}"#,
         parse_named_sharding_fully_unreduced: "sharding" = r#"{mesh['a'=2,'b'=4], unreduced}"#,
-        parse_named_sharding_unreduced_axes: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{}, {'b'}], unreduced={'d':(4)2}}"#,
+        parse_named_sharding_unreduced_axes:
+            "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{}, {'b'}], unreduced={'d':(4)2}}"#,
         parse_named_sharding_fully_manual: "sharding" = r#"{mesh['a'=2,'b'=4], manual}"#,
-        parse_named_sharding_manual_axes: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'a'}], manual={'d':(4)2}}"#,
-        parse_named_sharding_all_fields_with_metadata: "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'a'}], replicated={'c'}, unreduced={'d':(4)2}, manual={'b':(2)2}, metadata={{op_name="foo"}, {op_name="bar"}}}"#,
-        parse_named_sharding_fully_replicated_with_metadata: "sharding" = r#"{mesh['a'=2,'b'=4], replicated, metadata={{op_name="foo"}}}"#,
-        parse_named_sharding_tuple: "sharding" = r#"{{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'d', 'c'}, {'a', 'b'}]}, {mesh['a'=2,'b'=4,'c'=3,'d'=8], replicated}, {mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'d':(2)2, 'b'}, {'a', ?}], unreduced={'c'}}, {mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'d', 'c'}, {'a', 'b'}], metadata={{op_name="foo"}, {op_name="bar"}}}}"#,
-        parse_mixed_sharding_tuple1: "sharding" = r#"{{replicated}, {mesh['a'=2,'b'=4], replicated}, {maximal device=5}, {maximal_mesh[device_id=5]}}"#,
-        parse_mixed_sharding_tuple2: "sharding" = r#"{{mesh['a'=2,'b'=2], [{'a'}, {}]}, {devices=[2,2]<=[4] last_tile_dim_replicate}}"#,
-        parse_trivial_iota_sharding_partial_replication: "sharding" = r#"{devices=[2,2]<=[4] last_tile_dim_replicate}"#,
-        parse_trivial_iota_sharding_sub_group: "sharding" = r#"{devices=[2,2,2,2]<=[16] last_tile_dims={manual, replicated}}"#,
-        parse_transposed_iota_sharding_partial_replication: "sharding" = r#"{devices=[2,2]<=[2,2]T(1,0) last_tile_dim_replicate}"#,
-        parse_transposed_iota_sharding_sub_group: "sharding" = r#"{devices=[2,2,2,2]<=[2,2,4]T(2,1,0) last_tile_dims={manual, replicated}}"#,
+        parse_named_sharding_manual_axes:
+            "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'a'}], manual={'d':(4)2}}"#,
+        parse_named_sharding_all_fields_with_metadata:
+            "sharding" = r#"{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'a'}], replicated={'c'}, unreduced={'d':(4)2}, manual={'b':(2)2}, metadata={{op_name="foo"}, {op_name="bar"}}}"#,
+        parse_named_sharding_fully_replicated_with_metadata:
+            "sharding" = r#"{mesh['a'=2,'b'=4], replicated, metadata={{op_name="foo"}}}"#,
+        parse_named_sharding_tuple:
+            "sharding" = r#"{{mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'d', 'c'}, {'a', 'b'}]}, {mesh['a'=2,'b'=4,'c'=3,'d'=8], replicated}, {mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'d':(2)2, 'b'}, {'a', ?}], unreduced={'c'}}, {mesh['a'=2,'b'=4,'c'=3,'d'=8], [{'d', 'c'}, {'a', 'b'}], metadata={{op_name="foo"}, {op_name="bar"}}}}"#,
+        parse_mixed_sharding_tuple1:
+            "sharding" = r#"{{replicated}, {mesh['a'=2,'b'=4], replicated}, {maximal device=5}, {maximal_mesh[device_id=5]}}"#,
+        parse_mixed_sharding_tuple2:
+            "sharding" = r#"{{mesh['a'=2,'b'=2], [{'a'}, {}]}, {devices=[2,2]<=[4] last_tile_dim_replicate}}"#,
+        parse_trivial_iota_sharding_partial_replication:
+            "sharding" = r#"{devices=[2,2]<=[4] last_tile_dim_replicate}"#,
+        parse_trivial_iota_sharding_sub_group:
+            "sharding" = r#"{devices=[2,2,2,2]<=[16] last_tile_dims={manual, replicated}}"#,
+        parse_transposed_iota_sharding_partial_replication:
+            "sharding" = r#"{devices=[2,2]<=[2,2]T(1,0) last_tile_dim_replicate}"#,
+        parse_transposed_iota_sharding_sub_group:
+            "sharding" = r#"{devices=[2,2,2,2]<=[2,2,4]T(2,1,0) last_tile_dims={manual, replicated}}"#,
         parse_shard_as: "sharding" = r#"{manual shard_as 1}"#,
-        parse_shard_like: "sharding" = r#"{devices=[2,2,2,2]<=[16] last_tile_dims={manual, replicated} shard_like 1}"#,
+        parse_shard_like:
+            "sharding" = r#"{devices=[2,2,2,2]<=[16] last_tile_dims={manual, replicated} shard_like 1}"#,
         parse_unknown_sharding: "sharding" = r#"{unknown}"#,
-        parse_frontend_attributes: "frontend_attributes" = r#"{attr_a="test_a",attr_b="b",attr_c={type="s64"},attr_d="a=\"b/c\""}"#,
+        parse_frontend_attributes:
+            "frontend_attributes" = r#"{attr_a="test_a",attr_b="b",attr_c={type="s64"},attr_d="a=\"b/c\""}"#,
         parse_window: "window" = r#"{size=1x2x3}"#,
         parse_convolution_dimension_numbers: "dim_labels" = r#"b0f_0io->b0f"#,
         parse_replica_groups: "replica_groups" = r#"{{0,1},{2,3}}"#,
-        parse_collective_device_list_v1 @ "parse_replica_groups": "replica_groups" = r#"{{0,1},{2,3}}"#,
+        parse_collective_device_list_v1 @ "parse_replica_groups":
+            "replica_groups" = r#"{{0,1},{2,3}}"#,
         parse_collective_device_list_v2: "replica_groups" = r#"[2,2]<=[4]"#,
-        parse_collective_device_list_v3 @ "parse_replica_groups_v3": "replica_groups" = r#"mesh['axis_0'=2,'axis_1'=2] {'axis_1'}"#,
+        parse_collective_device_list_v3 @ "parse_replica_groups_v3":
+            "replica_groups" = r#"mesh['axis_0'=2,'axis_1'=2] {'axis_1'}"#,
         parse_padding_config_no_interior_padding: "padding" = r#"0_1x2_3"#,
         parse_padding_config_interior_padding: "padding" = r#"0_1_0x2_3_4"#,
     }

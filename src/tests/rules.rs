@@ -28,7 +28,24 @@ fn check(rule: &str, provider: &P, expect: Expect) {
     }
 }
 
-macro_rules! rules { ($($module:ident = $rule:literal { $($name:ident: $provider:expr => $expect:expr,)* } $({ $($extra:item)* })?)*) => { $(mod $module { use super::*; $(#[test] fn $name() { check($rule, &$provider, $expect) })* $($($extra)*)? })* } }
+macro_rules! rules {
+    ($(
+        $module:ident = $rule:literal {
+            $($name:ident: $provider:expr => $expect:expr,)*
+        } $({ $($extra:item)* })?
+    )*) => {
+        $(mod $module {
+            use super::*;
+            $(
+                #[test]
+                fn $name() {
+                    check($rule, &$provider, $expect)
+                }
+            )*
+            $($($extra)*)?
+        })*
+    };
+}
 
 fn offload(all_reduce_raw_time: f64, peak_bytes_in_use: f64) -> P {
     P {
@@ -48,57 +65,94 @@ fn tpu(tc_idle: f64, sc_step: f64, utilization: f64) -> P {
 
 rules! {
     barrier_cores_rule = "BarrierCoresRule" {
-        meets_conditions: P { event_time_fractions: event_time_fractions(&[("chip0", &[0.15, 0.25]), ("chip1", &[0.05, 0.35])], &[]), ..Default::default() } => Text(&["20.0% of each step time"]),
-        not_special_op_bound: P { event_time_fractions: event_time_fractions(&[("chip0", &[0.01, 0.02]), ("chip1", &[0.05, 0.25])], &[]), ..Default::default() } => Nothing,
+        meets_conditions:
+            P { event_time_fractions: event_time_fractions(&[("chip0", &[0.15, 0.25]), ("chip1", &[0.05, 0.35])], &[]), ..Default::default() }
+            => Text(&["20.0% of each step time"]),
+        not_special_op_bound:
+            P { event_time_fractions: event_time_fractions(&[("chip0", &[0.01, 0.02]), ("chip1", &[0.05, 0.25])], &[]), ..Default::default() }
+            => Nothing,
         error_fetching_percentile: P::default() => Nothing,
         meets_conditions_with_stragglers: P {
-            event_time_fractions: event_time_fractions(&[("chip0", &[0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.10, 0.10])], &[("host0", &[0.50, 0.50]), ("host1", &[0.50, 0.50]), ("host2", &[0.50, 0.50]), ("host3", &[0.10, 0.10])]),
+            event_time_fractions:
+                event_time_fractions(&[("chip0", &[0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.10, 0.10])], &[("host0", &[0.50, 0.50]), ("host1", &[0.50, 0.50]), ("host2", &[0.50, 0.50]), ("host3", &[0.10, 0.10])]),
             ..Default::default()
         } => Text(&["<li>Host <b>host3</b> average barrier-cores time fraction: <b>10.0%</b></li>", "Investigate Stragglers"]),
     }
     collective_bound_rule = "CollectiveBoundRule" {
-        meets_conditions_above_threshold: P { op_stats: step_sequence(&[(&[(0, 100)], &[("all-reduce", 35)]), (&[(0, 100)], &[("all-reduce", 36)])]), ..Default::default() } => Meets(true),
-        meets_conditions_below_threshold: P { op_stats: step_sequence(&[(&[(0, 100)], &[("all-reduce", 1)]), (&[(0, 100)], &[("all-reduce", 2)])]), ..Default::default() } => Meets(false),
+        meets_conditions_above_threshold:
+            P { op_stats: step_sequence(&[(&[(0, 100)], &[("all-reduce", 35)]), (&[(0, 100)], &[("all-reduce", 36)])]), ..Default::default() }
+            => Meets(true),
+        meets_conditions_below_threshold:
+            P { op_stats: step_sequence(&[(&[(0, 100)], &[("all-reduce", 1)]), (&[(0, 100)], &[("all-reduce", 2)])]), ..Default::default() }
+            => Meets(false),
         meets_conditions_error: P::default() => Meets(false),
         generate_suggestion_error: P::default() => GenerateErr,
     } {
         #[test]
         fn mock_call_test() {
-            let provider = P { op_stats: step_sequence(&[(&[(0, 100)], &[("all-reduce", 5)])]), ..Default::default() };
-            assert!((crate::tools::smart_suggestion::collective_percent(&provider).unwrap() - 5.0).abs() <= 0.001);
+            let op_stats = step_sequence(&[(&[(0, 100)], &[("all-reduce", 5)])]);
+            let provider = P { op_stats, ..Default::default() };
+            let percent = crate::tools::smart_suggestion::collective_percent(&provider).unwrap();
+            assert!((percent - 5.0).abs() <= 0.001);
         }
     }
     compute_bound_rule = "ComputeBoundRule" {
-        meets_conditions: P { overview_page: overview_page(71.0, 49.0), ..Default::default() } => Text(&["71.0%</b> and low HBM Bandwidth utilization of <b>49.0%"]),
-        mxu_utilization_too_low: P { overview_page: overview_page(69.0, 49.0), ..Default::default() } => Nothing,
-        hbm_utilization_too_high: P { overview_page: overview_page(71.0, 51.0), ..Default::default() } => Nothing,
+        meets_conditions:
+            P { overview_page: overview_page(71.0, 49.0), ..Default::default() }
+            => Text(&["71.0%</b> and low HBM Bandwidth utilization of <b>49.0%"]),
+        mxu_utilization_too_low:
+            P { overview_page: overview_page(69.0, 49.0), ..Default::default() } => Nothing,
+        hbm_utilization_too_high:
+            P { overview_page: overview_page(71.0, 51.0), ..Default::default() } => Nothing,
     }
     data_shuffle_bound_rule = "DataShuffleBoundRule" {
-        meets_conditions_above_threshold: P { op_stats: step_sequence(&[(&[(0, 100)], &[("shuffle", 24)]), (&[(0, 100)], &[("gather", 37)])]), ..Default::default() } => Meets(true),
-        meets_conditions_below_threshold: P { op_stats: step_sequence(&[(&[(0, 100)], &[("shuffle", 1)]), (&[(0, 100)], &[("gather", 2)])]), ..Default::default() } => Meets(false),
+        meets_conditions_above_threshold:
+            P { op_stats: step_sequence(&[(&[(0, 100)], &[("shuffle", 24)]), (&[(0, 100)], &[("gather", 37)])]), ..Default::default() }
+            => Meets(true),
+        meets_conditions_below_threshold:
+            P { op_stats: step_sequence(&[(&[(0, 100)], &[("shuffle", 1)]), (&[(0, 100)], &[("gather", 2)])]), ..Default::default() }
+            => Meets(false),
         meets_conditions_error: P::default() => Meets(false),
         generate_suggestion_error: P::default() => GenerateErr,
     }
     data_transfer_bound_rule = "DataTransferBoundRule" {
-        meets_conditions: P { input_pipeline_analysis: input_pipeline_analysis(20.0, 40.0, 10.0), ..Default::default() } => Text(&["16.0% of the total step time"]),
-        not_input_bound: P { input_pipeline_analysis: input_pipeline_analysis(5.0, 40.0, 10.0), ..Default::default() } => Nothing,
-        input_bound_but_not_data_transfer_bound: P { input_pipeline_analysis: input_pipeline_analysis(20.0, 10.0, 90.0), ..Default::default() } => Nothing,
+        meets_conditions:
+            P { input_pipeline_analysis: input_pipeline_analysis(20.0, 40.0, 10.0), ..Default::default() }
+            => Text(&["16.0% of the total step time"]),
+        not_input_bound:
+            P { input_pipeline_analysis: input_pipeline_analysis(5.0, 40.0, 10.0), ..Default::default() }
+            => Nothing,
+        input_bound_but_not_data_transfer_bound:
+            P { input_pipeline_analysis: input_pipeline_analysis(20.0, 10.0, 90.0), ..Default::default() }
+            => Nothing,
     }
     host_processing_bound_rule = "HostProcessingBoundRule" {
-        meets_conditions: P { input_pipeline_analysis: input_pipeline_analysis(20.0, 10.0, 90.0), ..Default::default() } => Text(&["18.0% of the total step time"]),
-        not_input_bound: P { input_pipeline_analysis: input_pipeline_analysis(5.0, 10.0, 90.0), ..Default::default() } => Nothing,
-        input_bound_but_not_host_processing_bound: P { input_pipeline_analysis: input_pipeline_analysis(20.0, 90.0, 10.0), ..Default::default() } => Nothing,
+        meets_conditions:
+            P { input_pipeline_analysis: input_pipeline_analysis(20.0, 10.0, 90.0), ..Default::default() }
+            => Text(&["18.0% of the total step time"]),
+        not_input_bound:
+            P { input_pipeline_analysis: input_pipeline_analysis(5.0, 10.0, 90.0), ..Default::default() }
+            => Nothing,
+        input_bound_but_not_host_processing_bound:
+            P { input_pipeline_analysis: input_pipeline_analysis(20.0, 90.0, 10.0), ..Default::default() }
+            => Nothing,
     }
     memory_bound_rule = "MemoryBoundRule" {
-        meets_conditions: P { overview_page: overview_page(49.0, 71.0), ..Default::default() } => Text(&["71.0%</b> and low MXU utilization of <b>49.0%"]),
-        hbm_utilization_too_low: P { overview_page: overview_page(49.0, 69.0), ..Default::default() } => Nothing,
-        mxu_utilization_too_high: P { overview_page: overview_page(51.0, 71.0), ..Default::default() } => Nothing,
+        meets_conditions:
+            P { overview_page: overview_page(49.0, 71.0), ..Default::default() }
+            => Text(&["71.0%</b> and low MXU utilization of <b>49.0%"]),
+        hbm_utilization_too_low:
+            P { overview_page: overview_page(49.0, 69.0), ..Default::default() } => Nothing,
+        mxu_utilization_too_high:
+            P { overview_page: overview_page(51.0, 71.0), ..Default::default() } => Nothing,
     }
     sparse_core_bound_rule = "SparseCoreBoundRule" {
         meets_conditions: tpu(0.0, 11.0, 49.0) => Text(&["11.0% of the total step time </b> is \
             spent on SparseCore"]),
         idle_time_too_low: tpu(0.0, 9.0, 49.0) => Nothing,
-        no_tpu_step_time_breakdown_field: P { input_pipeline_analysis: generic_step_time_breakdown(100.0), ..Default::default() } => Nothing,
+        no_tpu_step_time_breakdown_field:
+            P { input_pipeline_analysis: generic_step_time_breakdown(100.0), ..Default::default() }
+            => Nothing,
         hbm_and_mxu_utilization_too_high: tpu(0.0, 11.0, 51.0) => Nothing,
     }
     sparse_core_offload_rule = "SparseCoreOffloadRule" {
@@ -112,7 +166,9 @@ rules! {
         meets_conditions: tpu(11.0, 0.0, 49.0) => Text(&["High TensorCore idle time percentage of \
             <b>11.0%</b>"]),
         idle_time_too_low: tpu(9.0, 0.0, 49.0) => Nothing,
-        no_tpu_step_time_breakdown_field: P { input_pipeline_analysis: generic_step_time_breakdown(100.0), ..Default::default() } => Nothing,
+        no_tpu_step_time_breakdown_field:
+            P { input_pipeline_analysis: generic_step_time_breakdown(100.0), ..Default::default() }
+            => Nothing,
         hbm_and_mxu_utilization_too_high: tpu(11.0, 0.0, 51.0) => Nothing,
     }
 }

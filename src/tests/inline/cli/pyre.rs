@@ -260,7 +260,9 @@ fn the_search_gives_the_result_of_python() {
         ("(?<=a{3})b", "aab", false),
     ]
     .into_iter()
-    .filter(|&(pattern, text, found)| compile(pattern, 986).map(|compiled| compiled.search(text)) != Ok(found))
+    .filter(|&(pattern, text, found)| {
+        compile(pattern, 986).map(|compiled| compiled.search(text)) != Ok(found)
+    })
     .collect::<Vec<_>>();
     assert!(wrong.is_empty(), "{wrong:?}");
 }

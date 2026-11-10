@@ -1711,8 +1711,7 @@ async fn invalid_trace_numbers_session_paths_csv_and_graph_errors_answer_like_xp
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn routes_answer_at_the_root_and_under_the_plugin_prefix_and_generate_cache_validates_like_xprof()
- {
+async fn routes_answer_at_root_and_plugin_prefix_and_generate_cache_validates_like_xprof() {
     use tower::ServiceExt;
     let dir = logdir("routes");
     std::fs::write(

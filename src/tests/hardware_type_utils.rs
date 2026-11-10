@@ -56,7 +56,16 @@ fn amd(clock: i64, cores: i64, arch: &str) -> XSpace {
     ])
 }
 
-macro_rules! peaks { ($($name:ident: $space:expr => $peak:expr;)*) => { $(#[test] fn $name() { near(peak_tflops(&$space), $peak, 1.0); })* } }
+macro_rules! peaks {
+    ($($name:ident: $space:expr => $peak:expr;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                near(peak_tflops(&$space), $peak, 1.0);
+            }
+        )*
+    };
+}
 
 peaks! {
     b200_peak_comput_t_flops: nvidia(1830000, 148, 7.68, 10, 0) => 2218.0;

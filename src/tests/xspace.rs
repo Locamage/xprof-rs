@@ -134,7 +134,15 @@ pub enum V {
     Bytes(Vec<u8>),
 }
 
-macro_rules! v_from { ($($kind:ty => $variant:ident),*) => { $(impl From<$kind> for V { fn from(value: $kind) -> Self { Self::$variant(value.into()) } })* } }
+macro_rules! v_from {
+    ($($kind:ty => $variant:ident),*) => {
+        $(impl From<$kind> for V {
+            fn from(value: $kind) -> Self {
+                Self::$variant(value.into())
+            }
+        })*
+    };
+}
 v_from!(i32 => Int, i64 => Int, u64 => Uint, f64 => Double, &str => Str, String => Str);
 
 pub fn op_stats(spaces: &[XSpace]) -> Option<Arc<OpStats>> {

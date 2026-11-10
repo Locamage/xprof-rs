@@ -49,10 +49,8 @@ fn run(space: &[u8], host: &str, target: &str) -> Fractions {
 fn edge_steps_are_trimmed() {
     let ops: Vec<(u64, u64, u64)> = (1..=4).map(|step| (step, step * 1000, step * 10)).collect();
     let steps: Vec<(u64, u64)> = (1..=4).map(|step| (step, 1000)).collect();
-    assert_eq!(
-        run(&tpu_plane("/device:TPU:0", "fusion", &steps, &ops), "h", "fusion").chips["/device:TPU:0"],
-        [0.02f32, 0.03]
-    );
+    let fractions = run(&tpu_plane("/device:TPU:0", "fusion", &steps, &ops), "h", "fusion");
+    assert_eq!(fractions.chips["/device:TPU:0"], [0.02f32, 0.03]);
     let short = run(
         &tpu_plane(
             "/device:TPU:0",
