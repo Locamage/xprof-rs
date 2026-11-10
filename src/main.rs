@@ -1591,9 +1591,10 @@ async fn capture_profile(State(state): State<Shared>, Query(params): Query<Param
 /// - The store reads only the path, so a query or a fragment could hold the part that the pattern wants (`…/secret?/pub/x`).
 /// - The store decodes `%XX`, so `a%2Fb` names `a/b`, which `[^/]+` in a pattern does not expect.
 /// - User information names another host than the one a reader of the pattern sees (`gs://allowed@other/…`).
-/// - For some hosts the store takes the bucket from the path (`https://s3.<region>.amazonaws.com/<bucket>/…`), so the key is
-///   not the path that the pattern sees. The key that the store reads must be the path of the URL.
-/// - The store of a plain `http(s)` server follows redirects to other hosts, so `/open` does not stage from one.
+/// - For an `http(s)` URL the store finds the bucket, the account and the endpoint from the form of the host, from the path
+///   (`https://s3.<region>.amazonaws.com/<bucket>/…`) and from the environment, and a plain web server can redirect to
+///   another host. So `/open` takes only the URL of a store (`s3://`, `gs://`, `az://`, `file://`), where the host is the
+///   bucket, and the key that the store reads must be the path of the URL.
 fn allowed_uri<'a>(state: &State_, uri: &'a str) -> Option<&'a str> {
     let uri = uri.trim_end_matches('/');
     let parsed = url::Url::parse(uri).ok()?;
@@ -1604,8 +1605,8 @@ fn allowed_uri<'a>(state: &State_, uri: &'a str) -> Option<&'a str> {
         && parsed.port().is_none()
         && !uri.contains(['%', '\\'])
         && parsed.as_str().trim_end_matches('/') == uri;
-    let (scheme, key) = object_store::ObjectStoreScheme::parse(&parsed).ok()?;
-    let as_read = !matches!(scheme, object_store::ObjectStoreScheme::Http) && key.as_ref() == parsed.path().trim_matches('/');
+    let (_, key) = object_store::ObjectStoreScheme::parse(&parsed).ok()?;
+    let as_read = !matches!(parsed.scheme(), "http" | "https") && key.as_ref() == parsed.path().trim_matches('/');
     (plain && as_read && state.open_uri_pattern.as_ref().is_some_and(|pattern| pattern.is_match(uri))).then_some(uri)
 }
 

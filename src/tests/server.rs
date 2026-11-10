@@ -183,6 +183,8 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
         "file:///store/pub/a\\b",
         "file://user@host/store/pub/run",
         "https://s3-logs.s3.us-east-1.amazonaws.com/pub/secret",
+        "https://bucket.s3.amazonaws.com/pub/run",
+        "https://storage.googleapis.com/bucket/pub/run",
         "http://server/pub/run",
     ] {
         let query: String = url::form_urlencoded::byte_serialize(uri.as_bytes()).collect();
