@@ -10,8 +10,10 @@ use std::sync::LazyLock;
 
 const SUFFIX: &str = ".hlo_proto.pb";
 const NO_MODULE: &str = "NO_MODULE.hlo_proto.pb";
-const NO_HLO: &str = "No compiled HLO module proto found in profile session. To capture HLO graphs, export XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto' before profiling.";
-const NO_GRAPH: &str = "No graph_viewer data found in profile session. Ensure workload was profiled with XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto'.";
+const NO_HLO: &str = "No compiled HLO module proto found in profile session. To capture HLO \
+    graphs, export XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto' before profiling.";
+const NO_GRAPH: &str = "No graph_viewer data found in profile session. Ensure workload was \
+    profiled with XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto'.";
 const SUGGESTIONS: usize = 10;
 const NEIGHBORHOOD_RADIUS: i64 = 2;
 static COMPUTATION: LazyLock<Regex> = LazyLock::new(|| {
@@ -218,7 +220,8 @@ pub fn neighborhood(
         return fail(
             Kind::Value,
             format!(
-                "Conflicting arguments: instruction_name='{}' and op_name='{}' cannot both be specified with different values.",
+                "Conflicting arguments: instruction_name='{}' and op_name='{}' cannot both be \
+                    specified with different values.",
                 instruction.text(),
                 op_name.text()
             ),
@@ -579,7 +582,8 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
             lines.extend([
                 "> [!NOTE]".to_string(),
                 "> **Aggregation Logic:**".into(),
-                "> - Buffers with similar names (e.g., `name.1`, `name.2`) and identical sizes are aggregated into `name.*`.".into(),
+                "> - Buffers with similar names (e.g., `name.1`, `name.2`) and identical sizes are \
+                    aggregated into `name.*`.".into(),
                 "> - Buffers smaller than the threshold are aggregated into 'Others'.".into(),
                 String::new(),
             ]);

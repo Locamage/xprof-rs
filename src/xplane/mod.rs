@@ -45,8 +45,14 @@ pub const NONE_GROUP: i64 = i64::MIN;
 pub const TPU_PREFIX: &str = "/device:TPU:";
 pub const HOST_PLANE: &str = "/host:CPU";
 const EPOCH_NS: i64 = 1_000_000_000_000_000;
-const INTERNAL_EVENTS: &str = "MemoryAllocation MemoryDeallocation PrefetchProduce PrefetchConsume ParallelInterleaveProduce ParallelInterleaveConsume ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce MapAndBatchConsume ParseExampleProduce ParseExampleConsume";
-const QUEUE_CONSUMERS: &str = "RunProgramRequest HostCallbackRequest TransferH2DRequest TransferPreprocessedH2DRequest TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti OnDeviceRecvRequestMulti PjrtAsyncWait";
+const INTERNAL_EVENTS: &str = "MemoryAllocation MemoryDeallocation PrefetchProduce PrefetchConsume \
+    ParallelInterleaveProduce ParallelInterleaveConsume ParallelInterleaveInitializeInput \
+    ParallelMapProduce ParallelMapConsume MapAndBatchProduce MapAndBatchConsume \
+    ParseExampleProduce ParseExampleConsume";
+const QUEUE_CONSUMERS: &str = "RunProgramRequest HostCallbackRequest TransferH2DRequest \
+    TransferPreprocessedH2DRequest TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest \
+    OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti OnDeviceRecvRequestMulti \
+    PjrtAsyncWait";
 const INTERNAL_STATS: [&str; 8] =
     ["_pt", "_p", "_ct", "_c", "_r", "flops", "program_id", "symbol_id"];
 macro_rules! kinds {

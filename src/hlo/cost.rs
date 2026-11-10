@@ -1092,7 +1092,11 @@ impl<'c, 'm> Analysis<'c, 'm> {
             (_, None) => None,
         };
         if largest.is_none() && channel && global {
-            return Err("RET_CHECK failure !replica_groups.empty() replica groups cannot be empty for kFlattenedID mode".into());
+            return Err(
+                "RET_CHECK failure !replica_groups.empty() replica groups cannot be empty for \
+                    kFlattenedID mode"
+                    .into(),
+            );
         }
         Ok(largest.map_or(1, |largest| largest.max(1)))
     }

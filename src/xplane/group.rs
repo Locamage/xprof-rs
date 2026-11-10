@@ -24,7 +24,28 @@ const OFFSET: &str = "device_offset_ps";
 const DURATION: &str = "device_duration_ps";
 const LOOPS: [&str; 5] =
     ["WhileOp-EvalCond", "WhileOp-StartBody", "ForOp", "ParallelForOp", "ForeverOp"];
-const HOST_EVENTS: &str = "UnknownHostEventType TraceContext SessionRun FunctionRun RunGraph RunGraphDone ExecutorState::Process ExecutorDoneCallback MemoryAllocation MemoryDeallocation RemotePerfCounter InstantiatedCapturedFunction::Run InstantiatedCapturedFunction::RunWithBorrowedArgs InstantiatedCapturedFunction::RunInstantiated InstantiatedCapturedFunction::RunAsync ParallelForOp ForeverOp WhileOp-EvalCond WhileOp-StartBody ForOp IteratorGetNextOp::DoCompute IteratorGetNextAsOptionalOp::DoCompute Iterator Iterator::Prefetch::Generator PrefetchProduce PrefetchConsume ParallelInterleaveProduce ParallelInterleaveConsume ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce MapAndBatchConsume ParseExampleProduce ParseExampleConsume ParallelBatchProduce ParallelBatchConsume BatchingSessionRun ProcessBatch BrainSessionRun ConcatInputTensors MergeInputTensors ScheduleWithoutSplit ScheduleWithSplit ScheduleWithEagerSplit ASBSQueue::Schedule OrbaxServing::ProcessBatch OrbaxServing::ConcatInputBuffers TfrtModelRun ServingModelRun EnqueueRequestLocked RunProgramRequest HostCallbackRequest TransferH2DRequest TransferPreprocessedH2DRequest TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti OnDeviceRecvRequestMulti PjrtAsyncWait DoEnqueueProgram DoEnqueueContinuationProgram WriteHbm ReadHbm TpuExecuteOp CompleteCallbacks TPUPartitionedCallOp-InitializeVarOnTPU TPUPartitionedCallOp-ExecuteRemote TPUPartitionedCallOp-ExecuteLocal Linearize Delinearize TransferBufferFromDevice-FastPath tpu::System::TransferToDevice=>IssueEvent tpu::System::TransferToDevice=>IssueEvent=>Done tpu::System::TransferFromDevice=>IssueEvent tpu::System::TransferFromDevice=>IssueEvent=>Done tpu::System::Execute";
+const HOST_EVENTS: &str = "UnknownHostEventType TraceContext SessionRun FunctionRun RunGraph \
+    RunGraphDone ExecutorState::Process ExecutorDoneCallback MemoryAllocation MemoryDeallocation \
+    RemotePerfCounter InstantiatedCapturedFunction::Run \
+    InstantiatedCapturedFunction::RunWithBorrowedArgs \
+    InstantiatedCapturedFunction::RunInstantiated InstantiatedCapturedFunction::RunAsync \
+    ParallelForOp ForeverOp WhileOp-EvalCond WhileOp-StartBody ForOp IteratorGetNextOp::DoCompute \
+    IteratorGetNextAsOptionalOp::DoCompute Iterator Iterator::Prefetch::Generator PrefetchProduce \
+    PrefetchConsume ParallelInterleaveProduce ParallelInterleaveConsume \
+    ParallelInterleaveInitializeInput ParallelMapProduce ParallelMapConsume MapAndBatchProduce \
+    MapAndBatchConsume ParseExampleProduce ParseExampleConsume ParallelBatchProduce \
+    ParallelBatchConsume BatchingSessionRun ProcessBatch BrainSessionRun ConcatInputTensors \
+    MergeInputTensors ScheduleWithoutSplit ScheduleWithSplit ScheduleWithEagerSplit \
+    ASBSQueue::Schedule OrbaxServing::ProcessBatch OrbaxServing::ConcatInputBuffers TfrtModelRun \
+    ServingModelRun EnqueueRequestLocked RunProgramRequest HostCallbackRequest TransferH2DRequest \
+    TransferPreprocessedH2DRequest TransferD2HRequest OnDeviceSendRequest OnDeviceRecvRequest \
+    OnDeviceSendRecvLocalRequest CustomWait OnDeviceSendRequestMulti OnDeviceRecvRequestMulti \
+    PjrtAsyncWait DoEnqueueProgram DoEnqueueContinuationProgram WriteHbm ReadHbm TpuExecuteOp \
+    CompleteCallbacks TPUPartitionedCallOp-InitializeVarOnTPU TPUPartitionedCallOp-ExecuteRemote \
+    TPUPartitionedCallOp-ExecuteLocal Linearize Delinearize TransferBufferFromDevice-FastPath \
+    tpu::System::TransferToDevice=>IssueEvent tpu::System::TransferToDevice=>IssueEvent=>Done \
+    tpu::System::TransferFromDevice=>IssueEvent tpu::System::TransferFromDevice=>IssueEvent=>Done \
+    tpu::System::Execute";
 static HOST_EVENT_SET: LazyLock<FxHashSet<&str>> =
     LazyLock::new(|| HOST_EVENTS.split(' ').collect());
 const OTHER: u8 = 0;

@@ -18,8 +18,14 @@ const NAME_STATS: [&str; 4] = ["msg", "message", "annotation", "label"];
 const DEVICE_LINES: [&str; 3] = ["XLA OPS", "PALLAS", "LLO OPS"];
 const EXCLUDED_LINES: [&str; 5] = ["COUNTER", "MODULES", "OVERLAY", "SYNC FLAG", "SENSOR"];
 const XSPACE_SPILL_BYTES: usize = 10 * 1024 * 1024;
-const LLO_REMEDIATION: &str = "To enable LLO tracing, ensure the workload is executed with LIBTPU_INIT_ARGS=\"--xla_xprof_enable_custom_call_tracing=true --xla_xprof_register_llo_debug_info=true\" exported strictly BEFORE 'import jax'. Prerequisites: Python 3.11+ (Python 3.12 recommended via uv), JAX >= 0.11.0 (default Cloud TPU VM images running Python 3.10 cap JAX at 0.6.2 and lack LLO flag support), and xprof-nightly.";
-const NUMERICAL_DEPENDENCIES: &str = "Required numerical dependencies are not installed in current environment: No module named 'ml_dtypes'. Please install numpy and ml_dtypes (e.g. 'pip install numpy ml_dtypes') to use verify_numerical_parity.";
+const LLO_REMEDIATION: &str = "To enable LLO tracing, ensure the workload is executed with \
+    LIBTPU_INIT_ARGS=\"--xla_xprof_enable_custom_call_tracing=true \
+    --xla_xprof_register_llo_debug_info=true\" exported strictly BEFORE 'import jax'. \
+    Prerequisites: Python 3.11+ (Python 3.12 recommended via uv), JAX >= 0.11.0 (default Cloud TPU \
+    VM images running Python 3.10 cap JAX at 0.6.2 and lack LLO flag support), and xprof-nightly.";
+const NUMERICAL_DEPENDENCIES: &str = "Required numerical dependencies are not installed in current \
+    environment: No module named 'ml_dtypes'. Please install numpy and ml_dtypes (e.g. 'pip \
+    install numpy ml_dtypes') to use verify_numerical_parity.";
 
 struct Visit<'a> {
     plane: &'a Plane<'a>,
@@ -519,7 +525,8 @@ fn serialized(
         }
         _ => fail(
             Kind::NotImplemented,
-            "Multi-host XSpace serialization is not supported in OSS because xplane_pb2 is not exposed.",
+            "Multi-host XSpace serialization is not supported in OSS because xplane_pb2 is not \
+                exposed.",
         ),
     }
 }
@@ -559,7 +566,8 @@ pub fn get_xspace_proto(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             "size_bytes" => data.len(),
             "size_mib" => round(data.len() as f64 / 1048576.0, 2),
             "file_path" => path.to_string_lossy().into_owned(),
-            "message" => "XSpace payload exceeded 10 MB. Saved to file to prevent terminal buffer overflow. Specify --output_path to customize.",
+            "message" => "XSpace payload exceeded 10 MB. Saved to file to prevent terminal buffer \
+                overflow. Specify --output_path to customize.",
         }
         .into());
     }
@@ -1059,7 +1067,8 @@ pub fn upload_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         return fail(
             Kind::Value,
             format!(
-                "Unsupported file format '{name}'. Only XSpace formats (.xplane.pb, .xspace.pb) are supported by XProf."
+                "Unsupported file format '{name}'. Only XSpace formats (.xplane.pb, .xspace.pb) \
+                    are supported by XProf."
             ),
         );
     }
@@ -1071,7 +1080,8 @@ pub fn upload_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         return fail(
             Kind::Value,
             format!(
-                "Invalid run_name '{run}': must be a single directory name without path separators or traversal components."
+                "Invalid run_name '{run}': must be a single directory name without path separators \
+                    or traversal components."
             ),
         );
     }

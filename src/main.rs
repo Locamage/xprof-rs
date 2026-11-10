@@ -112,8 +112,19 @@ const VALUE_FLAGS: [&str; 8] = [
 ];
 const NO_DATA: &str = "No Data";
 const OUTSIDE: &str = "Path outside logdir";
-const USAGE: &str = "usage: xprof-rs [--logdir DIR|URL] [--port PORT] [--host ADDRESS] [--src_prefix PREFIX] [--hide_capture_profile_button] [--enable_tab_name_label] [--open_uri_pattern REGEX]\n       [--grpc_port PORT] [--worker_service_address ADDRESS] [--max_concurrent_worker_requests N]  (The server accepts the last three flags and does not use them.)\n       Example: --open_uri_pattern='(gs|s3)://[^/]+/(.*/)?ttl=[1-9][0-9]*d/xprof/[^/]+'";
-const SECURITY_POLICY: &str = "default-src 'self';script-src 'self' 'unsafe-eval' 'unsafe-inline' https://www.gstatic.com;object-src 'none';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com;font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com data:;connect-src 'self' data: www.gstatic.com;img-src 'self' blob: data:;frame-src 'self' https://ui.perfetto.dev;script-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/ https://www.gstatic.com";
+const USAGE: &str = "usage: xprof-rs [--logdir DIR|URL] [--port PORT] [--host ADDRESS] \
+    [--src_prefix PREFIX] [--hide_capture_profile_button] [--enable_tab_name_label] \
+    [--open_uri_pattern REGEX]\n       [--grpc_port PORT] [--worker_service_address ADDRESS] \
+    [--max_concurrent_worker_requests N]  (The server accepts the last three flags and does not \
+    use them.)\n       Example: \
+    --open_uri_pattern='(gs|s3)://[^/]+/(.*/)?ttl=[1-9][0-9]*d/xprof/[^/]+'";
+const SECURITY_POLICY: &str = "default-src 'self';script-src 'self' 'unsafe-eval' 'unsafe-inline' \
+    https://www.gstatic.com;object-src 'none';style-src 'self' 'unsafe-inline' \
+    https://fonts.googleapis.com https://www.gstatic.com;font-src 'self' \
+    https://fonts.googleapis.com https://fonts.gstatic.com data:;connect-src 'self' data: \
+    www.gstatic.com;img-src 'self' blob: data:;frame-src 'self' \
+    https://ui.perfetto.dev;script-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/ \
+    https://www.gstatic.com";
 const STATS_TOOLS: [&str; 8] = [
     "hlo_stats",
     "kernel_stats",
@@ -2063,8 +2074,9 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
             response(
                 StatusCode::OK,
                 "application/json",
-                serde_json::json!({"state":"failed","error":format!("profile staging failed: {error}")})
-                    .to_string(),
+                serde_json::json!({"state":"failed","error":format!("profile staging failed: \
+                    {error}")})
+                .to_string(),
             )
         }
         Some(Ok(profile)) => response(

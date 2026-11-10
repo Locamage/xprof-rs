@@ -553,7 +553,10 @@ pub fn render(views: &[View], full_dma: bool, args: Args) -> Vec<u8> {
         )
     };
     let mut out = String::with_capacity(total * 140 + 4096);
-    out.push_str("{\"displayTimeUnit\":\"ns\",\"metadata\":{\"highres-ticks\":true}, \"codeLink\":\"\",\"useNewBackend\": false,");
+    out.push_str(
+        "{\"displayTimeUnit\":\"ns\",\"metadata\":{\"highres-ticks\":true}, \
+            \"codeLink\":\"\",\"useNewBackend\": false,",
+    );
     let tpu = views.iter().any(|view| !view.trace.tpu_devices.is_empty());
     let _ = write!(
         out,

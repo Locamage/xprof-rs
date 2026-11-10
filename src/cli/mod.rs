@@ -79,7 +79,8 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
     ),
     (
         "compute_utilization",
-        "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes bypass_cache logdir",
+        "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes \
+            bypass_cache logdir",
         xplane::get_kernel_utilization,
     ),
     (
@@ -94,7 +95,9 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
     ),
     (
         "get_graph_viewer",
-        "session_id | symbol_id symbol_type graph_type module_name output_type show_metadata node_name graph_width merge_fusion tag tool op_profile_limit use_xplane bypass_cache logdir",
+        "session_id | symbol_id symbol_type graph_type module_name output_type show_metadata \
+            node_name graph_width merge_fusion tag tool op_profile_limit use_xplane bypass_cache \
+            logdir",
         hlo::get_graph_viewer,
     ),
     (
@@ -104,7 +107,8 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
     ),
     (
         "get_hlo_neighborhood",
-        "session_id! instruction_name radius module_name | op_name print_metadata bypass_cache logdir",
+        "session_id! instruction_name radius module_name | op_name print_metadata bypass_cache \
+            logdir",
         hlo::get_hlo_neighborhood,
     ),
     (
@@ -125,12 +129,14 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
     ("get_hosts", "session_id! bypass_cache | logdir", overview::get_hosts),
     (
         "get_kernel_stats",
-        "source session_id | kernel_name limit output_format include_summary device_to_use trace_matchers bypass_cache logdir",
+        "source session_id | kernel_name limit output_format include_summary device_to_use \
+            trace_matchers bypass_cache logdir",
         xplane::get_kernel_stats,
     ),
     (
         "get_kernel_utilization",
-        "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes bypass_cache logdir",
+        "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes \
+            bypass_cache logdir",
         xplane::get_kernel_utilization,
     ),
     ("get_kpi_metrics", "session_id! | bypass_cache logdir", overview::get_kpi_metrics),
@@ -144,7 +150,8 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
     ("get_overview", "session_id! include_command bypass_cache | logdir", overview::get_overview),
     (
         "get_peak_allocations",
-        "session_id! | limit min_size_mib output_format include_summary aggregate_instructions bypass_cache logdir",
+        "session_id! | limit min_size_mib output_format include_summary aggregate_instructions \
+            bypass_cache logdir",
         hlo::get_peak_allocations,
     ),
     ("get_profile_summary", "session_id! bypass_cache | logdir", ops::get_profile_summary),
@@ -177,13 +184,15 @@ pub const COMMANDS: [(&str, &str, Handler); 31] = [
     ("list_hlo_modules", "session_id! | bypass_cache logdir", hlo::list_hlo_modules),
     (
         "list_xplane_events",
-        "session_id! | plane_regex event_regex start_time_ps end_time_ps max_events offset bypass_cache logdir",
+        "session_id! | plane_regex event_regex start_time_ps end_time_ps max_events offset \
+            bypass_cache logdir",
         xplane::list_xplane_events,
     ),
     ("upload_trace", "file_path! ttl tag run_name | logdir bypass_cache **", xplane::upload_trace),
     (
         "verify_numerical_parity",
-        "kernel_ref! kernel_candidate! shapes! dtype_str tier max_allowed_ulp p99_9_allowed_ulp seed regimes kernel_oracle device_kind | logdir bypass_cache",
+        "kernel_ref! kernel_candidate! shapes! dtype_str tier max_allowed_ulp p99_9_allowed_ulp \
+            seed regimes kernel_oracle device_kind | logdir bypass_cache",
         xplane::verify_numerical_parity,
     ),
 ];
@@ -778,7 +787,8 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
             return fail(
                 Kind::Fire,
                 format!(
-                    "The argument '{argument}' is ambiguous as it could refer to any of the following arguments: [{}]",
+                    "The argument '{argument}' is ambiguous as it could refer to any of the \
+                        following arguments: [{}]",
                     shortcut.iter().map(|name| json::py_repr(name)).collect::<Vec<_>>().join(", ")
                 ),
             );
@@ -833,7 +843,8 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
             return fail(
                 Kind::Fire,
                 format!(
-                    "The function received no value for the required argument: {parameter}\nUsage: xprof {name} {}",
+                    "The function received no value for the required argument: {parameter}\nUsage: \
+                        xprof {name} {}",
                     usage(spec)
                 ),
             );
@@ -1090,7 +1101,8 @@ fn spill(command: &str, bytes: &[u8]) -> Option<String> {
         "size_bytes" => bytes.len(),
         "size_mib" => mib,
         "file_path" => path.to_string_lossy().into_owned(),
-        "message" => format!("Output payload ({} MB) exceeded 10 MB threshold. Saved to file to prevent terminal buffer overflow.", json::J::Float(mib).text()),
+        "message" => format!("Output payload ({} MB) exceeded 10 MB threshold. Saved to file to \
+            prevent terminal buffer overflow.", json::J::Float(mib).text()),
     };
     Some(report.dumps())
 }
@@ -1182,7 +1194,8 @@ pub fn invoke(
         return fail(
             Kind::Fire,
             format!(
-                "Could not consume arg: {command}\nUsage: xprof <command> | <flags> [ARGS]...\n  available commands:    {} | server",
+                "Could not consume arg: {command}\nUsage: xprof <command> | <flags> \
+                    [ARGS]...\n  available commands:    {} | server",
                 COMMANDS.iter().map(|(name, _, _)| *name).collect::<Vec<_>>().join(" | ")
             ),
         );

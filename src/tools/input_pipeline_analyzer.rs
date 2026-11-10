@@ -10,37 +10,51 @@ use std::collections::BTreeMap;
 
 const NO_STEP: &str =
     "No step time measured. Therefore we cannot tell where the performance bottleneck is.";
-pub const NO_STEP_MARKER: &str = "No step marker observed and hence the step time is unknown. This may happen if (1) training steps are not instrumented (e.g., if you are not using Keras) or (2) the profiling duration is shorter than the step time. For (1), you need to add step instrumentation; for (2), you may try to profile longer.";
-pub const EMPTY_INTERSECT: &str = "Although there are steps observed on some host(s), the intersection of the steps over all hosts is empty (because the differences among individual host's step sequences are too big). Consequently, the overall step time is unknown.";
+pub const NO_STEP_MARKER: &str = "No step marker observed and hence the step time is unknown. This \
+    may happen if (1) training steps are not instrumented (e.g., if you are not using Keras) or \
+    (2) the profiling duration is shorter than the step time. For (1), you need to add step \
+    instrumentation; for (2), you may try to profile longer.";
+pub const EMPTY_INTERSECT: &str = "Although there are steps observed on some host(s), the \
+    intersection of the steps over all hosts is empty (because the differences among individual \
+    host's step sequences are too big). Consequently, the overall step time is unknown.";
 const INPUT_BOUND: [(&str, &str); 4] = [
     (
         "host",
-        "Your program is HIGHLY input-bound because {}% of the total step time sampled is waiting for input. Therefore, you should first focus on reducing the input time.",
+        "Your program is HIGHLY input-bound because {}% of the total step time sampled is waiting \
+            for input. Therefore, you should first focus on reducing the input time.",
     ),
     (
         "both",
-        "Your program is MODERATELY input-bound because {}% of the total step time sampled is waiting for input. Therefore, you would need to reduce both the input time and other time.",
+        "Your program is MODERATELY input-bound because {}% of the total step time sampled is \
+            waiting for input. Therefore, you would need to reduce both the input time and other \
+            time.",
     ),
     (
         "both",
-        "Your program is POTENTIALLY input-bound because {}% of the total step time sampled is spent on 'All Others' time (which could be due to I/O or Python execution or both).",
+        "Your program is POTENTIALLY input-bound because {}% of the total step time sampled is \
+            spent on 'All Others' time (which could be due to I/O or Python execution or both).",
     ),
     (
         "device",
-        "Your program is NOT input-bound because only {}% of the total step time sampled is waiting for input. Therefore, you should focus on reducing other time.",
+        "Your program is NOT input-bound because only {}% of the total step time sampled is \
+            waiting for input. Therefore, you should focus on reducing other time.",
     ),
 ];
 const OUTPUT_BOUND: [(f64, &str); 2] = [
     (
         20.0,
-        "Your program is HIGHLY output-bound because {}% of the total step time sampled is spent on output. Therefore, you should first focus on reducing the output time.",
+        "Your program is HIGHLY output-bound because {}% of the total step time sampled is spent \
+            on output. Therefore, you should first focus on reducing the output time.",
     ),
     (
         5.0,
-        "Your program is MODERATELY output-bound because {}% of the total step time sampled is spent on output. Therefore, you would need to reduce both the output time and other time.",
+        "Your program is MODERATELY output-bound because {}% of the total step time sampled is \
+            spent on output. Therefore, you would need to reduce both the output time and other \
+            time.",
     ),
 ];
-const KERNEL_LAUNCH_TF_DATA: &str = ". It could be due to CPU contention with tf.data. In this case, you may try to set the environment variable TF_GPU_THREAD_MODE=gpu_private.";
+const KERNEL_LAUNCH_TF_DATA: &str = ". It could be due to CPU contention with tf.data. In this \
+    case, you may try to set the environment variable TF_GPU_THREAD_MODE=gpu_private.";
 pub const HARDWARE: [&str; 4] = ["UNKNOWN_HARDWARE", "CPU_ONLY", "GPU", "TPU"];
 pub const BOTTLENECK_PREFIXES: [&str; 4] =
     ["", "kernel_launch_", "all_other_", "device_collectives_"];

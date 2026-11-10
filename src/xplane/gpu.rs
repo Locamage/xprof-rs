@@ -37,8 +37,12 @@ const ROCM: [(&str, [f64; 4], f64); 4] = [
     ("gfx942", [256.0, 256.0, 256.0, 2048.0], 128.0),
     ("gfx950", [256.0, 256.0, 256.0, 4096.0], 256.0),
 ];
-const TENSOR_CORE_KERNELS: &str = "16816 c1688 conv1x1 conv2d_c1_k1 dgrad_1x1_stride_2x2 direct_group first_layer_wgrad_kernel h1688 h884 hmma i16832 i8816 s884 s1688 xmma_gemm xmma_implicit_gemm xmma_sparse_conv xmma_sparse_gemm xmma_warp_specialized_implicit_gemm";
-const TENSOR_CORE_SUFFIXES: &str = "Conv2D Conv2DBackpropFilter Conv2DBackpropInput Conv3D DepthwiseConv2dNative DepthwiseConv2dNativeBackpropFilter DepthwiseConv2dNativeBackpropInput /MatMul FusedMatMul /CudnnRNN XlaDot XlaDotV2";
+const TENSOR_CORE_KERNELS: &str = "16816 c1688 conv1x1 conv2d_c1_k1 dgrad_1x1_stride_2x2 \
+    direct_group first_layer_wgrad_kernel h1688 h884 hmma i16832 i8816 s884 s1688 xmma_gemm \
+    xmma_implicit_gemm xmma_sparse_conv xmma_sparse_gemm xmma_warp_specialized_implicit_gemm";
+const TENSOR_CORE_SUFFIXES: &str = "Conv2D Conv2DBackpropFilter Conv2DBackpropInput Conv3D \
+    DepthwiseConv2dNative DepthwiseConv2dNativeBackpropFilter DepthwiseConv2dNativeBackpropInput \
+    /MatMul FusedMatMul /CudnnRNN XlaDot XlaDotV2";
 const TENSOR_CORE_INFIXES: &str = "BatchMatMul CudnnRNNV CudnnRNNForward CudnnRNNBackprop";
 const KERNEL_COLUMNS: [(&str, &str, &str); 15] = [
     ("rank", "number", "Rank"),

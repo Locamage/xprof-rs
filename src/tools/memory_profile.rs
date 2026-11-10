@@ -13,7 +13,9 @@ const MODULE_LINE: &str = "XLA Modules";
 const MAX_SNAPSHOTS: usize = 1000;
 const ALLOCATION: i32 = 1;
 const DEALLOCATION: i32 = 2;
-const DATA_TYPES: &str = "INVALID float double int32 uint8 int16 int8 string complex64 int64 bool qint8 quint8 qint32 bfloat16 qint16 quint16 uint16 complex128 half resource variant uint32 uint64 float8_e5m2 float8_e4m3fn float8_e4m3fnuz float8_e4m3b11fnuz float8_e5m2fnuz int4 uint4";
+const DATA_TYPES: &str = "INVALID float double int32 uint8 int16 int8 string complex64 int64 bool \
+    qint8 quint8 qint32 bfloat16 qint16 quint16 uint16 complex128 half resource variant uint32 \
+    uint64 float8_e5m2 float8_e4m3fn float8_e4m3fnuz float8_e4m3b11fnuz float8_e5m2fnuz int4 uint4";
 
 #[derive(Clone)]
 struct Snapshot {

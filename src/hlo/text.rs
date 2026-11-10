@@ -1851,7 +1851,8 @@ impl<'a> Printer<'a> {
             {
                 let _ = writeln!(
                     out,
-                    "{} {{file_name_id={file} function_name_id={function} line={line} end_line={end_line} column={column} end_column={end_column}}}",
+                    "{} {{file_name_id={file} function_name_id={function} line={line} \
+                        end_line={end_line} column={column} end_column={end_column}}}",
                     position + 1
                 );
             }

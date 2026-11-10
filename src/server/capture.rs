@@ -28,7 +28,10 @@ const TOOLS: [&str; 10] = [
     "xplane.pb",
 ];
 const TF_MISSING: &str = "TensorFlow is not installed, but is required to use TPU names.";
-const SERVER_ERROR: &str = "<!doctype html>\n<html lang=en>\n<title>500 Internal Server Error</title>\n<h1>Internal Server Error</h1>\n<p>The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.</p>\n";
+const SERVER_ERROR: &str = "<!doctype html>\n<html lang=en>\n<title>500 Internal Server \
+    Error</title>\n<h1>Internal Server Error</h1>\n<p>The server encountered an internal error and \
+    was unable to complete your request. Either the server is overloaded or there is an error in \
+    the application.</p>\n";
 
 #[derive(Clone, PartialEq, Eq, prost::Message)]
 pub struct ProfileOptions {
@@ -345,7 +348,8 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
                 Some(status) => Err(status),
                 None if traced => Ok(()),
                 None => Err(Status::unavailable(
-                    "No trace event was collected because there were no responses from clients or the responses did not have trace data.",
+                    "No trace event was collected because there were no responses from clients or \
+                        the responses did not have trace data.",
                 )),
             }
         };

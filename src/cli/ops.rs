@@ -24,7 +24,8 @@ const COLLECTIVES: [&str; 4] = ["all-gather", "all-reduce", "reduce-scatter", "c
 const CUSTOM_CALLS: [&str; 2] = ["custom-call", "custom_call"];
 const NO_LABEL: [&str; 4] = ["IDLE", "idle", "unknown", ""];
 const SUMMARY_LIMIT: usize = 10;
-const NO_PROFILE: &str = "No HLO op_profile found in trace. For JAX traces, ensure compilation is captured in the trace or pass XLA_FLAGS='--xla_dump_to=<path> --xla_dump_hlo_as_proto'.";
+const NO_PROFILE: &str = "No HLO op_profile found in trace. For JAX traces, ensure compilation is \
+    captured in the trace or pass XLA_FLAGS='--xla_dump_to=<path> --xla_dump_hlo_as_proto'.";
 /// The default `max_recursion_depth` of `json_format.Parse` in protobuf.
 const MAX_MESSAGE_DEPTH: usize = 100;
 const TOO_DEEP: &str = "Message too deep. Max recursion depth is 100";
@@ -291,7 +292,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         return fail(
             Kind::Value,
             format!(
-                "Invalid view mode '{view}'. Must be one of: 'grouped', 'category', 'summary', 'flat', 'tree'."
+                "Invalid view mode '{view}'. Must be one of: 'grouped', 'category', 'summary', \
+                    'flat', 'tree'."
             ),
         );
     }
@@ -430,7 +432,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
             "fraction_of_total_time" => fraction(matched_time, total_ms),
             "operations" => operations,
             "navigation_hints" => obj! {
-                "inspect_top_op_ast" => format!("xprof get_hlo_neighborhood <trace> --instruction_name='{top}'"),
+                "inspect_top_op_ast" => format!("xprof get_hlo_neighborhood <trace> \
+                    --instruction_name='{top}'"),
                 "inspect_graph" => format!("xprof get_graph_viewer <trace> --node_name='{top}'"),
                 "back_to_categories" => "xprof get_hlo_op_profile <trace> --view=category",
             },
@@ -446,7 +449,8 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
         "category" | "summary" => {
             let top = available.first().cloned().unwrap_or_default();
             let mut hints = obj! {
-                "drill_down_into_top_category" => format!("xprof get_hlo_op_profile <trace> --category='{top}'"),
+                "drill_down_into_top_category" => format!("xprof get_hlo_op_profile <trace> \
+                    --category='{top}'"),
                 "view_grouped_ops" => "xprof get_hlo_op_profile <trace> --view=grouped",
                 "available_categories" => available.clone(),
             };
@@ -487,10 +491,13 @@ pub fn get_hlo_op_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
                 "category_summary" => summary.clone(),
                 "grouped_operations" => J::Map(grouped.collect()),
                 "navigation_hints" => obj! {
-                    "drill_down_category" => "xprof get_hlo_op_profile <trace> --category='<category_name>'",
-                    "inspect_op_neighborhood" => "xprof get_hlo_neighborhood <trace> --instruction_name='<op_name>'",
+                    "drill_down_category" => "xprof get_hlo_op_profile <trace> \
+                        --category='<category_name>'",
+                    "inspect_op_neighborhood" => "xprof get_hlo_neighborhood <trace> \
+                        --instruction_name='<op_name>'",
                     "inspect_roofline" => "xprof get_roofline_model <trace>",
-                    "explore_tree" => "xprof get_hlo_op_profile <trace> --view=tree --path='by_category' --depth=2",
+                    "explore_tree" => "xprof get_hlo_op_profile <trace> --view=tree \
+                        --path='by_category' --depth=2",
                     "available_categories" => available,
                 },
             }
@@ -556,7 +563,8 @@ fn tree_view(root: &J, args: &Args, wrapped: impl Fn(Error) -> Error) -> Result<
         "tree" => tree(target, 1, limit.float().unwrap_or_default(), ""),
         "navigation_hints" => obj! {
             "navigate_deeper_into_child" => hint,
-            "switch_to_program_tree" => "xprof get_hlo_op_profile <trace> --view=tree --path='by_program' --depth=2",
+            "switch_to_program_tree" => "xprof get_hlo_op_profile <trace> --view=tree \
+                --path='by_program' --depth=2",
             "available_child_paths" => child_paths,
         },
     }

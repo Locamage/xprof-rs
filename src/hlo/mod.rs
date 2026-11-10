@@ -46,11 +46,33 @@ pub const TUPLE: i32 = 13;
 pub const OPAQUE: i32 = 14;
 pub const TOKEN: i32 = 17;
 pub const BUFFER: i32 = 34;
-const TYPE_NAMES: &str = "primitive_type_invalid pred s8 s16 s32 s64 u8 u16 u32 u64 f16 f32 f64 tuple opaque c64 bf16 token c128 f8e5m2 f8e4m3fn s4 u4 f8e4m3b11fnuz f8e5m2fnuz f8e4m3fnuz s2 u2 f8e4m3 f8e3m4 s1 u1 f4e2m1fn f8e8m0fnu buffer f6e3m2fn f6e2m3fn";
-pub const OPCODES: &str = "abs acos acosh add add-dependency after-all all-gather all-gather-done all-gather-start all-reduce all-reduce-done all-reduce-start all-to-all and asin asinh async-done async-start async-update atan2 atanh batch-norm-grad batch-norm-inference batch-norm-training bitcast bitcast-convert broadcast call cbrt ceil cholesky clamp count-leading-zeros collective-broadcast collective-permute collective-permute-done collective-permute-start collective-reduce compare complex concatenate conditional constant convert convolution copy copy-done copy-start cosine cosh custom-call divide domain dot dynamic-reshape dynamic-slice dynamic-update-slice erf exponential exponential-minus-one fft floor fusion gather get-dimension-size get-tuple-element imag infeed iota is-finite log log-plus-one logistic map maximum minimum mulhi multiply negate not opt-barrier or outfeed pad parameter partition-id popcnt power ragged-all-to-all ragged-dot real recv recv-done reduce reduce-precision reduce-scatter reduce-window remainder replica-id reshape reverse rng rng-bit-generator rng-get-and-update-state round-nearest-afz round-nearest-even rsqrt scaled-dot scan scatter select select-and-scatter send send-done set-dimension-size shift-left shift-right-arithmetic shift-right-logical sign sine sinh slice sort sqrt stochastic-convert subtract tan tanh topk transpose triangular-solve tuple while xor";
+const TYPE_NAMES: &str = "primitive_type_invalid pred s8 s16 s32 s64 u8 u16 u32 u64 f16 f32 f64 \
+    tuple opaque c64 bf16 token c128 f8e5m2 f8e4m3fn s4 u4 f8e4m3b11fnuz f8e5m2fnuz f8e4m3fnuz s2 \
+    u2 f8e4m3 f8e3m4 s1 u1 f4e2m1fn f8e8m0fnu buffer f6e3m2fn f6e2m3fn";
+pub const OPCODES: &str = "abs acos acosh add add-dependency after-all all-gather all-gather-done \
+    all-gather-start all-reduce all-reduce-done all-reduce-start all-to-all and asin asinh \
+    async-done async-start async-update atan2 atanh batch-norm-grad batch-norm-inference \
+    batch-norm-training bitcast bitcast-convert broadcast call cbrt ceil cholesky clamp \
+    count-leading-zeros collective-broadcast collective-permute collective-permute-done \
+    collective-permute-start collective-reduce compare complex concatenate conditional constant \
+    convert convolution copy copy-done copy-start cosine cosh custom-call divide domain dot \
+    dynamic-reshape dynamic-slice dynamic-update-slice erf exponential exponential-minus-one fft \
+    floor fusion gather get-dimension-size get-tuple-element imag infeed iota is-finite log \
+    log-plus-one logistic map maximum minimum mulhi multiply negate not opt-barrier or outfeed pad \
+    parameter partition-id popcnt power ragged-all-to-all ragged-dot real recv recv-done reduce \
+    reduce-precision reduce-scatter reduce-window remainder replica-id reshape reverse rng \
+    rng-bit-generator rng-get-and-update-state round-nearest-afz round-nearest-even rsqrt \
+    scaled-dot scan scatter select select-and-scatter send send-done set-dimension-size shift-left \
+    shift-right-arithmetic shift-right-logical sign sine sinh slice sort sqrt stochastic-convert \
+    subtract tan tanh topk transpose triangular-solve tuple while xor";
 const COMPARISONS: &str =
     "equal-to not-equal-to greater-than-or-equal-to greater-than less-than-or-equal-to less-than";
-pub const ELEMENTWISE: &str = "abs acos acosh asin asinh atanh round-nearest-afz round-nearest-even ceil count-leading-zeros convert bitcast-convert copy cosine cosh erf exponential exponential-minus-one floor imag is-finite log log-plus-one not negate popcnt real reduce-precision rsqrt logistic sign sine sinh sqrt cbrt tan tanh add atan2 compare complex divide maximum minimum multiply mulhi power remainder subtract and or xor shift-left shift-right-arithmetic shift-right-logical stochastic-convert select clamp constant rng";
+pub const ELEMENTWISE: &str = "abs acos acosh asin asinh atanh round-nearest-afz \
+    round-nearest-even ceil count-leading-zeros convert bitcast-convert copy cosine cosh erf \
+    exponential exponential-minus-one floor imag is-finite log log-plus-one not negate popcnt real \
+    reduce-precision rsqrt logistic sign sine sinh sqrt cbrt tan tanh add atan2 compare complex \
+    divide maximum minimum multiply mulhi power remainder subtract and or xor shift-left \
+    shift-right-arithmetic shift-right-logical stochastic-convert select clamp constant rng";
 
 static TYPES: LazyLock<Vec<&str>> = LazyLock::new(|| TYPE_NAMES.split(' ').collect());
 static KNOWN_OPCODES: LazyLock<std::collections::HashSet<&str>> =
@@ -622,12 +644,14 @@ impl<'a> Module<'a> {
         };
         if program.parameters.len() != program.parameter_names.len() {
             let message = format!(
-                "ProgramShapeProto has different numbers of parameters and parameter names: {} vs {}",
+                "ProgramShapeProto has different numbers of parameters and parameter names: {} vs \
+                    {}",
                 program.parameters.len(),
                 program.parameter_names.len()
             );
             return format!(
-                "RET_CHECK failure (external/xla/xla/shape.cc:532) num_params == num_param_names {message}"
+                "RET_CHECK failure (external/xla/xla/shape.cc:532) num_params == num_param_names \
+                    {message}"
             );
         }
         let failure = |place: &str, condition: &str, message: String| {
@@ -651,7 +675,8 @@ impl<'a> Module<'a> {
                     return failure("hlo_instruction.cc:342", "proto.has_shape()", String::new());
                 }
                 if !inst.operand_ids.iter().all(|id| defined.contains(&(*id as i32))) {
-                    let condition = "absl::c_all_of(proto.operand_ids(), [&](int64_t id) { return instruction_map.contains( CalculateLocalId(id)); })";
+                    let condition = "absl::c_all_of(proto.operand_ids(), [&](int64_t id) { return \
+                        instruction_map.contains( CalculateLocalId(id)); })";
                     return failure(
                         "hlo_instruction.cc:385",
                         condition,
@@ -661,7 +686,8 @@ impl<'a> Module<'a> {
                 if !inst.called_computation_ids.iter().all(|id| {
                     self.graphs[..index].iter().any(|earlier| earlier.id == i64::from(*id as i32))
                 }) {
-                    let condition = "absl::c_all_of(proto.called_computation_ids(), [&](int64_t id) { return computation_map.contains( CalculateLocalId(id)); })";
+                    let condition = "absl::c_all_of(proto.called_computation_ids(), [&](int64_t \
+                        id) { return computation_map.contains( CalculateLocalId(id)); })";
                     return failure(
                         "hlo_instruction.cc:391",
                         condition,

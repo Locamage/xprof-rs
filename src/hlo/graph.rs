@@ -19,11 +19,21 @@ static GPU_BACKEND_CONFIG: LazyLock<MessageDescriptor> = LazyLock::new(|| {
         .expect("required value is present")
 });
 const GRAPH_HTML: &str = include_str!("../data/graph.html");
-const TRIVIAL: &str = "add=add multiply=multiply minimum=min maximum=max xor=xor and=and or=or LE=less-or-equal GE=greater-or-equal GT=greater-than LT=less-than EQ=equal-to NE=not-equal-to";
-const SCHEMES: &str = "blue:filled:#bbdefb:#8aacc8:black brown:filled:#bcaaa4:#8c7b75:black dark_blue:filled:#1565c0:#003c8f:white dark_green:filled:#2e7d32:#005005:white dark_orange:filled:#ffb74d:#c88719:black dark_red:filled:#b71c1c:#7f0000:white gray:filled:#cfd8dc:#9ea7aa:black green:filled:#c8e6c9:#97b498:black orange:filled:#ffe0b2:#cbae82:black purple:filled:#e1bee7:#af8eb5:black red:filled:#ffcdd2:#cb9ca1:black white:filled:white:#9e9e9e:black yellow:filled:#fff9c4:#cbc693:black";
+const TRIVIAL: &str = "add=add multiply=multiply minimum=min maximum=max xor=xor and=and or=or \
+    LE=less-or-equal GE=greater-or-equal GT=greater-than LT=less-than EQ=equal-to NE=not-equal-to";
+const SCHEMES: &str = "blue:filled:#bbdefb:#8aacc8:black brown:filled:#bcaaa4:#8c7b75:black \
+    dark_blue:filled:#1565c0:#003c8f:white dark_green:filled:#2e7d32:#005005:white \
+    dark_orange:filled:#ffb74d:#c88719:black dark_red:filled:#b71c1c:#7f0000:white \
+    gray:filled:#cfd8dc:#9ea7aa:black green:filled:#c8e6c9:#97b498:black \
+    orange:filled:#ffe0b2:#cbae82:black purple:filled:#e1bee7:#af8eb5:black \
+    red:filled:#ffcdd2:#cb9ca1:black white:filled:white:#9e9e9e:black \
+    yellow:filled:#fff9c4:#cbc693:black";
 const STATISTIC_FILLS: &str =
     "#f7d4cc #f8b2a3 #f9a28f #fa917b #fb8066 #fc7052 #fd5f3d #fd4e29 #fe3e14 #ff2d00";
-const BROWN: &str = "all-gather all-gather-start all-gather-done all-reduce reduce-scatter all-reduce-start all-reduce-done all-to-all collective-broadcast collective-reduce collective-permute collective-permute-start collective-permute-done infeed outfeed partition-id ragged-all-to-all recv recv-done send send-done replica-id";
+const BROWN: &str = "all-gather all-gather-start all-gather-done all-reduce reduce-scatter \
+    all-reduce-start all-reduce-done all-to-all collective-broadcast collective-reduce \
+    collective-permute collective-permute-start collective-permute-done infeed outfeed \
+    partition-id ragged-all-to-all recv recv-done send send-done replica-id";
 
 /// The template literal gets the DOT text without changes, as in the original tool. When the text
 /// can end the literal, start an expression, or end the script, the special characters get a
@@ -944,7 +954,10 @@ impl Dumper<'_> {
             }
             let _ = write!(
                 rules,
-                "  %23{kind}{id}:hover ~ %23edge{edge} text {{ fill: {color}; }}\n  %23{kind}{id}:hover ~ %23edge{edge} path {{ stroke: {color}; stroke-width: .2em; }}\n  %23{kind}{id}:hover ~ %23edge{edge} polygon {{ fill: {color}; stroke: {color}; stroke-width: .2em; }}\n"
+                "  %23{kind}{id}:hover ~ %23edge{edge} text {{ fill: {color}; \
+                    }}\n  %23{kind}{id}:hover ~ %23edge{edge} path {{ stroke: {color}; \
+                    stroke-width: .2em; }}\n  %23{kind}{id}:hover ~ %23edge{edge} polygon {{ fill: \
+                    {color}; stroke: {color}; stroke-width: .2em; }}\n"
             );
         };
         for (index, &(from, to, _)) in self.edges.iter().enumerate() {
@@ -968,7 +981,12 @@ impl Dumper<'_> {
             }
         }
         Some(format!(
-            "digraph G {{\nrankdir = TB;\ncompound = true;\nlabel = <<b>{label}</b>>;\nlabelloc = t;\n// Disable the tooltip.  Interestingly, \"\" doesn't work!\ntooltip = \" \";\n// DOT graphs accept a stylesheet as a URI.  So naturally, an inline\n// stylesheet is a data URI!\nstylesheet=<\n  data:text/css,\n  @import url(https://fonts.googleapis.com/css?family=Roboto:400,700);\n  svg text {{\n    font-family: 'Roboto';\n    font-size: 12px;\n  }}\n\n  {rules}\n>\n\n"
+            "digraph G {{\nrankdir = TB;\ncompound = true;\nlabel = <<b>{label}</b>>;\nlabelloc = \
+                t;\n// Disable the tooltip.  Interestingly, \"\" doesn't work!\ntooltip = \" \
+                \";\n// DOT graphs accept a stylesheet as a URI.  So naturally, an inline\n// \
+                stylesheet is a data URI!\nstylesheet=<\n  data:text/css,\n  @import \
+                url(https://fonts.googleapis.com/css?family=Roboto:400,700);\n  svg text \
+                {{\n    font-family: 'Roboto';\n    font-size: 12px;\n  }}\n\n  {rules}\n>\n\n"
         ))
     }
 

@@ -21,8 +21,29 @@ const MIB: f64 = (1u64 << 20) as f64;
 const POINTS_PER_INCH: f64 = 72.0;
 const MARGIN_POINTS: f64 = 0.02 * POINTS_PER_INCH;
 const GRAPH_SIZE: f64 = 4096.0;
-const NO_TIMELINE: &str = "<html><body style=\"font-family: sans-serif; padding: 20px;\"><h2>No memory allocation timeline available</h2><p>There is no memory activity data to display for this timeline.</body></html>";
-const COLOR_NAMES: &str = "#e91e63 #2196f3 #81c784 #4dd0e1 #3f51b5 #e53935 #ff9100 #b39ddb #90a4ae #26c6da #ad1457 #03a9f4 #2196f3 #c2185b #795548 #f9a825 #00bfa5 #880e4f #d500f9 #ce93d8 #ec407a #4caf50 #ff8f00 #ffca28 #ab47bc #00e5ff #ff9800 #40c4ff #1e88e5 #9fa8da #bf360c #00b8d4 #f57f17 #64b5f6 #e040fb #ffab91 #4caf50 #01579b #66bb6a #ef9a9a #558b2f #fb8c00 #ff4081 #00e676 #388e3c #424242 #6d4c41 #c62828 #616161 #00897b #448aff #0d47a1 #607d8b #673ab7 #00c853 #2e7d32 #ffa726 #5e35b1 #ba68c8 #8d6e63 #00bcd4 #ff6f00 #f4511e #ff1744 #9e9e9e #d81b60 #4a148c #26a69a #689f38 #7b1fa2 #b0bec5 #304ffe #f48fb1 #ffd600 #ffb74d #8bc34a #303f9f #5d4037 #80cbc4 #ffcc80 #00acc1 #3e2723 #ff5252 #ff7043 #e91e63 #ea80fc #e65100 #d84315 #212121 #ff5722 #1976d2 #2962ff #bdbdbd #3949ab #69f0ae #d50000 #ffd740 #c0ca33 #ff6e40 #00b0ff #2979ff #e64a19 #7c4dff #607d8b #009688 #ffb300 #c51162 #ffc400 #29b6f6 #3d5afe #76ff03 #cddc39 #b388ff #5c6bc0 #9e9d24 #7cb342 #ef5350 #fdd835 #ef6c00 #4fc3f7 #6200ea #004d40 #ff8a65 #ffab00 #80deea #0097a7 #7e57c2 #ff6d00 #1565c0 #455a64 #ffc107 #4527a0 #ff5722 #f44336 #f57c00 #827717 #a5d6a7 #82b1ff #9c27b0 #ff80ab #e1bee7 #78909c #311b92 #00695c #4e342e #3f51b5 #651fff #9e9e9e #81d4fa #f8bbd0 #b71c1c #0091ea #673ab7 #a1887f #4db6ac #ffa000 #6a1b9a #43a047 #bcaaa4 #546e7a #aeea00 #e57373 #ffccbc #006064 #fbc02d #ffeb3b #8bc34a #039be5 #8e24aa #80d8ff #009688 #9ccc65 #512da8 #ffc107 #757575 #0277bd #ff3d00 #33691e #03a9f4 #00838f #ff8a80 #283593 #f50057 #1a237e #90caf9 #9c27b0 #aa00ff #aed581 #afb42b #9575cd #d32f2f #64dd17 #f44336 #795548 #cddc39 #ff9e80 #7986cb #dd2c00 #0288d1 #ff9800 #263238 #00796b #42a5f5 #8c9eff #1b5e20 #ffab40 #536dfe #00bcd4 #f06292";
+const NO_TIMELINE: &str = "<html><body style=\"font-family: sans-serif; padding: 20px;\"><h2>No \
+    memory allocation timeline available</h2><p>There is no memory activity data to display for \
+    this timeline.</body></html>";
+const COLOR_NAMES: &str = "#e91e63 #2196f3 #81c784 #4dd0e1 #3f51b5 #e53935 #ff9100 #b39ddb #90a4ae \
+    #26c6da #ad1457 #03a9f4 #2196f3 #c2185b #795548 #f9a825 #00bfa5 #880e4f #d500f9 #ce93d8 \
+    #ec407a #4caf50 #ff8f00 #ffca28 #ab47bc #00e5ff #ff9800 #40c4ff #1e88e5 #9fa8da #bf360c \
+    #00b8d4 #f57f17 #64b5f6 #e040fb #ffab91 #4caf50 #01579b #66bb6a #ef9a9a #558b2f #fb8c00 \
+    #ff4081 #00e676 #388e3c #424242 #6d4c41 #c62828 #616161 #00897b #448aff #0d47a1 #607d8b \
+    #673ab7 #00c853 #2e7d32 #ffa726 #5e35b1 #ba68c8 #8d6e63 #00bcd4 #ff6f00 #f4511e #ff1744 \
+    #9e9e9e #d81b60 #4a148c #26a69a #689f38 #7b1fa2 #b0bec5 #304ffe #f48fb1 #ffd600 #ffb74d \
+    #8bc34a #303f9f #5d4037 #80cbc4 #ffcc80 #00acc1 #3e2723 #ff5252 #ff7043 #e91e63 #ea80fc \
+    #e65100 #d84315 #212121 #ff5722 #1976d2 #2962ff #bdbdbd #3949ab #69f0ae #d50000 #ffd740 \
+    #c0ca33 #ff6e40 #00b0ff #2979ff #e64a19 #7c4dff #607d8b #009688 #ffb300 #c51162 #ffc400 \
+    #29b6f6 #3d5afe #76ff03 #cddc39 #b388ff #5c6bc0 #9e9d24 #7cb342 #ef5350 #fdd835 #ef6c00 \
+    #4fc3f7 #6200ea #004d40 #ff8a65 #ffab00 #80deea #0097a7 #7e57c2 #ff6d00 #1565c0 #455a64 \
+    #ffc107 #4527a0 #ff5722 #f44336 #f57c00 #827717 #a5d6a7 #82b1ff #9c27b0 #ff80ab #e1bee7 \
+    #78909c #311b92 #00695c #4e342e #3f51b5 #651fff #9e9e9e #81d4fa #f8bbd0 #b71c1c #0091ea \
+    #673ab7 #a1887f #4db6ac #ffa000 #6a1b9a #43a047 #bcaaa4 #546e7a #aeea00 #e57373 #ffccbc \
+    #006064 #fbc02d #ffeb3b #8bc34a #039be5 #8e24aa #80d8ff #009688 #9ccc65 #512da8 #ffc107 \
+    #757575 #0277bd #ff3d00 #33691e #03a9f4 #00838f #ff8a80 #283593 #f50057 #1a237e #90caf9 \
+    #9c27b0 #aa00ff #aed581 #afb42b #9575cd #d32f2f #64dd17 #f44336 #795548 #cddc39 #ff9e80 \
+    #7986cb #dd2c00 #0288d1 #ff9800 #263238 #00796b #42a5f5 #8c9eff #1b5e20 #ffab40 #536dfe \
+    #00bcd4 #f06292";
 
 static COLORS: LazyLock<Vec<&str>> = LazyLock::new(|| COLOR_NAMES.split(' ').collect());
 
@@ -622,7 +643,8 @@ impl Model<'_> {
                 return;
             }
             rects.push(format!(
-                "\"{}\" [tooltip=\"{}\", pos=\"{:.2},{:.2}!\", width=\"{:.4}\", height=\"{:.4}\", fixedsize=true, color=\"{color}\", fontsize={fontsize:.1}, label=\"{}\"];",
+                "\"{}\" [tooltip=\"{}\", pos=\"{:.2},{:.2}!\", width=\"{:.4}\", height=\"{:.4}\", \
+                    fixedsize=true, color=\"{color}\", fontsize={fontsize:.1}, label=\"{}\"];",
                 *node - 1,
                 description(),
                 center_x * scale_x,
@@ -794,7 +816,8 @@ pub fn render(
             return Some((NO_TIMELINE.to_string(), "text/html"));
         }
         let dot = format!(
-            "graph G {{\n epsilon=0.5 \n inputscale=72 \n node [shape=box,style=filled,fontname=\"Arial\",margin=\"0.02,0.02\"];\n  {}\n}}",
+            "graph G {{\n epsilon=0.5 \n inputscale=72 \n node \
+                [shape=box,style=filled,fontname=\"Arial\",margin=\"0.02,0.02\"];\n  {}\n}}",
             rects.join("\n")
         );
         return Some((wrap_dot_html(&dot, "neato"), "text/html"));

@@ -12,7 +12,9 @@ use crate::xplane::steps::{Extra, GPU, TPU};
 use std::path::PathBuf;
 
 const TOP_OPS: usize = 10;
-const NO_DEVICE_TRACE: &str = "No TensorCore device trace was collected. This might happen if your job hadn't been run on the device when sampling was turned on. You could try the sampling again later.";
+const NO_DEVICE_TRACE: &str = "No TensorCore device trace was collected. This might happen if your \
+    job hadn't been run on the device when sampling was turned on. You could try the sampling \
+    again later.";
 const TOP_COLUMNS: [(&str, &str, &str); 5] = [
     ("selfTimePercent", "number", "Time (%)"),
     ("cumulativeTimePercent", "number", "Cumulative time (%)"),
@@ -224,10 +226,14 @@ fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8)
     };
     let tips = [
         ("faq", "Refer to the TF2 Profiler FAQ".to_string(), "Tool troubleshooting / FAQ"),
-        ("host", "input_pipeline_analyzer (especially Section 3 for the breakdown of input operations on the Host)".into(), "Next steps for reducing the Host time"),
-        ("host", "trace_viewer (look at the activities on the timeline of each Host Thread near the bottom of the trace view)".into(), "Next steps for reducing the Host time"),
-        ("device", format!("{tool} (identify the time-consuming operations executed on the {device_name})"), "Next steps for reducing the Device time"),
-        ("device", format!("trace_viewer (look at the activities on the timeline of each {timeline} in the trace view)"), "Next steps for reducing the Device time"),
+        ("host", "input_pipeline_analyzer (especially Section 3 for the breakdown of input \
+            operations on the Host)".into(), "Next steps for reducing the Host time"),
+        ("host", "trace_viewer (look at the activities on the timeline of each Host Thread near \
+            the bottom of the trace view)".into(), "Next steps for reducing the Host time"),
+        ("device", format!("{tool} (identify the time-consuming operations executed on the \
+            {device_name})"), "Next steps for reducing the Device time"),
+        ("device", format!("trace_viewer (look at the activities on the timeline of each \
+            {timeline} in the trace view)"), "Next steps for reducing the Device time"),
         ("doc", r#"<a href="https://www.tensorflow.org/guide/data_performance_analysis" target="_blank">Analyze tf.data performance with the TF Profiler</a>"#.into(), "Other useful resources"),
         ("doc", r#"<a href="https://www.tensorflow.org/guide/data_performance" target="_blank">Better performance with the tf.data API</a>"#.into(), "Other useful resources"),
     ];
@@ -248,7 +254,9 @@ fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8)
         "precision_statement",
         if low_precision {
             format!(
-                "Only {}% of device computation is 16 bit. So you might want to replace more 32-bit Ops by 16-bit Ops to improve performance (if the reduced accuracy is acceptable).",
+                "Only {}% of device computation is 16 bit. So you might want to replace more \
+                    32-bit Ops by 16-bit Ops to improve performance (if the reduced accuracy is \
+                    acceptable).",
                 fixed(percent_16, 1)
             )
         } else {

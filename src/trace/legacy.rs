@@ -410,25 +410,29 @@ fn text((devices, events): (Devices, Vec<Event>), emit: &mut impl FnMut(Vec<u8>)
         if !name.is_empty() {
             let _ = writeln!(
                 out,
-                "{{\"args\": {{\"name\": {}}}, \"name\": \"process_name\", \"ph\": \"M\", \"pid\": {device}}},",
+                "{{\"args\": {{\"name\": {}}}, \"name\": \"process_name\", \"ph\": \"M\", \"pid\": \
+                    {device}}},",
                 python_string(name)
             );
         }
         let _ = writeln!(
             out,
-            "{{\"args\": {{\"sort_index\": {device}}}, \"name\": \"process_sort_index\", \"ph\": \"M\", \"pid\": {device}}},"
+            "{{\"args\": {{\"sort_index\": {device}}}, \"name\": \"process_sort_index\", \"ph\": \
+                \"M\", \"pid\": {device}}},"
         );
         for (resource, name) in resources {
             if !name.is_empty() {
                 let _ = writeln!(
                     out,
-                    "{{\"args\": {{\"name\": {}}}, \"name\": \"thread_name\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},",
+                    "{{\"args\": {{\"name\": {}}}, \"name\": \"thread_name\", \"ph\": \"M\", \
+                        \"pid\": {device}, \"tid\": {resource}}},",
                     python_string(name)
                 );
             }
             let _ = writeln!(
                 out,
-                "{{\"args\": {{\"sort_index\": {resource}}}, \"name\": \"thread_sort_index\", \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},"
+                "{{\"args\": {{\"sort_index\": {resource}}}, \"name\": \"thread_sort_index\", \
+                    \"ph\": \"M\", \"pid\": {device}, \"tid\": {resource}}},"
             );
         }
     }

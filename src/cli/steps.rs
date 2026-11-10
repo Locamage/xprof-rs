@@ -511,8 +511,11 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let Some((steps, summary)) = found else {
         return Ok(obj! {
             "status" => "NO_DATA",
-            "message" => format!("No step trace data found for session '{session}' (the trace may lack step markers). Consider using 'list_xplane_events' to get more performance insights."),
-        }.into());
+            "message" => format!("No step trace data found for session '{session}' (the trace may \
+                lack step markers). Consider using 'list_xplane_events' to get more performance \
+                insights."),
+        }
+        .into());
     };
     let limit = args.compared("limit", DEFAULT_STEP_LIMIT, ">")?;
     if limit > 0.0 && matches!(args.raw("limit"), Some(J::Float(_))) {
@@ -669,8 +672,10 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         if total == 0.0 || steps == 0 {
             return Ok(obj! {
                 "status" => "INSUFFICIENT_DATA",
-                "reasons" => vec![format!("Session {session} lacks valid step timing duration telemetry in overview_page.json.")],
-                "recommendations" => vec!["Capture a new XProf trace with step profiling enabled to measure host boundness."],
+                "reasons" => vec![format!("Session {session} lacks valid step timing duration \
+                    telemetry in overview_page.json.")],
+                "recommendations" => vec!["Capture a new XProf trace with step profiling enabled \
+                    to measure host boundness."],
             });
         }
         let mut hlo_params = vec![("group_by", "category".to_string())];
@@ -699,14 +704,25 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         );
         let (mut reasons, mut recommendations) = (Vec::new(), Vec::new());
         let status = if idle_high && mxu_high && hbm_low && ici_low {
-            reasons.push(format!("Workload is host-bound: Idle Time Ratio exceeds {IDLE_RATIO_THRESHOLD:.1}% of active compute."));
+            reasons.push(format!(
+                "Workload is host-bound: Idle Time Ratio exceeds {IDLE_RATIO_THRESHOLD:.1}% of \
+                    active compute."
+            ));
             recommendations
                 .push(format!("Opportunity Size: Hardware waste = {idle_chips:.1} idle chips."));
-            recommendations.push("Review data pipeline for inefficiencies (e.g., tf.data transformations or PyGrain).".into());
+            recommendations.push(
+                "Review data pipeline for inefficiencies (e.g., tf.data transformations or \
+                    PyGrain)."
+                    .into(),
+            );
             recommendations.push(if args.get("func_name").is_some_and(J::truthy) {
-                "Use Lumini xprof_check_host_boundness with func_name to run automated step dispersion analysis.".into()
+                "Use Lumini xprof_check_host_boundness with func_name to run automated step \
+                    dispersion analysis."
+                    .into()
             } else {
-                "Provide `func_name` to enable automated Dispersion Analysis and check for transient stalls.".into()
+                "Provide `func_name` to enable automated Dispersion Analysis and check for \
+                    transient stalls."
+                    .into()
             });
             "HOST_BOUND"
         } else if duty > DUTY_CYCLE_THRESHOLD && (!available || !idle_high) {
@@ -714,11 +730,18 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
                 reasons.push(format!("TPU duty cycle ({duty:.1}%) is high and idle ratio is low."));
                 "NOT_HOST_BOUND"
             } else {
-                reasons.push(format!("TPU duty cycle is high ({duty:.1}%), but HLO telemetry is missing. Unable to determine if workload is host-bound."));
+                reasons.push(format!(
+                    "TPU duty cycle is high ({duty:.1}%), but HLO telemetry is missing. Unable to \
+                        determine if workload is host-bound."
+                ));
                 "UNKNOWN"
             }
         } else {
-            reasons.push("Workload is not host-bound. One or more host-bound condition thresholds were not met:".into());
+            reasons.push(
+                "Workload is not host-bound. One or more host-bound condition thresholds were not \
+                    met:"
+                    .into(),
+            );
             if !idle_high {
                 reasons.push(format!(
                     "- Idle Time Ratio ({ratio:.1}%) is <= {IDLE_RATIO_THRESHOLD:.1}%."
@@ -735,7 +758,10 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
                 ));
             }
             if !ici_low {
-                reasons.push(format!("- ICI Utilization (Read: {ici_read:.1}%, Write: {ici_write:.1}%) is >= {ICI_THRESHOLD:.1}%."));
+                reasons.push(format!(
+                    "- ICI Utilization (Read: {ici_read:.1}%, Write: {ici_write:.1}%) is >= \
+                        {ICI_THRESHOLD:.1}%."
+                ));
             }
             "NOT_HOST_BOUND"
         };

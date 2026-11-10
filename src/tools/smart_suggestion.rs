@@ -297,20 +297,58 @@ fn barrier_cores(data: &dyn ToolData) -> Data<String> {
     let percent = event_percent(data, SPECIAL_OP)?;
     let balance = match stragglers(data, SPECIAL_OP) {
         Ok(found) if !found.is_empty() => {
-            let list: String = found.iter().map(|straggler| format!("<li>Host <b>{}</b> average barrier-cores time fraction: <b>{}%</b></li>", straggler.hostname, one(straggler.percent))).collect();
-            format!("<li><b>Investigate Stragglers:</b> The following hosts are identified as potential stragglers with significantly different barrier time fraction compared to others:<ul>{list}</ul></li>")
+            let list: String = found
+                .iter()
+                .map(|straggler| {
+                    format!(
+                        "<li>Host <b>{}</b> average barrier-cores time fraction: <b>{}%</b></li>",
+                        straggler.hostname,
+                        one(straggler.percent)
+                    )
+                })
+                .collect();
+            format!(
+                "<li><b>Investigate Stragglers:</b> The following hosts are identified as \
+                    potential stragglers with significantly different barrier time fraction \
+                    compared to others:<ul>{list}</ul></li>"
+            )
         }
-        _ => "<li><b>Investigate Workload Balance:</b> Check for stragglers, i.e., workers that are significantly slower than others. Uneven workloads can cause faster workers to wait at the barrier.</li>".into(),
+        _ => "<li><b>Investigate Workload Balance:</b> Check for stragglers, i.e., workers that \
+            are significantly slower than others. Uneven workloads can cause faster workers to \
+            wait at the barrier.</li>"
+            .into(),
     };
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>TPU {SPECIAL_OP}</b> operations: <b> an average of {}% of each step time</b> is spent on these operations. This often indicates a synchronization issue between workers in a distributed training setup. Please consider the following optimizations:</p><ul>{balance}<li><b>Optimize Collective Operations:</b> Operations like AllReduce involve synchronization. Ensure they are used efficiently. Check the size of data being communicated.</li><li><b>Check Network:</b> Network latency or bandwidth can be a bottleneck for distributed operations, causing workers to wait longer at barriers.</li><li><b>Improve Data Input Pipeline:</b> Ensure your data loading and preprocessing pipeline is efficient and balanced across all workers. A slow input pipeline on one worker can stall all others.</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>TPU {SPECIAL_OP}</b> operations: <b> an \
+            average of {}% of each step time</b> is spent on these operations. This often \
+            indicates a synchronization issue between workers in a distributed training setup. \
+            Please consider the following optimizations:</p><ul>{balance}<li><b>Optimize \
+            Collective Operations:</b> Operations like AllReduce involve synchronization. Ensure \
+            they are used efficiently. Check the size of data being communicated.</li><li><b>Check \
+            Network:</b> Network latency or bandwidth can be a bottleneck for distributed \
+            operations, causing workers to wait longer at barriers.</li><li><b>Improve Data Input \
+            Pipeline:</b> Ensure your data loading and preprocessing pipeline is efficient and \
+            balanced across all workers. A slow input pipeline on one worker can stall all \
+            others.</li></ul>",
         one(percent)
     ))
 }
 
 fn collective_bound(data: &dyn ToolData) -> Data<String> {
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>Collective operations (e.g., AllReduce, AllGather)</b>. An average of <b>{}%</b> of each step is spent on these operations. This suggests that your model is collective communication-bound. Please consider the following optimizations:</p><ul><li><b>Overlap Communication with Computation:</b> Try to schedule collective operations to overlap with computation to hide communication latency.</li><li><b>Investigate Workload Balance and Input Pipeline:</b> Check for stragglers, i.e., workers that are significantly slower than others. Uneven workloads and data loading can cause faster workers to wait during collective operations.</li><li><b>Optimize Collective Operations:</b> Reduce the amount of data transferred between devices by using lower precision data formats for gradients (e.g., bfloat16).</li><li><b>Check Network:</b> Network latency or bandwidth can be a bottleneck for distributed operations, causing workers to wait longer during collectives.</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>Collective operations (e.g., AllReduce, \
+            AllGather)</b>. An average of <b>{}%</b> of each step is spent on these operations. \
+            This suggests that your model is collective communication-bound. Please consider the \
+            following optimizations:</p><ul><li><b>Overlap Communication with Computation:</b> Try \
+            to schedule collective operations to overlap with computation to hide communication \
+            latency.</li><li><b>Investigate Workload Balance and Input Pipeline:</b> Check for \
+            stragglers, i.e., workers that are significantly slower than others. Uneven workloads \
+            and data loading can cause faster workers to wait during collective \
+            operations.</li><li><b>Optimize Collective Operations:</b> Reduce the amount of data \
+            transferred between devices by using lower precision data formats for gradients (e.g., \
+            bfloat16).</li><li><b>Check Network:</b> Network latency or bandwidth can be a \
+            bottleneck for distributed operations, causing workers to wait longer during \
+            collectives.</li></ul>",
         one(collective_percent(data)?)
     ))
 }
@@ -318,7 +356,25 @@ fn collective_bound(data: &dyn ToolData) -> Data<String> {
 fn compute_bound(data: &dyn ToolData) -> Data<String> {
     let (hbm, mxu) = (hbm(data)?, mxu(data)?);
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>Compute Operations</b>: High MXU utilization of <b>{}%</b> and low HBM Bandwidth utilization of <b>{}%</b> indicates that the primary bottleneck is the raw processing power of the hardware. Please consider the following optimizations: </p><ul><li><b>Use Mixed Precision:</b> Using bfloat16 for computations and storing weights can significantly speed up matrix multiplications and reduce memory usage. Ensure that this does not negatively impact your model's convergence.</li><li><b>Optimize Your Kernels:</b> If you are using custom operations, profile them to identify any inefficiencies. For standard operations, ensure you are using the latest version of your framework and libraries (e.g., CUDA, cuDNN for GPUs) which often include optimized kernels.</li><li><b>Experiment with Batch Size:</b> While a large batch size can improve hardware utilization, an excessively large batch size might not always be optimal. Experiment with different batch sizes to find the sweet spot for your specific model and hardware.</li><li><b>Switching to a Mixture of Experts (MoE) Strategy:</b> Consider switching to a Mixture of Experts (MoE) architecture by replacing one massive FFN with several smaller expert networks to leverage SparseCores. The SparseCore handles the gating logic—deciding which specific expert should handle which token. It performs the routing (scatter/gather). It effectively trades excess Compute (MXU) load for Memory Bandwidth and Sparse Core utilization.</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>Compute Operations</b>: High MXU utilization \
+            of <b>{}%</b> and low HBM Bandwidth utilization of <b>{}%</b> indicates that the \
+            primary bottleneck is the raw processing power of the hardware. Please consider the \
+            following optimizations: </p><ul><li><b>Use Mixed Precision:</b> Using bfloat16 for \
+            computations and storing weights can significantly speed up matrix multiplications and \
+            reduce memory usage. Ensure that this does not negatively impact your model's \
+            convergence.</li><li><b>Optimize Your Kernels:</b> If you are using custom operations, \
+            profile them to identify any inefficiencies. For standard operations, ensure you are \
+            using the latest version of your framework and libraries (e.g., CUDA, cuDNN for GPUs) \
+            which often include optimized kernels.</li><li><b>Experiment with Batch Size:</b> \
+            While a large batch size can improve hardware utilization, an excessively large batch \
+            size might not always be optimal. Experiment with different batch sizes to find the \
+            sweet spot for your specific model and hardware.</li><li><b>Switching to a Mixture of \
+            Experts (MoE) Strategy:</b> Consider switching to a Mixture of Experts (MoE) \
+            architecture by replacing one massive FFN with several smaller expert networks to \
+            leverage SparseCores. The SparseCore handles the gating logic—deciding which specific \
+            expert should handle which token. It performs the routing (scatter/gather). It \
+            effectively trades excess Compute (MXU) load for Memory Bandwidth and Sparse Core \
+            utilization.</li></ul>",
         one(mxu),
         one(hbm)
     ))
@@ -326,7 +382,12 @@ fn compute_bound(data: &dyn ToolData) -> Data<String> {
 
 fn data_shuffle_bound(data: &dyn ToolData) -> Data<String> {
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>Data Shuffle operations (e.g., sort, gather, scatter)</b>. An average of <b>{}%</b> of each step is spent on these operations. Please consider the following optimizations:</p><ul><li><b>Optimize Gather, Scatter Operations:</b> If gather, scatter operations are the bottleneck, review their implementation. Ensure that the dimensions of tensors involved in gather and scatter operations are multiples of 128 (common for most TPUs).</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>Data Shuffle operations (e.g., sort, gather, \
+            scatter)</b>. An average of <b>{}%</b> of each step is spent on these operations. \
+            Please consider the following optimizations:</p><ul><li><b>Optimize Gather, Scatter \
+            Operations:</b> If gather, scatter operations are the bottleneck, review their \
+            implementation. Ensure that the dimensions of tensors involved in gather and scatter \
+            operations are multiples of 128 (common for most TPUs).</li></ul>",
         one(data_shuffle_percent(data)?)
     ))
 }
@@ -334,7 +395,13 @@ fn data_shuffle_bound(data: &dyn ToolData) -> Data<String> {
 fn data_transfer_bound(data: &dyn ToolData) -> Data<String> {
     let (input, enqueue) = (input_percent(data)?, percent_of_input(data, true)?);
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>data transfer</b> between Host and Device: <b>{}% of the total step time</b> is spent on enqueuing data to the device. Please consider the following optimizations:</p><ul><li><b>Combine small data chunks:</b> Transferring many small chunks of data can be inefficient. Try to batch them into fewer, larger transfers.</li><li><b>Check transfer size:</b> Ensure the size of data being transferred in each batch is optimal for the hardware.</li><li><b>Use prefetching:</b> Overlap data transfer with computation.</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>data transfer</b> between Host and Device: \
+            <b>{}% of the total step time</b> is spent on enqueuing data to the device. Please \
+            consider the following optimizations:</p><ul><li><b>Combine small data chunks:</b> \
+            Transferring many small chunks of data can be inefficient. Try to batch them into \
+            fewer, larger transfers.</li><li><b>Check transfer size:</b> Ensure the size of data \
+            being transferred in each batch is optimal for the hardware.</li><li><b>Use \
+            prefetching:</b> Overlap data transfer with computation.</li></ul>",
         one(input * enqueue / 100.0)
     ))
 }
@@ -357,7 +424,13 @@ fn debug_print(data: &dyn ToolData) -> Data<String> {
         })
         .collect();
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>{DEBUG_PRINT}</b> operations: <b> up to {}% of step time</b> is spent on these operations on some hosts. This often indicates the debug print operations causes busy waiting for other workers in a distributed training setup. Please consider the following optimizations:</p><ul><li><b>Investigate Hosts with High Debug Print Time:</b> The following hosts have high debug_print time fraction compared to others:<ul>{list}</ul></li><li><b>Check for debug print usage:</b> Check for <code>jax.debug.print</code> calls in your code.</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>{DEBUG_PRINT}</b> operations: <b> up to {}% \
+            of step time</b> is spent on these operations on some hosts. This often indicates the \
+            debug print operations causes busy waiting for other workers in a distributed training \
+            setup. Please consider the following optimizations:</p><ul><li><b>Investigate Hosts \
+            with High Debug Print Time:</b> The following hosts have high debug_print time \
+            fraction compared to others:<ul>{list}</ul></li><li><b>Check for debug print \
+            usage:</b> Check for <code>jax.debug.print</code> calls in your code.</li></ul>",
         one(max_percent)
     ))
 }
@@ -365,14 +438,25 @@ fn debug_print(data: &dyn ToolData) -> Data<String> {
 fn host_processing_bound(data: &dyn ToolData) -> Data<String> {
     let (input, other) = (input_percent(data)?, percent_of_input(data, false)?);
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>Host-side Processing</b> in the input pipeline: <b>{}% of the total step time</b> is spent on host-side input data processing. Please consider the following optimizations:</p><ul><li><b>Optimize Data Reading:</b> Ensure efficient file reading patterns. Use prefetching and interleaving to load data in parallel and in advance.</li><li><b>Parallelize Data Preprocessing:</b> Utilize parallel processing techniques for CPU-bound preprocessing steps.</li><li><b>Offline Preprocessing:</b> For static datasets, consider performing expensive preprocessing steps offline and saving the results.</li><li><b>Tuning Parameters:</b> Experiment with buffer sizes, the number of parallel threads, and prefetch distances in your input pipeline to find the best settings.</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>Host-side Processing</b> in the input \
+            pipeline: <b>{}% of the total step time</b> is spent on host-side input data \
+            processing. Please consider the following optimizations:</p><ul><li><b>Optimize Data \
+            Reading:</b> Ensure efficient file reading patterns. Use prefetching and interleaving \
+            to load data in parallel and in advance.</li><li><b>Parallelize Data \
+            Preprocessing:</b> Utilize parallel processing techniques for CPU-bound preprocessing \
+            steps.</li><li><b>Offline Preprocessing:</b> For static datasets, consider performing \
+            expensive preprocessing steps offline and saving the results.</li><li><b>Tuning \
+            Parameters:</b> Experiment with buffer sizes, the number of parallel threads, and \
+            prefetch distances in your input pipeline to find the best settings.</li></ul>",
         one(input * other / 100.0)
     ))
 }
 
 fn input_bound_text(data: &dyn ToolData) -> Data<String> {
     Ok(format!(
-        "<p>Your program is likely <b>input-bound</b> : <b>{}% of step time</b> is spent on input operations. Please consider the following documentations to optimize your input pipeline:</p><ul></ul>",
+        "<p>Your program is likely <b>input-bound</b> : <b>{}% of step time</b> is spent on input \
+            operations. Please consider the following documentations to optimize your input \
+            pipeline:</p><ul></ul>",
         one(input_percent(data)?)
     ))
 }
@@ -380,7 +464,22 @@ fn input_bound_text(data: &dyn ToolData) -> Data<String> {
 fn memory_bound(data: &dyn ToolData) -> Data<String> {
     let (hbm, mxu) = (hbm(data)?, mxu(data)?);
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>Memory Operations</b>: High HBM Bandwidth utilization of <b>{}%</b> and low MXU utilization of <b>{}%</b> indicates that processors are often waiting for data. Please consider the following optimizations:</p><ul><li><b>Increase the Batch Size:</b> A larger batch size increases the computational work (the matrix multiplications in your model) done for each data loading step. This improves the ratio of computation to memory access, which should directly increase MXU utilization.</li><li><b>Utilize Gradient Accumulation:</b> This technique processes several smaller batches sequentially and only updates the model weights after accumulating the gradients from all of them. This simulates a larger effective batch size without a proportional increase in memory usage.</li><li><b>Increase Model Depth or Width:</b> Make the model larger by adding more layers or increasing the size of the hidden dimensions to improve the MXU utilization.</li><li><b>Optimize the Data Format:</b> Store your dataset in a format optimized for high-throughput reads, such as TFRecord for TensorFlow or Petastorm for PyTorch. These formats are more efficient than reading individual image or text files.</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>Memory Operations</b>: High HBM Bandwidth \
+            utilization of <b>{}%</b> and low MXU utilization of <b>{}%</b> indicates that \
+            processors are often waiting for data. Please consider the following \
+            optimizations:</p><ul><li><b>Increase the Batch Size:</b> A larger batch size \
+            increases the computational work (the matrix multiplications in your model) done for \
+            each data loading step. This improves the ratio of computation to memory access, which \
+            should directly increase MXU utilization.</li><li><b>Utilize Gradient \
+            Accumulation:</b> This technique processes several smaller batches sequentially and \
+            only updates the model weights after accumulating the gradients from all of them. This \
+            simulates a larger effective batch size without a proportional increase in memory \
+            usage.</li><li><b>Increase Model Depth or Width:</b> Make the model larger by adding \
+            more layers or increasing the size of the hidden dimensions to improve the MXU \
+            utilization.</li><li><b>Optimize the Data Format:</b> Store your dataset in a format \
+            optimized for high-throughput reads, such as TFRecord for TensorFlow or Petastorm for \
+            PyTorch. These formats are more efficient than reading individual image or text \
+            files.</li></ul>",
         one(hbm),
         one(mxu)
     ))
@@ -388,14 +487,35 @@ fn memory_bound(data: &dyn ToolData) -> Data<String> {
 
 fn tensor_core_idle_bound(data: &dyn ToolData) -> Data<String> {
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>TensorCore Idle Time</b>: High TensorCore idle time percentage of <b>{}%</b> indicates that TensorCores are spending a significant amount of time waiting, not working. Please consider the following optimizations: </p><ul><li><b>Reduce Kernel Launch Overhead:</b> Batch small operations into larger ones to reduce the number of kernel launches.</li><li><b>Minimize Python Overhead:</b> Enclose more operations within compiled graphs or functions to reduce Python interpreter overhead between steps.</li><li><b>Avoid Small CPU Ops:</b> Shift small, frequent operations from the CPU to the device if possible.</li><li><b>Use Asynchronous Operations:</b> Employ asynchronous execution for tasks like checkpointing or metric logging to prevent blocking device execution.</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>TensorCore Idle Time</b>: High TensorCore \
+            idle time percentage of <b>{}%</b> indicates that TensorCores are spending a \
+            significant amount of time waiting, not working. Please consider the following \
+            optimizations: </p><ul><li><b>Reduce Kernel Launch Overhead:</b> Batch small \
+            operations into larger ones to reduce the number of kernel \
+            launches.</li><li><b>Minimize Python Overhead:</b> Enclose more operations within \
+            compiled graphs or functions to reduce Python interpreter overhead between \
+            steps.</li><li><b>Avoid Small CPU Ops:</b> Shift small, frequent operations from the \
+            CPU to the device if possible.</li><li><b>Use Asynchronous Operations:</b> Employ \
+            asynchronous execution for tasks like checkpointing or metric logging to prevent \
+            blocking device execution.</li></ul>",
         one(tpu_percent(data, false)?)
     ))
 }
 
 fn sparse_core_bound(data: &dyn ToolData) -> Data<String> {
     Ok(format!(
-        "<p>Your program is likely bottlenecked by <b>SparseCore Operations</b> in the TPU: <b>{}% of the total step time </b> is spent on SparseCore. Please consider the following optimizations: </p><ul><li><b>Refine Sparse Data Representation:</b> Ensure your sparse tensors are in the most performant format for your hardware (e.g., CSR/CSC if suitable). Pre-process data to improve memory access patterns on the SparseCore, like sorting indices or grouping related features.</li><li><b>Streamline Embedding Tables:</b> For large embedding tables, consider quantization (reducing precision like int8) or pruning to significantly cut down their memory footprint and processing load on the SparseCore.</li><li><b>Utilize Framework-Specific Sparse APIs:</b> Employ specialized APIs designed for sparse operations on your platform (e.g., tf.tpu.experimental.embedding.TPU Embedding for TensorFlow/TPU). These are highly optimized for direct SparseCore interaction.</li></ul>",
+        "<p>Your program is likely bottlenecked by <b>SparseCore Operations</b> in the TPU: <b>{}% \
+            of the total step time </b> is spent on SparseCore. Please consider the following \
+            optimizations: </p><ul><li><b>Refine Sparse Data Representation:</b> Ensure your \
+            sparse tensors are in the most performant format for your hardware (e.g., CSR/CSC if \
+            suitable). Pre-process data to improve memory access patterns on the SparseCore, like \
+            sorting indices or grouping related features.</li><li><b>Streamline Embedding \
+            Tables:</b> For large embedding tables, consider quantization (reducing precision like \
+            int8) or pruning to significantly cut down their memory footprint and processing load \
+            on the SparseCore.</li><li><b>Utilize Framework-Specific Sparse APIs:</b> Employ \
+            specialized APIs designed for sparse operations on your platform (e.g., \
+            tf.tpu.experimental.embedding.TPU Embedding for TensorFlow/TPU). These are highly \
+            optimized for direct SparseCore interaction.</li></ul>",
         one(tpu_percent(data, true)?)
     ))
 }
@@ -403,7 +523,23 @@ fn sparse_core_bound(data: &dyn ToolData) -> Data<String> {
 fn sparse_core_offload(data: &dyn ToolData) -> Data<String> {
     let (async_done, memory) = (async_done_percent(data)?, peak_memory_percent(data)?);
     Ok(format!(
-        "<p>While your program is offloading work to the SparseCore, it isn't being effectively overlapped with TensorCore work due to the compiler predicting the offloaded work taking less time than it actually does. <b>{}%</b> of time is spent on async-done operations with low memory utilization of <b>{}%</b>. This means the TensorCore is waiting on the offloaded SparseCore operation to complete. Consider increasing the values of the following flags to improve how efficiently SparseCore operations are overlapped with TensorCore operations by the compiler:</p><ul><li><b>xla_tpu_sparse_core_all_gather_latency_multiplier</b>: Cost model scaling factor for SparseCore offloaded all-gather. 1.0 (schedule using XLA cost model) / 0.0 (synchronous scheduling) / inf (schedule on data dependencies).</li><li><b>xla_tpu_sparse_core_all_reduce_latency_multiplier</b>: Cost model scaling factor for SparseCore offloaded all-reduce.</li><li><b>xla_tpu_sparse_core_reduce_scatter_latency_multiplier</b>: Cost model scaling factor for SparseCore offloaded reduce-scatter.</li><li><b>Note:</b> Increasing these values will likely increase the memory usage of your program due to holding intermediate results from SparseCore longer before the TensorCore resumes operations on them.</li></ul>",
+        "<p>While your program is offloading work to the SparseCore, it isn't being effectively \
+            overlapped with TensorCore work due to the compiler predicting the offloaded work \
+            taking less time than it actually does. <b>{}%</b> of time is spent on async-done \
+            operations with low memory utilization of <b>{}%</b>. This means the TensorCore is \
+            waiting on the offloaded SparseCore operation to complete. Consider increasing the \
+            values of the following flags to improve how efficiently SparseCore operations are \
+            overlapped with TensorCore operations by the \
+            compiler:</p><ul><li><b>xla_tpu_sparse_core_all_gather_latency_multiplier</b>: Cost \
+            model scaling factor for SparseCore offloaded all-gather. 1.0 (schedule using XLA cost \
+            model) / 0.0 (synchronous scheduling) / inf (schedule on data \
+            dependencies).</li><li><b>xla_tpu_sparse_core_all_reduce_latency_multiplier</b>: Cost \
+            model scaling factor for SparseCore offloaded \
+            all-reduce.</li><li><b>xla_tpu_sparse_core_reduce_scatter_latency_multiplier</b>: Cost \
+            model scaling factor for SparseCore offloaded reduce-scatter.</li><li><b>Note:</b> \
+            Increasing these values will likely increase the memory usage of your program due to \
+            holding intermediate results from SparseCore longer before the TensorCore resumes \
+            operations on them.</li></ul>",
         one(async_done),
         one(memory)
     ))
