@@ -155,6 +155,12 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
         assert_eq!(again.0, StatusCode::OK, "{}", again.2);
         assert!(!std::sync::Arc::ptr_eq(&first, state.staging.lock().unwrap().values().next().unwrap()));
         assert_eq!(crate::tests::legacy::fetch(&state, &data).await.0, StatusCode::OK);
+        // The use of a staged session sets the time of its cached directory, so the eviction of the cache sees the use.
+        let session = std::path::Path::new(&profile).join("s");
+        let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+        std::fs::File::open(&session).unwrap().set_modified(long_ago).unwrap();
+        assert_eq!(crate::tests::legacy::fetch(&state, &data).await.0, StatusCode::OK);
+        assert!(std::fs::metadata(&session).unwrap().modified().unwrap() > long_ago + std::time::Duration::from_secs(300));
         let stage_mirror = state.staging.lock().unwrap().values().next().unwrap().remote.mirror.clone();
         std::fs::remove_dir_all(stage_mirror).unwrap();
         std::fs::remove_dir_all(root).unwrap();
@@ -166,7 +172,17 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
     assert_eq!(crate::tests::legacy::fetch(&restricted, "/open?uri=file%3A%2F%2Ftmp%2Fprofile").await.0, StatusCode::FORBIDDEN);
     assert_eq!(crate::tests::legacy::fetch(&restricted, "/open").await.0, StatusCode::BAD_REQUEST);
     let public = state(&Settings { open_uri_pattern: Some("file:///store/pub/.*".into()), ..Default::default() });
-    for uri in ["file:///store/pub/../secret", "file:///store/pub/%2e%2e/secret", "file:///store/pub/./run", "file:///store/pub/a\tb"] {
+    for uri in [
+        "file:///store/pub/../secret",
+        "file:///store/pub/%2e%2e/secret",
+        "file:///store/pub/./run",
+        "file:///store/pub/a\tb",
+        "file:///store/secret?/pub/run",
+        "file:///store/secret#/pub/run",
+        "file:///store/pub/a%2Fb",
+        "file:///store/pub/a\\b",
+        "file://user@host/store/pub/run",
+    ] {
         let query: String = url::form_urlencoded::byte_serialize(uri.as_bytes()).collect();
         for route in ["open", "progress"] {
             let reply = crate::tests::legacy::fetch(&public, &format!("/{route}?uri={query}")).await;

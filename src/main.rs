@@ -749,6 +749,16 @@ fn session_map(state: &State_, params: &Params) -> Result<Option<Sessions>, Fail
 }
 
 fn session(state: &State_, params: &Params) -> Result<PathBuf, Failure> {
+    let dir = session_dir(state, params)?;
+    // The time of a cached directory is the time of its last use, which the eviction of the cache reads. The sync of a remote
+    // log directory sets it; a session that `/open` staged has no such sync.
+    if state.staged.lock().expect("lock poisoned").keys().any(|profile| dir.starts_with(profile)) {
+        _ = std::fs::File::open(&dir).and_then(|handle| handle.set_modified(SystemTime::now()));
+    }
+    Ok(dir)
+}
+
+fn session_dir(state: &State_, params: &Params) -> Result<PathBuf, Failure> {
     let run = params.get("run");
     if let Some(map) = session_map(state, params)? {
         return map.iter().find(|(name, _, _)| Some(name) == run).map(|(_, dir, _)| dir.clone()).ok_or_else(|| {
@@ -1570,13 +1580,30 @@ async fn capture_profile(State(state): State<Shared>, Query(params): Query<Param
 
 /// The URI of an `/open` or `/progress` request without its last `/`, when the server may stage it.
 ///
-/// The pattern of `--open_uri_pattern` must match the URI as the object store reads it. A URL parser removes dot segments and
-/// decodes `%2e`, so `…/pub/../secret` names `…/secret`. Thus the URI must be in the form that the parser gives.
+/// The pattern of `--open_uri_pattern` must match the URI as the object store reads it, so the URI must be the scheme, the
+/// host and a plain path, and nothing else:
+/// - A URL parser removes dot segments, so `…/pub/../secret` names `…/secret`. The URI must be in the form the parser gives.
+/// - The store reads only the path, so a query or a fragment could hold the part that the pattern wants (`…/secret?/pub/x`).
+/// - The store decodes `%XX`, so `a%2Fb` names `a/b`, which `[^/]+` in a pattern does not expect.
+/// - User information names another host than the one a reader of the pattern sees (`gs://allowed@other/…`).
 fn allowed_uri<'a>(state: &State_, uri: &'a str) -> Option<&'a str> {
     let uri = uri.trim_end_matches('/');
     let parsed = url::Url::parse(uri).ok()?;
-    let allowed = state.open_uri_pattern.as_ref().is_some_and(|pattern| pattern.is_match(uri));
-    (allowed && parsed.as_str().trim_end_matches('/') == uri).then_some(uri)
+    let plain = parsed.query().is_none()
+        && parsed.fragment().is_none()
+        && parsed.username().is_empty()
+        && parsed.password().is_none()
+        && parsed.port().is_none()
+        && !uri.contains(['%', '\\'])
+        && parsed.as_str().trim_end_matches('/') == uri;
+    (plain && state.open_uri_pattern.as_ref().is_some_and(|pattern| pattern.is_match(uri))).then_some(uri)
+}
+
+/// The local profile of a staging when the server already serves it. A new staging of the same URI then runs behind it: the
+/// request does not wait for the store, and an error of the store does not take the profile away.
+fn served_profile(state: &State_, entry: &Staging) -> Option<PathBuf> {
+    let profile = entry.remote.mirror.join("plugins/profile").canonicalize().ok()?;
+    state.staged.lock().expect("lock poisoned").contains_key(&profile).then_some(profile)
 }
 
 fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
@@ -1649,7 +1676,7 @@ async fn open(State(state): State<Shared>, method: Method, Query(params): Query<
             return response(StatusCode::BAD_GATEWAY, "text/plain", format!("profile staging failed: {error}\n"));
         }
     };
-    let result = entry.outcome();
+    let result = served_profile(&state, &entry).map(Ok).or_else(|| entry.outcome());
     match result {
         None => response(StatusCode::ACCEPTED, "text/html; charset=utf-8", loading_page(uri, tool)),
         Some(Ok(profile)) => {
@@ -1681,7 +1708,7 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
             return response(StatusCode::FORBIDDEN, "application/json", serde_json::json!({"error":error}).to_string());
         }
     };
-    let result = entry.outcome();
+    let result = served_profile(&state, &entry).map(Ok).or_else(|| entry.outcome());
     match result {
         Some(Err(error)) => {
             remove_staging(&state, uri, &entry);

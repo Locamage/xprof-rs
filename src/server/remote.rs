@@ -60,15 +60,13 @@ impl Drop for Partial {
 /// cache directory. It ends when the file closes.
 fn lock_dir(dir: &Path, wait: bool) -> std::io::Result<Option<std::fs::File>> {
     let handle = std::fs::File::open(dir)?;
+    // A file system that cannot lock a directory (NFS) gives an error. The caller then works without the lock, as it does
+    // when it is the only process.
     if wait {
-        handle.lock()?;
+        _ = handle.lock();
         return Ok(Some(handle));
     }
-    match handle.try_lock() {
-        Ok(()) => Ok(Some(handle)),
-        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
-        Err(std::fs::TryLockError::Error(error)) => Err(error),
-    }
+    Ok(if let Err(std::fs::TryLockError::WouldBlock) = handle.try_lock() { None } else { Some(handle) })
 }
 
 #[derive(Debug)]
@@ -112,10 +110,11 @@ impl Remote {
         let temp_dir = std::env::temp_dir;
         #[cfg(test)]
         let temp_dir = crate::tests::temp_dir;
-        let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}")).join(&root_path);
-        let depth = root_path.components().count();
-        let mirror = crate::private_dir(&mirror).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
-        let cache = mirror.ancestors().nth(depth).unwrap_or(&mirror).to_path_buf();
+        let private =
+            |dir: PathBuf| crate::private_dir(&dir).map_err(|error| format!("Cannot create the mirror {}: {error}", dir.display()));
+        // The eviction removes files under `cache`, so `cache` must be a directory of this user, not only the mirror in it.
+        let cache = private(std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}")))?;
+        let mirror = private(cache.join(root_path))?;
         let budget: u64 = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
         Ok(Self {
             url: url.to_string(),
