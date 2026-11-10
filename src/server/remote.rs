@@ -54,10 +54,30 @@ impl Drop for Partial {
     }
 }
 
+/// Takes the lock of a cached directory, or gives `None` when `wait` is false and another holder has it.
+///
+/// The lock is of the operating system, so it also holds between processes and between the remotes of one process that share a
+/// cache directory. It ends when the file closes.
+fn lock_dir(dir: &Path, wait: bool) -> std::io::Result<Option<std::fs::File>> {
+    let handle = std::fs::File::open(dir)?;
+    if wait {
+        handle.lock()?;
+        return Ok(Some(handle));
+    }
+    match handle.try_lock() {
+        Ok(()) => Ok(Some(handle)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(error)) => Err(error),
+    }
+}
+
 #[derive(Debug)]
 pub struct Remote {
     pub url: String,
     pub mirror: PathBuf,
+    /// The directory of the store (scheme and host) in the cache. The mirrors of all the log directories of the store are in
+    /// it, and the budget is for all of them.
+    pub cache: PathBuf,
     pub budget: u64,
     pub used: Mutex<HashMap<PathBuf, Instant>>,
     pub downloaded_bytes: AtomicU64,
@@ -92,12 +112,15 @@ impl Remote {
         let temp_dir = std::env::temp_dir;
         #[cfg(test)]
         let temp_dir = crate::tests::temp_dir;
-        let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}")).join(root_path);
+        let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}")).join(&root_path);
+        let depth = root_path.components().count();
         let mirror = crate::private_dir(&mirror).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
+        let cache = mirror.ancestors().nth(depth).unwrap_or(&mirror).to_path_buf();
         let budget: u64 = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
         Ok(Self {
             url: url.to_string(),
             mirror,
+            cache,
             budget,
             used: Mutex::default(),
             downloaded_bytes: AtomicU64::default(),
@@ -127,6 +150,8 @@ impl Remote {
         };
         if touch {
             self.used.lock().expect("lock poisoned").insert(dir.to_path_buf(), Instant::now());
+            // The time of the directory is the time of its last use, for the eviction of every remote and process.
+            _ = std::fs::File::open(dir).and_then(|handle| handle.set_modified(SystemTime::now()));
         }
         let unlock = Unlock {
             locks: &self.locks,
@@ -187,9 +212,17 @@ impl Remote {
                 }
             }
             wanted.retain(|(path, object)| !unchanged(path, object));
-            if !wanted.is_empty() {
+            // Another remote or process can sync this directory at the same time. They take turns, and the second finds the
+            // files of the first.
+            let _turn = if wanted.is_empty() {
+                None
+            } else {
                 std::fs::create_dir_all(dir).map_err(unwritable)?;
-            }
+                let locked = dir.to_path_buf();
+                let turn = blocking(move || lock_dir(&locked, true)).await.map_err(unwritable)?;
+                wanted.retain(|(path, object)| !unchanged(path, object));
+                turn
+            };
             let fetch = async |path: PathBuf, object: ObjectMeta| {
                 let partial = Partial(path.with_file_name(format!(".{}.partial", object.location.filename().unwrap_or_default())));
                 let file = Arc::new(
@@ -226,26 +259,28 @@ impl Remote {
                 .buffer_unordered(PARALLEL_FILES)
                 .try_collect::<Vec<()>>()
                 .await?;
-            let used = self.used.lock().expect("lock poisoned").clone();
             let is_file = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_file());
-            let mut held: Vec<_> = sessions(&self.mirror)
+            let mut held: Vec<_> = sessions(&self.cache)
                 .into_iter()
                 .map(|(_, session)| {
                     let files: Vec<(u64, PathBuf)> =
                         list(&session, is_file).into_iter().filter_map(|file| Some((file.metadata().ok()?.len(), file))).collect();
-                    (used.get(&session).copied(), session, files)
+                    (std::fs::metadata(&session).and_then(|meta| meta.modified()).ok(), session, files)
                 })
                 .collect();
             let mut total: u64 = held.iter().flat_map(|(_, _, files)| files).map(|(len, _)| len).sum();
             held.sort_by_key(|(at, _, _)| *at);
+            let idle = |at: &Option<SystemTime>| at.is_none_or(|at| at.elapsed().is_ok_and(|age| age >= IN_USE));
             // A session with a lock has a sync that can still write its files.
             let busy = |session: &PathBuf| self.locks.lock().expect("lock poisoned").contains_key(session);
-            for (_, session, files) in
-                held.into_iter().filter(|(at, session, _)| session != dir && at.is_none_or(|at| at.elapsed() >= IN_USE) && !busy(session))
-            {
+            for (_, session, files) in held.into_iter().filter(|(at, session, _)| session != dir && idle(at) && !busy(session)) {
                 if total <= self.budget {
                     break;
                 }
+                // The sync of another remote or process holds the lock of the session while it writes.
+                let Ok(Some(_turn)) = lock_dir(&session, false) else {
+                    continue;
+                };
                 for (len, file) in files {
                     total -= if std::fs::remove_file(file).is_ok() { len } else { 0 };
                 }
