@@ -107,6 +107,8 @@ pub fn general(value: f64, precision: usize) -> String {
         return if value.is_sign_negative() { "-nan" } else { "nan" }.into();
     }
     let mut buffer = [0u8; 64];
+    // SAFETY: `snprintf` writes at most `buffer.len()` bytes, the format is a C string, and the arguments are an `int` and
+    // a `double`, as `%.*g` reads.
     let length = unsafe { libc::snprintf(buffer.as_mut_ptr().cast(), buffer.len(), c"%.*g".as_ptr(), precision as libc::c_int, value) };
     String::from_utf8_lossy(&buffer[..length as usize]).into_owned()
 }

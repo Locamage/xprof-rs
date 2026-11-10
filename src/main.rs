@@ -45,6 +45,7 @@ use xplane::Plane;
 /// The physical memory, which sizes the caches and the number of loads at once. A load needs about
 /// four to six times the size of its file.
 static MEMORY: LazyLock<u64> = LazyLock::new(|| {
+    // SAFETY: `sysconf` only reads a value of the system.
     let (pages, size) = unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES), libc::sysconf(libc::_SC_PAGESIZE)) };
     (pages.max(0) as u64).saturating_mul(size.max(0) as u64)
 });
@@ -340,6 +341,7 @@ fn private_dir(dir: &Path) -> std::io::Result<PathBuf> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     let meta = std::fs::symlink_metadata(dir)?;
+    // SAFETY: `getuid` has no preconditions.
     if !meta.is_dir() || meta.uid() != unsafe { libc::getuid() } {
         return Err(std::io::Error::other("another user owns this directory"));
     }
@@ -352,13 +354,16 @@ fn private_dir(dir: &Path) -> std::io::Result<PathBuf> {
 /// A FUSE mount of a store (rclone mount, gcsfuse) reads fast only in order. On rclone, 4 parallel
 /// reads give 1 MB/s.
 fn on_fuse(file: &std::fs::File) -> bool {
+    // SAFETY: `statfs` is a plain C struct, for which all zero bytes are a valid value.
     let mut info: libc::statfs = unsafe { std::mem::zeroed() };
+    // SAFETY: the descriptor is of the open `file`, and `info` is a `statfs` that the call can write.
     if unsafe { libc::fstatfs(std::os::fd::AsRawFd::as_raw_fd(file), &raw mut info) } != 0 {
         return false;
     }
     #[cfg(target_os = "linux")]
     return info.f_type == libc::FUSE_SUPER_MAGIC;
     #[cfg(target_os = "macos")]
+    // SAFETY: the system fills `f_fstypename` with a string that ends with a NUL in the array.
     return matches!(unsafe { std::ffi::CStr::from_ptr(info.f_fstypename.as_ptr()) }.to_bytes(), b"macfuse" | b"osxfuse");
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     false
@@ -405,6 +410,7 @@ fn swap(partial: &Path, path: &Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let name = |path: &Path| std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(std::io::Error::other);
     let (from, to) = (name(partial)?, name(path)?);
+    // SAFETY: `from` and `to` are C strings that live to the end of the call.
     if unsafe { libc::renameat2(libc::AT_FDCWD, from.as_ptr(), libc::AT_FDCWD, to.as_ptr(), libc::RENAME_EXCHANGE) } == 0 {
         return std::fs::remove_file(partial);
     }
@@ -481,6 +487,8 @@ fn concat(pieces: &[&[u8]]) -> Vec<u8> {
     targets.into_par_iter().zip(pieces).for_each(|(target, piece)| {
         target.write_copy_of_slice(piece);
     });
+    // SAFETY: the capacity is `total` bytes, and the loop above wrote each of them: the targets are the parts of the spare
+    // capacity, one for each piece.
     unsafe { out.set_len(total) };
     out
 }
@@ -488,6 +496,7 @@ fn concat(pieces: &[&[u8]]) -> Vec<u8> {
 fn release(garbage: impl Send + 'static) {
     std::thread::spawn(move || {
         drop(garbage);
+        // SAFETY: `mi_collect` can run on any thread at any time.
         unsafe { libmimalloc_sys::mi_collect(true) };
     });
 }
@@ -515,6 +524,7 @@ fn huge_vec<T>(capacity: usize) -> Vec<T> {
 fn discard<T>(items: Vec<T>) {
     #[cfg(target_os = "linux")]
     if items.capacity() * std::mem::size_of::<T>() >= DISCARD_BYTES {
+        // SAFETY: `sysconf` only reads a value of the system.
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
         let (start, end) = (
             items.as_ptr().addr().next_multiple_of(page),
@@ -1826,14 +1836,17 @@ fn top_help() -> String {
 fn main() -> anyhow::Result<()> {
     let threads = std::thread::available_parallelism().map_or(1, usize::from).min(MAX_THREADS);
     rayon::ThreadPoolBuilder::new().num_threads(threads).build_global()?;
+    // SAFETY: an option of the allocator can be read and set at any time.
     let purge_delay = unsafe { libmimalloc_sys::mi_option_get(PURGE_DELAY) };
     // A command exits right after its output. To give freed memory back to the system before the
     // exit only costs time.
+    // SAFETY: an option of the allocator can be read and set at any time.
     unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, -1) };
     let argv: Vec<String> = std::env::args_os().skip(1).map(|argument| argument.to_string_lossy().into_owned()).collect();
     if let Some(code) = cli::run(&argv) {
         std::process::exit(code);
     }
+    // SAFETY: an option of the allocator can be read and set at any time.
     unsafe { libmimalloc_sys::mi_option_set(PURGE_DELAY, purge_delay) };
     if argv.iter().any(|argument| argument == "--help" || argument == "-h") {
         print!("{}", top_help());

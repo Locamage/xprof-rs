@@ -118,7 +118,9 @@ fn unix_ns() -> u64 {
 
 fn timestamp() -> String {
     let seconds = unix_ns() as i64 / 1_000_000_000;
+    // SAFETY: `tm` is a plain C struct, for which all zero bytes are a valid value.
     let mut local: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: `seconds` is a valid time to read, and `local` is a `tm` that the call can write.
     unsafe { libc::localtime_r(&raw const seconds, &raw mut local) };
     format!(
         "{:04}_{:02}_{:02}_{:02}_{:02}_{:02}",

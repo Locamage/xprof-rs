@@ -297,11 +297,16 @@ async fn read_static_file_with_xprof_static_dir_success_and_fallbacks() {
     std::os::unix::fs::symlink(sibling.join("secret.txt"), statics.join("styles.css")).unwrap();
     let state = plugin(&logdir);
     let embedded = fetch(&state, "/bundle.js").await.2;
+    // SAFETY: only this test changes the environment, and the tests that read this variable wait for `STATIC_DIR_ENV`. A test
+    // on another thread can read another variable at the same time, which the tests accept. The same holds for the two
+    // changes below.
     unsafe { std::env::set_var("XPROF_STATIC_DIR", &statics) };
     let served = fetch(&state, "/bundle.js").await;
     let traversal = fetch(&state, "/styles.css").await;
+    // SAFETY: see the first change of the variable in this test.
     unsafe { std::env::set_var("XPROF_STATIC_DIR", logdir.join("does_not_exist")) };
     let missing_dir = fetch(&state, "/bundle.js").await;
+    // SAFETY: see the first change of the variable in this test.
     unsafe { std::env::remove_var("XPROF_STATIC_DIR") };
     assert_eq!((served.0, served.2.as_str()), (StatusCode::OK, "console.log(\"xprof\");"));
     assert_eq!((traversal.0, traversal.2.as_str()), (StatusCode::NOT_FOUND, "Fail to read the files."));

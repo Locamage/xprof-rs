@@ -406,6 +406,7 @@ impl<T> Slots<T> {
     /// # Safety
     /// Only one thread writes to `index`, and `index` is in the allocation.
     unsafe fn write(&self, index: usize, value: T) {
+        // SAFETY: the caller keeps the contract of this function.
         unsafe { self.0.add(index).write(MaybeUninit::new(value)) };
     }
 }

@@ -91,6 +91,7 @@ strip = false
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"
 use_self = "warn"
 assert_is_empty = "allow"
 cast_lossless = "allow"

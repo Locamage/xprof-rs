@@ -114,6 +114,7 @@ pub fn cache_path(dir: &Path) -> PathBuf {
         return dir.join(CACHE_FILE);
     }
     let key: String = Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>()[..16].to_string();
+    // SAFETY: `getuid` has no preconditions.
     let Ok(folder) = crate::private_dir(&crate::cli::client::temp_dir().join(format!("xprof_{}", unsafe { libc::getuid() }))) else {
         return dir.join(CACHE_FILE);
     };
