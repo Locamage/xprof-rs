@@ -933,11 +933,8 @@ async fn latest(
     if !client::traces(dir).is_empty() {
         return Ok(Some(dir.to_path_buf()));
     }
-    let profile = dir.join("plugins/profile");
-    remote.sync(&profile, false).await?;
-    let mut sessions = crate::subdirs(&profile);
-    sessions.sort();
-    if let Some(session) = sessions.pop() {
+    remote.sync(&dir.join("plugins/profile"), false).await?;
+    if let Some(session) = client::latest_run(dir) {
         remote.sync(&session, true).await?;
         if !client::traces(&session).is_empty() {
             return Ok(Some(session));

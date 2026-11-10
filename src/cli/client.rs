@@ -212,7 +212,8 @@ pub fn temp_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
-fn latest_run(dir: &Path) -> Option<PathBuf> {
+/// The last session of `dir/plugins/profile` in name order.
+pub(super) fn latest_run(dir: &Path) -> Option<PathBuf> {
     let mut runs = crate::subdirs(&dir.join("plugins/profile"));
     runs.sort();
     runs.pop()

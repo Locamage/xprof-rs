@@ -602,6 +602,11 @@ fn xplanes(dir: &Path) -> Vec<PathBuf> {
     list(dir, |entry| entry.file_name().to_string_lossy().ends_with(".xplane.pb"))
 }
 
+/// Whether the entry is a directory itself, not a link to one.
+fn unlinked_dir(entry: &std::fs::DirEntry) -> bool {
+    entry.file_type().is_ok_and(|kind| kind.is_dir())
+}
+
 fn subdirs(dir: &Path) -> Vec<PathBuf> {
     list(dir, |entry| entry.path().is_dir())
 }
@@ -610,10 +615,9 @@ fn sessions(logdir: &Path) -> Vec<(String, PathBuf)> {
     if logdir.as_os_str().is_empty() {
         return Vec::new();
     }
-    let is_dir = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_dir());
     let (mut found, mut pending) = (Vec::new(), vec![(logdir.to_path_buf(), String::new())]);
     while let Some((dir, prefix)) = pending.pop() {
-        found.extend(list(&dir.join("plugins/profile"), is_dir).into_iter().map(|session| {
+        found.extend(list(&dir.join("plugins/profile"), unlinked_dir).into_iter().map(|session| {
             (
                 format!(
                     "{prefix}{}",
@@ -623,7 +627,7 @@ fn sessions(logdir: &Path) -> Vec<(String, PathBuf)> {
             )
         }));
         pending.extend(
-            list(&dir, is_dir)
+            list(&dir, unlinked_dir)
                 .into_iter()
                 .filter(|child| child.file_name().is_some_and(|name| name != "plugins"))
                 .map(|child| {
@@ -820,7 +824,6 @@ fn run_dir(state: &State_, run: &str) -> Option<PathBuf> {
 }
 
 fn session_map(state: &State_, params: &Params) -> Result<Option<Sessions>, Failure> {
-    let is_dir = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_dir());
     let name = |dir: &Path| dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
     if let Some(path) = params.get("session_path").filter(|path| !path.is_empty()) {
         let dir = confine(state, &state.logdir.join(path)).ok_or_else(outside)?;
@@ -835,7 +838,7 @@ fn session_map(state: &State_, params: &Params) -> Result<Option<Sessions>, Fail
     };
     let dir = confine(state, &state.logdir.join(path)).ok_or_else(outside)?;
     Ok(Some(
-        list(&dir, is_dir)
+        list(&dir, unlinked_dir)
             .into_iter()
             .filter(|session| !xplanes(session).is_empty())
             .map(|session| {
