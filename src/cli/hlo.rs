@@ -549,23 +549,19 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
             }
         },
     };
-    let failed = |error| {
-        rethrow(error, |error| {
-            format!("Failed to get peak allocations for session {session}: {}", error.message)
-        })
-    };
+    let failed = rethrow(format!("Failed to get peak allocations for session {session}: "));
     let mut modules = Vec::new();
     for name in &names {
         let mut params = vec![("format", "json".to_string()), ("module_name", name.clone())];
         params.extend(args.flag("bypass_cache", false).then(|| bypass(true)));
-        let data = client.fetch_text("memory_viewer.json", &session, &params).map_err(failed)?;
+        let data = client.fetch_text("memory_viewer.json", &session, &params).map_err(&failed)?;
         let Some(parsed) = data.and_then(|data| J::parse(&data)) else {
             continue;
         };
         modules.push((
             name.clone(),
             parsed.get("totalBufferAllocationMib").cloned().unwrap_or(J::Int(0)),
-            buffers(&parsed, &min_size, aggregate, &threshold).map_err(failed)?,
+            buffers(&parsed, &min_size, aggregate, &threshold).map_err(&failed)?,
         ));
     }
     let total = modules.len();

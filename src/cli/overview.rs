@@ -1,6 +1,6 @@
 use super::client::Client;
 use super::json::{J, py_repr};
-use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, round};
+use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, rethrow_with, round};
 use crate::obj;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -218,9 +218,7 @@ pub fn overview(
         }
         Ok(obj! {"performance_summary" => summary, "run_environment" => run})
     };
-    compute().map_err(|error| {
-        rethrow(error, |error| format!("Error fetching overview data: {}", error.message))
-    })
+    compute().map_err(rethrow("Error fetching overview data: "))
 }
 
 pub fn get_overview(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -395,10 +393,8 @@ pub fn get_memory_profile(client: &dyn Client, args: &Args) -> Result<Out, Error
 
 pub fn get_kpi_metrics(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
-    let overview =
-        overview(client, &session, false, args.flag("bypass_cache", false)).map_err(|error| {
-            rethrow(error, |error| format!("Error in get_overview: {}", error.message))
-        })?;
+    let overview = overview(client, &session, false, args.flag("bypass_cache", false))
+        .map_err(rethrow("Error in get_overview: "))?;
     let memory = memory_profile(client, &session, args.flag("bypass_cache", false))
         .unwrap_or_else(|_| obj! {"peak_memory_usage_gib" => "N/A"});
     let pick = |section: &J, key: &str| section.get(key).cloned().unwrap_or_else(|| J::from("N/A"));
@@ -475,7 +471,7 @@ pub fn get_device_information(client: &dyn Client, args: &Args) -> Result<Out, E
     };
     Ok(compute()
         .map_err(|error| {
-            rethrow(error, |error| {
+            rethrow_with(error, |error| {
                 format!("Error fetching device information for session {session}: {}", error.repr())
             })
         })?
@@ -485,7 +481,7 @@ pub fn get_device_information(client: &dyn Client, args: &Args) -> Result<Out, E
 pub fn get_hosts(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let hosts = client.hosts(&session).map_err(|error| {
-        rethrow(error, |error| {
+        rethrow_with(error, |error| {
             format!("Error fetching hosts for session {session}: {}", error.repr())
         })
     })?;
@@ -635,7 +631,7 @@ pub fn get_roofline_model(client: &dyn Client, args: &Args) -> Result<Out, Error
     };
     Ok(compute()
         .map_err(|error| {
-            rethrow(error, |error| {
+            rethrow_with(error, |error| {
                 if error.message.is_empty() {
                     format!("Error fetching roofline model: {}", error.name())
                 } else {
@@ -833,7 +829,7 @@ pub fn utilization_viewer(
     let mut params = vec![("tqx", "out:csv".to_string())];
     params.push(super::bypass(bypass));
     let raw = client.fetch_text("utilization_viewer.json", session, &params).map_err(|error| {
-        rethrow(error, |error| {
+        rethrow_with(error, |error| {
             format!(
                 "Error fetching utilization_viewer.json for session {session}: {}",
                 error.repr()
@@ -846,7 +842,7 @@ pub fn utilization_viewer(
         }
         Some(raw) => {
             let [host, device, node] = indices.map_err(|error| {
-                rethrow(error, |error| {
+                rethrow_with(error, |error| {
                     format!(
                         "Error formatting utilization viewer output for session {session}: {}",
                         error.repr()

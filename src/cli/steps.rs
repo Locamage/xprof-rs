@@ -776,9 +776,5 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
             "recommendations" => recommendations,
         })
     };
-    Ok(compute()
-        .map_err(|error| {
-            rethrow(error, |error| format!("Error during host boundness check: {}", error.message))
-        })?
-        .into())
+    Ok(compute().map_err(rethrow("Error during host boundness check: "))?.into())
 }

@@ -372,11 +372,7 @@ pub fn list_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, Error
         )
     };
     Ok(compute()
-        .map_err(|error| {
-            rethrow(error, |error| {
-                format!("Error listing XPlane events for session {session}: {}", error.message)
-            })
-        })?
+        .map_err(rethrow(format!("Error listing XPlane events for session {session}: ")))?
         .into())
 }
 
@@ -478,11 +474,7 @@ pub fn aggregate_xplane_events(client: &dyn Client, args: &Args) -> Result<Out, 
         )
     };
     Ok(compute()
-        .map_err(|error| {
-            rethrow(error, |error| {
-                format!("Error aggregating XPlane events for session {session}: {}", error.message)
-            })
-        })?
+        .map_err(rethrow(format!("Error aggregating XPlane events for session {session}: ")))?
         .into())
 }
 
@@ -797,9 +789,7 @@ pub fn get_kernel_stats(client: &dyn Client, args: &Args) -> Result<Out, Error> 
             _ => J::List(records).into(),
         })
     };
-    compute().map_err(|error| {
-        rethrow(error, |error| format!("Failed to get kernel stats: {}", error.message))
-    })
+    compute().map_err(rethrow("Failed to get kernel stats: "))
 }
 
 pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -871,9 +861,7 @@ pub fn get_avg_step_time(client: &dyn Client, args: &Args) -> Result<Out, Error>
             report.into()
         })
     };
-    compute().map_err(|error| {
-        rethrow(error, |error| format!("Failed to get average step time: {}", error.message))
-    })
+    compute().map_err(rethrow("Failed to get average step time: "))
 }
 
 pub fn get_kernel_utilization(client: &dyn Client, args: &Args) -> Result<Out, Error> {
@@ -999,9 +987,7 @@ fn llo(client: &dyn Client, args: &Args, failure: &str) -> Result<Out, Error> {
         };
         serialized(client, &session, &host).map(drop)
     };
-    compute().map_err(|error| {
-        rethrow(error, |error| format!("Error analyzing LLO data: {}", error.message))
-    })?;
+    compute().map_err(rethrow("Error analyzing LLO data: "))?;
     Ok(obj! {"status" => "UNAVAILABLE", "reason" => "LLO_DATA_ABSENT", "error" => failure, "remediation" => LLO_REMEDIATION}.into())
 }
 

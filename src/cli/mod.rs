@@ -249,12 +249,19 @@ pub fn bypass(on: bool) -> (&'static str, String) {
     ("bypass_cache", if on { "True" } else { "False" }.to_string())
 }
 
-pub fn rethrow(error: Error, message: impl FnOnce(&Error) -> String) -> Error {
+/// Keeps an error that the input caused, and makes any other error a `RuntimeError` with the
+/// text that `message` gives.
+pub fn rethrow_with(error: Error, message: impl FnOnce(&Error) -> String) -> Error {
     if matches!(error.kind, Kind::FileNotFound | Kind::Value | Kind::Fire) {
         error
     } else {
         Error::new(Kind::Runtime, message(&error))
     }
+}
+
+/// [`rethrow_with`] for the usual message: `prefix`, then the message of the error.
+pub fn rethrow(prefix: impl std::fmt::Display) -> impl Fn(Error) -> Error {
+    move |error| rethrow_with(error, |error| format!("{prefix}{}", error.message))
 }
 
 pub fn round(value: f64, digits: usize) -> f64 {
