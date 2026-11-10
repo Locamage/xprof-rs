@@ -1,6 +1,6 @@
 use super::client::Client;
 use super::json::J;
-use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow_with, round};
+use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow_repr, round};
 use crate::obj;
 use rayon::prelude::*;
 use regex::Regex;
@@ -128,9 +128,7 @@ fn profile(
             .ok_or_else(|| Error::new(Kind::FileNotFound, missing))?;
         if parsed.object_depth() > MAX_MESSAGE_DEPTH { Err(too_deep()) } else { Ok(parsed) }
     })();
-    fetched
-        .map(Parsed)
-        .map_err(|error| rethrow_with(error, |error| format!("{wrap}{}", error.repr())))
+    fetched.map(Parsed).map_err(rethrow_repr(wrap))
 }
 
 pub fn get_profile_summary(client: &dyn Client, args: &Args) -> Result<Out, Error> {

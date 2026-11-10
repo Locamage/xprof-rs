@@ -264,6 +264,11 @@ pub fn rethrow(prefix: impl std::fmt::Display) -> impl Fn(Error) -> Error {
     move |error| rethrow_with(error, |error| format!("{prefix}{}", error.message))
 }
 
+/// [`rethrow`] with the Python repr of the error, as `{e!r}` gives it.
+pub fn rethrow_repr(prefix: impl std::fmt::Display) -> impl Fn(Error) -> Error {
+    move |error| rethrow_with(error, |error| format!("{prefix}{}", error.repr()))
+}
+
 pub fn round(value: f64, digits: usize) -> f64 {
     if value.is_finite() { format!("{value:.digits$}").parse().unwrap_or(value) } else { value }
 }

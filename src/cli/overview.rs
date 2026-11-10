@@ -1,6 +1,8 @@
 use super::client::Client;
 use super::json::{J, py_repr};
-use super::{Args, Error, Kind, Out, bypass, fail, fsum, rethrow, rethrow_with, round};
+use super::{
+    Args, Error, Kind, Out, bypass, fail, fsum, rethrow, rethrow_repr, rethrow_with, round,
+};
 use crate::obj;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -470,21 +472,17 @@ pub fn get_device_information(client: &dyn Client, args: &Args) -> Result<Out, E
         Ok(renamed)
     };
     Ok(compute()
-        .map_err(|error| {
-            rethrow_with(error, |error| {
-                format!("Error fetching device information for session {session}: {}", error.repr())
-            })
-        })?
+        .map_err(rethrow_repr(format!(
+            "Error fetching device information for session {session}: "
+        )))?
         .into())
 }
 
 pub fn get_hosts(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
-    let hosts = client.hosts(&session).map_err(|error| {
-        rethrow_with(error, |error| {
-            format!("Error fetching hosts for session {session}: {}", error.repr())
-        })
-    })?;
+    let hosts = client
+        .hosts(&session)
+        .map_err(rethrow_repr(format!("Error fetching hosts for session {session}: ")))?;
     if hosts.is_empty() {
         return fail(Kind::FileNotFound, format!("No hosts found for session {session}."));
     }
@@ -828,27 +826,17 @@ pub fn utilization_viewer(
 ) -> Result<J, Error> {
     let mut params = vec![("tqx", "out:csv".to_string())];
     params.push(super::bypass(bypass));
-    let raw = client.fetch_text("utilization_viewer.json", session, &params).map_err(|error| {
-        rethrow_with(error, |error| {
-            format!(
-                "Error fetching utilization_viewer.json for session {session}: {}",
-                error.repr()
-            )
-        })
-    })?;
+    let raw = client.fetch_text("utilization_viewer.json", session, &params).map_err(
+        rethrow_repr(format!("Error fetching utilization_viewer.json for session {session}: ")),
+    )?;
     Ok(match raw {
         None => {
             obj! {"status" => "NO_DATA", "message" => format!("No data returned for session {session}")}
         }
         Some(raw) => {
-            let [host, device, node] = indices.map_err(|error| {
-                rethrow_with(error, |error| {
-                    format!(
-                        "Error formatting utilization viewer output for session {session}: {}",
-                        error.repr()
-                    )
-                })
-            })?;
+            let [host, device, node] = indices.map_err(rethrow_repr(format!(
+                "Error formatting utilization viewer output for session {session}: "
+            )))?;
             utilization(&raw, host, device, node)
         }
     })
