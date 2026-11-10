@@ -1,5 +1,8 @@
 use crate::hlo::proto_text::{c_escape, enum_name};
-use crate::hlo::xla::hlo_instruction_proto::ReplicaGroupList;
+use crate::hlo::xla::hlo_instruction_proto::{
+    OptionalCrossProgramPrefetchIndex, ReplicaGroupList, SliceDimensions,
+};
+use crate::hlo::xla::padding_config::PaddingConfigDimension;
 use crate::hlo::xla::{
     self, LiteralProto, MeshAxesReplicaGroupListProto, OpMetadata, OpSharding, PrecisionConfig,
     WindowDimension,
@@ -288,8 +291,7 @@ fn metadata_text(metadata: &OpMetadata, frame: i64, payloads: &[Vec<u8>]) -> Str
         number("source_end_line", metadata.source_end_line.into()),
         number("source_column", metadata.source_column.into()),
         number("source_end_column", metadata.source_end_column.into()),
-        (!metadata.profile_type.is_empty())
-            .then(|| format!("profile_type={{{}}}", metadata.profile_type.iter().join(","))),
+        (!metadata.profile_type.is_empty()).then(|| braced("profile_type", &metadata.profile_type)),
         quoted("deduplicated_name", &metadata.deduplicated_name),
         (!metadata.scheduling_name.is_empty())
             .then(|| format!("scheduling_name=\"{}\"", metadata.scheduling_name)),
@@ -448,9 +450,9 @@ fn dot_numbers(numbers: &xla::DotDimensionNumbers) -> String {
         ("rhs", &numbers.rhs_batch_dimensions, &numbers.rhs_contracting_dimensions),
     ] {
         if !batch.is_empty() {
-            parts.push(format!("{side}_batch_dims={{{}}}", batch.iter().join(",")));
+            parts.push(braced(format!("{side}_batch_dims"), batch));
         }
-        parts.push(format!("{side}_contracting_dims={{{}}}", contracting.iter().join(",")));
+        parts.push(braced(format!("{side}_contracting_dims"), contracting));
     }
     parts.join(", ")
 }
@@ -461,7 +463,7 @@ fn dimension_numbers(names: [&str; 5], lists: [&Vec<i64>; 5], index_vector_dim: 
         .zip(lists)
         .enumerate()
         .filter(|(position, (_, values))| *position < 3 || !values.is_empty())
-        .map(|(_, (name, values))| format!("{name}={{{}}}", values.iter().join(",")))
+        .map(|(_, (name, values))| braced(name, values))
         .collect();
     parts.push(format!("index_vector_dim={index_vector_dim}"));
     parts.join(", ")
@@ -1077,10 +1079,17 @@ impl<'a> Printer<'a> {
             format!("dimensions={{{}}}", dimensions.first().copied().unwrap_or(0));
         let has_window = inst.window.as_ref().is_some_and(|window| !window.dimensions.is_empty());
         match opcode {
-            "fft" => attributes.extend([format!("fft_type={}", enum_name("xla.FftType", inst.fft_type)), format!("fft_length={{{}}}", inst.fft_length.iter().join(","))]),
+            "fft" => attributes.extend([
+                format!("fft_type={}", enum_name("xla.FftType", inst.fft_type)),
+                braced("fft_length", &inst.fft_length),
+            ]),
             "async-start" => {
-                if !inst.async_execution_thread.is_empty() && inst.async_execution_thread != "main" {
-                    attributes.push(format!("async_execution_thread=\"{}\"", inst.async_execution_thread));
+                if !inst.async_execution_thread.is_empty() && inst.async_execution_thread != "main"
+                {
+                    attributes.push(format!(
+                        "async_execution_thread=\"{}\"",
+                        inst.async_execution_thread
+                    ));
                 }
                 if self.sugar(node).is_none() {
                     aliasing(inst, attributes);
@@ -1088,13 +1097,21 @@ impl<'a> Printer<'a> {
             }
             "async-update" | "call" => aliasing(inst, attributes),
             "copy-start" => match inst.optional_cross_program_prefetch_index {
-                Some(xla::hlo_instruction_proto::OptionalCrossProgramPrefetchIndex::CrossProgramPrefetchIndex(index)) => attributes.push(format!("cross_program_prefetch_index={index}")),
-                None if inst.is_cross_program_prefetch => attributes.push("cross_program_prefetch_index=0".into()),
+                Some(OptionalCrossProgramPrefetchIndex::CrossProgramPrefetchIndex(index)) => {
+                    attributes.push(format!("cross_program_prefetch_index={index}"));
+                }
+                None if inst.is_cross_program_prefetch => {
+                    attributes.push("cross_program_prefetch_index=0".into());
+                }
                 None => {}
             },
             "compare" => {
                 attributes.push(format!("direction={}", inst.comparison_direction));
-                let default = match entry.operands.first().map_or(0, |&operand| module.nodes[operand].shape.element_type) {
+                let default = match entry
+                    .operands
+                    .first()
+                    .map_or(0, |&operand| module.nodes[operand].shape.element_type)
+                {
                     10..=12 | 15 | 16 | 18..=20 | 23..=25 | 28 | 29 | 32 | 33 | 35 | 36 => "FLOAT",
                     2..=5 | 21 | 26 | 30 => "SIGNED",
                     _ => "UNSIGNED",
@@ -1103,77 +1120,140 @@ impl<'a> Printer<'a> {
                     attributes.push(format!("type={}", inst.comparison_type));
                 }
             }
-            "topk" => attributes.extend([format!("k={}", inst.k), format!("largest={}", inst.largest), format!("is_stable={}", inst.is_stable)]),
+            "topk" => attributes.extend([
+                format!("k={}", inst.k),
+                format!("largest={}", inst.largest),
+                format!("is_stable={}", inst.is_stable),
+            ]),
             opcode if CHANNEL_OPS.contains(&opcode) => {
                 attributes.extend(channel_id.map(|channel| format!("channel_id={channel}")));
                 flag(attributes, "is_host_transfer", inst.is_host_transfer);
             }
-            opcode if COLLECTIVES.contains(&opcode) => collective(opcode, inst, channel_id, first_dimension, attributes),
+            opcode if COLLECTIVES.contains(&opcode) => {
+                collective(opcode, inst, channel_id, first_dimension, attributes);
+            }
             "collective-permute" | "collective-permute-start" => {
                 attributes.extend(channel_id.map(|channel| format!("channel_id={channel}")));
-                let pairs = inst.source_target_pairs.iter().map(|pair| format!("{{{},{}}}", pair.source, pair.target)).join(",");
+                let pairs = inst
+                    .source_target_pairs
+                    .iter()
+                    .map(|pair| format!("{{{},{}}}", pair.source, pair.target))
+                    .join(",");
                 attributes.push(format!("source_target_pairs={{{pairs}}}"));
                 if !inst.dynamic_slice_sizes.is_empty() {
                     match slice_size_groups(module, &entry.operands, &inst.dynamic_slice_sizes) {
-                        Some(groups) => attributes.push(format!("slice_sizes={{{}}}", groups.iter().map(|group| format!("{{{}}}", group.iter().join(","))).join(","))),
+                        Some(groups) => attributes.push(format!(
+                            "slice_sizes={{{}}}",
+                            groups
+                                .iter()
+                                .map(|group| format!("{{{}}}", group.iter().join(",")))
+                                .join(",")
+                        )),
                         None => self.fail("dynamic collective-permute"),
                     }
                 }
             }
-            "reverse" | "concatenate" | "reduce" | "transpose" | "broadcast" | "map" | "scan" | "sort" => {
-                attributes.push(format!("dimensions={{{}}}", dimensions.iter().join(",")));
+            "reverse" | "concatenate" | "reduce" | "transpose" | "broadcast" | "map" | "scan"
+            | "sort" => {
+                attributes.push(braced("dimensions", dimensions));
                 if opcode == "scan" {
                     attributes.push(format!("num_carries={}", inst.num_carries));
                     flag(attributes, "is_reverse", inst.is_reverse);
-                    attributes.extend((inst.is_associative != 0).then(|| format!("is_associative={}", inst.is_associative == 1)));
+                    attributes.extend(
+                        (inst.is_associative != 0)
+                            .then(|| format!("is_associative={}", inst.is_associative == 1)),
+                    );
                 }
                 flag(attributes, "is_stable", opcode == "sort" && inst.is_stable);
             }
-            "reshape" if !dimensions.is_empty() && dimensions[0] != -1 => attributes.push(format!("inferred_dimension={}", dimensions[0])),
+            "reshape" if !dimensions.is_empty() && dimensions[0] != -1 => {
+                attributes.push(format!("inferred_dimension={}", dimensions[0]));
+            }
             "slice" => {
                 let omit_stride = inst.slice_dimensions.iter().all(|slice| slice.stride == 1);
-                let stride = |slice: &xla::hlo_instruction_proto::SliceDimensions| if omit_stride { String::new() } else { format!(":{}", slice.stride) };
-                let items = inst.slice_dimensions.iter().map(|slice| format!("[{}:{}{}]", slice.start, slice.limit, stride(slice))).join(", ");
+                let stride = |slice: &SliceDimensions| {
+                    if omit_stride { String::new() } else { format!(":{}", slice.stride) }
+                };
+                let items = inst
+                    .slice_dimensions
+                    .iter()
+                    .map(|slice| format!("[{}:{}{}]", slice.start, slice.limit, stride(slice)))
+                    .join(", ");
                 attributes.push(format!("slice={{{items}}}"));
             }
             "fusion" => {
                 attributes.push(format!("kind={}", inst.fusion_kind));
                 aliasing(inst, attributes);
             }
-            "rng" => attributes.push(format!("distribution={}", enum_name("xla.RandomDistribution", inst.distribution).to_ascii_lowercase())),
+            "rng" => attributes.push(format!(
+                "distribution={}",
+                enum_name("xla.RandomDistribution", inst.distribution).to_ascii_lowercase()
+            )),
             "parameter" => {
                 let replication = &msg(&inst.parameter_replication).replicated_at_leaf_buffers;
                 if !replication.is_empty() {
-                    attributes.push(format!("parameter_replication={{{}}}", replication.iter().join(",")));
+                    attributes.push(braced("parameter_replication", replication));
                 }
             }
             "get-tuple-element" => attributes.push(format!("index={}", inst.tuple_index)),
-            "reduce-precision" => attributes.extend([format!("exponent_bits={}", inst.exponent_bits), format!("mantissa_bits={}", inst.mantissa_bits)]),
+            "reduce-precision" => attributes.extend([
+                format!("exponent_bits={}", inst.exponent_bits),
+                format!("mantissa_bits={}", inst.mantissa_bits),
+            ]),
             "convolution" => Self::convolution(inst, has_window, attributes),
             "reduce-window" | "select-and-scatter" if has_window => attributes.push(window(inst)),
             "custom-call" => self.custom_call(inst, attributes),
             "pad" => {
                 let config = msg(&inst.padding_config);
                 let interior = config.dimensions.iter().any(|dim| dim.interior_padding != 0);
-                let suffix = |dim: &xla::padding_config::PaddingConfigDimension| if interior { format!("_{}", dim.interior_padding) } else { String::new() };
-                attributes.push(format!("padding={}", config.dimensions.iter().map(|dim| format!("{}_{}{}", dim.edge_padding_low, dim.edge_padding_high, suffix(dim))).join("x")));
+                let suffix = |dim: &PaddingConfigDimension| {
+                    if interior { format!("_{}", dim.interior_padding) } else { String::new() }
+                };
+                attributes.push(format!(
+                    "padding={}",
+                    config
+                        .dimensions
+                        .iter()
+                        .map(|dim| format!(
+                            "{}_{}{}",
+                            dim.edge_padding_low,
+                            dim.edge_padding_high,
+                            suffix(dim)
+                        ))
+                        .join("x")
+                ));
             }
-            "dynamic-slice" => attributes.push(format!("dynamic_slice_sizes={{{}}}", inst.dynamic_slice_sizes.iter().join(","))),
+            "dynamic-slice" => {
+                attributes.push(braced("dynamic_slice_sizes", &inst.dynamic_slice_sizes));
+            }
             "gather" => {
                 let numbers = msg(&inst.gather_dimension_numbers);
-                let lists = [&numbers.offset_dims, &numbers.collapsed_slice_dims, &numbers.start_index_map, &numbers.operand_batching_dims, &numbers.start_indices_batching_dims];
+                let lists = [
+                    &numbers.offset_dims,
+                    &numbers.collapsed_slice_dims,
+                    &numbers.start_index_map,
+                    &numbers.operand_batching_dims,
+                    &numbers.start_indices_batching_dims,
+                ];
                 attributes.push(dimension_numbers(GATHER, lists, numbers.index_vector_dim));
-                attributes.push(format!("slice_sizes={{{}}}", inst.gather_slice_sizes.iter().join(",")));
+                attributes.push(braced("slice_sizes", &inst.gather_slice_sizes));
                 flag(attributes, "indices_are_sorted", inst.indices_are_sorted);
             }
             "scatter" => {
                 let numbers = msg(&inst.scatter_dimension_numbers);
-                let lists = [&numbers.update_window_dims, &numbers.inserted_window_dims, &numbers.scatter_dims_to_operand_dims, &numbers.input_batching_dims, &numbers.scatter_indices_batching_dims];
+                let lists = [
+                    &numbers.update_window_dims,
+                    &numbers.inserted_window_dims,
+                    &numbers.scatter_dims_to_operand_dims,
+                    &numbers.input_batching_dims,
+                    &numbers.scatter_indices_batching_dims,
+                ];
                 attributes.push(dimension_numbers(SCATTER, lists, numbers.index_vector_dim));
                 flag(attributes, "indices_are_sorted", inst.indices_are_sorted);
                 flag(attributes, "unique_indices", inst.unique_indices);
             }
-            "iota" => attributes.push(format!("iota_dimension={}", dimensions.first().copied().unwrap_or(0))),
+            "iota" => attributes
+                .push(format!("iota_dimension={}", dimensions.first().copied().unwrap_or(0))),
             "dot" | "scaled-dot" => {
                 attributes.push(dot_numbers(&msg(&inst.dot_dimension_numbers)));
                 precision(&msg(&inst.precision_config), attributes);
@@ -1181,16 +1261,22 @@ impl<'a> Printer<'a> {
             "ragged-dot" => {
                 let numbers = msg(&inst.ragged_dot_dimension_numbers);
                 let mut parts = vec![dot_numbers(&msg(&numbers.dot_dimension_numbers))];
-                for (label, values) in [("lhs_ragged_dims", &numbers.lhs_ragged_dimensions), ("rhs_group_dims", &numbers.rhs_group_dimensions)] {
+                for (label, values) in [
+                    ("lhs_ragged_dims", &numbers.lhs_ragged_dimensions),
+                    ("rhs_group_dims", &numbers.rhs_group_dimensions),
+                ] {
                     if !values.is_empty() {
-                        parts.push(format!("{label}={{{}}}", values.iter().join(",")));
+                        parts.push(braced(label, values));
                     }
                 }
                 attributes.push(parts.join(", "));
                 precision(&msg(&inst.precision_config), attributes);
             }
             "batch-norm-training" | "batch-norm-inference" | "batch-norm-grad" => {
-                attributes.extend([format!("epsilon={}", general(f64::from(inst.epsilon), 6)), format!("feature_index={}", inst.feature_index)]);
+                attributes.extend([
+                    format!("epsilon={}", general(f64::from(inst.epsilon), 6)),
+                    format!("feature_index={}", inst.feature_index),
+                ]);
             }
             "triangular-solve" => {
                 let options = msg(&inst.triangular_solve_options);
@@ -1198,26 +1284,39 @@ impl<'a> Printer<'a> {
                 flag(attributes, "lower", options.lower);
                 flag(attributes, "unit_diagonal", options.unit_diagonal);
                 if options.transpose_a != 0 {
-                    attributes.push(format!("transpose_a={}", enum_name("xla.TriangularSolveOptions.Transpose", options.transpose_a)));
+                    attributes.push(format!(
+                        "transpose_a={}",
+                        enum_name("xla.TriangularSolveOptions.Transpose", options.transpose_a)
+                    ));
                 }
             }
             "cholesky" => flag(attributes, "lower", msg(&inst.cholesky_options).lower),
-            "infeed" if !inst.infeed_config.is_empty() => attributes.push(format!("infeed_config=\"{}\"", escaped(&String::from_utf8_lossy(&inst.infeed_config)))),
+            "infeed" if !inst.infeed_config.is_empty() => attributes.push(format!(
+                "infeed_config=\"{}\"",
+                escaped(&String::from_utf8_lossy(&inst.infeed_config))
+            )),
             "outfeed" => {
                 attributes.push(format!("outfeed_shape={}", msg(&inst.outfeed_shape).text(true)));
                 if !inst.outfeed_config.is_empty() {
-                    attributes.push(format!("outfeed_config=\"{}\"", escaped(&String::from_utf8_lossy(&inst.outfeed_config))));
+                    attributes.push(format!(
+                        "outfeed_config=\"{}\"",
+                        escaped(&String::from_utf8_lossy(&inst.outfeed_config))
+                    ));
                 }
             }
             "domain" => {
                 let (mut entry, mut exit) = (String::new(), String::new());
                 self.sharding(&msg(&inst.domain_exit_sharding), &mut entry);
                 self.sharding(&msg(&inst.domain_entry_sharding), &mut exit);
-                attributes.push(format!("domain={{kind=\"sharding\", entry={entry}, exit={exit}}}"));
+                attributes
+                    .push(format!("domain={{kind=\"sharding\", entry={entry}, exit={exit}}}"));
             }
             "get-dimension-size" | "set-dimension-size" => attributes.push(first_dimension),
             "rng-get-and-update-state" => attributes.push(format!("delta={}", inst.delta)),
-            "rng-bit-generator" => attributes.push(format!("algorithm={}", enum_name("xla.RandomAlgorithm", inst.rng_algorithm).to_ascii_lowercase())),
+            "rng-bit-generator" => attributes.push(format!(
+                "algorithm={}",
+                enum_name("xla.RandomAlgorithm", inst.rng_algorithm).to_ascii_lowercase()
+            )),
             _ => {}
         }
     }
@@ -2081,4 +2180,12 @@ fn literal_values(literal: &LiteralProto, element_type: i32) -> Option<Vec<Strin
             .collect(),
         _ => return None,
     })
+}
+
+/// `name={v1,v2,...}`, the form of an XLA attribute that holds a list.
+fn braced(
+    name: impl std::fmt::Display,
+    values: impl IntoIterator<Item: std::fmt::Display>,
+) -> String {
+    format!("{name}={{{}}}", values.into_iter().join(","))
 }
