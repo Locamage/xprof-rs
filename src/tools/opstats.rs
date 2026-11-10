@@ -876,13 +876,8 @@ impl Kept {
         if !self.fused && stats.tpu {
             let modules = crate::hlo::parse_modules(crate::hlo::protos(&self.planes, &self.map));
             crate::hlo::attach_fused(&modules, &mut stats.db);
-            // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The bytes of `map` do not move.
-            self.modules = unsafe {
-                std::mem::transmute::<
-                    Vec<(u64, crate::hlo::Module<'_>)>,
-                    Vec<(u64, crate::hlo::Module<'static>)>,
-                >(modules)
-            };
+            // SAFETY: `self` is the `Kept` of `map`.
+            self.modules = unsafe { unbind(modules) };
         }
         self.fused = true;
     }
@@ -986,13 +981,8 @@ pub fn load_kept(
         }
         (stats, modules, underived)
     });
-    // SAFETY: the modules borrow `map`, and `Kept` drops them before `map`. The bytes of `map` do not move.
-    let modules = unsafe {
-        std::mem::transmute::<
-            Vec<(u64, crate::hlo::Module<'_>)>,
-            Vec<(u64, crate::hlo::Module<'static>)>,
-        >(modules)
-    };
+    // SAFETY: the `Kept` below holds the modules and `map`.
+    let modules = unsafe { unbind(modules) };
     Ok(Some((Arc::new(stats), Kept { modules, fused, part, underived, map, planes })))
 }
 
@@ -1136,4 +1126,17 @@ fn op_stats(
         perf_env,
     );
     OpStats { db, perf, tpu, host, infeed_enqueue, extra: Arc::new(extra), programs, kernels }
+}
+
+/// The modules with the lifetime of `Kept`, which holds them beside the bytes they borrow.
+///
+/// # Safety
+///
+/// The caller keeps the modules in a `Kept` with the bytes they borrow. `Kept` drops the modules
+/// before the bytes, and the bytes do not move.
+unsafe fn unbind(
+    modules: Vec<(u64, crate::hlo::Module<'_>)>,
+) -> Vec<(u64, crate::hlo::Module<'static>)> {
+    // SAFETY: the caller upholds the contract above.
+    unsafe { std::mem::transmute(modules) }
 }
