@@ -1513,6 +1513,17 @@ async fn capture_profile(State(state): State<Shared>, Query(params): Query<Param
     server::capture::handle(&state.logdir, state.remote.as_deref(), &params).await
 }
 
+/// The URI of an `/open` or `/progress` request without its last `/`, when the server may stage it.
+///
+/// The pattern of `--open_uri_pattern` must match the URI as the object store reads it. A URL parser removes dot segments and
+/// decodes `%2e`, so `…/pub/../secret` names `…/secret`. Thus the URI must be in the form that the parser gives.
+fn allowed_uri<'a>(state: &State_, uri: &'a str) -> Option<&'a str> {
+    let uri = uri.trim_end_matches('/');
+    let parsed = url::Url::parse(uri).ok()?;
+    let allowed = state.open_uri_pattern.as_ref().is_some_and(|pattern| pattern.is_match(uri));
+    (allowed && parsed.as_str().trim_end_matches('/') == uri).then_some(uri)
+}
+
 fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
     let mut entries = state.staging.lock().expect("lock poisoned");
     if let Some(entry) = entries.get(uri) {
@@ -1567,10 +1578,9 @@ async fn open(State(state): State<Shared>, method: Method, Query(params): Query<
     let Some(uri) = params.get("uri").filter(|uri| !uri.is_empty()) else {
         return response(StatusCode::BAD_REQUEST, "text/plain", "missing uri query parameter\n");
     };
-    let uri = uri.trim_end_matches('/');
-    if state.open_uri_pattern.as_ref().is_none_or(|pattern| !pattern.is_match(uri)) {
+    let Some(uri) = allowed_uri(&state, uri) else {
         return response(StatusCode::FORBIDDEN, "text/plain", "URI is not allowed by --open_uri_pattern\n");
-    }
+    };
     let tool = params.get("tool").map_or("", String::as_str);
     let entry = match staging(&state, uri) {
         Ok(entry) => entry,
@@ -1600,10 +1610,9 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
     let Some(uri) = params.get("uri").filter(|uri| !uri.is_empty()) else {
         return response(StatusCode::FORBIDDEN, "application/json", r#"{"error":"missing uri query parameter"}"#);
     };
-    let uri = uri.trim_end_matches('/');
-    if state.open_uri_pattern.as_ref().is_none_or(|pattern| !pattern.is_match(uri)) {
+    let Some(uri) = allowed_uri(&state, uri) else {
         return response(StatusCode::FORBIDDEN, "application/json", r#"{"error":"URI is not allowed by --open_uri_pattern"}"#);
-    }
+    };
     let tool = params.get("tool").map_or("", String::as_str);
     let entry = match staging(&state, uri) {
         Ok(entry) => entry,

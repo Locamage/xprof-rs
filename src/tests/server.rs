@@ -156,6 +156,15 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
     let restricted = state(&Settings { open_uri_pattern: Some("gs://.*".into()), ..Default::default() });
     assert_eq!(crate::tests::legacy::fetch(&restricted, "/open?uri=file%3A%2F%2Ftmp%2Fprofile").await.0, StatusCode::FORBIDDEN);
     assert_eq!(crate::tests::legacy::fetch(&restricted, "/open").await.0, StatusCode::BAD_REQUEST);
+    let public = state(&Settings { open_uri_pattern: Some("file:///store/pub/.*".into()), ..Default::default() });
+    for uri in ["file:///store/pub/../secret", "file:///store/pub/%2e%2e/secret", "file:///store/pub/./run", "file:///store/pub/a\tb"] {
+        let query: String = url::form_urlencoded::byte_serialize(uri.as_bytes()).collect();
+        for route in ["open", "progress"] {
+            let reply = crate::tests::legacy::fetch(&public, &format!("/{route}?uri={query}")).await;
+            assert_eq!(reply.0, StatusCode::FORBIDDEN, "{route} {uri}");
+        }
+    }
+    assert!(public.staging.lock().unwrap().is_empty());
     let post = app(restricted)
         .oneshot(Request::builder().method("POST").uri("/open?uri=gs%3A%2F%2Fbucket%2Fprofile").body(Body::empty()).unwrap())
         .await
