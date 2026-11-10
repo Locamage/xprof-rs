@@ -473,26 +473,12 @@ impl<'m> Context<'m> {
 
     /// Reads the fusion results of the called graphs from `graphs`. Callees come before their callers in a valid module.
     fn elementwise_with(&self, node: usize, graphs: &[bool]) -> bool {
-        let opcode = self.opcode(node);
-        match opcode {
-            "bitcast-convert" => self.operands(node).first().is_some_and(|&operand| {
-                storage_bit_width(self.shape(node).element_type)
-                    == storage_bit_width(self.shape(operand).element_type)
-            }),
-            "map" => {
-                let dimensions = &self.inst(node).dimensions;
-                dimensions.is_empty()
-                    || (dimensions.len() == self.shape(node).dimensions.len()
-                        && dimensions
-                            .iter()
-                            .enumerate()
-                            .all(|(position, &dimension)| dimension == position as i64))
-            }
+        match self.opcode(node) {
             "fusion" => self.module.nodes[node]
                 .called
                 .first()
                 .is_some_and(|&graph| graphs.get(graph) == Some(&true)),
-            _ => ELEMENTWISE.split(' ').any(|name| name == opcode),
+            _ => self.module.is_elementwise(node),
         }
     }
 
