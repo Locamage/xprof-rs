@@ -145,6 +145,16 @@ async fn remotes_of_one_store_share_the_downloads_and_the_budget() {
     first.sync(&session, true).await.unwrap();
     assert!(session.join("h.xplane.pb").exists() && !elsewhere.join("h.xplane.pb").exists());
     std::fs::remove_dir_all(&first.cache).unwrap();
+    // When the bucket is the first part of the path, each bucket of the host has its own cache.
+    let bucket = |name: &str| {
+        let url = format!("https://path-style-{}.example/{name}/run", std::process::id());
+        Remote::new(&url, store.clone(), Key::from("run")).unwrap().cache
+    };
+    let (one, two) = (bucket("one"), bucket("two"));
+    assert_ne!(one, two);
+    for cache in [one, two] {
+        std::fs::remove_dir_all(cache).unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
