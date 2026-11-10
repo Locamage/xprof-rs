@@ -8,6 +8,9 @@ use std::time::Duration;
 use tower::ServiceExt;
 
 const PREFIX: &str = "/data/plugin/profile";
+/// Held by each test that serves a static file, since one of them sets `XPROF_STATIC_DIR` for the
+/// whole process.
+static STATIC_DIR_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const RUN_TO_TOOLS: [(&str, &[&str]); 6] = [
     ("foo", &["trace_viewer", "trace_viewer@"]),
     ("bar", &["unsupported"]),
@@ -365,6 +368,7 @@ async fn runs_impl_with_run_path() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn read_static_file_with_xprof_static_dir_success_and_fallbacks() {
+    let _env = STATIC_DIR_ENV.lock().await;
     let logdir = temp_logdir("static");
     let (statics, sibling) = (logdir.join("static"), logdir.join("static_sibling"));
     std::fs::create_dir_all(&statics).unwrap();
@@ -393,6 +397,7 @@ async fn read_static_file_with_xprof_static_dir_success_and_fallbacks() {
 
 #[tokio::test]
 async fn embedded_static_file_is_not_sent_again_when_the_tag_matches() {
+    let _env = STATIC_DIR_ENV.lock().await;
     let state = plugin(Path::new(""));
     let (status, headers, body) = fetch(&state, "/bundle.js").await;
     assert_eq!(
