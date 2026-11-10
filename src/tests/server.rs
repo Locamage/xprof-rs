@@ -171,7 +171,7 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
     let restricted = state(&Settings { open_uri_pattern: Some("gs://.*".into()), ..Default::default() });
     assert_eq!(crate::tests::legacy::fetch(&restricted, "/open?uri=file%3A%2F%2Ftmp%2Fprofile").await.0, StatusCode::FORBIDDEN);
     assert_eq!(crate::tests::legacy::fetch(&restricted, "/open").await.0, StatusCode::BAD_REQUEST);
-    let public = state(&Settings { open_uri_pattern: Some("file:///store/pub/.*".into()), ..Default::default() });
+    let public = state(&Settings { open_uri_pattern: Some(".*/pub/.*".into()), ..Default::default() });
     for uri in [
         "file:///store/pub/../secret",
         "file:///store/pub/%2e%2e/secret",
@@ -182,6 +182,8 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
         "file:///store/pub/a%2Fb",
         "file:///store/pub/a\\b",
         "file://user@host/store/pub/run",
+        "https://s3-logs.s3.us-east-1.amazonaws.com/pub/secret",
+        "http://server/pub/run",
     ] {
         let query: String = url::form_urlencoded::byte_serialize(uri.as_bytes()).collect();
         for route in ["open", "progress"] {
@@ -190,6 +192,10 @@ async fn open_stages_allowlisted_profiles_with_and_without_a_logdir() {
         }
     }
     assert!(public.staging.lock().unwrap().is_empty());
+    for uri in ["s3://bucket/pub/run", "gs://bucket/pub/run", "az://container/pub/run", "file:///store/pub/run"] {
+        assert_eq!(crate::allowed_uri(&public, uri), Some(uri));
+        assert_eq!(crate::allowed_uri(&public, &format!("{uri}/")), Some(uri));
+    }
     let post = app(restricted)
         .oneshot(Request::builder().method("POST").uri("/open?uri=gs%3A%2F%2Fbucket%2Fprofile").body(Body::empty()).unwrap())
         .await

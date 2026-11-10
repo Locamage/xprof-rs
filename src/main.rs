@@ -287,12 +287,6 @@ struct Staging {
     result: Mutex<Option<(Instant, Result<PathBuf, String>)>>,
 }
 
-impl Staging {
-    fn outcome(&self) -> Option<Result<PathBuf, String>> {
-        self.result.lock().expect("lock poisoned").as_ref().map(|(_, result)| result.clone())
-    }
-}
-
 struct State_ {
     logdir: PathBuf,
     remote: Option<Arc<Remote>>,
@@ -1587,6 +1581,9 @@ async fn capture_profile(State(state): State<Shared>, Query(params): Query<Param
 /// - The store reads only the path, so a query or a fragment could hold the part that the pattern wants (`…/secret?/pub/x`).
 /// - The store decodes `%XX`, so `a%2Fb` names `a/b`, which `[^/]+` in a pattern does not expect.
 /// - User information names another host than the one a reader of the pattern sees (`gs://allowed@other/…`).
+/// - For some hosts the store takes the bucket from the path (`https://s3.<region>.amazonaws.com/<bucket>/…`), so the key is
+///   not the path that the pattern sees. The key that the store reads must be the path of the URL.
+/// - The store of a plain `http(s)` server follows redirects to other hosts, so `/open` does not stage from one.
 fn allowed_uri<'a>(state: &State_, uri: &'a str) -> Option<&'a str> {
     let uri = uri.trim_end_matches('/');
     let parsed = url::Url::parse(uri).ok()?;
@@ -1597,27 +1594,50 @@ fn allowed_uri<'a>(state: &State_, uri: &'a str) -> Option<&'a str> {
         && parsed.port().is_none()
         && !uri.contains(['%', '\\'])
         && parsed.as_str().trim_end_matches('/') == uri;
-    (plain && state.open_uri_pattern.as_ref().is_some_and(|pattern| pattern.is_match(uri))).then_some(uri)
+    let (scheme, key) = object_store::ObjectStoreScheme::parse(&parsed).ok()?;
+    let as_read = !matches!(scheme, object_store::ObjectStoreScheme::Http) && key.as_ref() == parsed.path().trim_matches('/');
+    (plain && as_read && state.open_uri_pattern.as_ref().is_some_and(|pattern| pattern.is_match(uri))).then_some(uri)
 }
 
-/// The local profile of a staging when the server already serves it. A new staging of the same URI then runs behind it: the
-/// request does not wait for the store, and an error of the store does not take the profile away.
-fn served_profile(state: &State_, entry: &Staging) -> Option<PathBuf> {
-    let profile = entry.remote.mirror.join("plugins/profile").canonicalize().ok()?;
-    state.staged.lock().expect("lock poisoned").contains_key(&profile).then_some(profile)
+impl Staging {
+    /// The local profile, the reason of the failure, or `None` while the staging runs.
+    ///
+    /// A profile that the server already serves, and that still has traces, answers before the staging ends and also when
+    /// the staging fails. So a new staging of the URI runs behind the profile: the request does not wait for the store, and
+    /// an error of the store does not take the profile away.
+    fn result(&self, state: &State_) -> Option<Result<PathBuf, String>> {
+        let served = || {
+            let profile = self.remote.mirror.join("plugins/profile").canonicalize().ok()?;
+            let used = *state.staged.lock().expect("lock poisoned").get(&profile)?;
+            (used.elapsed() < IDLE && subdirs(&profile).iter().any(|session| !xplanes(session).is_empty())).then_some(profile)
+        };
+        let ended = self.result.lock().expect("lock poisoned").as_ref().map(|(_, result)| result.clone());
+        match ended {
+            Some(Ok(profile)) => Some(Ok(profile)),
+            ended => served().map(Ok).or(ended),
+        }
+    }
 }
 
 fn staging(state: &Shared, uri: &str) -> Result<Arc<Staging>, String> {
-    let mut entries = state.staging.lock().expect("lock poisoned");
-    // A staging that ended answers for `STAGED_FOR`. Then the next request stages the URI again, which reads the changes of the
-    // store, and the entry of a URI that nobody asks for goes away.
-    entries.retain(|_, entry| entry.result.lock().expect("lock poisoned").as_ref().is_none_or(|(at, _)| at.elapsed() < STAGED_FOR));
-    if let Some(entry) = entries.get(uri) {
-        return Ok(entry.clone());
+    let current = |entries: &mut HashMap<String, Arc<Staging>>| {
+        // A staging that ended answers for `STAGED_FOR`. Then the next request stages the URI again, which reads the changes
+        // of the store, and the entry of a URI that nobody asks for goes away.
+        entries.retain(|_, entry| entry.result.lock().expect("lock poisoned").as_ref().is_none_or(|(at, _)| at.elapsed() < STAGED_FOR));
+        entries.get(uri).cloned()
+    };
+    if let Some(entry) = current(&mut state.staging.lock().expect("lock poisoned")) {
+        return Ok(entry);
     }
+    // The open of a store reads files, so it runs without the lock. A request that opened the same URI in the meantime wins.
     let remote = Arc::new(Remote::open(uri)?);
+    let mut entries = state.staging.lock().expect("lock poisoned");
+    if let Some(entry) = current(&mut entries) {
+        return Ok(entry);
+    }
     let entry = Arc::new(Staging { remote, started: Instant::now(), result: Mutex::default() });
     entries.insert(uri.to_string(), entry.clone());
+    drop(entries);
     let (work_entry, permits, uri, served) = (entry.clone(), state.staging_permits.clone(), uri.to_string(), state.clone());
     tokio::spawn(async move {
         let work = async {
@@ -1677,7 +1697,7 @@ async fn open(State(state): State<Shared>, method: Method, Query(params): Query<
             return response(StatusCode::BAD_GATEWAY, "text/plain", format!("profile staging failed: {error}\n"));
         }
     };
-    let result = served_profile(&state, &entry).map(Ok).or_else(|| entry.outcome());
+    let result = entry.result(&state);
     match result {
         None => response(StatusCode::ACCEPTED, "text/html; charset=utf-8", loading_page(uri, tool)),
         Some(Ok(profile)) => {
@@ -1709,7 +1729,7 @@ async fn progress(State(state): State<Shared>, Query(params): Query<Params>) -> 
             return response(StatusCode::FORBIDDEN, "application/json", serde_json::json!({"error":error}).to_string());
         }
     };
-    let result = served_profile(&state, &entry).map(Ok).or_else(|| entry.outcome());
+    let result = entry.result(&state);
     match result {
         Some(Err(error)) => {
             remove_staging(&state, uri, &entry);
