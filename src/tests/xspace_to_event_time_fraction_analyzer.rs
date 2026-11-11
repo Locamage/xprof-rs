@@ -36,7 +36,8 @@ fn basic_test() {
 
 #[test]
 fn barrier_cores_filtering() {
-    let result = convert(&tpu_space("/device:TPU:0", BARRIER_CORES, 10000, &[(100, 0, 0), (200, 1250, 1250), (300, 5000, 5000)]), "", BARRIER_CORES);
+    let result =
+        convert(&tpu_space("/device:TPU:0", BARRIER_CORES, 10000, &[(100, 0, 0), (200, 1250, 1250), (300, 5000, 5000)]), "", BARRIER_CORES);
     assert_eq!(result.chips.len(), 1);
     let fractions = &result.chips["/device:TPU:0"];
     assert_eq!(fractions.len(), 1);
@@ -46,7 +47,9 @@ fn barrier_cores_filtering() {
 #[test]
 fn multi_x_space_test() {
     let mut result = Fractions::default();
-    for (hostname, plane_name, step_duration_ps, op) in [("host1", "/device:TPU:0", 1000, (100, 200, 200)), ("host2", "/device:TPU:1", 2000, (100, 1000, 1000))] {
+    for (hostname, plane_name, step_duration_ps, op) in
+        [("host1", "/device:TPU:0", 1000, (100, 200, 200)), ("host2", "/device:TPU:1", 2000, (100, 1000, 1000))]
+    {
         let xspace = XSpace { hostnames: vec![hostname.into()], ..tpu_space(plane_name, "matmul", step_duration_ps, &[op]) };
         accumulate(convert(&xspace, hostname, "matmul"), &mut result);
     }

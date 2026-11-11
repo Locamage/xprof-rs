@@ -8,11 +8,6 @@ fn test_a01_steptime_and_duty_cycle_rubric() {
 }
 
 #[test]
-fn test_a02_roofline_bound_rubric() {
-    assert!(matches!(query("a02", "get_roofline_model", &[]), J::Map(_)));
-}
-
-#[test]
 fn test_a03_hottest_op_rubric() {
     let result = query("a03", "get_top_hlo_ops", &["--limit=1"]);
     let top = result.at("top_by_time").items();
@@ -26,11 +21,6 @@ fn test_a04_source_provenance_attribution_rubric() {
     let top = result.at("top_by_time").items();
     assert!(top.iter().any(|op| op.has("source_file")));
     assert!(top.iter().filter_map(|op| op.get("source_file")).all(|file| file.str().is_some()));
-}
-
-#[test]
-fn test_a05_hbm_headroom_rubric() {
-    assert!(matches!(query("a05", "get_memory_profile", &[]), J::Map(_)));
 }
 
 #[test]

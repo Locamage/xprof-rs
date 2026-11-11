@@ -10,8 +10,8 @@ use crate::xplane::steps::{Extra, GPU, TPU};
 use std::path::PathBuf;
 
 const TOP_OPS: usize = 10;
-const NO_DEVICE_TRACE: &str =
-    "No TensorCore device trace was collected. This might happen if your job hadn't been run on the device when sampling was turned on. You could try the sampling again later.";
+const NO_DEVICE_TRACE: &str = "No TensorCore device trace was collected. This might happen if your job hadn't been run on the device \
+    when sampling was turned on. You could try the sampling again later.";
 const TOP_COLUMNS: [(&str, &str, &str); 5] = [
     ("selfTimePercent", "number", "Time (%)"),
     ("cumulativeTimePercent", "number", "Cumulative time (%)"),
@@ -56,7 +56,12 @@ pub fn inference_latency(stats: &InferenceStats) -> Vec<LatencyBreakdown> {
             let total_latency_us = request.end_time_ps.wrapping_sub(request.start_time_ps) as f64 / 1e6;
             let device_latency_us = request.device_time_ps as f64 / 1e6;
             let communication_latency_us = request.read_from_device_time_ps.wrapping_add(request.write_to_device_time_ps) as f64 / 1e6;
-            LatencyBreakdown { total_latency_us, host_latency_us: total_latency_us - device_latency_us - communication_latency_us, device_latency_us, communication_latency_us }
+            LatencyBreakdown {
+                total_latency_us,
+                host_latency_us: total_latency_us - device_latency_us - communication_latency_us,
+                device_latency_us,
+                communication_latency_us,
+            }
         })
         .collect();
     if sessions.is_empty() {
@@ -109,13 +114,21 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
     let precision_percent = |part: f64| percentage(100.0 * safe_divide(part, compute_16 + compute_32));
     let host = &stats.host;
     let counts = |db: &Db| {
-        let busy = |eager: bool| db.metrics.iter().filter(|metrics| metrics.category != IDLE && (!eager || metrics.is_eager)).map(|metrics| metrics.self_time_ps).sum::<u64>();
+        let busy = |eager: bool| {
+            db.metrics
+                .iter()
+                .filter(|metrics| metrics.category != IDLE && (!eager || metrics.is_eager))
+                .map(|metrics| metrics.self_time_ps)
+                .sum::<u64>()
+        };
         (db.metrics.iter().map(|metrics| metrics.occurrences).sum::<u64>(), busy(false), busy(true))
     };
     let ((host_ops, host_busy, host_eager), (device_ops, device_busy, device_eager)) = (counts(host), counts(&ops));
     let all_ops = host_ops + device_ops;
     let tpu_only = |value: f64| percentage(if device_hardware == TPU { value } else { 0.0 });
-    let duty = |index: usize| tpu_only(safe_divide(extra.busy_ps[index] as f64, extra.busy_ps[index].wrapping_add(extra.idle_ps[index]) as f64) * 100.0);
+    let duty = |index: usize| {
+        tpu_only(safe_divide(extra.busy_ps[index] as f64, extra.busy_ps[index].wrapping_add(extra.idle_ps[index]) as f64) * 100.0)
+    };
     let idle = |db: &Db| tpu_only((1.0 - safe_divide(db.total_op_time_ps as f64, db.total_time_ps as f64)) * 100.0);
     let common = [
         ("host_trace_level", "0".to_string()),
@@ -129,7 +142,10 @@ fn top_ops_table(stats: &OpStats, device_hardware: u8) -> Table {
         ("hbm_utilization_percent", percentage(extra.hbm)),
     ];
     let specific = if generic {
-        vec![("device_compute_16bit_percent", precision_percent(compute_16)), ("device_compute_32bit_percent", precision_percent(compute_32))]
+        vec![
+            ("device_compute_16bit_percent", precision_percent(compute_16)),
+            ("device_compute_32bit_percent", precision_percent(compute_32)),
+        ]
     } else {
         vec![
             ("flop_rate_utilization_relative_to_roofline", percentage(0.0)),
@@ -153,7 +169,14 @@ fn environment_table(extra: &Extra) -> Table {
     let mut environment = Table::new(&["host_id", "command_line", "start_time", "bns_address"].map(|id| (id, "string", id)));
     let hosts = extra.hostnames.len() as i32;
     environment.prop("host_count", hosts.to_string());
-    environment.prop("task_count", if extra.tasks > 0 && hosts > 0 { format!("{} (num tasks per host = {})", extra.tasks, extra.tasks / hosts) } else { extra.tasks.to_string() });
+    environment.prop(
+        "task_count",
+        if extra.tasks > 0 && hosts > 0 {
+            format!("{} (num tasks per host = {})", extra.tasks, extra.tasks / hosts)
+        } else {
+            extra.tasks.to_string()
+        },
+    );
     environment.prop("device_type", extra.device_type.clone());
     environment.prop("device_core_count", extra.core_count.to_string());
     environment.prop("is_training", extra.training.to_string());
@@ -168,14 +191,46 @@ fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8)
     let (timeline, tool) = if device_hardware == TPU { ("TPU core", "op_profile") } else { (device_name, "framework_op_stats") };
     let tips = [
         ("faq", "Refer to the TF2 Profiler FAQ".to_string(), "Tool troubleshooting / FAQ"),
-        ("host", "input_pipeline_analyzer (especially Section 3 for the breakdown of input operations on the Host)".into(), "Next steps for reducing the Host time"),
-        ("host", "trace_viewer (look at the activities on the timeline of each Host Thread near the bottom of the trace view)".into(), "Next steps for reducing the Host time"),
-        ("device", format!("{tool} (identify the time-consuming operations executed on the {device_name})"), "Next steps for reducing the Device time"),
-        ("device", format!("trace_viewer (look at the activities on the timeline of each {timeline} in the trace view)"), "Next steps for reducing the Device time"),
-        ("doc", r#"<a href="https://www.tensorflow.org/guide/data_performance_analysis" target="_blank">Analyze tf.data performance with the TF Profiler</a>"#.into(), "Other useful resources"),
-        ("doc", r#"<a href="https://www.tensorflow.org/guide/data_performance" target="_blank">Better performance with the tf.data API</a>"#.into(), "Other useful resources"),
+        (
+            "host",
+            "input_pipeline_analyzer (especially Section 3 for the breakdown of input operations on the Host)".into(),
+            "Next steps for reducing the Host time",
+        ),
+        (
+            "host",
+            "trace_viewer (look at the activities on the timeline of each Host Thread near the bottom of the trace view)".into(),
+            "Next steps for reducing the Host time",
+        ),
+        (
+            "device",
+            format!("{tool} (identify the time-consuming operations executed on the {device_name})"),
+            "Next steps for reducing the Device time",
+        ),
+        (
+            "device",
+            format!("trace_viewer (look at the activities on the timeline of each {timeline} in the trace view)"),
+            "Next steps for reducing the Device time",
+        ),
+        (
+            "doc",
+            concat!(
+                r#"<a href="https://www.tensorflow.org/guide/data_performance_analysis" "#,
+                r#"target="_blank">Analyze tf.data performance with the TF Profiler</a>"#,
+            )
+            .into(),
+            "Other useful resources",
+        ),
+        (
+            "doc",
+            r#"<a href="https://www.tensorflow.org/guide/data_performance" target="_blank">Better performance with the tf.data API</a>"#
+                .into(),
+            "Other useful resources",
+        ),
     ];
-    recommendation.rows = tips.into_iter().map(|(kind, link, description)| vec![Cell::Text(kind.into()), Cell::Text(link), Cell::Text(description.into())]).collect();
+    recommendation.rows = tips
+        .into_iter()
+        .map(|(kind, link, description)| vec![Cell::Text(kind.into()), Cell::Text(link), Cell::Text(description.into())])
+        .collect();
     for ((kind, statement), prefix) in bottleneck.iter().zip(BOTTLENECK_PREFIXES) {
         recommendation.prop(&format!("{prefix}bottleneck"), kind.clone());
         recommendation.prop(&format!("{prefix}statement"), statement.clone());
@@ -186,7 +241,8 @@ fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8)
         "precision_statement",
         if low_precision {
             format!(
-                "Only {}% of device computation is 16 bit. So you might want to replace more 32-bit Ops by 16-bit Ops to improve performance (if the reduced accuracy is acceptable).",
+                "Only {}% of device computation is 16 bit. So you might want to replace more 32-bit Ops by 16-bit Ops to improve \
+                    performance (if the reduced accuracy is acceptable).",
                 fixed(percent_16, 1)
             )
         } else {
@@ -204,10 +260,13 @@ fn recommendation_table(extra: &Extra, analysis: &Analysis, device_hardware: u8)
 
 fn latency_json(extra: &Extra, paths: &[PathBuf]) -> String {
     let mut latency = Table::new(&LATENCY_COLUMNS);
-    let breakdowns = if extra.training { Vec::new() } else { inference_latency(&crate::tools::inference_profile::load(paths).unwrap_or_default()) };
-    let labels = std::iter::once("Avg".to_string()).chain(LATENCY_PERCENTILES.iter().map(|percentile| format!("{}%", fixed(*percentile, 1))));
+    let breakdowns =
+        if extra.training { Vec::new() } else { inference_latency(&crate::tools::inference_profile::load(paths).unwrap_or_default()) };
+    let labels =
+        std::iter::once("Avg".to_string()).chain(LATENCY_PERCENTILES.iter().map(|percentile| format!("{}%", fixed(*percentile, 1))));
     for (label, breakdown) in labels.zip(breakdowns) {
-        let times = [breakdown.host_latency_us, breakdown.device_latency_us, breakdown.communication_latency_us, breakdown.total_latency_us];
+        let times =
+            [breakdown.host_latency_us, breakdown.device_latency_us, breakdown.communication_latency_us, breakdown.total_latency_us];
         latency.row().extend(std::iter::once(Cell::Text(label)).chain(times.map(|us| Cell::Number(us / 1e3))));
     }
     latency.json()

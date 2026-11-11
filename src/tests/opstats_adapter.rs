@@ -64,7 +64,8 @@ fn key_number(key: &MapKey) -> u64 {
 }
 
 fn map(message: &DynamicMessage, name: &str) -> Vec<(MapKey, Value)> {
-    let mut entries: Vec<(MapKey, Value)> = field(message, name).as_map().unwrap().iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+    let mut entries: Vec<(MapKey, Value)> =
+        field(message, name).as_map().unwrap().iter().map(|(key, value)| (key.clone(), value.clone())).collect();
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     entries
 }
@@ -80,9 +81,16 @@ pub fn parse(name: &str, text: &str) -> DynamicMessage {
 pub fn metrics(message: &DynamicMessage) -> Metrics {
     let source = message.has_field_by_name("source_info").then(|| {
         let info = child(message, "source_info");
-        Source { file: text(&info, "file_name").into(), line: number(&info, "line_number") as i32, stack: text(&info, "stack_frame").into() }
+        Source {
+            file: text(&info, "file_name").into(),
+            line: number(&info, "line_number") as i32,
+            stack: text(&info, "stack_frame").into(),
+        }
     });
-    let memory = messages(message, "memory_accessed_breakdown").iter().map(|entry| (number(entry, "operation_type") as u8, number(entry, "memory_space"), number(entry, "bytes_accessed"))).collect();
+    let memory = messages(message, "memory_accessed_breakdown")
+        .iter()
+        .map(|entry| (number(entry, "operation_type") as u8, number(entry, "memory_space"), number(entry, "bytes_accessed")))
+        .collect();
     Metrics {
         module: number(message, "hlo_module_id"),
         name: text(message, "name").into(),
@@ -128,7 +136,8 @@ fn breakdown(info: &DynamicMessage) -> Breakdown {
     assert_eq!(type_url.strip_prefix(ANY_PREFIX), Some(GENERIC_STEP_BREAKDOWN));
     let bytes = field(&any, "value").as_bytes().unwrap().clone();
     let generic = DynamicMessage::decode(descriptor(GENERIC_STEP_BREAKDOWN), bytes).unwrap();
-    let categories: BTreeMap<String, u64> = map(&generic, "category_ps").into_iter().map(|(key, value)| (key.as_str().unwrap().to_string(), value_number(&value))).collect();
+    let categories: BTreeMap<String, u64> =
+        map(&generic, "category_ps").into_iter().map(|(key, value)| (key.as_str().unwrap().to_string(), value_number(&value))).collect();
     if categories.is_empty() {
         Breakdown::Types(map(&generic, "type_ps").into_iter().map(|(key, value)| (key_number(&key) as u32, value_number(&value))).collect())
     } else {
@@ -145,7 +154,12 @@ pub fn steps(step_db: &DynamicMessage) -> Vec<StepRecord> {
                 .into_iter()
                 .map(|(core, info)| {
                     let info = info.as_message().unwrap();
-                    let record = StepInfo { name: text(info, "step_name"), begin: number(info, "begin_ps"), duration: number(info, "duration_ps"), breakdown: breakdown(info) };
+                    let record = StepInfo {
+                        name: text(info, "step_name"),
+                        begin: number(info, "begin_ps"),
+                        duration: number(info, "duration_ps"),
+                        breakdown: breakdown(info),
+                    };
                     (key_number(&core) as u32, record)
                 })
                 .collect(),
@@ -153,7 +167,13 @@ pub fn steps(step_db: &DynamicMessage) -> Vec<StepRecord> {
                 .into_iter()
                 .map(|(core, reduces)| {
                     let reduces = messages(reduces.as_message().unwrap(), "all_reduce_info");
-                    (key_number(&core) as u32, reduces.iter().map(|reduce| (number(reduce, "id"), number(reduce, "start_time_ps"), number(reduce, "end_time_ps"))).collect())
+                    (
+                        key_number(&core) as u32,
+                        reduces
+                            .iter()
+                            .map(|reduce| (number(reduce, "id"), number(reduce, "start_time_ps"), number(reduce, "end_time_ps")))
+                            .collect(),
+                    )
                 })
                 .collect(),
         })
@@ -247,7 +267,10 @@ pub fn op_stats_message(stats: &DynamicMessage) -> OpStats {
         host: db(&child(stats, "host_op_metrics_db")),
         infeed_enqueue: (0, 0),
         extra: Arc::new(extra),
-        programs: map(stats, "program_id_to_name_map").into_iter().map(|(key, value)| (key_number(&key), value.as_str().unwrap().to_string())).collect::<HashMap<_, _>>(),
+        programs: map(stats, "program_id_to_name_map")
+            .into_iter()
+            .map(|(key, value)| (key_number(&key), value.as_str().unwrap().to_string()))
+            .collect::<HashMap<_, _>>(),
         kernels: messages(&child(stats, "kernel_stats_db"), "reports").iter().map(kernel).collect(),
     }
 }

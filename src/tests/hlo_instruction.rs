@@ -54,27 +54,44 @@ fn sparsity_config_to_string_rhs_only() {
     let conv = convolution("[1, 2, 4]", "rhs { block_size: 4 num_non_zero: 1 dimension: 0 stride: 1 idx: 2 }");
     assert_eq!(
         to_string(&conv, "convolution"),
-        "%convolution = bf16[256,256]{1,0} convolution(%lhs, %rhs, %rhs_indices), dim_labels=bf_io->bf, sparsity_config={rhs={sparsity=1x4 dimension=0 stride=1 idx=2}}"
+        "%convolution = bf16[256,256]{1,0} convolution(%lhs, %rhs, %rhs_indices), dim_labels=bf_io->bf, \
+            sparsity_config={rhs={sparsity=1x4 dimension=0 stride=1 idx=2}}"
     );
 }
 
 #[test]
 fn sparsity_config_to_string_lhs_and_rhs() {
-    let conv = convolution("[1, 2, 3, 4]", "rhs { block_size: 4 num_non_zero: 1 dimension: 0 stride: 1 idx: 3 } lhs { block_size: 4 num_non_zero: 1 dimension: 0 stride: 1 idx: 2 }");
+    let conv = convolution(
+        "[1, 2, 3, 4]",
+        "rhs { block_size: 4 num_non_zero: 1 dimension: 0 stride: 1 idx: 3 } lhs { block_size: 4 num_non_zero: 1 dimension: 0 stride: 1 \
+            idx: 2 }",
+    );
     assert_eq!(
         to_string(&conv, "convolution"),
-        "%convolution = bf16[256,256]{1,0} convolution(%lhs, %rhs, %lhs_indices, %rhs_indices), dim_labels=bf_io->bf, sparsity_config={lhs={sparsity=1x4 dimension=0 stride=1 idx=2} rhs={sparsity=1x4 dimension=0 stride=1 idx=3}}"
+        "%convolution = bf16[256,256]{1,0} convolution(%lhs, %rhs, %lhs_indices, %rhs_indices), dim_labels=bf_io->bf, \
+            sparsity_config={lhs={sparsity=1x4 dimension=0 stride=1 idx=2} rhs={sparsity=1x4 dimension=0 stride=1 idx=3}}"
     );
 }
 
 #[test]
 fn block_scaling_config_to_string() {
-    let side = |scale_idx: i32, zero_idx: Option<i32>, strides: &[i64], steps: &[i64]| Some(TensorBlockScalingConfig { scale_idx, zero_idx, strides: strides.to_vec(), steps: steps.to_vec() });
+    let side = |scale_idx: i32, zero_idx: Option<i32>, strides: &[i64], steps: &[i64]| {
+        Some(TensorBlockScalingConfig { scale_idx, zero_idx, strides: strides.to_vec(), steps: steps.to_vec() })
+    };
     assert_eq!(block_scaling_config_text(&BlockScalingConfig::default()), "");
     assert_eq!(block_scaling_config_text(&BlockScalingConfig { lhs: side(2, None, &[], &[]), rhs: None }), "lhs={scale_idx=2}");
-    assert_eq!(block_scaling_config_text(&BlockScalingConfig { lhs: side(2, Some(0), &[], &[]), rhs: None }), "lhs={scale_idx=2 zero_idx=0}");
-    assert_eq!(block_scaling_config_text(&BlockScalingConfig { lhs: side(2, Some(3), &[1, 4], &[1, 2]), rhs: None }), "lhs={scale_idx=2 zero_idx=3 strides=1x4 steps=1x2}");
-    assert_eq!(block_scaling_config_text(&BlockScalingConfig { lhs: None, rhs: side(3, None, &[2, 4], &[]) }), "rhs={scale_idx=3 strides=2x4}");
+    assert_eq!(
+        block_scaling_config_text(&BlockScalingConfig { lhs: side(2, Some(0), &[], &[]), rhs: None }),
+        "lhs={scale_idx=2 zero_idx=0}"
+    );
+    assert_eq!(
+        block_scaling_config_text(&BlockScalingConfig { lhs: side(2, Some(3), &[1, 4], &[1, 2]), rhs: None }),
+        "lhs={scale_idx=2 zero_idx=3 strides=1x4 steps=1x2}"
+    );
+    assert_eq!(
+        block_scaling_config_text(&BlockScalingConfig { lhs: None, rhs: side(3, None, &[2, 4], &[]) }),
+        "rhs={scale_idx=3 strides=2x4}"
+    );
     assert_eq!(
         block_scaling_config_text(&BlockScalingConfig { lhs: side(2, Some(0), &[1], &[]), rhs: side(3, Some(1), &[2], &[4]) }),
         "lhs={scale_idx=2 zero_idx=0 strides=1} rhs={scale_idx=3 zero_idx=1 strides=2 steps=4}"
@@ -83,5 +100,8 @@ fn block_scaling_config_to_string() {
 
 #[test]
 fn print_compare_op_works_if_dead() {
-    assert_eq!(to_string(&fixture("print_compare_op_works_if_dead"), "result"), "%result = pred[] compare(%p0, %p1), direction=GT, type=TOTALORDER");
+    assert_eq!(
+        to_string(&fixture("print_compare_op_works_if_dead"), "result"),
+        "%result = pred[] compare(%p0, %p1), direction=GT, type=TOTALORDER"
+    );
 }

@@ -14,6 +14,7 @@ fn tiny_events_at_the_end_of_time() {
 #[test]
 fn counter_sum_that_is_too_large() {
     let points = counter(vec![(0, i64::MAX), (1, i64::MAX), (1, 2)], i64::wrapping_add, Sample::Int);
-    let values: Vec<(i64, i64)> = points.into_iter().map(|(ts, sample)| (ts, if let Sample::Int(value) = sample { value } else { 0 })).collect();
+    let values: Vec<(i64, i64)> =
+        points.into_iter().map(|(ts, sample)| (ts, if let Sample::Int(value) = sample { value } else { 0 })).collect();
     assert_eq!(values, [(0, i64::MAX), (1, 0)]);
 }

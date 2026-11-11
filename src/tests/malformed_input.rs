@@ -50,11 +50,18 @@ fn threadpool_regions(consumer: crate::tests::xspace::V) -> usize {
     let consumer = [("_ct", V::from(15)), ("_c", consumer)];
     plane.event(1, "ThreadpoolListener::StartRegion", 0, 0, &consumer);
     plane.event(1, "ThreadpoolListener::StopRegion", 300, 0, &consumer);
-    plane.lines.iter_mut().for_each(|line| line.timestamp_ns = 5);
+    for line in &mut plane.lines {
+        line.timestamp_ns = 5;
+    }
     let (map, mut planes) = space.parsed();
     planes[0].add_threadpool_regions(&map);
     let plane = &planes[0];
-    plane.lines.iter().flat_map(|line| &line.events).filter(|event| &*plane.meta[event.meta as usize].name == "ThreadpoolListener::Region").count()
+    plane
+        .lines
+        .iter()
+        .flat_map(|line| &line.events)
+        .filter(|event| &*plane.meta[event.meta as usize].name == "ThreadpoolListener::Region")
+        .count()
 }
 
 #[test]
@@ -92,7 +99,9 @@ fn metadata_id_from_the_map_key() {
 #[test]
 fn literals_that_are_not_valid() {
     use crate::hlo::xla::{LayoutProto, LiteralProto, ShapeProto};
-    let module = crate::hlo::Module::parse(std::borrow::Cow::Owned(std::fs::read(format!("{}/tests/data/literal/literals.pb", env!("CARGO_MANIFEST_DIR"))).unwrap()));
+    let module = crate::hlo::Module::parse(std::borrow::Cow::Owned(
+        std::fs::read(format!("{}/tests/data/literal/literals.pb", env!("CARGO_MANIFEST_DIR"))).unwrap(),
+    ));
     let printer = crate::hlo::text::Printer::new(&module, crate::hlo::text::Style::Long, false);
     let shape = |element_type, dimensions: Vec<i64>, layout: Option<Vec<i64>>| ShapeProto {
         element_type,
@@ -114,7 +123,11 @@ fn literals_that_are_not_valid() {
         printer.literal(&literal, true, &mut String::new());
     }
     let mut text = String::new();
-    printer.literal(&LiteralProto { shape: Some(shape(11, vec![2], Some(vec![0]))), f32s: vec![1.0, 2.0], ..Default::default() }, true, &mut text);
+    printer.literal(
+        &LiteralProto { shape: Some(shape(11, vec![2], Some(vec![0]))), f32s: vec![1.0, 2.0], ..Default::default() },
+        true,
+        &mut text,
+    );
     assert_eq!(text, "{1, 2}");
 }
 
@@ -123,7 +136,16 @@ fn cli_values_with_deep_brackets_or_many_signs_stay_text() {
     use crate::cli::{json::J, literal};
     let nested = |depth: usize| format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
     assert_eq!(literal(&nested(200)), J::Int(1));
-    for text in [nested(201), nested(100_000), format!("{}1", "-".repeat(100_000)), "-True".into(), "--1".into(), "-(-1)".into(), "+-1".into(), "[1, --2]".into()] {
+    for text in [
+        nested(201),
+        nested(100_000),
+        format!("{}1", "-".repeat(100_000)),
+        "-True".into(),
+        "--1".into(),
+        "-(-1)".into(),
+        "+-1".into(),
+        "[1, --2]".into(),
+    ] {
         assert_eq!(literal(&text), J::Str(text.clone()));
     }
     assert_eq!(literal("-( 1)"), J::Int(-1));
@@ -165,11 +187,17 @@ fn recovery_module_that_is_not_valid() {
 #[test]
 fn provenance_with_many_parts() {
     let text = format!(
-        "device_op_metrics_db {{ metrics_db {{ name: \"op\" category: \"fusion\" provenance: \"{}\" occurrences: 1 time_ps: 10 self_time_ps: 10 }} total_time_ps: 10 total_op_time_ps: 10 }}",
+        "device_op_metrics_db {{ metrics_db {{ name: \"op\" category: \"fusion\" provenance: \"{}\" occurrences: 1 time_ps: 10 \
+            self_time_ps: 10 }} total_time_ps: 10 total_op_time_ps: 10 }}",
         "a/".repeat(100_000)
     );
     let stats = crate::tests::opstats_adapter::op_stats(&text);
-    let json = std::thread::Builder::new().stack_size(1 << 20).spawn(move || crate::tools::op_profile::json(&stats, Some("provenance"))).unwrap().join().unwrap();
+    let json = std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(move || crate::tools::op_profile::json(&stats, Some("provenance")))
+        .unwrap()
+        .join()
+        .unwrap();
     assert_eq!(json.matches("\"name\":\"a\"").count(), 2 * 100_000);
 }
 
@@ -192,13 +220,16 @@ fn hlo_text_proto_with_deep_nesting() {
             lengths.push(inner + 1 + encoded_len_varint(inner) as u64);
         }
         let mut chain = Vec::new();
-        for &length in lengths.iter().rev().skip(1) {
+        let lengths = lengths.iter().rev().skip(1);
+        for &length in lengths {
             chain.push(tuple_shape);
             encode_varint(length, &mut chain);
         }
         let shape = wrap(HloInstructionProto { shape: Some(Box::default()), ..Default::default() }.encode_to_vec(), chain);
-        let instruction = wrap(HloComputationProto { instructions: vec![HloInstructionProto::default()], ..Default::default() }.encode_to_vec(), shape);
-        let computation = wrap(HloModuleProto { computations: vec![HloComputationProto::default()], ..Default::default() }.encode_to_vec(), instruction);
+        let instruction =
+            wrap(HloComputationProto { instructions: vec![HloInstructionProto::default()], ..Default::default() }.encode_to_vec(), shape);
+        let computation =
+            wrap(HloModuleProto { computations: vec![HloComputationProto::default()], ..Default::default() }.encode_to_vec(), instruction);
         wrap(HloProto { hlo_module: Some(HloModuleProto::default()), ..Default::default() }.encode_to_vec(), computation)
     };
     assert!(HloProto::decode(hlo(97).as_slice()).is_ok() && HloProto::decode(hlo(98).as_slice()).is_err());
@@ -212,14 +243,28 @@ fn memory_viewer_with_many_live_buffers() {
     use crate::hlo::xla::buffer_allocation_proto::Assigned;
     use crate::hlo::xla::heap_simulator_trace::Event;
     use crate::hlo::xla::logical_buffer_proto::Location;
-    use crate::hlo::xla::{BufferAllocationProto, BufferAssignmentProto, HeapSimulatorTrace, HloComputationProto, HloInstructionProto, HloModuleProto, HloProto, LogicalBufferProto};
+    use crate::hlo::xla::{
+        BufferAllocationProto, BufferAssignmentProto, HeapSimulatorTrace, HloComputationProto, HloInstructionProto, HloModuleProto,
+        HloProto, LogicalBufferProto,
+    };
     let count = 100_000;
     let instructions = (0..count).map(|id| HloInstructionProto { name: format!("f.{id}"), id, ..Default::default() }).collect();
-    let hlo_module = HloModuleProto { name: "m".into(), computations: vec![HloComputationProto { name: "c".into(), instructions, ..Default::default() }], ..Default::default() };
+    let hlo_module = HloModuleProto {
+        name: "m".into(),
+        computations: vec![HloComputationProto { name: "c".into(), instructions, ..Default::default() }],
+        ..Default::default()
+    };
     let size = |id: i64| if id == 1 { 3 << 20 } else { 1 << 20 };
-    let logical_buffers =
-        (0..count).map(|id| LogicalBufferProto { id: id + 1, size: size(id + 1), defined_at: Some(Location { instruction_id: id, ..Default::default() }), ..Default::default() }).collect();
-    let assigned = (0..count).map(|id| Assigned { logical_buffer_id: id + 1, offset: id << 22, size: size(id + 1), ..Default::default() }).collect();
+    let logical_buffers = (0..count)
+        .map(|id| LogicalBufferProto {
+            id: id + 1,
+            size: size(id + 1),
+            defined_at: Some(Location { instruction_id: id, ..Default::default() }),
+            ..Default::default()
+        })
+        .collect();
+    let assigned =
+        (0..count).map(|id| Assigned { logical_buffer_id: id + 1, offset: id << 22, size: size(id + 1), ..Default::default() }).collect();
     let event = |kind: i32, id: i64| Event { kind, buffer_id: id + 1, ..Default::default() };
     let mut events = vec![event(0, 0), event(1, 0)];
     events.extend((1..count).map(|id| event(0, id)));
@@ -244,8 +289,31 @@ fn json_deeper_than_the_serde_limit() {
     let wrap = |text: &str, depth: usize| format!("{}{text}{}", "[ ".repeat(depth), "\n]".repeat(depth));
     let nest = |value: J, depth: usize| (0..depth).fold(value, |inner, _| J::List(vec![inner]));
     for text in [
-        "null", "true", "-0", "12345678901234567890123", "1.5e300", "-7", "1e400", "01", "1.", "-", "nul", "\"\\ud83d\\ude00\"", "\"\\ud800\"", "\"a\\\"b\\\\\"", "\"\\x\"", "\"\n\"",
-        "{\"k\": 1, \"j\": [], \"k\": {\"x\": 2}}", "{\"k\" 1}", "{1: 2}", "[1, 2,]", "[1 2]", "{}", "[]", "1 2", "[1]]",
+        "null",
+        "true",
+        "-0",
+        "12345678901234567890123",
+        "1.5e300",
+        "-7",
+        "1e400",
+        "01",
+        "1.",
+        "-",
+        "nul",
+        "\"\\ud83d\\ude00\"",
+        "\"\\ud800\"",
+        "\"a\\\"b\\\\\"",
+        "\"\\x\"",
+        "\"\n\"",
+        "{\"k\": 1, \"j\": [], \"k\": {\"x\": 2}}",
+        "{\"k\" 1}",
+        "{1: 2}",
+        "[1, 2,]",
+        "[1 2]",
+        "{}",
+        "[]",
+        "1 2",
+        "[1]]",
     ] {
         let expected = serde_json::from_str::<J>(text).ok();
         assert_eq!(J::parse(&wrap(text, 300)), expected.map(|value| nest(value, 300)), "{text}");
@@ -295,7 +363,13 @@ fn fused_children_of_deep_or_shared_fusions() {
     let fused = |computations: Vec<_>| {
         let entry_computation_id = computations.len() as i64;
         let proto = HloProto {
-            hlo_module: Some(HloModuleProto { name: "m".into(), entry_computation_id, computations, host_program_shape: Some(ProgramShapeProto::default()), ..Default::default() }),
+            hlo_module: Some(HloModuleProto {
+                name: "m".into(),
+                entry_computation_id,
+                computations,
+                host_program_shape: Some(ProgramShapeProto::default()),
+                ..Default::default()
+            }),
             ..Default::default()
         };
         let modules = [(1, crate::tests::hlo_fixture::module(&proto))];
@@ -335,6 +409,9 @@ fn text_of_a_deep_async_start_chain() {
     };
     let module = crate::tests::hlo_fixture::module(&HloProto { hlo_module: Some(hlo_module), ..Default::default() });
     let printer = crate::hlo::text::Printer::new(&module, crate::hlo::text::Style::Long, false);
-    let text = std::thread::scope(|scope| std::thread::Builder::new().stack_size(1 << 18).spawn_scoped(scope, || printer.module_text()).unwrap().join().unwrap()).unwrap();
+    let text = std::thread::scope(|scope| {
+        std::thread::Builder::new().stack_size(1 << 18).spawn_scoped(scope, || printer.module_text()).unwrap().join().unwrap()
+    })
+    .unwrap();
     assert!(text.contains("async-start.10001"));
 }

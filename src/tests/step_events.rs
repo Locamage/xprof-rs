@@ -104,7 +104,9 @@ fn device_span_stat_that_is_not_an_int_is_zero() {
 
 #[test]
 fn tpu_device_plane_no_step_line() {
-    let (map, planes) = tpu_op_plane(false, &[("op_long_name", 0, 1), ("op_long_name", 100, 2), ("op_long_name2", 50, 1), ("op_long_name2", 150, 2)]).parsed();
+    let (map, planes) =
+        tpu_op_plane(false, &[("op_long_name", 0, 1), ("op_long_name", 100, 2), ("op_long_name2", 50, 1), ("op_long_name2", 150, 2)])
+            .parsed();
     assert!(device_steps(&planes, &map, 0).is_empty());
 }
 
@@ -116,14 +118,26 @@ fn cpu_only_py_grain_single_process_input_pipeline_test() {
     host.event(0, "_BatchDatasetIterator.__next__", 1, 90, &[("_ipl_stage_name", "Batch".into())]);
     host.event(0, "FirstFitPackDatasetIterator.__next__", 2, 88, &[("_ipl_stage_name", "FirstFitPack".into())]);
     for (producer, (offset, duration)) in [(3, 9), (13, 9), (23, 50), (74, 10), (85, 5)].into_iter().enumerate() {
-        host.event(0, "PrefetchDatasetIterator.__next__", offset, duration, &[("_ipl_stage_name", "Prefetch".into()), ("_pt", 9999.into()), ("_p", (producer as i64 + 1).into())]);
+        host.event(
+            0,
+            "PrefetchDatasetIterator.__next__",
+            offset,
+            duration,
+            &[("_ipl_stage_name", "Prefetch".into()), ("_pt", 9999.into()), ("_p", (producer as i64 + 1).into())],
+        );
     }
     host.event(0, "tpu::System::Execute", 92, 1, &[("_pt", TFRT_TPU_RUNTIME.into()), ("_p", 1.into())]);
     host.event(1, "tpu::System::Execute=>IssueSequencedEvent", 94, 4, &[("_ct", TFRT_TPU_RUNTIME.into()), ("_c", 1.into())]);
     host.event(1, "DoEnqueueProgram", 95, 2, &[("run_id", 1.into()), ("queue_id", 0.into()), ("device_ordinal", 0.into())]);
     for worker in 1..=5 {
         host.named_line(worker + 1, &format!("WorkerThread-{worker}"));
-        host.event(worker + 1, "MapDataset.__getitem__", 2, 2, &[("_ipl_stage_name", "MapDataset".into()), ("_ct", 9999.into()), ("_c", V::from(worker))]);
+        host.event(
+            worker + 1,
+            "MapDataset.__getitem__",
+            2,
+            2,
+            &[("_ipl_stage_name", "MapDataset".into()), ("_ct", 9999.into()), ("_c", V::from(worker))],
+        );
     }
     let device = space.tpu(0, "TPUv4", 0.0, 0.0, None);
     device.named_line(0, "Steps");
@@ -169,15 +183,24 @@ fn the_reads_of_the_op_statistics_give_the_same_program_steps() {
     plane.event(2, "op_long_name", 100, 60, &[("group_id", 2.into())]);
     let (map, mut planes) = space.parsed();
     for (line, groups) in planes[0].lines.iter_mut().zip([&[1, 2][..], &[1], &[1, 1, NONE_GROUP, 2]]) {
-        line.events.iter_mut().zip(groups).for_each(|(event, &group)| event.group = group);
+        for (event, &group) in line.events.iter_mut().zip(groups) {
+            event.group = group;
+        }
     }
     let templates = [templates(&planes[0], &map)];
     let sums = |extra: &crate::xplane::steps::Extra| {
-        extra.program_steps.iter().map(|(group, sums)| (*group, sums.each_ref().map(|metrics| (metrics.occurrences, metrics.time_ps, metrics.self_time_ps)))).collect::<Vec<_>>()
+        extra
+            .program_steps
+            .iter()
+            .map(|(group, sums)| (*group, sums.each_ref().map(|metrics| (metrics.occurrences, metrics.time_ps, metrics.self_time_ps))))
+            .collect::<Vec<_>>()
     };
     let separate = crate::xplane::steps::programs(&planes, &map, &templates);
     let mut shared = crate::xplane::steps::header(&planes, &map);
-    crate::xplane::steps::add_programs(&mut shared, vec![crate::tools::opstats::convert_tensor_core(&planes[0], &map, &templates[0], None, true).1]);
+    crate::xplane::steps::add_programs(
+        &mut shared,
+        vec![crate::tools::opstats::convert_tensor_core(&planes[0], &map, &templates[0], None, true).1],
+    );
     assert_eq!(sums(&separate).len(), 2);
     assert_eq!(sums(&shared), sums(&separate));
 }

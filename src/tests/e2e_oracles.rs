@@ -33,7 +33,10 @@ pub fn training_trace(step_ps: i64) -> Vec<u8> {
     plane.named_line(1, "XLA Modules");
     plane.named_line(2, "XLA Ops");
     for (symbol, name, category) in [(1, "fusion.1", "convolution fusion"), (2, "convolution.2", "convolution")] {
-        plane.metadata_stats(name, &[("program_id", 1.into()), ("symbol_id", symbol.into()), ("hlo_category", category.into()), ("flops", OP_FLOPS.into())]);
+        plane.metadata_stats(
+            name,
+            &[("program_id", 1.into()), ("symbol_id", symbol.into()), ("hlo_category", category.into()), ("flops", OP_FLOPS.into())],
+        );
     }
     for step in 0..STEPS {
         let (start, group) = (step * step_ps, [("group_id", V::from(step + 1))]);
@@ -70,7 +73,9 @@ fn device_lines(path: &Path) -> Vec<Line> {
                     _ => {}
                 }
             }
-            let spans = events(bytes).map(|event| (timestamp as f64 + event.offset_ps as i64 as f64 / 1000.0, event.duration_ps as i64 as f64 / 1000.0)).collect();
+            let spans = events(bytes)
+                .map(|event| (timestamp as f64 + event.offset_ps as i64 as f64 / 1000.0, event.duration_ps as i64 as f64 / 1000.0))
+                .collect();
             found.push((plane.name.clone(), name, spans));
         }
     }
@@ -83,7 +88,9 @@ pub fn oracle_step_time_ms(path: &Path) -> f64 {
         let durations: Vec<f64> = lines
             .iter()
             .filter(|(plane, line, _)| keep(plane, line))
-            .flat_map(|(_, _, spans)| spans.iter().filter(|(_, duration)| *duration > SUB_STEP_NS).map(|(_, duration)| duration / 1_000_000.0))
+            .flat_map(|(_, _, spans)| {
+                spans.iter().filter(|(_, duration)| *duration > SUB_STEP_NS).map(|(_, duration)| duration / 1_000_000.0)
+            })
             .collect();
         (!durations.is_empty()).then(|| durations.iter().sum::<f64>() / durations.len() as f64)
     };
@@ -96,7 +103,9 @@ pub fn oracle_step_time_ms(path: &Path) -> f64 {
 pub fn oracle_duty_cycle(path: &Path) -> f64 {
     let mut intervals: Vec<(i64, i64)> = device_lines(path)
         .into_iter()
-        .filter(|(plane, line, _)| plane.starts_with("/device:") && !IGNORED_LINES.iter().any(|ignored| line.to_lowercase().contains(ignored)))
+        .filter(|(plane, line, _)| {
+            plane.starts_with("/device:") && !IGNORED_LINES.iter().any(|ignored| line.to_lowercase().contains(ignored))
+        })
         .flat_map(|(_, _, spans)| spans.into_iter().map(|(start, duration)| (start as i64, start as i64 + duration as i64)))
         .filter(|(start, end)| end > start)
         .collect();
@@ -108,7 +117,9 @@ pub fn oracle_duty_cycle(path: &Path) -> f64 {
             _ => merged.push((start, end)),
         }
     }
-    let (Some(first), Some(last)) = (merged.first(), merged.last()) else { return 0.0 };
+    let (Some(first), Some(last)) = (merged.first(), merged.last()) else {
+        return 0.0;
+    };
     let span = last.1 - first.0;
     if span <= 0 { 0.0 } else { (merged.iter().map(|(start, end)| end - start).sum::<i64>() as f64 / span as f64).min(1.0) }
 }

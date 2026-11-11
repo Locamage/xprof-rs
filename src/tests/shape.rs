@@ -14,7 +14,13 @@ fn layout(minor_to_major: &[i64]) -> Option<Box<LayoutProto>> {
 }
 
 fn array(element_type: i32, dimensions: &[i64], minor_to_major: &[i64]) -> Shape {
-    Shape { element_type, dimensions: dimensions.to_vec(), is_dynamic_dimension: vec![false; dimensions.len()], layout: layout(minor_to_major), ..Default::default() }
+    Shape {
+        element_type,
+        dimensions: dimensions.to_vec(),
+        is_dynamic_dimension: vec![false; dimensions.len()],
+        layout: layout(minor_to_major),
+        ..Default::default()
+    }
 }
 
 fn tuple(elements: Vec<Shape>) -> Shape {

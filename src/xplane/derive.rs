@@ -1,7 +1,7 @@
 use crate::hlo::xla::HloInstructionMeta;
 use crate::tools::framework_op_stats::{is_jax_op_type, is_tf_op_name, is_tf_op_type};
 use crate::xplane::gpu;
-use crate::xplane::{Ev, GROUP, Line, NONE_GROUP, Plane, Value, event_group, slice, stats};
+use crate::xplane::{Ev, GROUP, HOST_PLANE, Line, NONE_GROUP, Plane, Value, event_group, slice, stats};
 use prost::Message;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -14,7 +14,10 @@ pub fn is_tensor_core(name: &str) -> bool {
 }
 
 pub fn is_grouped(planes: &[Plane]) -> bool {
-    planes.iter().filter(|plane| plane.name.starts_with("/device:") || plane.name.starts_with("/host:CPU")).all(|plane| plane.stat_names.iter().any(|stat| &**stat == "group_id"))
+    planes
+        .iter()
+        .filter(|plane| plane.name.starts_with("/device:") || plane.name.starts_with("/host:CPU"))
+        .all(|plane| plane.stat_names.iter().any(|stat| &**stat == "group_id"))
 }
 
 const MEMCPY: [&str; 4] = ["MemcpyHToD", "MemcpyDToH", "MemcpyDToD", "MemcpyHToH"];
@@ -38,13 +41,14 @@ impl TfOp<'_> {
     pub fn event_name(&self) -> String {
         match self.category {
             Category::Unknown => self.name.trim_end_matches(|c: char| c.is_ascii_whitespace()).to_string(),
-            Category::TfData => format!("Iterator::{}", self.name.rsplit("::").next().unwrap()),
+            Category::TfData => format!("Iterator::{}", self.name.rsplit("::").next().expect("iterator should be non-empty")),
             _ => self.kind.to_string(),
         }
     }
 
     pub fn scopes(&self) -> Vec<&str> {
-        let mut scopes: Vec<&str> = if matches!(self.category, Category::TensorFlow | Category::Jax) { self.name.split('/').collect() } else { Vec::new() };
+        let mut scopes: Vec<&str> =
+            if matches!(self.category, Category::TensorFlow | Category::Jax) { self.name.split('/').collect() } else { Vec::new() };
         scopes.pop();
         scopes
     }
@@ -53,7 +57,10 @@ impl TfOp<'_> {
 pub fn tf_op(full: &str) -> TfOp<'_> {
     let op = |category: Category, name, kind| TfOp { category, name, kind };
     let Some((name, kind)) = full.split_once(':') else {
-        return match MEMCPY.iter().find(|memcpy| full.len() >= memcpy.len() && full.as_bytes()[..memcpy.len()].eq_ignore_ascii_case(memcpy.as_bytes())) {
+        return match MEMCPY
+            .iter()
+            .find(|memcpy| full.len() >= memcpy.len() && full.as_bytes()[..memcpy.len()].eq_ignore_ascii_case(memcpy.as_bytes()))
+        {
             Some(memcpy) => op(Category::Memcpy, full, memcpy),
             None => op(Category::Unknown, full, ""),
         };
@@ -65,8 +72,8 @@ pub fn tf_op(full: &str) -> TfOp<'_> {
         return op(Category::TensorFlow, name, kind);
     }
     let derived = if kind.is_empty() {
-        let last = name.rsplit('/').next().unwrap();
-        let suffix = last.rsplit('_').next().unwrap();
+        let last = name.rsplit('/').next().expect("iterator should be non-empty");
+        let suffix = last.rsplit('_').next().expect("iterator should be non-empty");
         if last.len() > suffix.len() && suffix.trim_ascii().parse::<i64>().is_ok() { &last[..last.len() - suffix.len() - 1] } else { last }
     } else {
         kind
@@ -86,11 +93,16 @@ const SOURCES: usize = 2;
 const HLO_OPS: usize = 2;
 const MODULES: usize = 3;
 const STREAM_SOURCES: usize = 4;
-const TPU_LINES: [(i64, &str, &[usize]); 3] = [(3735928562, "Framework Ops", &[]), (3735928561, "Framework Name Scope", &[TF_OPS]), (3735928566, "Source code", &[])];
-const STREAM_LINES: [(i64, &str, &[usize]); 5] =
-    [(1, "Framework Ops", &[]), (0, "Framework Name Scope", &[TF_OPS]), (3, "XLA Ops", &[]), (2, "XLA Modules", &[SCOPES, HLO_OPS]), (5, "Source code", &[])];
+const TPU_LINES: [(i64, &str, &[usize]); 3] =
+    [(3735928562, "Framework Ops", &[]), (3735928561, "Framework Name Scope", &[TF_OPS]), (3735928566, "Source code", &[])];
+const STREAM_LINES: [(i64, &str, &[usize]); 5] = [
+    (1, "Framework Ops", &[]),
+    (0, "Framework Name Scope", &[TF_OPS]),
+    (3, "XLA Ops", &[]),
+    (2, "XLA Modules", &[SCOPES, HLO_OPS]),
+    (5, "Source code", &[]),
+];
 const PS_PER_NS: u64 = 1000;
-const HOST: &str = "/host:CPU";
 pub const STEP_LINE: i64 = 0xdead_beef;
 const LAUNCH_LINE: i64 = STEP_LINE + 1;
 const DEVICE_DERIVED: i64 = STEP_LINE + 290;
@@ -125,7 +137,7 @@ struct Derived {
 /// The op, the source and whether the event is asynchronous.
 type Tags = (String, String, u64);
 /// The start, the duration, the line and the index of an event.
-type Position = (u64, Reverse<u64>, u32, u32);
+type Position = (u64, u64, u32, u32);
 
 #[derive(Clone)]
 struct Parsed {
@@ -136,7 +148,10 @@ struct Parsed {
 
 impl Derived {
     fn new(lines: &[(i64, &str, &'static [usize])], base: i64, suffix: &str, gpu: bool) -> Self {
-        let lines = lines.iter().map(|&(id, name, dependents)| Builder { id: base + id, name: format!("{name}{suffix}"), dependents, ..Default::default() }).collect();
+        let lines: Vec<Builder> = lines
+            .iter()
+            .map(|&(id, name, dependents)| Builder { id: base + id, name: format!("{name}{suffix}"), dependents, ..Default::default() })
+            .collect();
         Self { lines, gpu }
     }
 
@@ -161,7 +176,11 @@ impl Derived {
         if let Some((index, last_scope)) = builder.last[level] {
             let event = &mut builder.events[index];
             let same_scope = scope.is_none() || last_scope.is_none() || scope == last_scope;
-            if event.meta == meta && event.group == group && same_scope && (gpu || group != NONE_GROUP || event.ts.saturating_add(event.dur.saturating_mul(3)) >= start) {
+            if event.meta == meta
+                && event.group == group
+                && same_scope
+                && (gpu || group != NONE_GROUP || event.ts.saturating_add(event.dur.saturating_mul(3)) >= start)
+            {
                 event.dur = (event.ts + event.dur).max(end) - event.ts;
                 return;
             }
@@ -184,11 +203,12 @@ impl Derived {
 
     fn reset(&mut self, line: usize, level: usize) {
         let builder = &mut self.lines[line];
-        if let Some(top) = (level..builder.last.len()).take_while(|&index| builder.last[index].is_some()).last().filter(|&top| top > level) {
-            let max_shrink = (builder.events[builder.last[top].unwrap().0].dur / PS_PER_NS) as i64 - 1;
+        if let Some(top) = (level..builder.last.len()).take_while(|&index| builder.last[index].is_some()).last().filter(|&top| top > level)
+        {
+            let max_shrink = (builder.events[builder.last[top].expect("required value should be present").0].dur / PS_PER_NS) as i64 - 1;
             let (mut shrink, mut previous) = (0i64, None);
             for index in level..=top {
-                let event = &mut builder.events[builder.last[index].unwrap().0];
+                let event = &mut builder.events[builder.last[index].expect("required value should be present").0];
                 let span = (event.ts, event.dur);
                 if shrink < max_shrink && previous == Some(span) {
                     shrink += 1;
@@ -197,7 +217,9 @@ impl Derived {
                 event.dur = event.dur.saturating_sub(PS_PER_NS * shrink as u64);
             }
         }
-        builder.last.iter_mut().skip(level).for_each(|last| *last = None);
+        for last in builder.last.iter_mut().skip(level) {
+            *last = None;
+        }
         if level == 0 {
             for &dependent in builder.dependents {
                 self.reset(dependent, 0);
@@ -207,7 +229,9 @@ impl Derived {
 
     fn set_stat(&mut self, line: usize, level: usize, key: &'static str, value: String) {
         let builder = &mut self.lines[line];
-        let Some(Some((index, _))) = builder.last.get(level) else { return };
+        let Some(Some((index, _))) = builder.last.get(level) else {
+            return;
+        };
         let args = builder.args.entry(*index).or_default();
         match args.iter_mut().find(|(existing, _)| *existing == key) {
             Some(slot) => slot.1 = value,
@@ -241,8 +265,20 @@ impl Derived {
                 if sort {
                     builder.events.sort_by_key(|event| (event.ts, Reverse(event.dur)));
                 }
-                let args = builder.args.into_iter().map(|(index, args)| (index, args.into_iter().map(|(key, value)| format!("\"{key}\":{value}")).collect())).collect();
-                Line { id: builder.id, name: builder.name, labels: builder.labels, longs: builder.longs, events: builder.events, args, ..Default::default() }
+                let args = builder
+                    .args
+                    .into_iter()
+                    .map(|(index, args)| (index, args.into_iter().map(|(key, value)| format!("\"{key}\":{value}")).collect()))
+                    .collect();
+                Line {
+                    id: builder.id,
+                    name: builder.name,
+                    labels: builder.labels,
+                    longs: builder.longs,
+                    events: builder.events,
+                    args,
+                    ..Default::default()
+                }
             })
             .collect()
     }
@@ -256,9 +292,15 @@ fn tagger(plane: &Plane) -> impl Fn(&[u8], u32) -> Option<Tags> + Sync + Copy + 
         for stat in stats(raw, field, |id| wanted.contains(&Some(id))) {
             let (tf_op, source, is_async) = tags.get_or_insert_default();
             match stat.value {
-                Value::Str(_) | Value::Ref(_) if Some(stat.id) == tf_op_id => *tf_op = plane.text(&stat.value),
-                Value::Str(_) | Value::Ref(_) if Some(stat.id) == source_id => *source = plane.text(&stat.value),
-                Value::Int(_) | Value::Uint(_) if Some(stat.id) == async_id => *is_async = stat.value.int().unwrap() as u64,
+                Value::Str(_) | Value::Ref(_) if Some(stat.id) == tf_op_id => {
+                    *tf_op = plane.text(&stat.value);
+                }
+                Value::Str(_) | Value::Ref(_) if Some(stat.id) == source_id => {
+                    *source = plane.text(&stat.value);
+                }
+                Value::Int(_) | Value::Uint(_) if Some(stat.id) == async_id => {
+                    *is_async = stat.value.int().expect("required value should be present") as u64;
+                }
                 _ => {}
             }
         }
@@ -279,7 +321,9 @@ pub fn op_span(plane: &Plane, map: &[u8]) -> Option<(u64, u64)> {
         .filter_map(|line| {
             let mut tags: FxHashMap<u32, Tags> = FxHashMap::default();
             let mut op = |event: &Ev| {
-                let (tf_op, _, is_async) = &*tags.entry(event.meta).or_insert_with(|| scan(slice(map, plane.meta[event.meta as usize].raw), 5).unwrap_or_default());
+                let (tf_op, _, is_async) = &*tags
+                    .entry(event.meta)
+                    .or_insert_with(|| scan(slice(map, plane.meta[event.meta as usize].raw), 5).unwrap_or_default());
                 match scan(slice(map, event.raw), 4) {
                     Some(own) => (if own.2 != 0 { own.2 } else { *is_async }) == 0 && !(own.0.is_empty() && tf_op.is_empty()),
                     None => *is_async == 0 && !tf_op.is_empty(),
@@ -287,9 +331,14 @@ pub fn op_span(plane: &Plane, map: &[u8]) -> Option<(u64, u64)> {
             };
             let events = &line.events;
             if !events.is_sorted_by_key(|event| event.ts) {
-                return events.iter().filter(|event| op(event)).map(|event| (event.ts, event.ts + event.dur)).reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)));
+                return events
+                    .iter()
+                    .filter(|event| op(event))
+                    .map(|event| (event.ts, event.ts + event.dur))
+                    .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)));
             }
-            // In time order, the first op has the first start. From the back, no earlier event ends after `last` when its start plus the longest duration is not after `last`.
+            // In time order, the first op has the first start. From the back, no earlier event ends
+            // after `last` when its start plus the longest duration is not after `last`.
             let first = events.iter().position(&mut op)?;
             let longest = events.iter().map(|event| event.dur).max().unwrap_or(0);
             let mut last = 0;
@@ -308,7 +357,8 @@ pub fn op_span(plane: &Plane, map: &[u8]) -> Option<(u64, u64)> {
 
 pub fn derive(plane: &mut Plane, map: &[u8]) {
     let (tags, scan) = (meta_tags(plane, map), tagger(plane));
-    // The events to derive from, in time order, with their groups and whether their own stats have tags. Few events have such stats, thus a map keeps their tags.
+    // The events to derive from, in time order, with their groups and whether their own stats have
+    // tags. Few events have such stats, thus a map keeps their tags.
     let mut order: Vec<(Position, i64, bool)> = Vec::new();
     for (line_index, line) in plane.lines.iter().enumerate() {
         order.par_extend(line.events.par_iter().enumerate().filter_map(|(index, event)| {
@@ -324,20 +374,25 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
             } else {
                 event.group
             };
-            Some(((event.ts, Reverse(event.dur), line_index as u32, index as u32), group, own.is_some()))
+            Some(((event.ts, event.dur, line_index as u32, index as u32), group, own.is_some()))
         }));
     }
     // The events of each line are usually in order, and a merge sort uses these runs.
     order.par_sort_by_key(|&(position, _, _)| position);
     let event = |line: u32, index: u32| &plane.lines[line as usize].events[index as usize];
-    let owns: FxHashMap<(u32, u32), Tags> =
-        order.par_iter().filter(|(_, _, own)| *own).filter_map(|&((_, _, line, index), _, _)| Some(((line, index), scan(slice(map, event(line, index).raw), 4)?))).collect();
+    let owns: FxHashMap<(u32, u32), Tags> = order
+        .par_iter()
+        .filter(|(_, _, own)| *own)
+        .filter_map(|&((_, _, line, index), _, _)| Some(((line, index), scan(slice(map, event(line, index).raw), 4)?)))
+        .collect();
     let mut derived = Derived::new(&TPU_LINES, 0, "", false);
-    // The same texts always give the same metadata. Thus the code parses each pair of texts one time.
+    // The same texts always give the same metadata. Thus the code parses each pair of texts one
+    // time.
     let mut cache: FxHashMap<(&str, &str), Parsed> = FxHashMap::default();
-    // Most events have the texts of their metadata, thus `by_meta` keeps the parse of the texts of each metadata.
+    // Most events have the texts of their metadata, thus `by_meta` keeps the parse of the texts of
+    // each metadata.
     let mut by_meta: Vec<Option<Parsed>> = vec![None; tags.len()];
-    for &((start, Reverse(dur), line_index, index), group, own) in &order {
+    for &((start, dur, line_index, index), group, own) in &order {
         let meta = event(line_index, index).meta as usize;
         let (tf_op, source, is_async) = &tags[meta];
         let parsed = match own.then(|| &owns[&(line_index, index)]) {
@@ -345,10 +400,13 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
                 if (if *event_async != 0 { *event_async } else { *is_async }) != 0 {
                     continue;
                 }
-                let texts = (if event_tf_op.is_empty() { tf_op } else { event_tf_op }, if event_source.is_empty() { source } else { event_source });
+                let texts =
+                    (if event_tf_op.is_empty() { tf_op } else { event_tf_op }, if event_source.is_empty() { source } else { event_source });
                 &*cache.entry((texts.0.as_str(), texts.1.as_str())).or_insert_with(|| derived.parse(texts.0, texts.1))
             }
-            None if *is_async == 0 => &*by_meta[meta].get_or_insert_with(|| cache.entry((tf_op.as_str(), source.as_str())).or_insert_with(|| derived.parse(tf_op, source)).clone()),
+            None if *is_async == 0 => &*by_meta[meta].get_or_insert_with(|| {
+                cache.entry((tf_op.as_str(), source.as_str())).or_insert_with(|| derived.parse(tf_op, source)).clone()
+            }),
             None => continue,
         };
         derived.apply(parsed, (start, start + dur), group);
@@ -358,8 +416,12 @@ pub fn derive(plane: &mut Plane, map: &[u8]) {
 }
 
 fn sorted(plane: &Plane, lines: &[usize]) -> Vec<(usize, usize)> {
-    let mut order: Vec<(u64, Reverse<u64>, usize, usize)> =
-        lines.iter().flat_map(|&line| plane.lines[line].events.iter().enumerate().map(move |(index, event)| (event.ts, Reverse(event.dur), line, index))).collect();
+    let mut order: Vec<(u64, Reverse<u64>, usize, usize)> = lines
+        .iter()
+        .flat_map(|&line| {
+            plane.lines[line].events.iter().enumerate().map(move |(index, event)| (event.ts, Reverse(event.dur), line, index))
+        })
+        .collect();
     order.sort_unstable();
     order.into_iter().map(|(_, _, line, index)| (line, index)).collect()
 }
@@ -368,13 +430,25 @@ fn symbols(planes: &[Plane], map: &[u8]) -> Symbols {
     crate::hlo::protos(planes, map)
         .into_par_iter()
         .map(|(program, proto)| {
-            let bodies: Vec<&[u8]> = crate::hlo::split(crate::hlo::last_bytes(proto, 1), 3).1.into_iter().flat_map(|computation| crate::hlo::split(computation, 2).1).collect();
+            let bodies: Vec<&[u8]> = crate::hlo::split(crate::hlo::last_bytes(proto, 1), 3)
+                .1
+                .into_iter()
+                .flat_map(|computation| crate::hlo::split(computation, 2).1)
+                .collect();
             let decoded: Vec<(String, (String, String))> = bodies
                 .par_iter()
                 .map(|body| {
                     let inst = HloInstructionMeta::decode(*body).unwrap_or_default();
                     let metadata = inst.metadata.unwrap_or_default();
-                    let source = if metadata.source_file.is_empty() { String::new() } else { format!("{}:{}", metadata.source_file.rsplit('/').next().unwrap(), metadata.source_line) };
+                    let source = if metadata.source_file.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            "{}:{}",
+                            metadata.source_file.rsplit('/').next().expect("iterator should be non-empty"),
+                            metadata.source_line
+                        )
+                    };
                     (inst.name, (format!("{}:{}", metadata.op_name, metadata.op_type), source))
                 })
                 .collect();
@@ -399,7 +473,8 @@ fn annotate(plane: &Plane, map: &[u8], stream: usize, base: i64, symbols: &Symbo
             continue;
         }
         let group = if event.group == NONE_GROUP { found.signed(gpu::GROUP).unwrap_or(NONE_GROUP) } else { event.group };
-        let (span, module, program, hlo_op) = ((event.ts, event.ts + event.dur), found.text(gpu::MODULE), found.program(), found.text(gpu::HLO_OP));
+        let (span, module, program, hlo_op) =
+            ((event.ts, event.ts + event.dur), found.text(gpu::MODULE), found.program(), found.text(gpu::HLO_OP));
         let has_ops = found.has(gpu::HLO_OP);
         levels.clear();
         if !module.is_empty() || has_ops {
@@ -415,7 +490,9 @@ fn annotate(plane: &Plane, map: &[u8], stream: usize, base: i64, symbols: &Symbo
             derived.expand_or_add(MODULES, meta, span, group, levels.last().copied().flatten(), 0);
         }
         if has_ops {
-            let symbol = program.and_then(|program| symbols.get(&program)).and_then(|module| module.get(hlo_op.rsplit("::").next().unwrap_or_default()));
+            let symbol = program
+                .and_then(|program| symbols.get(&program))
+                .and_then(|module| module.get(hlo_op.rsplit("::").next().unwrap_or_default()));
             metas.clear();
             for op in hlo_op.split("::") {
                 key.clear();
@@ -448,7 +525,7 @@ fn annotate(plane: &Plane, map: &[u8], stream: usize, base: i64, symbols: &Symbo
                 }
             }
         } else if !found.text(gpu::TF_OP).is_empty() {
-            let parsed = derived.parse(&found.text(gpu::TF_OP), "");
+            let parsed: Parsed = derived.parse(&found.text(gpu::TF_OP), "");
             derived.apply(&parsed, span, group);
         }
     }
@@ -463,20 +540,23 @@ fn steps(plane: &mut Plane, map: &[u8], names: &HashMap<i64, String>) {
     let mut key = String::new();
     for (line, index) in sorted(plane, &lines) {
         let event = &mut plane.lines[line].events[index];
-        if let Some(group) = event_group(slice(map, event.raw), event.group, group_id) {
+        let group = if let Some(group) = event_group(slice(map, event.raw), event.group, group_id) {
             last = Some(group);
+            group
         } else {
             let Some(group) = last else { continue };
             event.group = group;
-        }
-        let group = last.unwrap();
+            group
+        };
         key.clear();
         _ = write!(key, "{group}");
         let meta = derived.meta(0, &key, names.get(&group).map_or("", String::as_str));
         derived.expand_or_add(0, meta, (event.ts, event.ts + event.dur), group, None, 0);
     }
-    let mut line = derived.into_lines(false).pop().unwrap();
-    line.longs.iter_mut().for_each(|long| *long = "".into());
+    let mut line = derived.into_lines(false).pop().expect("collection should be non-empty");
+    for long in &mut line.longs {
+        *long = "".into();
+    }
     for (index, event) in line.events.iter().enumerate() {
         if let Some(name) = names.get(&event.group) {
             line.args.insert(index, vec![format!("\"step_name\":{}", crate::trace::json::quoted(name))]);
@@ -492,7 +572,8 @@ pub fn derive_gpu(planes: &mut [Plane], map: &[u8], groups: Option<&HashMap<i64,
     }
     let none = HashMap::new();
     let names = groups.unwrap_or(&none);
-    let (symbols, launches) = if trace { rayon::join(|| symbols(planes, map), || launch_lines(planes, map, gpus.len(), names)) } else { Default::default() };
+    let (symbols, launches) =
+        if trace { rayon::join(|| symbols(planes, map), || launch_lines(planes, map, gpus.len(), names)) } else { Default::default() };
     planes.par_iter_mut().filter(|plane| plane.name.starts_with(gpu::PREFIX)).for_each(|plane| {
         if groups.is_some() || plane.id("group_id").is_some() {
             steps(plane, map, names);
@@ -510,7 +591,11 @@ pub fn derive_gpu(planes: &mut [Plane], map: &[u8], groups: Option<&HashMap<i64,
 fn annotate_streams(plane: &mut Plane, map: &[u8], symbols: &Symbols) {
     let mut streams: Vec<usize> = (0..plane.lines.len()).filter(|&line| !is_derived(plane.lines[line].id)).collect();
     streams.sort_by_key(|&line| (!plane.lines[line].name.contains("Compute"), Reverse(plane.lines[line].events.len())));
-    let streams: Vec<(usize, i64)> = streams.into_iter().zip((DEVICE_DERIVED..).step_by(PER_STREAM as usize)).take_while(|&(_, base)| base + PER_STREAM <= DEVICE_DERIVED_MAX).collect();
+    let streams: Vec<(usize, i64)> = streams
+        .into_iter()
+        .zip((DEVICE_DERIVED..).step_by(PER_STREAM as usize))
+        .take_while(|&(_, base)| base + PER_STREAM <= DEVICE_DERIVED_MAX)
+        .collect();
     let derived: Vec<Vec<Line>> = streams.par_iter().map(|&(stream, base)| annotate(plane, map, stream, base, symbols)).collect();
     let mut ordered = Vec::new();
     for (&(stream, _), lines) in streams.iter().zip(&derived) {
@@ -539,7 +624,9 @@ fn merge_launches(mut into: Vec<Launches>, from: Vec<Launches>) -> Vec<Launches>
 }
 
 fn launch_lines(planes: &[Plane], map: &[u8], devices: usize, names: &HashMap<i64, String>) -> Vec<(usize, Line)> {
-    let Some(plane) = planes.iter().find(|plane| plane.name == HOST) else { return Vec::new() };
+    let Some(plane) = planes.iter().find(|plane| plane.name == HOST_PLANE) else {
+        return Vec::new();
+    };
     let ids = ["device_id", "correlation_id", "group_id"].map(|name| plane.id(name));
     let runtime: Vec<bool> = plane.meta.iter().map(|meta| meta.full_name(map).starts_with("cu")).collect();
     let empty = || vec![Launches::new(); devices];
@@ -552,17 +639,22 @@ fn launch_lines(planes: &[Plane], map: &[u8], devices: usize, names: &HashMap<i6
             for event in line.events.iter().filter(|event| !runtime[event.meta as usize]) {
                 let (mut device, mut correlation, mut group) = (None, None, None);
                 for stat in stats(slice(map, event.raw), 4, |id| ids.contains(&Some(id))) {
-                    match ids.iter().position(|id| *id == Some(stat.id)).unwrap() {
+                    match ids.iter().position(|id| *id == Some(stat.id)).expect("required value should be present") {
                         0 => device = stat.value.int(),
                         1 => correlation = stat.value.int(),
                         _ => group = Some(stat.value.signed()),
                     }
                 }
                 let group = if event.group == NONE_GROUP { group } else { Some(event.group) };
-                let (Some(device), Some(_), Some(group)) = (device, correlation, group) else { continue };
-                let Some(device) = usize::try_from(device).ok().filter(|&device| device < devices) else { continue };
+                let (Some(device), Some(_), Some(group)) = (device, correlation, group) else {
+                    continue;
+                };
+                let Some(device) = usize::try_from(device).ok().filter(|&device| device < devices) else {
+                    continue;
+                };
                 let entry = launches[device].entry(group).or_insert((event.ts, event.ts + event.dur, 0, 0, 0));
-                *entry = (entry.0.min(event.ts), entry.1.max(event.ts + event.dur), entry.2 + 1, entry.3.max(event.dur), entry.4 + event.dur);
+                *entry =
+                    (entry.0.min(event.ts), entry.1.max(event.ts + event.dur), entry.2 + 1, entry.3.max(event.dur), entry.4 + event.dur);
             }
             launches
         })
@@ -571,7 +663,9 @@ fn launch_lines(planes: &[Plane], map: &[u8], devices: usize, names: &HashMap<i6
     for (device, launches) in launches.into_iter().enumerate().filter(|(_, launches)| !launches.is_empty()) {
         let mut line = Line { id: LAUNCH_LINE, name: "Launch Stats".into(), ..Default::default() };
         for (group, (begin, end, count, max, sum)) in launches {
-            let Some(name) = names.get(&group) else { continue };
+            let Some(name) = names.get(&group) else {
+                continue;
+            };
             line.args.insert(
                 line.events.len(),
                 vec![
@@ -580,7 +674,16 @@ fn launch_lines(planes: &[Plane], map: &[u8], devices: usize, names: &HashMap<i6
                     format!("\"avg_launch_time_us\":{}", crate::trace::json::double(sum as f64 / count as f64 / 1e6)),
                 ],
             );
-            line.events.push(Ev { ts: begin, dur: end - begin, group, raw: (0, 0), meta: line.labels.len() as u32, eager: None, has_stats: false, linked: false });
+            line.events.push(Ev {
+                ts: begin,
+                dur: end - begin,
+                group,
+                raw: (0, 0),
+                meta: line.labels.len() as u32,
+                eager: None,
+                has_stats: false,
+                linked: false,
+            });
             line.labels.push(format!("Launch Stats for {name}").into());
             line.longs.push("".into());
         }

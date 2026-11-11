@@ -118,8 +118,13 @@ fn cores_in_any_host_order(mut pod: Value) -> Value {
 }
 
 fn equivalent(path: &str, body: &str, expected: &str) -> bool {
-    let (Ok(actual), Ok(reference)) = (serde_json::from_str::<Value>(body), serde_json::from_str::<Value>(expected)) else { return body == expected };
-    match ["tag=trace_viewer%40", "tag=trace_viewer&", "tag=pod_viewer"].iter().position(|tag| path.contains("profile/data?") && path.contains(tag)) {
+    let (Ok(actual), Ok(reference)) = (serde_json::from_str::<Value>(body), serde_json::from_str::<Value>(expected)) else {
+        return body == expected;
+    };
+    match ["tag=trace_viewer%40", "tag=trace_viewer&", "tag=pod_viewer"]
+        .iter()
+        .position(|tag| path.contains("profile/data?") && path.contains(tag))
+    {
         Some(2) => same(&cores_in_any_host_order(actual), &cores_in_any_host_order(reference)),
         Some(kind) => same(&canonical_trace(actual, kind == 0), &canonical_trace(reference, kind == 0)),
         None => same(&actual, &reference),

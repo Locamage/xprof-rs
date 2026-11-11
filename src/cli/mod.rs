@@ -12,17 +12,30 @@ use client::{Client, Local};
 use json::J;
 use num_bigint::{BigInt, BigUint};
 use num_traits::ToPrimitive;
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 
 const SPILL_BYTES: usize = 10 * 1024 * 1024;
 const REPORT: &str = "https://github.com/openxla/xprof/issues";
 const ALIASES: [&str; 3] = ["--session_dir", "--session_path", "--source"];
-const SESSION_LIKE: [&str; 11] =
-    ["session_id", "source", "baseline_session_id", "optimized_session_id", "run_name", "module_name", "instruction_name", "func_name", "kernel_name", "host_name", "host"];
+const SESSION_LIKE: [&str; 11] = [
+    "session_id",
+    "source",
+    "baseline_session_id",
+    "optimized_session_id",
+    "run_name",
+    "module_name",
+    "instruction_name",
+    "func_name",
+    "kernel_name",
+    "host_name",
+    "host",
+];
 const KEYWORDS: [&str; 32] = [
-    "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda",
-    "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
+    "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for",
+    "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with",
+    "yield",
 ];
 
 /// The error of Python when a slice gets a float.
@@ -39,7 +52,8 @@ pub fn slice_end(value: &J, len: usize) -> Result<usize, Error> {
     Ok(if end < 0 { (len as i128 + end).max(0) as usize } else { end.min(len as i128) as usize })
 }
 
-/// The error of `heapq.nlargest(n, items)` for a float `n` above 0. A float 1 takes the path of `max`.
+/// The error of `heapq.nlargest(n, items)` for a float `n` above 0. A float 1 takes the path of
+/// `max`.
 pub fn nlargest_float(value: Option<&J>, n: f64, size: usize) -> Option<&'static str> {
     if !matches!(value, Some(J::Float(_))) || n <= 0.0 || n == 1.0 {
         None
@@ -52,43 +66,70 @@ pub fn nlargest_float(value: Option<&J>, n: f64, size: usize) -> Option<&'static
 
 type Handler = fn(&dyn Client, &Args) -> Result<Out, Error>;
 
-pub const COMMANDS: [(&str, &str, Handler); 30] = [
+pub const COMMANDS: [(&str, &str, Handler); 31] = [
     ("aggregate_xplane_events", "session_id! plane_regex event_regex bypass_cache | logdir", xplane::aggregate_xplane_events),
     ("check_host_boundness", "session_id! func_name bypass_cache | logdir", steps::check_host_boundness),
-    ("compute_utilization", "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes bypass_cache logdir", xplane::get_kernel_utilization),
+    (
+        "compute_utilization",
+        "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes bypass_cache logdir",
+        xplane::get_kernel_utilization,
+    ),
     ("get_avg_step_time", "source! | func_name output_format bypass_cache logdir", xplane::get_avg_step_time),
     ("get_device_information", "session_id! bypass_cache | logdir", overview::get_device_information),
     (
         "get_graph_viewer",
-        "session_id | symbol_id symbol_type graph_type module_name output_type show_metadata node_name graph_width merge_fusion tag tool op_profile_limit use_xplane bypass_cache logdir",
+        "session_id | symbol_id symbol_type graph_type module_name output_type show_metadata node_name graph_width merge_fusion tag \
+            tool op_profile_limit use_xplane bypass_cache logdir",
         hlo::get_graph_viewer,
     ),
     ("get_hlo_module_content", "session_id! fmt module_name max_lines | print_metadata bypass_cache logdir", hlo::get_hlo_module_content),
-    ("get_hlo_neighborhood", "session_id! instruction_name radius module_name | op_name print_metadata bypass_cache logdir", hlo::get_hlo_neighborhood),
+    (
+        "get_hlo_neighborhood",
+        "session_id! instruction_name radius module_name | op_name print_metadata bypass_cache logdir",
+        hlo::get_hlo_neighborhood,
+    ),
     ("get_hlo_op_profile", "session_id! top_n view category path depth sort_by bypass_cache | logdir", ops::get_hlo_op_profile),
     ("get_hlo_stats", "session_id! | limit sort_by category_filter bypass_cache logdir", ops::get_hlo_stats),
     ("get_hlo_text", "session_id! path module_name op_name bypass_cache | logdir", hlo::get_hlo_text),
     ("get_hosts", "session_id! bypass_cache | logdir", overview::get_hosts),
-    ("get_kernel_stats", "source session_id | kernel_name limit output_format include_summary device_to_use trace_matchers bypass_cache logdir", xplane::get_kernel_stats),
-    ("get_kernel_utilization", "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes bypass_cache logdir", xplane::get_kernel_utilization),
+    (
+        "get_kernel_stats",
+        "source session_id | kernel_name limit output_format include_summary device_to_use trace_matchers bypass_cache logdir",
+        xplane::get_kernel_stats,
+    ),
+    (
+        "get_kernel_utilization",
+        "session_id! | kernel_name duration_us force_duration host device output_format raw_bytes bypass_cache logdir",
+        xplane::get_kernel_utilization,
+    ),
     ("get_kpi_metrics", "session_id! | bypass_cache logdir", overview::get_kpi_metrics),
     ("get_llo_analysis", "session_id! host kernel bypass_cache | logdir", xplane::get_llo_analysis),
     ("get_llo_debug_string", "session_id! host bypass_cache | logdir", xplane::get_llo_debug_string),
     ("get_memory_profile", "session_id! | bypass_cache logdir", overview::get_memory_profile),
     ("get_overview", "session_id! include_command bypass_cache | logdir", overview::get_overview),
-    ("get_peak_allocations", "session_id! | limit min_size_mib output_format include_summary aggregate_instructions bypass_cache logdir", hlo::get_peak_allocations),
+    (
+        "get_peak_allocations",
+        "session_id! | limit min_size_mib output_format include_summary aggregate_instructions bypass_cache logdir",
+        hlo::get_peak_allocations,
+    ),
     ("get_profile_summary", "session_id! bypass_cache | logdir", ops::get_profile_summary),
     ("get_roofline_model", "session_id! | top_n group_by bypass_cache logdir", overview::get_roofline_model),
     ("get_step_trace", "session_id! | step_num limit device_core include_summary bypass_cache logdir", steps::get_step_trace),
+    ("get_tool_data", "session_id! tool! | host output_path bypass_cache logdir", get_tool_data),
     ("get_top_hlo_ops", "session_id! | limit category_filter bypass_cache logdir", ops::get_top_hlo_ops),
     ("get_utilization_viewer", "session_id! | host device node bypass_cache logdir", overview::get_utilization_viewer),
-    ("get_xspace_proto", "session_id! as_text output_path bypass_cache | logdir **", xplane::get_xspace_proto),
+    ("get_xspace_proto", "session_id! as_text output_path host bypass_cache | logdir **", xplane::get_xspace_proto),
     ("list_hlo_modules", "session_id! | bypass_cache logdir", hlo::list_hlo_modules),
-    ("list_xplane_events", "session_id! | plane_regex event_regex start_time_ps end_time_ps max_events offset bypass_cache logdir", xplane::list_xplane_events),
+    (
+        "list_xplane_events",
+        "session_id! | plane_regex event_regex start_time_ps end_time_ps max_events offset bypass_cache logdir",
+        xplane::list_xplane_events,
+    ),
     ("upload_trace", "file_path! ttl tag run_name | logdir bypass_cache **", xplane::upload_trace),
     (
         "verify_numerical_parity",
-        "kernel_ref! kernel_candidate! shapes! dtype_str tier max_allowed_ulp p99_9_allowed_ulp seed regimes kernel_oracle device_kind | logdir bypass_cache",
+        "kernel_ref! kernel_candidate! shapes! dtype_str tier max_allowed_ulp p99_9_allowed_ulp seed regimes kernel_oracle device_kind \
+            | logdir bypass_cache",
         xplane::verify_numerical_parity,
     ),
 ];
@@ -151,15 +192,28 @@ pub fn bypass(on: bool) -> (&'static str, String) {
     ("bypass_cache", if on { "True" } else { "False" }.to_string())
 }
 
-pub fn rethrow(error: Error, message: impl FnOnce(&Error) -> String) -> Error {
+/// Keeps an error that the input caused, and makes any other error a `RuntimeError` with the
+/// text that `message` gives.
+pub fn rethrow_with(error: Error, message: impl FnOnce(&Error) -> String) -> Error {
     if matches!(error.kind, Kind::FileNotFound | Kind::Value | Kind::Fire) { error } else { Error::new(Kind::Runtime, message(&error)) }
+}
+
+/// [`rethrow_with`] for the usual message: `prefix`, then the message of the error.
+pub fn rethrow(prefix: impl std::fmt::Display) -> impl Fn(Error) -> Error {
+    move |error| rethrow_with(error, |error| format!("{prefix}{}", error.message))
+}
+
+/// [`rethrow`] with the Python repr of the error, as `{e!r}` gives it.
+pub fn rethrow_repr(prefix: impl std::fmt::Display) -> impl Fn(Error) -> Error {
+    move |error| rethrow_with(error, |error| format!("{prefix}{}", error.repr()))
 }
 
 pub fn round(value: f64, digits: usize) -> f64 {
     if value.is_finite() { format!("{value:.digits$}").parse().unwrap_or(value) } else { value }
 }
 
-/// `numerator / denominator`, rounded one time, as Python divides two integers. The quotient gets at least 55 bits, and a last bit records a remainder.
+/// `numerator / denominator`, rounded one time, as Python divides two integers. The quotient gets
+/// at least 55 bits, and a last bit records a remainder.
 pub fn ratio(numerator: i128, denominator: u64) -> f64 {
     let (magnitude, denominator) = (numerator.unsigned_abs(), u128::from(denominator));
     if magnitude == 0 {
@@ -173,7 +227,9 @@ pub fn ratio(numerator: i128, denominator: u64) -> f64 {
 
 pub fn fsum(values: impl IntoIterator<Item = f64>) -> f64 {
     let mut values = values.into_iter();
-    let Some(mut total) = values.next().map(|first| 0.0 + first) else { return 0.0 };
+    let Some(mut total) = values.next().map(|first| 0.0 + first) else {
+        return 0.0;
+    };
     let mut compensation = 0.0;
     for value in values {
         let next = total + value;
@@ -196,28 +252,32 @@ pub fn stdev(values: &[f64]) -> f64 {
         })
         .filter(|&(mantissa, _)| mantissa != 0)
         .collect();
-    // The result does not change with the scale, so the scale comes from the values that are not zero.
+    // The result does not change with the scale, so the scale comes from the values that are not
+    // zero.
     let low = parts.iter().map(|(_, exponent)| *exponent).min().unwrap_or(0);
     let count = BigInt::from(values.len());
-    let (sum, squares) = if parts.iter().all(|&(mantissa, exponent)| 64 - mantissa.unsigned_abs().leading_zeros() as i32 + exponent - low <= 62) {
-        let (mut sum, mut squares, mut partial) = (0i128, BigInt::default(), 0u128);
-        for &(mantissa, exponent) in &parts {
-            let value = i128::from(mantissa << (exponent - low));
-            sum += value;
-            let square = (value * value) as u128;
-            partial = partial.checked_add(square).unwrap_or_else(|| {
-                squares += partial;
-                square
-            });
-        }
-        (BigInt::from(sum), squares + partial)
-    } else {
-        let scaled: Vec<BigInt> = parts.into_iter().map(|(mantissa, exponent)| BigInt::from(mantissa) << (exponent - low) as usize).collect();
-        (scaled.iter().sum(), scaled.iter().map(|value| value * value).sum())
-    };
+    let (sum, squares) =
+        if parts.iter().all(|&(mantissa, exponent)| 64 - mantissa.unsigned_abs().leading_zeros() as i32 + exponent - low <= 62) {
+            let (mut sum, mut squares, mut partial) = (0i128, BigInt::default(), 0u128);
+            for &(mantissa, exponent) in &parts {
+                let value = i128::from(mantissa << (exponent - low));
+                sum += value;
+                let square = (value * value) as u128;
+                partial = partial.checked_add(square).unwrap_or_else(|| {
+                    squares += partial;
+                    square
+                });
+            }
+            (BigInt::from(sum), squares + partial)
+        } else {
+            let scaled: Vec<BigInt> =
+                parts.into_iter().map(|(mantissa, exponent)| BigInt::from(mantissa) << (exponent - low) as usize).collect();
+            (scaled.iter().sum(), scaled.iter().map(|value| value * value).sum())
+        };
     let (numerator, denominator) = ((&count * squares - &sum * &sum).magnitude().clone(), (&count * (&count - 1u32)).magnitude().clone());
     let shift = (numerator.bits() as i64 - denominator.bits() as i64 - 109).div_euclid(2);
-    let (numerator, denominator) = if shift >= 0 { (numerator, denominator << (2 * shift) as usize) } else { (numerator << (-2 * shift) as usize, denominator) };
+    let (numerator, denominator) =
+        if shift >= 0 { (numerator, denominator << (2 * shift) as usize) } else { (numerator << (-2 * shift) as usize, denominator) };
     let root = (&numerator / &denominator).sqrt();
     let odd = if &root * &root * &denominator == numerator { root } else { root | BigUint::from(1u32) };
     odd.to_u64().unwrap_or(u64::MAX) as f64 * 2f64.powi(shift as i32 + low)
@@ -267,7 +327,8 @@ impl Args {
         self.string("session_id", "")
     }
 
-    /// The number for a comparison such as `limit > 0`. Python cannot compare the other kinds with a number, also `None`.
+    /// The number for a comparison such as `limit > 0`. Python cannot compare the other kinds with
+    /// a number, also `None`.
     pub fn compared(&self, name: &str, default: f64, operator: &str) -> Result<f64, Error> {
         match self.raw(name) {
             None => Ok(default),
@@ -290,7 +351,8 @@ impl Args {
     }
 }
 
-/// The text that the native converter gets for an option, or `None` when the converter does not get the option.
+/// The text that the native converter gets for an option, or `None` when the converter does not get
+/// the option.
 pub fn packed(key: &str, value: &J) -> Result<Option<String>, Error> {
     match value {
         J::Null | J::List(_) | J::Tuple(_) | J::Map(_) | J::Dict(_) => Ok(None),
@@ -300,7 +362,8 @@ pub fn packed(key: &str, value: &J) -> Result<Option<String>, Error> {
     }
 }
 
-/// The error of an option that the native converter cannot get. First, the client finds the session and its traces, because the converter packs the options after this step.
+/// The error of an option that the native converter cannot get. First, the client finds the session
+/// and its traces, because the converter packs the options after this step.
 pub fn unpackable(client: &dyn Client, session: &str, error: Error) -> Error {
     client.run_dir(session).and_then(|dir| client.xspace_paths(&dir)).err().unwrap_or(error)
 }
@@ -474,11 +537,19 @@ pub fn literal(text: &str) -> J {
                     }
                 }
                 _ => {
-                    while self.bytes.get(self.at).is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'.' || *byte >= 0x80) {
+                    while self
+                        .bytes
+                        .get(self.at)
+                        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'.' || *byte >= 0x80)
+                    {
                         self.at += 1;
                     }
                     let token = std::str::from_utf8(&self.bytes[start..self.at]).ok()?;
-                    if (first.is_ascii_digit() || first == b'.') && token.contains(['e', 'E']) && matches!(self.bytes.get(self.at), Some(b'-' | b'+')) && token.ends_with(['e', 'E']) {
+                    if (first.is_ascii_digit() || first == b'.')
+                        && token.contains(['e', 'E'])
+                        && matches!(self.bytes.get(self.at), Some(b'-' | b'+'))
+                        && token.ends_with(['e', 'E'])
+                    {
                         self.at += 1;
                         while self.bytes.get(self.at).is_some_and(u8::is_ascii_digit) {
                             self.at += 1;
@@ -494,10 +565,16 @@ pub fn literal(text: &str) -> J {
                                 return None;
                             }
                             if token.bytes().all(|byte| byte.is_ascii_digit()) {
-                                return (token == "0" || !token.starts_with('0') || token.bytes().all(|byte| byte == b'0')).then(|| token.parse().ok().map(J::Int))?;
+                                return (token == "0" || !token.starts_with('0') || token.bytes().all(|byte| byte == b'0'))
+                                    .then(|| token.parse().ok().map(J::Int))?;
                             }
-                            let radix = |prefix: &str, base| token.strip_prefix(prefix).and_then(|digits| i128::from_str_radix(digits, base).ok()).map(J::Int);
-                            radix("0x", 16).or_else(|| radix("0o", 8)).or_else(|| radix("0b", 2)).or_else(|| token.parse::<f64>().ok().filter(|_| !token.contains(['i', 'n', 'I', 'N'])).map(J::Float))
+                            let radix = |prefix: &str, base| {
+                                token.strip_prefix(prefix).and_then(|digits| i128::from_str_radix(digits, base).ok()).map(J::Int)
+                            };
+                            radix("0x", 16)
+                                .or_else(|| radix("0o", 8))
+                                .or_else(|| radix("0b", 2))
+                                .or_else(|| token.parse::<f64>().ok().filter(|_| !token.contains(['i', 'n', 'I', 'N'])).map(J::Float))
                         }
                         _ if token.contains('.') || token.is_empty() || KEYWORDS.contains(&token) => None,
                         _ => Some(J::Str(token.to_string())),
@@ -527,6 +604,19 @@ pub fn literal(text: &str) -> J {
         }
     })();
     parsed.unwrap_or_else(|| J::Str(text.to_string()))
+}
+
+/// Whether two positional words are `<logdir> <session>`, and not a session and the value of the next parameter.
+///
+/// A local path is a log directory when it holds the session. The CLI cannot look into a URL without a request, so a URL is a
+/// log directory unless it names a session or a trace file, or the second word is the value of a boolean parameter.
+fn logdir_then_session(first: &str, second: &str) -> bool {
+    if !first.contains("://") {
+        return expand(first).join("plugins/profile").join(second).is_dir();
+    }
+    let session = first.trim_end_matches('/').rsplit_once('/').is_some_and(|(parent, _)| parent.ends_with("/plugins/profile"));
+    let trace = client::TRACE_SUFFIXES.iter().any(|suffix| first.ends_with(suffix));
+    !session && !trace && !matches!(second, "True" | "False")
 }
 
 fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>), Error> {
@@ -569,7 +659,9 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
         };
         let (keyword, value) = match value {
             Some(value) => (keyword, value),
-            None if boolean && !names.contains(&keyword.as_str()) && keyword.starts_with("no") && !spec.varkw => (keyword[2..].to_string(), "False".into()),
+            None if boolean && !names.contains(&keyword.as_str()) && keyword.starts_with("no") && !spec.varkw => {
+                (keyword[2..].to_string(), "False".into())
+            }
             None if boolean => (keyword, "True".into()),
             None => {
                 index += 1;
@@ -578,6 +670,13 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
         };
         keywords.retain(|(existing, _)| *existing != keyword);
         keywords.push((keyword, value));
+    }
+    if positional.len() > 1
+        && spec.keyword.iter().any(|key| key == "logdir")
+        && !keywords.iter().any(|(key, _)| key == "logdir")
+        && logdir_then_session(&positional[0], &positional[1])
+    {
+        keywords.push(("logdir".into(), positional.remove(0)));
     }
     let mut args = Args::default();
     let mut remaining = positional.into_iter();
@@ -588,7 +687,10 @@ fn bind(name: &str, spec: &Spec, tokens: &[String]) -> Result<(Args, Vec<String>
         } else if let Some(value) = remaining.next() {
             args.values.push((parameter.clone(), literal(&value)));
         } else if *required {
-            return fail(Kind::Fire, format!("The function received no value for the required argument: {parameter}\nUsage: xprof {name} {}", usage(spec)));
+            return fail(
+                Kind::Fire,
+                format!("The function received no value for the required argument: {parameter}\nUsage: xprof {name} {}", usage(spec)),
+            );
         }
     }
     args.values.extend(keywords.into_iter().map(|(key, value)| (key, literal(&value))));
@@ -600,23 +702,53 @@ fn usage(spec: &Spec) -> String {
     format!("{} <flags>", required.join(" "))
 }
 
+fn help(command: &str, spec: &Spec) -> String {
+    let mut text = format!("NAME\n    xprof {command}\n\nSYNOPSIS\n    xprof {command} {}\n", usage(spec));
+    let (required, optional): (Vec<_>, Vec<_>) = spec.positional.iter().partition(|(_, required)| *required);
+    if !required.is_empty() {
+        text += "\nPOSITIONAL ARGUMENTS\n";
+        for (name, _) in &required {
+            text += &format!("    {}\n", name.to_uppercase());
+        }
+    }
+    text += "\nFLAGS\n";
+    let flags = optional.iter().map(|(name, _)| name).chain(&spec.keyword);
+    for name in flags {
+        text += &format!("    --{name}={}\n", name.to_uppercase());
+    }
+    if spec.varkw {
+        text += "    Additional flags are accepted.\n";
+    }
+    text
+}
+
 fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Error> {
-    let has = |name: &str| spec.positional.iter().any(|(parameter, _)| parameter == name) || spec.keyword.iter().any(|parameter| parameter == name);
+    let has = |name: &str| {
+        spec.positional.iter().any(|(parameter, _)| parameter == name) || spec.keyword.iter().any(|parameter| parameter == name)
+    };
     let logdir = args.values.iter().find(|(key, _)| key == "logdir").map(|(_, value)| value.clone()).filter(|value| *value != J::Null);
     if matches!(logdir, Some(J::Bool(_))) {
         return fail(Kind::Fire, "The --logdir flag requires a value.");
     }
-    let first = spec.positional.first().map(|(name, _)| args.values.iter().find(|(key, _)| key == name).map_or(J::Null, |(_, value)| value.clone()));
+    let first = spec
+        .positional
+        .first()
+        .map(|(name, _)| args.values.iter().find(|(key, _)| key == name).map_or(J::Null, |(_, value)| value.clone()));
     if first.as_ref().is_some_and(|value| !value.truthy()) {
         return fail(Kind::Value, "session_id cannot be an empty string.");
     }
     let target = match (&logdir, &first) {
         (Some(logdir), _) => Some(logdir.text()),
         (None, Some(J::Str(text))) if has("session_id") && text.contains(['/', '\\', '.']) => Some(text.clone()),
+        (None, Some(J::Str(text))) if has("source") && text.contains("://") => Some(text.clone()),
         _ => None,
     };
-    if let Some(target) = target.filter(|target| !has("destination") && !has("run_name") && !target.starts_with("gs://")) {
-        let path = expand(&target);
+    let mut local = logdir.as_ref().map(|logdir| expand(&logdir.text()));
+    if let Some(target) = target.filter(|_| !has("destination") && !has("run_name")) {
+        if target.contains("://") {
+            local = mirror(&target, logdir.is_some(), &spec.positional[0].0, args)?;
+        }
+        let path = local.clone().unwrap_or_else(|| expand(&args.string(&spec.positional[0].0, "")));
         if !path.exists() {
             return fail(Kind::FileNotFound, format!("Trace path '{target}' does not exist."));
         }
@@ -629,7 +761,86 @@ fn wrap(spec: &Spec, args: &mut Args) -> Result<Option<std::path::PathBuf>, Erro
             *value = J::Str(value.text());
         }
     }
-    Ok(logdir.map(|logdir| expand(&logdir.text())))
+    Ok(local)
+}
+
+async fn latest(remote: &crate::server::remote::Remote, dir: &std::path::Path) -> Result<Option<std::path::PathBuf>, String> {
+    remote.sync(dir, true).await?;
+    // Only the traces of `dir` itself make it a session. Sessions under it that the cache already holds do not.
+    if !client::find(dir, &client::TRACE_SUFFIXES, false).is_empty() {
+        return Ok(Some(dir.to_path_buf()));
+    }
+    remote.sync(&dir.join("plugins/profile"), false).await?;
+    if let Some(session) = client::latest_run(dir) {
+        remote.sync(&session, true).await?;
+        if !client::traces(&session).is_empty() {
+            return Ok(Some(session));
+        }
+    }
+    Ok(None)
+}
+
+/// Syncs a remote logdir or session to the cache of the server, and returns the local logdir. A
+/// remote session then names its local copy.
+fn mirror(url: &str, logdir: bool, first: &str, args: &mut Args) -> Result<Option<std::path::PathBuf>, Error> {
+    let absent = |message: String| Error::new(Kind::FileNotFound, message);
+    let url = url.trim_end_matches('/');
+    let (url, file) = match url.rsplit_once('/') {
+        Some((dir, name)) if !logdir && client::TRACE_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) => (dir, name),
+        _ => (url, ""),
+    };
+    let (root, name) = if logdir {
+        (url, "")
+    } else {
+        url.rsplit_once('/')
+            .filter(|(root, _)| !root.ends_with('/'))
+            .ok_or_else(|| absent(format!("Trace path '{url}' does not exist.")))?
+    };
+    let remote = crate::server::remote::Remote::open(root).map_err(absent)?;
+    let session = Some(args.session()).filter(|session| !session.is_empty()).unwrap_or_else(|| args.string(first, ""));
+    let dir = if logdir { remote.mirror.join("plugins/profile").join(&session) } else { remote.mirror.join(name) };
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|error| absent(error.to_string()))?;
+    let resolved = runtime
+        .block_on(async {
+            let found = if logdir {
+                if session.is_empty() {
+                    latest(&remote, &remote.mirror).await?
+                } else {
+                    remote.sync(&dir, true).await?;
+                    if client::traces(&dir).is_empty() { latest(&remote, &remote.mirror.join(&session)).await? } else { Some(dir.clone()) }
+                }
+            } else if file.is_empty() {
+                latest(&remote, &dir).await?
+            } else {
+                remote.sync(&dir, true).await?;
+                Some(dir.clone())
+            };
+            if found.is_none() {
+                remote.sync(&remote.mirror, false).await?;
+                let session = if logdir { &session } else { name };
+                let run =
+                    Local { logdir: Some(remote.mirror.clone()), ..Local::default() }.run_dir(session).map_err(|error| error.message)?;
+                remote.sync(&run, true).await?;
+                Ok(Some(run))
+            } else {
+                Ok(found)
+            }
+        })
+        .map_err(absent)?;
+    if logdir {
+        let run = remote.mirror.join(&session);
+        if let Some(latest) = resolved.filter(|found| !session.is_empty() && *found != run && found.starts_with(&run)) {
+            let key = if args.session().is_empty() { first } else { "session_id" };
+            if let Some((_, value)) = args.values.iter_mut().find(|(name, _)| name == key) {
+                *value = J::Str(latest.display().to_string());
+            }
+        }
+        return Ok(Some(remote.mirror));
+    }
+    if let Some((_, value)) = args.values.iter_mut().find(|(key, _)| key == first) {
+        *value = J::Str(resolved.unwrap_or(dir).join(file).display().to_string());
+    }
+    Ok(None)
 }
 
 pub fn expand(path: &str) -> std::path::PathBuf {
@@ -670,23 +881,34 @@ fn spill(command: &str, bytes: &[u8]) -> Option<String> {
     if bytes.len() <= SPILL_BYTES {
         return None;
     }
-    let name = COMMANDS.iter().find(|(name, _, _)| *name == command).map_or(command, |(name, _, _)| if *name == "compute_utilization" { "get_kernel_utilization" } else { name });
-    let unique = format!("{:08x}", (std::process::id() as u64 ^ std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |time| time.as_nanos() as u64)) & 0xffff_ffff);
+    let name = COMMANDS
+        .iter()
+        .find(|(name, _, _)| *name == command)
+        .map_or(command, |(name, _, _)| if *name == "compute_utilization" { "get_kernel_utilization" } else { name });
+    let unique = format!(
+        "{:08x}",
+        (std::process::id() as u64
+            ^ std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |time| time.as_nanos() as u64))
+            & 0xffff_ffff
+    );
     let path = client::temp_dir().join(format!("xprof_spill_{name}_{unique}.json"));
     std::fs::write(&path, bytes).ok()?;
     let mib = (bytes.len() as f64 / (1024.0 * 1024.0) * 100.0).round() / 100.0;
+    let size = json::J::Float(mib).text();
     let report = obj! {
         "status" => "SAVED_TO_FILE",
         "size_bytes" => bytes.len(),
         "size_mib" => mib,
         "file_path" => path.to_string_lossy().into_owned(),
-        "message" => format!("Output payload ({} MB) exceeded 10 MB threshold. Saved to file to prevent terminal buffer overflow.", json::J::Float(mib).text()),
+        "message" => format!("Output payload ({size} MB) exceeded 10 MB threshold. Saved to file to prevent terminal buffer overflow."),
     };
     Some(report.dumps())
 }
 
 fn render(out: Out) -> Vec<u8> {
-    let display = |value: &J| if let J::Str(text) = value { text.replace('\n', " ") } else { value.compact() };
+    let display = |value: &J| {
+        if let J::Str(text) = value { text.replace('\n', " ") } else { value.compact() }
+    };
     let mut bytes = match out {
         Out::Text(text) => text.into_bytes(),
         Out::Bytes(data) => {
@@ -711,7 +933,8 @@ fn render(out: Out) -> Vec<u8> {
         Out::Value(J::Map(entries)) => {
             let visible: Vec<&(String, J)> = entries.iter().filter(|(key, _)| !key.starts_with('_')).collect();
             let width = visible.iter().map(|(key, _)| key.chars().count()).max().unwrap_or(0) + 1;
-            let lines: Vec<String> = visible.iter().map(|(key, value)| format!("{:width$} {}", format!("{key}:"), display(value))).collect();
+            let lines: Vec<String> =
+                visible.iter().map(|(key, value)| format!("{:width$} {}", format!("{key}:"), display(value))).collect();
             if lines.is_empty() { "{}".into() } else { lines.join("\n").into_bytes() }
         }
         Out::Value(value) => value.compact().into_bytes(),
@@ -736,11 +959,15 @@ fn emit(error: &Error) -> (i32, Vec<u8>, String) {
 }
 
 /// Runs both at the same time when the client can do this.
-pub fn both<A: Send, B: Send>(client: &dyn Client, first: impl FnOnce(&dyn Client) -> A, second: impl FnOnce(&dyn Client) -> B + Send) -> (A, B) {
+pub fn both<A: Send, B: Send>(
+    client: &dyn Client,
+    first: impl FnOnce(&dyn Client) -> A,
+    second: impl FnOnce(&dyn Client) -> B + Send,
+) -> (A, B) {
     match client.shared() {
         Some(shared) => std::thread::scope(|scope| {
             let second = scope.spawn(move || second(shared));
-            (first(shared), second.join().unwrap())
+            (first(shared), second.join().expect("worker thread should not panic"))
         }),
         None => (first(client), second(client)),
     }
@@ -762,14 +989,70 @@ pub fn invoke(client: &mut Local, command: &str, argv: &[String]) -> Result<(Out
     Ok((handler(client, &args)?, leftover))
 }
 
+fn get_tool_data(client: &dyn Client, args: &Args) -> Result<Out, Error> {
+    let tool = args.text("tool").unwrap_or_default();
+    client::tool_name(&tool)?;
+    let session = args.session();
+    let dir = client.run_dir(&session)?;
+    let host = match args.text("host") {
+        Some(host) if !host.is_empty() => {
+            let paths = client.xspace_paths(&dir)?;
+            let path = paths.iter().find(|path| client::host(path) == host).ok_or_else(|| xplane::missing_host(&session, &host))?;
+            Some(crate::host_name(path))
+        }
+        host => host,
+    };
+    let mut params = HashMap::from([
+        ("tag".to_string(), tool),
+        ("run".to_string(), dir.file_name().unwrap_or_default().to_string_lossy().into_owned()),
+        ("resolution".to_string(), "0".to_string()),
+    ]);
+    if let Some(host) = host {
+        params.insert("host".into(), host);
+    }
+    let runtime =
+        tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|error| Error::new(Kind::Runtime, error.to_string()))?;
+    let logdir = dir.parent().unwrap_or(Path::new(".")).to_path_buf();
+    let state = crate::state(&crate::Settings { logdir, ..Default::default() });
+    let response = runtime.block_on(crate::serve(state, dir, params));
+    let status = response.status();
+    let reply = runtime
+        .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
+        .map_err(|error| Error::new(Kind::Runtime, error.to_string()))?;
+    if status.as_u16() != 200 {
+        return fail(Kind::Runtime, String::from_utf8_lossy(&reply).into_owned());
+    }
+    let reply = reply.to_vec();
+    if let Some(output) = args.text("output_path").filter(|path| !path.is_empty()) {
+        write_file(Path::new(&output), &reply)?;
+        Ok(Out::Text(output))
+    } else {
+        Ok(Out::Bytes(reply))
+    }
+}
+
+pub fn descending<T, K: PartialOrd>(items: &mut [T], key: impl Fn(&T) -> K) {
+    items.sort_by(|left, right| key(right).partial_cmp(&key(left)).unwrap_or(std::cmp::Ordering::Equal));
+}
+
+pub fn write_file(path: &Path, data: &[u8]) -> Result<(), Error> {
+    let io = |error: std::io::Error| Error::new(Kind::Os, error.to_string());
+    path.parent().filter(|parent| !parent.as_os_str().is_empty()).map(std::fs::create_dir_all).transpose().map_err(io)?;
+    std::fs::write(path, data).map_err(io)
+}
+
 pub fn execute(argv: &[String]) -> Option<(i32, Vec<u8>, String)> {
     let argv = &preprocess(argv);
     let command = argv.first()?;
     if command.starts_with('-') || command == "server" {
         return None;
     }
-    if let Some((_, text, _)) = COMMANDS.iter().find(|(name, _, _)| name == command).filter(|_| argv.iter().skip(1).any(|argument| argument == "--help" || argument == "-h")) {
-        return Some((0, format!("NAME\n    xprof {command}\n\nSYNOPSIS\n    xprof {command} {}\n", usage(&spec(text))).into_bytes(), String::new()));
+    if let Some((_, text, _)) = COMMANDS
+        .iter()
+        .find(|(name, _, _)| name == command)
+        .filter(|_| argv.iter().skip(1).any(|argument| argument == "--help" || argument == "-h"))
+    {
+        return Some((0, help(command, &spec(text)).into_bytes(), String::new()));
     }
     // The process exits soon after. To drop the loaded planes only costs time.
     Some(match invoke(Box::leak(Box::new(Local { fused: command == "check_host_boundness", ..Local::default() })), command, &argv[1..]) {
@@ -809,6 +1092,11 @@ pub fn openable(path: &Path) -> Result<(), Error> {
 fn os_error(path: &Path, error: &std::io::Error) -> Error {
     Error::new(
         if error.kind() == std::io::ErrorKind::NotFound { Kind::FileNotFound } else { Kind::Os },
-        format!("[Errno {}] {}: {}", error.raw_os_error().unwrap_or(0), error.to_string().split(" (os error").next().unwrap_or_default(), json::py_repr(&path.to_string_lossy())),
+        format!(
+            "[Errno {}] {}: {}",
+            error.raw_os_error().unwrap_or(0),
+            error.to_string().split(" (os error").next().unwrap_or_default(),
+            json::py_repr(&path.to_string_lossy())
+        ),
     )
 }

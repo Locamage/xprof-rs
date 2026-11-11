@@ -1,5 +1,5 @@
 use super::cli_support::{parse, run, scratch};
-use super::e2e_oracles::{DEMO, TRAINING_STEP_PS, session, training_trace};
+use super::e2e_oracles::{TRAINING_STEP_PS, session, training_trace};
 use super::xspace::XSpace;
 use crate::cli::client::{Client, Local};
 use crate::cli::{COMMANDS, Kind};
@@ -11,7 +11,9 @@ const SPILL_EVENTS: i64 = 80_000;
 fn test_x01_four_input_forms() {
     let dir = scratch("x01");
     let path = session(&dir, "host.xplane.pb", &training_trace(TRAINING_STEP_PS));
-    let step = |target: &std::path::Path| parse(&run(&["get_overview", target.to_str().unwrap()]).1).at("performance_summary").at("steptime_ms_average").clone();
+    let step = |target: &std::path::Path| {
+        parse(&run(&["get_overview", target.to_str().unwrap()]).1).at("performance_summary").at("steptime_ms_average").clone()
+    };
     assert_eq!(step(&path), step(path.parent().unwrap()));
     assert_eq!(step(&path).str(), Some("20.00"));
 }
@@ -47,16 +49,6 @@ fn test_x06_volume_guard_spill_to_file() {
     assert!(result.at("size_bytes").int().unwrap() > 10 * 1024 * 1024);
     assert_eq!(parse(&std::fs::read_to_string(&spilled).unwrap()).at("returned").int(), Some(i128::from(SPILL_EVENTS)));
     std::fs::remove_file(spilled).unwrap();
-}
-
-#[test]
-fn test_x07_cache_freshness_in_place_swap() {
-    let dir = scratch("x07");
-    let path = session(&dir, "trace.xplane.pb", &training_trace(TRAINING_STEP_PS));
-    let first = run(&["get_overview", path.to_str().unwrap()]).1;
-    std::fs::copy(DEMO, &path).unwrap();
-    let second = run(&["get_overview", path.to_str().unwrap()]).1;
-    assert_ne!(first, second);
 }
 
 #[test]

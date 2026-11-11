@@ -1,4 +1,5 @@
-//! Python `re` patterns. The parse follows `re._parser` of Python 3.12, so a bad pattern gives the message of Python. The search uses `fancy-regex`.
+//! Python `re` patterns. The parse follows `re._parser` of Python 3.12, so a bad pattern gives the
+//! message of Python. The search uses `fancy-regex`.
 
 use super::json::py_repr;
 use std::collections::HashMap;
@@ -21,7 +22,8 @@ const DEBUG: u32 = 128;
 const ASCII: u32 = 256;
 const TYPE_FLAGS: u32 = ASCII | LOCALE | UNICODE;
 const GLOBAL_FLAGS: u32 = DEBUG | TEMPLATE;
-/// Not a Python flag. It tells `emit` to count the repeats in the `fancy-regex` machine, because the `regex` machine of a large count is too large.
+/// Not a Python flag. It tells `emit` to count the repeats in the `fancy-regex` machine, because
+/// the `regex` machine of a large count is too large.
 const COUNTED: u32 = 1 << 16;
 
 /// The groups of lower case characters with the same upper case, from `re._casefix` of Python 3.12.
@@ -53,9 +55,12 @@ const CASE_GROUPS: [&[u32]; 24] = [
 ];
 
 /// The characters that `lower` changes, and their lower case.
-static LOWERED: LazyLock<[Vec<(u32, u32)>; 2]> = LazyLock::new(|| [false, true].map(|ascii| (0..=0x10ffff).filter_map(|c| Some((c, lower(c, ascii))).filter(|&(c, low)| c != low)).collect()));
+static LOWERED: LazyLock<[Vec<(u32, u32)>; 2]> = LazyLock::new(|| {
+    [false, true].map(|ascii| (0..=0x10ffff).filter_map(|c| Some((c, lower(c, ascii))).filter(|&(c, low)| c != low)).collect())
+});
 
-/// `_sre.unicode_tolower`, or `_sre.ascii_tolower` for the `a` flag. It is the first character of the full lower case.
+/// `_sre.unicode_tolower`, or `_sre.ascii_tolower` for the `a` flag. It is the first character of
+/// the full lower case.
 fn lower(c: u32, ascii: bool) -> u32 {
     match char::from_u32(c) {
         Some(c) if ascii => c.to_ascii_lowercase() as u32,
@@ -73,9 +78,15 @@ fn cased(c: u32, ascii: bool) -> bool {
     }
 }
 
-/// The items of a set that Python matches without case. Python puts the lower case of each item, and the other characters of its `CASE_GROUPS`, in the set. Then a character matches if its lower case is in the set.
+/// The items of a set that Python matches without case. Python puts the lower case of each item,
+/// and the other characters of its `CASE_GROUPS`, in the set. Then a character matches if its lower
+/// case is in the set.
 fn fold(items: &[Item], ascii: bool) -> Vec<Item> {
-    let inside = |c: u32| items.iter().any(|item| matches!(*item, Item::Literal(value) if value == c) || matches!(*item, Item::Range(low, high) if low <= c && c <= high));
+    let inside = |c: u32| {
+        items.iter().any(|item| {
+            matches!(*item, Item::Literal(value) if value == c) || matches!(*item, Item::Range(low, high) if low <= c && c <= high)
+        })
+    };
     let lowered = &LOWERED[usize::from(ascii)];
     let mut extra: Vec<u32> = lowered.iter().filter(|&&(c, _)| inside(c)).map(|&(_, low)| low).collect();
     if !ascii {
@@ -97,12 +108,17 @@ fn combine(flags: u32, add: u32, delete: u32) -> u32 {
     (if add & TYPE_FLAGS != 0 { flags & !TYPE_FLAGS } else { flags } | add) & !delete
 }
 
-/// The set that Python checks the first character of a match against, if a group changes the `a` or `u` flag of the set. Python makes the check with the global flags.
+/// The set that Python checks the first character of a match against, if a group changes the `a` or
+/// `u` flag of the set. Python makes the check with the global flags.
 fn first_set(mut seq: &[Node], global: u32) -> Option<(bool, Vec<Item>)> {
     let mut flags = global;
     loop {
         let node = match seq.first()? {
-            Node::Branch(branches) if branches.iter().all(|branch| branch.first().is_some_and(|first| Some(first) == branches[0].first())) => &branches[0][0],
+            Node::Branch(branches)
+                if branches.iter().all(|branch| branch.first().is_some_and(|first| Some(first) == branches[0].first())) =>
+            {
+                &branches[0][0]
+            }
             Node::Branch(branches) => {
                 let mut items = Vec::new();
                 for branch in branches {
@@ -121,13 +137,16 @@ fn first_set(mut seq: &[Node], global: u32) -> Option<(bool, Vec<Item>)> {
                 flags = combine(flags, *add, *delete);
                 seq = body;
             }
-            Node::Set(negate, items) => return ((flags ^ global) & ASCII != 0 && plain(items, flags)).then(|| (*negate, items.clone())),
+            Node::Set(negate, items) => {
+                return ((flags ^ global) & ASCII != 0 && plain(items, flags)).then(|| (*negate, items.clone()));
+            }
             _ => return None,
         }
     }
 }
 
-/// A set that Python can check as the first character: with a category, and with no cased character for the `i` flag.
+/// A set that Python can check as the first character: with a category, and with no cased character
+/// for the `i` flag.
 fn plain(items: &[Item], flags: u32) -> bool {
     let ascii = flags & ASCII != 0;
     items.iter().any(|item| matches!(item, Item::Category(_)))
@@ -145,14 +164,16 @@ pub struct Pattern(fancy_regex::Regex, usize);
 impl Pattern {
     pub fn search(&self, text: &str) -> bool {
         let least = self.1;
-        (least == 0 || text.len() >= least && (text.len() >= 4 * least || text.chars().count() >= least)) && self.0.is_match(text).unwrap_or(false)
+        (least == 0 || text.len() >= least && (text.len() >= 4 * least || text.chars().count() >= least))
+            && self.0.is_match(text).unwrap_or(false)
     }
 }
 
 /// The text of the Python `RecursionError`.
 pub const RECURSION: &str = "maximum recursion depth exceeded";
 
-/// `re.compile(pattern)`. The error is the text of the Python exception. Python stops with `RECURSION` when the parse goes `frames` calls deep.
+/// `re.compile(pattern)`. The error is the text of the Python exception. Python stops with
+/// `RECURSION` when the parse goes `frames` calls deep.
 pub fn compile(pattern: &str, frames: usize) -> Result<Pattern, String> {
     let chars: Vec<char> = pattern.chars().collect();
     let mut state = State { flags: 0, names: HashMap::new(), widths: vec![None], behind: None, refs: Vec::new(), frames };
@@ -192,18 +213,18 @@ enum Tok {
 
 impl Tok {
     fn len(self) -> usize {
-        if let Tok::Escape(_) = self { 2 } else { 1 }
+        if let Self::Escape(_) = self { 2 } else { 1 }
     }
 
     fn text(self) -> String {
         match self {
-            Tok::Char(c) => c.to_string(),
-            Tok::Escape(c) => format!("\\{c}"),
+            Self::Char(c) => c.to_string(),
+            Self::Escape(c) => format!("\\{c}"),
         }
     }
 
     fn char(self) -> Option<char> {
-        if let Tok::Char(c) = self { Some(c) } else { None }
+        if let Self::Char(c) = self { Some(c) } else { None }
     }
 
     fn alpha(self) -> bool {
@@ -291,7 +312,9 @@ impl<'a> Source<'a> {
             let c = self.get()?;
             match c {
                 None if result.is_empty() => return Err(self.error(&format!("missing {name}"), 0)),
-                None => return Err(self.error(&format!("missing {terminator}, unterminated name"), result.chars().count())),
+                None => {
+                    return Err(self.error(&format!("missing {terminator}, unterminated name"), result.chars().count()));
+                }
                 Some(Tok::Char(c)) if c == terminator => {
                     if result.is_empty() {
                         return Err(self.error(&format!("missing {name}"), 1));
@@ -318,8 +341,13 @@ impl<'a> Source<'a> {
 
     fn check_name(&self, name: &str, offset: usize) -> Parsed<()> {
         let mut chars = name.chars();
-        let identifier = chars.next().is_some_and(|first| first == '_' || unicode_ident::is_xid_start(first)) && chars.all(unicode_ident::is_xid_continue);
-        if identifier { Ok(()) } else { Err(self.error(&format!("bad character in group name {}", py_repr(name)), name.chars().count() + offset)) }
+        let identifier = chars.next().is_some_and(|first| first == '_' || unicode_ident::is_xid_start(first))
+            && chars.all(unicode_ident::is_xid_continue);
+        if identifier {
+            Ok(())
+        } else {
+            Err(self.error(&format!("bad character in group name {}", py_repr(name)), name.chars().count() + offset))
+        }
     }
 }
 
@@ -386,13 +414,13 @@ enum Node {
     Set(bool, Vec<Item>),
     Any,
     At(At),
-    Repeat(u128, u128, Repeat, Box<Node>),
-    Group(Option<usize>, u32, u32, Vec<Node>),
-    Atomic(Vec<Node>),
-    Branch(Vec<Vec<Node>>),
-    Assert(bool, bool, Vec<Node>),
+    Repeat(u128, u128, Repeat, Box<Self>),
+    Group(Option<usize>, u32, u32, Vec<Self>),
+    Atomic(Vec<Self>),
+    Branch(Vec<Vec<Self>>),
+    Assert(bool, bool, Vec<Self>),
     GroupRef(usize),
-    Exists(usize, Vec<Node>, Option<Vec<Node>>),
+    Exists(usize, Vec<Self>, Option<Vec<Self>>),
 }
 
 enum Escaped {
@@ -439,7 +467,8 @@ fn octal(c: char) -> bool {
     ('0'..='7').contains(&c)
 }
 
-/// The `\x`, `\u`, `\U`, and `\N` escapes, and the escapes that are the same in a set and outside it.
+/// The `\x`, `\u`, `\U`, and `\N` escapes, and the escapes that are the same in a set and outside
+/// it.
 fn unicode_escape(source: &mut Source, c: char) -> Parsed<Option<u32>> {
     let (digits, full) = match c {
         'x' => (2, 4),
@@ -458,7 +487,7 @@ fn unicode_escape(source: &mut Source, c: char) -> Parsed<Option<u32>> {
     if escape.len() != full {
         return Err(source.error(&format!("incomplete escape {escape}"), escape.len()));
     }
-    let value = u32::from_str_radix(&escape[2..], 16).unwrap();
+    let value = u32::from_str_radix(&escape[2..], 16).expect("escape digits should be valid");
     if value > 0x10FFFF {
         return Err(source.error(&format!("bad escape {escape}"), escape.len()));
     }
@@ -481,7 +510,7 @@ fn class_escape(source: &mut Source, c: char) -> Parsed<Item> {
     }
     if octal(c) {
         let escape = format!("\\{c}{}", source.get_while(2, octal)?);
-        let value = u32::from_str_radix(&escape[1..], 8).unwrap();
+        let value = u32::from_str_radix(&escape[1..], 8).expect("escape digits should be valid");
         if value > 0o377 {
             return Err(source.error(&format!("octal escape value {escape} outside of range 0-0o377"), escape.len()));
         }
@@ -502,7 +531,7 @@ fn escape(source: &mut Source, c: char, state: &State) -> Parsed<Escaped> {
     }
     if c == '0' {
         let digits = source.get_while(2, octal)?;
-        return Ok(Escaped::Item(Item::Literal(u32::from_str_radix(&format!("0{digits}"), 8).unwrap())));
+        return Ok(Escaped::Item(Item::Literal(u32::from_str_radix(&format!("0{digits}"), 8).expect("escape digits should be valid"))));
     }
     if c.is_ascii_digit() {
         let mut escape = format!("\\{c}");
@@ -510,15 +539,15 @@ fn escape(source: &mut Source, c: char, state: &State) -> Parsed<Escaped> {
             source.advance()?;
             escape.push(next);
             if octal(c) && octal(next) && source.next.and_then(Tok::char).is_some_and(octal) {
-                escape.push(source.get()?.and_then(Tok::char).unwrap());
-                let value = u32::from_str_radix(&escape[1..], 8).unwrap();
+                escape.push(source.get()?.and_then(Tok::char).expect("octal escape should have a third digit"));
+                let value = u32::from_str_radix(&escape[1..], 8).expect("escape digits should be valid");
                 if value > 0o377 {
                     return Err(source.error(&format!("octal escape value {escape} outside of range 0-0o377"), escape.len()));
                 }
                 return Ok(Escaped::Item(Item::Literal(value)));
             }
         }
-        let group: usize = escape[1..].parse().unwrap();
+        let group: usize = escape[1..].parse().expect("value should have valid syntax");
         if group < state.widths.len() {
             if !state.closed(group) {
                 return Err(source.error("cannot refer to an open group", escape.len()));
@@ -546,7 +575,7 @@ fn parse_sub(source: &mut Source, state: &mut State, mut verbose: bool, nested: 
             verbose = state.flags & VERBOSE != 0;
         }
     }
-    Ok(if items.len() == 1 { items.pop().unwrap() } else { vec![Node::Branch(items)] })
+    Ok(if items.len() == 1 { items.pop().expect("collection should be non-empty") } else { vec![Node::Branch(items)] })
 }
 
 fn parse_set(source: &mut Source) -> Parsed<Node> {
@@ -555,7 +584,9 @@ fn parse_set(source: &mut Source) -> Parsed<Node> {
     let negate = source.matches('^')?;
     let unterminated = |source: &Source| source.error("unterminated character set", source.tell() - here);
     loop {
-        let Some(this) = source.get()? else { return Err(unterminated(source)) };
+        let Some(this) = source.get()? else {
+            return Err(unterminated(source));
+        };
         if this == Tok::Char(']') && !set.is_empty() {
             break;
         }
@@ -567,7 +598,9 @@ fn parse_set(source: &mut Source) -> Parsed<Node> {
             set.push(first);
             continue;
         }
-        let Some(that) = source.get()? else { return Err(unterminated(source)) };
+        let Some(that) = source.get()? else {
+            return Err(unterminated(source));
+        };
         if that == Tok::Char(']') {
             set.extend([first, Item::Literal('-' as u32)]);
             break;
@@ -577,8 +610,12 @@ fn parse_set(source: &mut Source) -> Parsed<Node> {
             Tok::Char(c) => Item::Literal(c as u32),
         };
         match (first, second) {
-            (Item::Literal(low), Item::Literal(high)) if low <= high => set.push(Item::Range(low, high)),
-            _ => return Err(source.error(&format!("bad character range {}-{}", this.text(), that.text()), this.len() + 1 + that.len())),
+            (Item::Literal(low), Item::Literal(high)) if low <= high => {
+                set.push(Item::Range(low, high));
+            }
+            _ => {
+                return Err(source.error(&format!("bad character range {}-{}", this.text(), that.text()), this.len() + 1 + that.len()));
+            }
         }
     }
     Ok(Node::Set(negate, set))
@@ -640,7 +677,7 @@ fn parse_flags(source: &mut Source, state: &mut State, first: char) -> Parsed<Op
     let (mut add, mut delete, mut c) = (0, 0, first);
     if c != '-' {
         loop {
-            let value = flag(c).unwrap();
+            let value = flag(c).expect("required value should be present");
             if c == 'L' {
                 return Err(source.error("bad inline flags: cannot use 'L' flag with a str pattern", 0));
             }
@@ -648,14 +685,18 @@ fn parse_flags(source: &mut Source, state: &mut State, first: char) -> Parsed<Op
             if value & TYPE_FLAGS != 0 && add & TYPE_FLAGS != value {
                 return Err(source.error("bad inline flags: flags 'a', 'u' and 'L' are incompatible", 0));
             }
-            let Some(next) = source.get()? else { return Err(source.error("missing -, : or )", 0)) };
+            let Some(next) = source.get()? else {
+                return Err(source.error("missing -, : or )", 0));
+            };
             match next.char() {
                 Some(end @ (')' | '-' | ':')) => {
                     c = end;
                     break;
                 }
                 Some(next) if flag(next).is_some() => c = next,
-                _ => return Err(source.error(if next.alpha() { "unknown flag" } else { "missing -, : or )" }, next.len())),
+                _ => {
+                    return Err(source.error(if next.alpha() { "unknown flag" } else { "missing -, : or )" }, next.len()));
+                }
             }
         }
     }
@@ -667,17 +708,21 @@ fn parse_flags(source: &mut Source, state: &mut State, first: char) -> Parsed<Op
         return Err(source.error("bad inline flags: cannot turn on global flag", 1));
     }
     if c == '-' {
-        let Some(mut next) = source.get()? else { return Err(source.error("missing flag", 0)) };
+        let Some(mut next) = source.get()? else {
+            return Err(source.error("missing flag", 0));
+        };
         if next.char().and_then(flag).is_none() {
             return Err(source.error(if next.alpha() { "unknown flag" } else { "missing flag" }, next.len()));
         }
         loop {
-            let value = next.char().and_then(flag).unwrap();
+            let value = next.char().and_then(flag).expect("required value should be present");
             if value & TYPE_FLAGS != 0 {
                 return Err(source.error("bad inline flags: cannot turn off flags 'a', 'u' and 'L'", 0));
             }
             delete |= value;
-            let Some(after) = source.get()? else { return Err(source.error("missing :", 0)) };
+            let Some(after) = source.get()? else {
+                return Err(source.error("missing :", 0));
+            };
             if after == Tok::Char(':') {
                 break;
             }
@@ -752,8 +797,12 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                     }
                 };
                 match sub.last() {
-                    None | Some(Node::At(_)) => return Err(source.error("nothing to repeat", source.tell() - here + 1)),
-                    Some(Node::Repeat(..)) => return Err(source.error("multiple repeat", source.tell() - here + 1)),
+                    None | Some(Node::At(_)) => {
+                        return Err(source.error("nothing to repeat", source.tell() - here + 1));
+                    }
+                    Some(Node::Repeat(..)) => {
+                        return Err(source.error("multiple repeat", source.tell() - here + 1));
+                    }
                     _ => {}
                 }
                 let kind = if source.matches('?')? {
@@ -763,7 +812,7 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                 } else {
                     Repeat::Greedy
                 };
-                let item = sub.pop().unwrap();
+                let item = sub.pop().expect("collection should be non-empty");
                 sub.push(Node::Repeat(min, max, kind, Box::new(item)));
             }
             '.' => sub.push(Node::Any),
@@ -773,7 +822,9 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                 let start = source.tell() - 1;
                 let (mut capture, mut atomic, mut name, mut add, mut delete) = (true, false, None, 0, 0);
                 if source.matches('?')? {
-                    let Some(kind) = source.get()? else { return Err(unexpected_end(source)) };
+                    let Some(kind) = source.get()? else {
+                        return Err(unexpected_end(source));
+                    };
                     match kind.char() {
                         Some('P') => {
                             if source.matches('<')? {
@@ -784,7 +835,9 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                                 let group = source.get_until(')', "group name")?;
                                 source.check_name(&group, 1)?;
                                 let offset = group.chars().count() + 1;
-                                let Some(&id) = state.names.get(&group) else { return Err(source.error(&format!("unknown group name {}", py_repr(&group)), offset)) };
+                                let Some(&id) = state.names.get(&group) else {
+                                    return Err(source.error(&format!("unknown group name {}", py_repr(&group)), offset));
+                                };
                                 if !state.closed(id) {
                                     return Err(source.error("cannot refer to an open group", offset));
                                 }
@@ -792,7 +845,9 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                                 sub.push(Node::GroupRef(id));
                                 continue;
                             } else {
-                                let Some(other) = source.get()? else { return Err(unexpected_end(source)) };
+                                let Some(other) = source.get()? else {
+                                    return Err(unexpected_end(source));
+                                };
                                 return Err(source.error(&format!("unknown extension ?P{}", other.text()), other.len() + 2));
                             }
                         }
@@ -811,10 +866,14 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                         Some(mut look @ ('=' | '!' | '<')) => {
                             let (behind, outer) = (look == '<', state.behind);
                             if behind {
-                                let Some(next) = source.get()? else { return Err(unexpected_end(source)) };
+                                let Some(next) = source.get()? else {
+                                    return Err(unexpected_end(source));
+                                };
                                 match next.char() {
                                     Some(next @ ('=' | '!')) => look = next,
-                                    _ => return Err(source.error(&format!("unknown extension ?<{}", next.text()), next.len() + 2)),
+                                    _ => {
+                                        return Err(source.error(&format!("unknown extension ?<{}", next.text()), next.len() + 2));
+                                    }
                                 }
                                 if outer.is_none() {
                                     state.behind = Some(state.widths.len());
@@ -847,7 +906,10 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                                 group as usize
                             } else {
                                 source.check_name(&condition, 1)?;
-                                *state.names.get(&condition).ok_or_else(|| source.error(&format!("unknown group name {}", py_repr(&condition)), offset))?
+                                *state
+                                    .names
+                                    .get(&condition)
+                                    .ok_or_else(|| source.error(&format!("unknown group name {}", py_repr(&condition)), offset))?
                             };
                             state.check_behind(group, source)?;
                             let yes = parse(source, state, verbose, nested + 1, false)?;
@@ -877,7 +939,9 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                             }
                             Some(flags) => (add, delete, capture) = (flags.0, flags.1, false),
                         },
-                        _ => return Err(source.error(&format!("unknown extension ?{}", kind.text()), kind.len() + 1)),
+                        _ => {
+                            return Err(source.error(&format!("unknown extension ?{}", kind.text()), kind.len() + 1));
+                        }
                     }
                 }
                 let group = if capture {
@@ -888,7 +952,10 @@ fn parse(source: &mut Source, state: &mut State, mut verbose: bool, nested: usiz
                     }
                     if let Some(name) = &name {
                         if let Some(&old) = state.names.get(name) {
-                            return Err(source.error(&format!("redefinition of group name {} as group {id}; was group {old}", py_repr(name)), name.chars().count() + 1));
+                            return Err(source.error(
+                                &format!("redefinition of group name {} as group {id}; was group {old}", py_repr(name)),
+                                name.chars().count() + 1,
+                            ));
                         }
                         state.names.insert(name.clone(), id);
                     }
@@ -916,7 +983,10 @@ fn width(seq: &[Node], state: &State) -> (u128, u128) {
     let (mut low, mut high) = (0u128, 0u128);
     for node in seq {
         let (min, max) = match node {
-            Node::Branch(branches) => branches.iter().map(|branch| width(branch, state)).fold((MAXWIDTH, 0), |(low, high), (min, max)| (low.min(min), high.max(max))),
+            Node::Branch(branches) => branches
+                .iter()
+                .map(|branch| width(branch, state))
+                .fold((MAXWIDTH, 0), |(low, high), (min, max)| (low.min(min), high.max(max))),
             Node::Atomic(body) | Node::Group(.., body) => width(body, state),
             Node::Repeat(min, max, _, item) => {
                 let (item_low, item_high) = width(std::slice::from_ref(item), state);
@@ -961,7 +1031,9 @@ fn check(seq: &[Node], state: &State) -> Parsed<()> {
                 }
                 check(body, state)?;
             }
-            Node::Branch(branches) => branches.iter().try_for_each(|branch| check(branch, state))?,
+            Node::Branch(branches) => {
+                branches.iter().try_for_each(|branch| check(branch, state))?;
+            }
             Node::Atomic(body) | Node::Group(.., body) => check(body, state)?,
             Node::Repeat(.., item) => check(std::slice::from_ref(item), state)?,
             Node::Exists(_, yes, no) => {
@@ -1031,13 +1103,17 @@ fn emit(seq: &[Node], flags: u32, state: &State, end: bool, out: &mut String) {
     for (index, node) in seq.iter().enumerate() {
         let last = end && index + 1 == seq.len();
         match node {
-            Node::Literal(value) if fold && cased(*value, ascii) => emit_set(false, &self::fold(&[Item::Literal(*value)], ascii), ascii, out),
+            Node::Literal(value) if fold && cased(*value, ascii) => {
+                emit_set(false, &self::fold(&[Item::Literal(*value)], ascii), ascii, out);
+            }
             Node::Literal(value) => {
                 if !literal(*value, out) {
                     out.push_str(r"[^\s\S]");
                 }
             }
-            Node::Set(negate, items) if fold => emit_set(*negate, &self::fold(items, ascii), ascii, out),
+            Node::Set(negate, items) if fold => {
+                emit_set(*negate, &self::fold(items, ascii), ascii, out);
+            }
             Node::Set(negate, items) => emit_set(*negate, items, ascii, out),
             Node::Any => out.push_str(if flags & DOTALL != 0 { r"[\s\S]" } else { r"[^\n]" }),
             Node::At(at) => out.push_str(&match at {
@@ -1050,7 +1126,8 @@ fn emit(seq: &[Node], flags: u32, state: &State, end: bool, out: &mut String) {
                 At::Boundary => format!("(?:(?<={word})(?!{word})|(?<!{word})(?={word}))"),
                 At::NonBoundary => format!(r"(?:(?<={word})(?={word})|(?<!{word})(?!{word})(?:(?<=[\s\S])|(?=[\s\S])))"),
             }),
-            // `fancy-regex` does not repeat a match with no width. Such a repeat is one try of the match.
+            // `fancy-regex` does not repeat a match with no width. Such a repeat is one try of the
+            // match.
             Node::Repeat(min, max, kind, item) if width(std::slice::from_ref(&**item), state).1 == 0 => {
                 let one = std::slice::from_ref(&**item);
                 match (*min, *max, kind) {
@@ -1122,7 +1199,8 @@ fn emit(seq: &[Node], flags: u32, state: &State, end: bool, out: &mut String) {
                 }
                 out.push(')');
             }
-            // A Python look-around is atomic. A look-behind goes back by its fixed width, then looks ahead, because `fancy-regex` cannot look behind a reference.
+            // A Python look-around is atomic. A look-behind goes back by its fixed width, then
+            // looks ahead, because `fancy-regex` cannot look behind a reference.
             Node::Assert(behind, negate, body) => {
                 let back = if *behind { width(body, state).0 } else { 0 };
                 out.push_str(match (back > 0, negate) {
@@ -1137,7 +1215,9 @@ fn emit(seq: &[Node], flags: u32, state: &State, end: bool, out: &mut String) {
                     _ = write!(out, r"[\s\S]{{{back}}})");
                 }
             }
-            Node::GroupRef(group) => _ = write!(out, "{}\\k<{group}>)", if fold { "(?i:" } else { "(?:" }),
+            Node::GroupRef(group) => {
+                _ = write!(out, "{}\\k<{group}>)", if fold { "(?i:" } else { "(?:" });
+            }
             // `fancy-regex` reads `(?(1)|)` as a test that group 1 has a match.
             Node::Exists(group, yes, no) => {
                 let (mut when, mut other) = (String::new(), String::new());

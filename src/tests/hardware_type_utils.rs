@@ -51,7 +51,16 @@ fn amd(clock: i64, cores: i64, arch: &str) -> XSpace {
     device(&[("clock_rate", clock.into()), ("core_count", cores.into()), ("device_vendor", "AMD".into()), ("gpu_device_name", arch.into())])
 }
 
-macro_rules! peaks { ($($name:ident: $space:expr => $peak:expr;)*) => { $(#[test] fn $name() { near(peak_tflops(&$space), $peak, 1.0); })* } }
+macro_rules! peaks {
+    ($($name:ident: $space:expr => $peak:expr;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                near(peak_tflops(&$space), $peak, 1.0);
+            }
+        )*
+    };
+}
 
 peaks! {
     b200_peak_comput_t_flops: nvidia(1830000, 148, 7.68, 10, 0) => 2218.0;
@@ -66,7 +75,13 @@ peaks! {
 
 #[test]
 fn ambiguous_amd_compute_capability_reports_no_peak() {
-    let space = device(&[("clock_rate", 1700000.into()), ("core_count", 104.into()), ("device_vendor", "AMD".into()), ("compute_cap_major", 9.into()), ("compute_cap_minor", 0.into())]);
+    let space = device(&[
+        ("clock_rate", 1700000.into()),
+        ("core_count", 104.into()),
+        ("device_vendor", "AMD".into()),
+        ("compute_cap_major", 9.into()),
+        ("compute_cap_minor", 0.into()),
+    ]);
     assert_eq!(peak_tflops(&space), 0.0);
 }
 
@@ -84,19 +99,32 @@ fn mi355_x_shared_memory_bandwidth_doubles() {
 
 #[test]
 fn shared_memory_bandwidth_from_compute_capability() {
-    let space = device(&[("clock_rate", 2100000.into()), ("core_count", 304.into()), ("device_vendor", "AMD".into()), ("compute_cap_major", 9.into()), ("compute_cap_minor", 4.into())]);
+    let space = device(&[
+        ("clock_rate", 2100000.into()),
+        ("core_count", 304.into()),
+        ("device_vendor", "AMD".into()),
+        ("compute_cap_major", 9.into()),
+        ("compute_cap_minor", 4.into()),
+    ]);
     near(aggregate_shared_memory_giga_bytes_per_second(&space), 81715.2, 1.0);
 }
 
 #[test]
 fn shared_memory_bandwidth_unknown_amd_arch_reports_nothing() {
-    let space = device(&[("clock_rate", 1700000.into()), ("core_count", 104.into()), ("device_vendor", "AMD".into()), ("compute_cap_major", 9.into()), ("compute_cap_minor", 0.into())]);
+    let space = device(&[
+        ("clock_rate", 1700000.into()),
+        ("core_count", 104.into()),
+        ("device_vendor", "AMD".into()),
+        ("compute_cap_major", 9.into()),
+        ("compute_cap_minor", 0.into()),
+    ]);
     assert_eq!(aggregate_shared_memory_giga_bytes_per_second(&space), 0.0);
 }
 
 #[test]
 fn gpu_model_name_ignores_nvidia_product_name() {
-    let space = device(&[("device_vendor", "Nvidia".into()), ("compute_cap_major", 9.into()), ("gpu_device_name", "NVIDIA H100 80GB HBM3".into())]);
+    let space =
+        device(&[("device_vendor", "Nvidia".into()), ("compute_cap_major", 9.into()), ("gpu_device_name", "NVIDIA H100 80GB HBM3".into())]);
     assert_eq!(gpu_model_name(&space), "Nvidia GPU (Hopper)");
     let stats = op_stats(&[space]).unwrap();
     assert_eq!((stats.extra.device_type.as_str(), stats.extra.hardware), ("Nvidia GPU (Hopper)", GPU));

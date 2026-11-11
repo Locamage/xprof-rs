@@ -36,7 +36,13 @@ fn plane_steps(plane: &Plane, map: &[u8]) -> HashMap<i64, u64> {
                 ops = line
                     .events
                     .iter()
-                    .filter_map(|event| if event.group == NONE_GROUP { event_stat(slice(map, event.raw), group_id).map(|value| value.int().unwrap_or(0)) } else { Some(event.group) })
+                    .filter_map(|event| {
+                        if event.group == NONE_GROUP {
+                            event_stat(slice(map, event.raw), group_id).map(|value| value.int().unwrap_or(0))
+                        } else {
+                            Some(event.group)
+                        }
+                    })
                     .collect();
             }
         } else {
@@ -62,12 +68,19 @@ pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fr
     let steps: HashMap<&str, HashMap<i64, u64>> = planes.iter().map(|plane| (plane.name.as_str(), plane_steps(plane, map))).collect();
     for plane in planes {
         let plane_steps = &steps[plane.name.as_str()];
-        let wanted: HashSet<u32> = (0..plane.meta.len()).filter(|&meta| plane.meta[meta].full_name(map).contains(target)).map(|meta| meta as u32).collect();
+        let wanted: HashSet<u32> =
+            (0..plane.meta.len()).filter(|&meta| plane.meta[meta].full_name(map).contains(target)).map(|meta| meta as u32).collect();
         let (group_id, duration_id) = (plane.id("group_id"), plane.id("device_duration_ps"));
         for event in plane.lines.iter().flat_map(|line| &line.events).filter(|event| wanted.contains(&event.meta)) {
-            let Some(step) = event_group(slice(map, event.raw), event.group, group_id) else { continue };
-            let Some(&step_ps) = plane_steps.get(&step).filter(|&&step_ps| step_ps != 0) else { continue };
-            let Some(duration) = event_stat(slice(map, event.raw), duration_id) else { continue };
+            let Some(step) = event_group(slice(map, event.raw), event.group, group_id) else {
+                continue;
+            };
+            let Some(&step_ps) = plane_steps.get(&step).filter(|&&step_ps| step_ps != 0) else {
+                continue;
+            };
+            let Some(duration) = event_stat(slice(map, event.raw), duration_id) else {
+                continue;
+            };
             let event_ps = if let Value::Uint(value) = duration { value } else { 0 };
             if target == BARRIER_CORES && (event_ps == 0 || event_ps == DUMMY_BARRIER_PS) {
                 continue;
@@ -81,7 +94,10 @@ pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fr
         fractions.pop_first();
         fractions.pop_last();
     } else if fractions.len() == 2 {
-        let (first, second) = (*fractions.keys().next().unwrap(), *fractions.keys().last().unwrap());
+        let (first, second) = (
+            *fractions.keys().next().expect("iterator should be non-empty"),
+            *fractions.keys().last().expect("iterator should be non-empty"),
+        );
         let (first_ps, second_ps) = (durations[&first] as f64, durations[&second] as f64);
         if second_ps < STEP_DURATION_RATIO * first_ps {
             fractions.remove(&second);
@@ -95,7 +111,11 @@ pub fn analyze(planes: &[Plane], map: &[u8], hostname: &str, target: &str) -> Fr
             result.chips.entry(plane.clone()).or_default().push(*fraction as f32);
         }
     }
-    let host: Vec<f32> = fractions.values().filter(|planes| !planes.is_empty()).map(|planes| (planes.values().sum::<f64>() / planes.len() as f64) as f32).collect();
+    let host: Vec<f32> = fractions
+        .values()
+        .filter(|planes| !planes.is_empty())
+        .map(|planes| (planes.values().sum::<f64>() / planes.len() as f64) as f32)
+        .collect();
     result.hosts.insert(hostname.to_string(), host);
     result
 }

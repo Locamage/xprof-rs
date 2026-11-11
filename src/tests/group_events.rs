@@ -8,7 +8,11 @@ const TFRT_TPU_RUNTIME: i64 = 7;
 const SC_OFFLOAD: i64 = 17;
 
 fn groups(plane: &Plane) -> Vec<(String, Option<i64>)> {
-    plane.lines.iter().flat_map(|line| line.events.iter().map(move |event| (format!("{} {}", line.name, name(plane, event)), group_id(event)))).collect()
+    plane
+        .lines
+        .iter()
+        .flat_map(|line| line.events.iter().map(move |event| (format!("{} {}", line.name, name(plane, event)), group_id(event))))
+        .collect()
 }
 
 fn gpu_trace(root: &str, root_stats: &[(&str, V)]) -> XSpace {
@@ -65,7 +69,8 @@ fn group_multiple_tensor_flow_loops_test() {
     let mut space = XSpace::default();
     let host = space.host();
     host.set_pid_if_not_set(1);
-    let consumer = |step: i64, iter: i64| [("id", V::from(step)), ("iter_num", iter.into()), ("_ct", TF_EXECUTOR.into()), ("_c", step.into())];
+    let consumer =
+        |step: i64, iter: i64| [("id", V::from(step)), ("iter_num", iter.into()), ("_ct", TF_EXECUTOR.into()), ("_c", step.into())];
     host.event(0, "ExecutorState::Process", 220, 80, &consumer(1, 0));
     host.event(0, "ExecutorState::Process", 320, 80, &consumer(1, 1));
     host.event(1, "ExecutorState::Process", 20, 80, &consumer(0, 10));
@@ -98,10 +103,18 @@ fn eager_op_test() {
     host.event(0, "EagerExecute", 500, 600, &[("is_func", 1.into())]);
     host.event(0, "eager_func_cpu_kernel:Matmul", 510, 590, &[]);
     let (_, planes, _) = grouped(&space);
-    let eager = |plane: &Plane| -> BTreeMap<String, bool> { plane.lines.iter().flat_map(|line| line.events.iter()).map(|event| (name(plane, event).to_string(), event.eager == Some(true))).collect() };
+    let eager = |plane: &Plane| -> BTreeMap<String, bool> {
+        plane
+            .lines
+            .iter()
+            .flat_map(|line| line.events.iter())
+            .map(|event| (name(plane, event).to_string(), event.eager == Some(true)))
+            .collect()
+    };
     let (host, device) = (eager(&planes[0]), eager(&planes[1]));
     assert_eq!((host["eager_op_cpu_kernel:Matmul"], host["eager_func_cpu_kernel:Matmul"]), (true, false));
-    let kernels = ["tf1_kernel_matmul", "legacy_kernel_matmul", "eager_op_kernel_matmul", "eager_func_kernel_matmul"].map(|kernel| device[kernel]);
+    let kernels =
+        ["tf1_kernel_matmul", "legacy_kernel_matmul", "eager_op_kernel_matmul", "eager_func_kernel_matmul"].map(|kernel| device[kernel]);
     assert_eq!(kernels, [false, false, true, false]);
 }
 
@@ -211,14 +224,18 @@ fn tpu_execute_op_test() {
 
 #[test]
 fn tpu_request_test() {
-    let (_, planes, names) = grouped(&host_with_session_root("EnqueueRequestLocked", &[("queue_addr", 123.into()), ("request_id", 456.into())]));
+    let (_, planes, names) =
+        grouped(&host_with_session_root("EnqueueRequestLocked", &[("queue_addr", 123.into()), ("request_id", 456.into())]));
     assert_eq!(names.unwrap().len(), 1);
     assert!(groups(&planes[0]).iter().all(|(_, group)| group.is_some()));
 }
 
 #[test]
 fn tpu_program_callback_test() {
-    let (_, planes, names) = grouped(&host_with_session_root("DoEnqueueProgram", &[("run_id", 123.into()), ("queue_id", 0.into()), ("device_ordinal", 1.into())]));
+    let (_, planes, names) = grouped(&host_with_session_root(
+        "DoEnqueueProgram",
+        &[("run_id", 123.into()), ("queue_id", 0.into()), ("device_ordinal", 1.into())],
+    ));
     assert_eq!(names.unwrap().len(), 1);
     assert!(groups(&planes[0]).iter().all(|(_, group)| group.is_some()));
 }
@@ -248,7 +265,13 @@ fn module_root_event_test() {
 }
 
 fn offload_start(index: i64, producer: i64, start_id: i64) -> [(&'static str, V); 5] {
-    [("tc_offload_start_id", start_id.into()), ("offload_core_id", 0.into()), ("offload_execution_index", index.into()), ("_p", producer.into()), ("_pt", SC_OFFLOAD.into())]
+    [
+        ("tc_offload_start_id", start_id.into()),
+        ("offload_core_id", 0.into()),
+        ("offload_execution_index", index.into()),
+        ("_p", producer.into()),
+        ("_pt", SC_OFFLOAD.into()),
+    ]
 }
 
 fn offload_consumer(id: i64) -> [(&'static str, V); 2] {
@@ -257,7 +280,9 @@ fn offload_consumer(id: i64) -> [(&'static str, V); 2] {
 
 fn device_step_span(planes: &[Plane], plane: usize, line: &str) -> Vec<(u64, u64, (u64, u64))> {
     let line = planes[plane].lines.iter().find(|candidate| candidate.name == line).unwrap();
-    let stat = |index: usize, key: &str| line.steps.get(&index).and_then(|step| step.stats.iter().find(|(name, _)| *name == key).map(|(_, value)| *value));
+    let stat = |index: usize, key: &str| {
+        line.steps.get(&index).and_then(|step| step.stats.iter().find(|(name, _)| *name == key).map(|(_, value)| *value))
+    };
     line.events
         .iter()
         .enumerate()
@@ -265,7 +290,9 @@ fn device_step_span(planes: &[Plane], plane: usize, line: &str) -> Vec<(u64, u64
             (
                 event.ts,
                 event.ts + event.dur,
-                stat(index, "device_offset_ps").zip(stat(index, "device_duration_ps")).map_or((event.ts, event.ts + event.dur), |(offset, duration)| (offset as u64, (offset + duration) as u64)),
+                stat(index, "device_offset_ps")
+                    .zip(stat(index, "device_duration_ps"))
+                    .map_or((event.ts, event.ts + event.dur), |(offset, duration)| (offset as u64, (offset + duration) as u64)),
             )
         })
         .collect()
@@ -279,7 +306,13 @@ fn merge_host_steps_test() {
     host.named_line(0, "main");
     host.event(0, "train", 100, 10, &[("step_num", 1.into()), ("_r", 1.into())]);
     for (offset, duration, run) in [(100, 1, 2), (101, 2, 3), (103, 2, 4), (105, 4, 5)] {
-        host.event(0, "DoEnqueueProgram", offset, duration, &[("run_id", run.into()), ("queue_id", 0.into()), ("device_ordinal", 0.into())]);
+        host.event(
+            0,
+            "DoEnqueueProgram",
+            offset,
+            duration,
+            &[("run_id", run.into()), ("queue_id", 0.into()), ("device_ordinal", 0.into())],
+        );
     }
     let spans = [(1000, 10), (1015, 100), (1125, 50), (1180, 25)];
     let device = space.tpu(0, "TPUv4", 0.0, 0.0, None);
@@ -288,11 +321,19 @@ fn merge_host_steps_test() {
         device.event(0, "jit_something(1)", offset, duration, &[("run_id", run.into()), ("queue_id", 0.into())]);
     }
     device.named_line(1, "Steps");
-    for (index, (offset, duration)) in spans.into_iter().enumerate() {
-        device.event(1, &index.to_string(), offset, duration, &[("device_offset_ps", offset.into()), ("device_duration_ps", duration.into())]);
+    let device_durations = [10, 300, 50, 25];
+    for (index, ((offset, duration), device_duration)) in spans.into_iter().zip(device_durations).enumerate() {
+        device.event(
+            1,
+            &index.to_string(),
+            offset,
+            duration,
+            &[("device_offset_ps", offset.into()), ("device_duration_ps", device_duration.into())],
+        );
     }
     device.named_line(2, "XLA Ops");
-    for (index, ((offset, _), done)) in spans.into_iter().zip([5, 95, 45, 20]).enumerate() {
+    let events = spans.into_iter().zip([5, 95, 45, 20]).enumerate();
+    for (index, ((offset, _), done)) in events {
         device.event(2, "offload.start.1", offset, 5, &offload_start(index as i64, index as i64 + 1, 1));
         device.event(2, "offload.done.1", offset + 5, done, &[]);
     }
@@ -307,7 +348,7 @@ fn merge_host_steps_test() {
     }
     let (_, planes, names) = grouped(&space);
     assert_eq!(names.unwrap().len(), 1);
-    assert_eq!(device_step_span(&planes, 1, "Steps"), [(1000, 1205, (1000, 1205))]);
+    assert_eq!(device_step_span(&planes, 1, "Steps"), [(1000, 1205, (1000, 1315))]);
     assert_eq!(device_step_span(&planes, 2, "Sparse Core Steps"), [(1000, 1205, (1000, 1205))]);
 }
 
@@ -348,7 +389,13 @@ fn merge_offloaded_sc_steps() {
 fn offloaded_sparse_core(space: &mut XSpace, module: (i64, i64), copy: (i64, i64, i64)) {
     let core = space.tpu(0, "TPUv4", 0.0, 0.0, None);
     core.named_line(0, "XLA Modules");
-    core.event(0, "jit(123)", module.0, module.1, &[("run_id", 1.into()), ("queue_id", 0.into()), ("replica_id", 0.into()), ("core_type", 0.into())]);
+    core.event(
+        0,
+        "jit(123)",
+        module.0,
+        module.1,
+        &[("run_id", 1.into()), ("queue_id", 0.into()), ("replica_id", 0.into()), ("core_type", 0.into())],
+    );
     core.named_line(1, "Steps");
     core.event(1, "tc step 0", 1000, 1000, &[]);
     core.named_line(2, "XLA Ops");
@@ -371,7 +418,13 @@ fn group_offloaded_sparse_core_modules_host_loop_test() {
     host.set_pid_if_not_set(1);
     host.named_line(0, "main");
     host.event(0, "host step 0", 0, 200, &[("_r", 1.into())]);
-    host.event(0, "DoEnqueueProgram", 100, 10, &[("run_id", 1.into()), ("queue_id", 0.into()), ("replica_id", 0.into()), ("device_ordinal", 0.into()), ("core_type", 0.into())]);
+    host.event(
+        0,
+        "DoEnqueueProgram",
+        100,
+        10,
+        &[("run_id", 1.into()), ("queue_id", 0.into()), ("replica_id", 0.into()), ("device_ordinal", 0.into()), ("core_type", 0.into())],
+    );
     offloaded_sparse_core(&mut space, (1000, 1000), (10, 1120, 180));
     let (_, planes, names) = grouped(&space);
     let names = names.unwrap();
@@ -394,7 +447,13 @@ fn group_offloaded_sparse_core_modules_device_loop_test() {
     host.event(0, "tpu::System::Execute", 100, 9, &[("_pt", TFRT_TPU_RUNTIME.into()), ("_p", 1.into())]);
     host.named_line(1, "tf_enqueue");
     host.event(1, "tpu::System::Execute=>IssueSequencedEvent", 102, 10, &[("_ct", TFRT_TPU_RUNTIME.into()), ("_c", 1.into())]);
-    host.event(1, "DoEnqueueProgram", 103, 8, &[("run_id", 1.into()), ("queue_id", 0.into()), ("core_type", 0.into()), ("device_ordinal", 0.into())]);
+    host.event(
+        1,
+        "DoEnqueueProgram",
+        103,
+        8,
+        &[("run_id", 1.into()), ("queue_id", 0.into()), ("core_type", 0.into()), ("device_ordinal", 0.into())],
+    );
     offloaded_sparse_core(&mut space, (900, 1200), (100, 1300, 100));
     let (_, planes, names) = grouped(&space);
     assert_eq!(names.unwrap().len(), 2);
@@ -403,7 +462,11 @@ fn group_offloaded_sparse_core_modules_device_loop_test() {
     assert!(host.iter().all(|(_, group)| *group == Some(0)), "{host:?}");
     for plane in &planes[1..] {
         let found = groups(plane);
-        assert!(found.iter().filter(|(event, _)| !event.starts_with("XLA Modules ")).all(|(_, group)| *group == Some(1)), "{}: {found:?}", plane.name);
+        assert!(
+            found.iter().filter(|(event, _)| !event.starts_with("XLA Modules ")).all(|(_, group)| *group == Some(1)),
+            "{}: {found:?}",
+            plane.name
+        );
     }
 }
 
@@ -429,7 +492,15 @@ fn subprocess_space_with(consumer_pid: Option<i64>, producer_id: V, consumer_id:
 }
 
 fn named_groups(planes: &[Plane]) -> BTreeMap<String, i64> {
-    planes.iter().flat_map(|plane| plane.lines.iter().flat_map(move |line| line.events.iter().filter_map(move |event| Some((name(plane, event).to_string(), group_id(event)?))))).collect()
+    planes
+        .iter()
+        .flat_map(|plane| {
+            plane
+                .lines
+                .iter()
+                .flat_map(move |line| line.events.iter().filter_map(move |event| Some((name(plane, event).to_string(), group_id(event)?))))
+        })
+        .collect()
 }
 
 #[test]

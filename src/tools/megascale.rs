@@ -1,14 +1,30 @@
 use crate::hlo::{Module, Shape, module_name, protos};
 use crate::tools::opstats::safe_divide;
 use crate::tools::table::{number, string};
-use crate::xplane::{Ev, Field, Line, Plane, Value, fields, slice, stats};
+use crate::xplane::{Ev, Field, Line, Plane, TPU_PREFIX, Value, fields, slice, stat_value};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-const COLUMNS: &str = r#"{"cols":[{"id":"rendezvous_name","label":"Rendezvous Name","type":"string"},{"id":"recv_op_name","label":"Recv Op Name","type":"string"},{"id":"send_op_name","label":"Send Op Name","type":"string"},{"id":"transfer_type","label":"Transfer Type","type":"string"},{"id":"slack_time","label":"Slack Time (ms)","type":"number"},{"id":"host_stall","label":"Host Stall (ms)","type":"string"},{"id":"observed_duration","label":"Observed Duration (ms)","type":"number"},{"id":"send_stall","label":"Send Stall (ms)","type":"number"},{"id":"send_done_stall","label":"SendDone Stall (ms)","type":"number"},{"id":"recv_stall","label":"Recv Stall (ms)","type":"number"},{"id":"recv_done_stall","label":"RecvDone Stall (ms)","type":"number"},{"id":"stall_duration","label":"Stall Duration (ms)","type":"number"},{"id":"total_stall","label":"Aggregated Total Stall (ms)","type":"number"},{"id":"occurrences","label":"Occurrences","type":"number"},{"id":"net_tx_bytes","label":"Data Transmitted Size","type":"number"},{"id":"required_bandwidth","label":"Required Bandwidth (Gbps)","type":"number"}],"rows":["#;
+const COLUMNS: &str = concat!(
+    r#"{"cols":[{"id":"rendezvous_name","label":"Rendezvous Name","type":"string"},"#,
+    r#"{"id":"recv_op_name","label":"Recv Op Name","type":"string"},"#,
+    r#"{"id":"send_op_name","label":"Send Op Name","type":"string"},"#,
+    r#"{"id":"transfer_type","label":"Transfer Type","type":"string"},"#,
+    r#"{"id":"slack_time","label":"Slack Time (ms)","type":"number"},"#,
+    r#"{"id":"host_stall","label":"Host Stall (ms)","type":"string"},"#,
+    r#"{"id":"observed_duration","label":"Observed Duration (ms)","type":"number"},"#,
+    r#"{"id":"send_stall","label":"Send Stall (ms)","type":"number"},"#,
+    r#"{"id":"send_done_stall","label":"SendDone Stall (ms)","type":"number"},"#,
+    r#"{"id":"recv_stall","label":"Recv Stall (ms)","type":"number"},"#,
+    r#"{"id":"recv_done_stall","label":"RecvDone Stall (ms)","type":"number"},"#,
+    r#"{"id":"stall_duration","label":"Stall Duration (ms)","type":"number"},"#,
+    r#"{"id":"total_stall","label":"Aggregated Total Stall (ms)","type":"number"},"#,
+    r#"{"id":"occurrences","label":"Occurrences","type":"number"},"#,
+    r#"{"id":"net_tx_bytes","label":"Data Transmitted Size","type":"number"},"#,
+    r#"{"id":"required_bandwidth","label":"Required Bandwidth (Gbps)","type":"number"}],"rows":["#,
+);
 const ALL_HOSTS: &str = "ALL_HOSTS";
-const TPU_PREFIX: &str = "/device:TPU:";
 const FIRST_TPU: &str = "/device:TPU:0";
 const RENDEZVOUS_ATTRIBUTE: &str = "_xla_host_transfer_rendezvous";
 const TRANSFER_ATTRIBUTE: &str = "_xla_megascale_transfer_type";
@@ -83,8 +99,15 @@ pub struct Tracker {
 
 fn replica_group_size(info: &[u8]) -> i64 {
     let mut groups = fields(info).filter_map(|(tag, field)| if let Field::Bytes(_, body) = field { Some((tag, body)) } else { None });
-    let (one_to_one, endpoints): (Vec<_>, Vec<_>) = groups.by_ref().filter(|(tag, _)| *tag == 2 || *tag == 3).partition(|(tag, _)| *tag == 3);
-    if one_to_one.is_empty() { endpoints.first().map_or(0, |(_, group)| fields(group).filter(|(tag, field)| *tag == 1 && matches!(field, Field::Bytes(..))).count() as i64) } else { 1 }
+    let (one_to_one, endpoints): (Vec<_>, Vec<_>) =
+        groups.by_ref().filter(|(tag, _)| *tag == 2 || *tag == 3).partition(|(tag, _)| *tag == 3);
+    if one_to_one.is_empty() {
+        endpoints
+            .first()
+            .map_or(0, |(_, group)| fields(group).filter(|(tag, field)| *tag == 1 && matches!(field, Field::Bytes(..))).count() as i64)
+    } else {
+        1
+    }
 }
 
 pub fn transmitted_bytes(size: i64, group: i64, transfer_type: &str) -> u64 {
@@ -105,7 +128,9 @@ pub fn transmitted_bytes(size: i64, group: i64, transfer_type: &str) -> u64 {
 fn averaged(mut summaries: Vec<Summary>) -> Vec<Summary> {
     for summary in &mut summaries {
         let occurrences = summary.occurrences as f64;
-        summary.times_us.iter_mut().for_each(|time| *time = safe_divide(*time as f64, occurrences) as u64);
+        for time in &mut summary.times_us {
+            *time = safe_divide(*time as f64, occurrences) as u64;
+        }
     }
     summaries
 }
@@ -115,7 +140,9 @@ impl Tracker {
         if let Some(name) = &instruction.rendezvous {
             self.channels.insert(instruction.channel_id, name.clone());
         }
-        let Some(rendezvous) = self.channels.get(&instruction.channel_id).cloned() else { return };
+        let Some(rendezvous) = self.channels.get(&instruction.channel_id).cloned() else {
+            return;
+        };
         let duration_ns = (visit.duration_ps as u64) as f64 / 1e3;
         let duration_ps = visit.duration_ps as u64;
         let group = match instruction.opcode {
@@ -144,7 +171,10 @@ impl Tracker {
                 });
                 let summary = &mut self.summaries[index];
                 let end_ns = (visit.timestamp_ns as f64 + duration_ns) as i64;
-                let slack_us = ((visit.timestamp_ns as u64).wrapping_sub(state.start_time).wrapping_sub(overlap.wrapping_sub(state.overlap_base)) as f64 / 1e3) as u64;
+                let slack_us = ((visit.timestamp_ns as u64)
+                    .wrapping_sub(state.start_time)
+                    .wrapping_sub(overlap.wrapping_sub(state.overlap_base)) as f64
+                    / 1e3) as u64;
                 let observed_us = (((end_ns as u64) as f64 / 1e3) as u64).wrapping_sub((state.start_time as f64 / 1e3) as u64);
                 let times = &mut summary.times_us;
                 times[SLACK] = times[SLACK].wrapping_add(slack_us);
@@ -155,7 +185,8 @@ impl Tracker {
                 times[SEND_DONE] = (times[SEND_DONE] as f64 + state.send_done_ps as f64 / 1e6) as u64;
                 times[RECV_DONE] = (times[RECV_DONE] as f64 + duration_ps as f64 / 1e6) as u64;
                 summary.occurrences += 1;
-                summary.bytes_transmitted_over_network = transmitted_bytes(instruction.size, state.replica_group_size, &state.transfer_type);
+                summary.bytes_transmitted_over_network =
+                    transmitted_bytes(instruction.size, state.replica_group_size, &state.transfer_type);
                 summary.transfer_type.clone_from(&state.transfer_type);
                 summary.recv_op_name = visit.display_name.to_string();
                 summary.send_op_name.clone_from(&state.send_op_name);
@@ -206,7 +237,9 @@ pub fn table(summaries: &[Summary]) -> String {
     let mut out = format!("[{COLUMNS}");
     for (index, summary) in summaries.iter().enumerate() {
         out.push_str(if index > 0 { ",{\"c\":[" } else { "{\"c\":[" });
-        for (position, text) in [&summary.rendezvous, &summary.recv_op_name, &summary.send_op_name, &summary.transfer_type].into_iter().enumerate() {
+        for (position, text) in
+            [&summary.rendezvous, &summary.recv_op_name, &summary.send_op_name, &summary.transfer_type].into_iter().enumerate()
+        {
             out.push_str(if position > 0 { ",{\"v\":" } else { "{\"v\":" });
             string(&mut out, text);
             out.push('}');
@@ -219,7 +252,15 @@ pub fn table(summaries: &[Summary]) -> String {
         let times = summary.times_us;
         cell(&mut out, times[SLACK] as f64 / 1e3);
         out.push_str(",{\"v\":\"-\"}");
-        for value in [times[OBSERVED], times[SEND], times[SEND_DONE], times[RECV], times[RECV_DONE], times[STALL], times[STALL].wrapping_mul(summary.occurrences)] {
+        for value in [
+            times[OBSERVED],
+            times[SEND],
+            times[SEND_DONE],
+            times[RECV],
+            times[RECV_DONE],
+            times[STALL],
+            times[STALL].wrapping_mul(summary.occurrences),
+        ] {
             cell(&mut out, value as f64 / 1e3);
         }
         cell(&mut out, summary.occurrences as f64);
@@ -228,7 +269,14 @@ pub fn table(summaries: &[Summary]) -> String {
         out.push_str(",\"v\":");
         number(&mut out, summary.bytes_transmitted_over_network as f64);
         out.push('}');
-        cell(&mut out, if times[SLACK] == 0 { f64::from(i32::MAX) } else { safe_divide(summary.bytes_transmitted_over_network as f64, times[SLACK] as f64) * BANDWIDTH_FACTOR });
+        cell(
+            &mut out,
+            if times[SLACK] == 0 {
+                f64::from(i32::MAX)
+            } else {
+                safe_divide(summary.bytes_transmitted_over_network as f64, times[SLACK] as f64) * BANDWIDTH_FACTOR
+            },
+        );
         out.push_str("]}");
     }
     out.push_str("]}]");
@@ -254,7 +302,13 @@ fn instruction(module: &Module, name: &str) -> Option<Instruction> {
         (false, true) => shape.tuple_shapes.iter().filter(|element| element.is_array()).map(Shape::unpadded_bytes).sum(),
         _ => 0,
     };
-    Some(Instruction { opcode, channel_id: inst.channel_id as u64, rendezvous: attribute(RENDEZVOUS_ATTRIBUTE), transfer_type: attribute(TRANSFER_ATTRIBUTE), size })
+    Some(Instruction {
+        opcode,
+        channel_id: inst.channel_id as u64,
+        rendezvous: attribute(RENDEZVOUS_ATTRIBUTE),
+        transfer_type: attribute(TRANSFER_ATTRIBUTE),
+        size,
+    })
 }
 
 fn absolute(line: &Line, event: &Ev, origin: i64) -> (i64, i64) {
@@ -264,19 +318,26 @@ fn absolute(line: &Line, event: &Ev, origin: i64) -> (i64, i64) {
 }
 
 fn metadata_text<'a>(plane: &'a Plane, map: &'a [u8], meta: u32, id: Option<usize>) -> Option<Value<'a>> {
-    let id = id?;
-    stats(slice(map, plane.meta.get(meta as usize)?.raw), 5, |stat| stat == id).next().map(|stat| stat.value)
+    stat_value(slice(map, plane.meta.get(meta as usize)?.raw), 5, id?)
 }
 
 pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
-    let cores = planes.iter().filter(|plane| plane.name.strip_prefix(TPU_PREFIX).is_some_and(|id| id.bytes().all(|byte| byte.is_ascii_digit()))).count();
-    let Some(plane) = planes.iter().find(|plane| plane.name == FIRST_TPU).filter(|_| cores > 0) else { return Vec::new() };
-    let modules: HashMap<String, &[u8]> = protos(planes, map).into_iter().rev().map(|(program, proto)| (format!("{}({program})", module_name(proto)), proto)).collect();
+    let cores = planes
+        .iter()
+        .filter(|plane| plane.name.strip_prefix(TPU_PREFIX).is_some_and(|id| id.bytes().all(|byte| byte.is_ascii_digit())))
+        .count();
+    let Some(plane) = planes.iter().find(|plane| plane.name == FIRST_TPU).filter(|_| cores > 0) else {
+        return Vec::new();
+    };
+    let modules: HashMap<String, &[u8]> =
+        protos(planes, map).into_iter().rev().map(|(program, proto)| (format!("{}({program})", module_name(proto)), proto)).collect();
     let mut parsed: HashMap<String, Option<Module>> = HashMap::new();
     let mut instructions: HashMap<String, Option<Instruction>> = HashMap::new();
     let mut tracker = Tracker::default();
     let origin = crate::xplane::origin_ns(planes);
-    let Some(module_line) = plane.lines.iter().find(|line| line.name == "XLA Modules") else { return averaged(tracker.summaries) };
+    let Some(module_line) = plane.lines.iter().find(|line| line.name == "XLA Modules") else {
+        return averaged(tracker.summaries);
+    };
     let (mut current, category_id, info_id) = (None, plane.id("hlo_category"), plane.id("dcn_collective_info"));
     for line in plane.lines.iter().filter(|line| line.name == "XLA Ops") {
         for event in &line.events {
@@ -312,7 +373,9 @@ pub fn analyze(planes: &[Plane], map: &[u8]) -> Vec<Summary> {
             let module = if module_meta < plane.meta.len() { plane.meta[module_meta].full_name(map) } else { Cow::Borrowed("") };
             let display = plane.meta.get(event.meta as usize).map_or("", |meta| &meta.display);
             let found = instructions.entry(format!("{module}_{display}")).or_insert_with(|| {
-                let loaded = parsed.entry(module.to_string()).or_insert_with(|| modules.get(module.as_ref()).map(|proto| Module::parse(Cow::Borrowed(proto))).filter(|module| module.valid));
+                let loaded = parsed.entry(module.to_string()).or_insert_with(|| {
+                    modules.get(module.as_ref()).map(|proto| Module::parse(Cow::Borrowed(proto))).filter(|module| module.valid)
+                });
                 loaded.as_ref().and_then(|module| instruction(module, display))
             });
             let Some(found) = found else { continue };

@@ -54,19 +54,25 @@ fn kernels(space: &XSpace) -> Value {
 
 #[test]
 fn basic_tpu_v7x() {
-    let json_str = utilization(&tpu("TPU v7x", "", &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), 500.0)]));
+    let json_str = utilization(&tpu(
+        "TPU v7x",
+        "",
+        &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), 500.0)],
+    ));
     assert!(json_str.contains("Scalar Unit") && json_str.contains("1000") && json_str.contains("500"), "{json_str}");
 }
 
 #[test]
 fn vpu_util_tpu_v7x() {
-    let json_str = utilization(&tpu("TPU v7x", "", &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("VPU_FADD_0", v7x_tc("VPU_VALU_FADD_OPS_0"), 250.0)]));
+    let json_str =
+        utilization(&tpu("TPU v7x", "", &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("VPU_FADD_0", v7x_tc("VPU_VALU_FADD_OPS_0"), 250.0)]));
     assert!(json_str.contains("VPU Util") && json_str.contains("250") && json_str.contains("4000"), "{json_str}");
 }
 
 #[test]
 fn vpu_util_tpu_v6_e() {
-    let json_str = utilization(&tpu("TPU v6 Lite", "", &[("CYCLES", v6e_tc("CYCLES"), 1000.0), ("VPU_FADD_0", v6e_tc("VPU_VALU_FADD_OPS_0"), 250.0)]));
+    let json_str =
+        utilization(&tpu("TPU v6 Lite", "", &[("CYCLES", v6e_tc("CYCLES"), 1000.0), ("VPU_FADD_0", v6e_tc("VPU_VALU_FADD_OPS_0"), 250.0)]));
     assert!(json_str.contains("VPU Util") && json_str.contains("250") && json_str.contains("4000"), "{json_str}");
 }
 
@@ -75,7 +81,11 @@ fn counter_value_out_of_bounds_of_uint64() {
     let json_str = utilization(&tpu(
         "TPU v7x",
         "",
-        &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), -500.0), ("SCALAR_ALU_1", v7x_tc("SCALAR_ALU_INSTRUCTION_1"), 2.0e19)],
+        &[
+            ("CYCLES", v7x(V7X_CYCLES), 1000.0),
+            ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), -500.0),
+            ("SCALAR_ALU_1", v7x_tc("SCALAR_ALU_INSTRUCTION_1"), 2.0e19),
+        ],
     ));
     assert!(json_str.contains("Scalar Unit") && json_str.contains("1.84467") && json_str.contains("e+19"), "{json_str}");
 }
@@ -89,7 +99,11 @@ fn unsupported_device_ignored() {
 
 #[test]
 fn na_n_counter_value_handled_safely() {
-    let json_str = utilization(&tpu("TPU v7x", "", &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), f64::NAN)]));
+    let json_str = utilization(&tpu(
+        "TPU v7x",
+        "",
+        &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("SCALAR_ALU_0", v7x_tc("SCALAR_ALU_INSTRUCTION_0"), f64::NAN)],
+    ));
     assert!(json_str.contains("Scalar Unit") && json_str.contains('0'), "{json_str}");
 }
 
@@ -127,8 +141,15 @@ fn unsupported_device_ignored_by_kernel_utilization() {
 
 #[test]
 fn anomaly_and_nan_safety() {
-    let result =
-        kernels(&tpu("TPU v7x", "counters_anomalous_kernel", &[("CYCLES", v7x(V7X_CYCLES), 1000.0), ("MXU_BUSY", v7x_tc("MXU_BUSY_2"), 5000.0), ("VPU_NAN", v7x_tc("VPU_VALU_FADD_OPS_0"), f64::NAN)]));
+    let result = kernels(&tpu(
+        "TPU v7x",
+        "counters_anomalous_kernel",
+        &[
+            ("CYCLES", v7x(V7X_CYCLES), 1000.0),
+            ("MXU_BUSY", v7x_tc("MXU_BUSY_2"), 5000.0),
+            ("VPU_NAN", v7x_tc("VPU_VALU_FADD_OPS_0"), f64::NAN),
+        ],
+    ));
     assert_eq!(result["status"], "SUCCESS");
     assert_eq!(result["devices"].as_array().unwrap().len(), 1);
     assert_eq!(result["devices"][0]["kernels"].as_array().unwrap().len(), 1);

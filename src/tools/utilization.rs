@@ -14,44 +14,47 @@ const HBM_BYTES_PER_BEAT: u64 = 32;
 const ICI_BYTES_PER_FLIT: u64 = 128;
 const PEAK_ICI_BYTES_PER_SECOND: f64 = 294947368421.0526;
 const ICI_FREQUENCY_HZ: f64 = 1e9;
-const TC_V6E: &str = "VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_";
+const TC_COUNT: &str = "TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT";
+const ICR_FIFO: &str = "PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN";
 const HBM_SUFFIX: &str = "_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_";
 const SC_SUFFIX: &str = "_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_";
 const POWER_STATS: &str = "PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_";
-const SKIPPED_CLOCKS: [(&str, &str); 3] =
-    [("Clocks Skipped", "CLOCKS_SKIPPED"), ("Ext Throttle Clocks Skipped", "EXT_THROTTLE_CLOCKS_SKIPPED"), ("LDIDT Droop Clocks Skipped", "LDIDT_DROOP_CLOCKS_SKIPPED")];
+const SKIPPED_CLOCKS: [(&str, &str); 3] = [
+    ("Clocks Skipped", "CLOCKS_SKIPPED"),
+    ("Ext Throttle Clocks Skipped", "EXT_THROTTLE_CLOCKS_SKIPPED"),
+    ("LDIDT Droop Clocks Skipped", "LDIDT_DROOP_CLOCKS_SKIPPED"),
+];
 const TEC_SLOTS: [(&str, &str); 4] = [
     ("TEC Scalar Issue", "TEC_SCALAR_ISSUE"),
     ("TEC Scalar Issue: S0 slot", "TEC_S0_INSTRUCTION"),
     ("TEC Scalar Issue: S1 slot", "TEC_S1_INSTRUCTION"),
     ("TEC Scalar Issue: Smisc slot", "TEC_SMISC_INSTRUCTION"),
 ];
-const SCS_SLOTS: [(&str, &str); 4] = [("SCS Scalar Issue", "SCALAR_ISSUE"), ("SCS: S0 Slot", "S0_INSTRUCTION"), ("SCS: S1 Slot", "S1_INSTRUCTION"), ("SCS: Smisc Slot", "SMISC_INSTRUCTION")];
-const V6E_VECTOR_SLOTS: [(&str, &str); 8] = [
-    ("SC Vector Issue", "VECTOR_ISSUE"),
-    ("SC Vector Issue:V0 Slot", "V0_INSTRUCTION"),
-    ("SC Vector Issue: V1 Slot", "V1_INSTRUCTION"),
-    ("SC Vector Issue: V2 Slot", "V2_INSTRUCTION"),
-    ("SC Vector Issue: VLD Slot", "VLD_INSTRUCTION"),
-    ("SC Vector Issue: VST Slot", "VST_INSTRUCTION"),
-    ("SC Vector Issue:VEX Slot", "VEX_INSTRUCTION"),
-    ("SC Vector Issue:VRES Slot", "VRES_INSTRUCTION"),
+const SCS_SLOTS: [(&str, &str); 4] = [
+    ("SCS Scalar Issue", "SCALAR_ISSUE"),
+    ("SCS: S0 Slot", "S0_INSTRUCTION"),
+    ("SCS: S1 Slot", "S1_INSTRUCTION"),
+    ("SCS: Smisc Slot", "SMISC_INSTRUCTION"),
 ];
-const V7X_VECTOR_SLOTS: [(&str, &str); 8] = [
-    ("SC Vector Issue", "VECTOR_ISSUE"),
-    ("SC Vector Issue: V0 Slot", "V0_INSTRUCTION"),
-    ("SC Vector Issue: V1 Slot", "V1_INSTRUCTION"),
-    ("SC Vector Issue: V2 Slot", "V2_INSTRUCTION"),
-    ("SC Vector Issue: VLD Slot", "VLD_INSTRUCTION"),
-    ("SC Vector Issue: VST Slot", "VST_INSTRUCTION"),
-    ("SC Vector Issue: VEX Slot", "VEX_INSTRUCTION"),
-    ("SC Vector Issue: VRES Slot", "VRES_INSTRUCTION"),
+const VECTOR_SLOTS: [(&str, &str, &str); 8] = [
+    ("SC Vector Issue", "SC Vector Issue", "VECTOR_ISSUE"),
+    ("SC Vector Issue:V0 Slot", "SC Vector Issue: V0 Slot", "V0_INSTRUCTION"),
+    ("SC Vector Issue: V1 Slot", "SC Vector Issue: V1 Slot", "V1_INSTRUCTION"),
+    ("SC Vector Issue: V2 Slot", "SC Vector Issue: V2 Slot", "V2_INSTRUCTION"),
+    ("SC Vector Issue: VLD Slot", "SC Vector Issue: VLD Slot", "VLD_INSTRUCTION"),
+    ("SC Vector Issue: VST Slot", "SC Vector Issue: VST Slot", "VST_INSTRUCTION"),
+    ("SC Vector Issue:VEX Slot", "SC Vector Issue: VEX Slot", "VEX_INSTRUCTION"),
+    ("SC Vector Issue:VRES Slot", "SC Vector Issue: VRES Slot", "VRES_INSTRUCTION"),
 ];
 const VPU_OPS: [&str; 5] = ["FADD", "FMUL", "MISC", "INT", "FMAC"];
 const XLU_INSTRUCTIONS: [&str; 4] = ["PACKED_XLU", "ROTATE_PERMUTE_INSTRUCTION_XLU", "ROTATE_PERMUTE_SET_INSTRUCTION_XLU", "TRANSPOSE_XLU"];
-const V6E_PRECISIONS: [(&str, &[(u64, &str)]); 3] =
-    [("MXU BF16", &[(4, "LMR_BF16"), (8, "VREG_F8"), (8, "VREG_BF16"), (4, "VREG_F32")]), ("MXU I8", &[(2, "LMR_I8"), (8, "VREG_I8")]), ("MXU I4", &[(2, "LMR_I4"), (8, "VREG_I4")])];
-const V7X_PRECISIONS: [(&str, &[(u64, &str)]); 2] = [("MXU BF16", &[(4, "LMR_BF16"), (8, "VREG_BF16"), (4, "VREG_F32")]), ("MXU E4M3 + E5M2", &[(8, "VREG_F8")])];
+const V6E_PRECISIONS: [(&str, &[(u64, &str)]); 3] = [
+    ("MXU BF16", &[(4, "LMR_BF16"), (8, "VREG_F8"), (8, "VREG_BF16"), (4, "VREG_F32")]),
+    ("MXU I8", &[(2, "LMR_I8"), (8, "VREG_I8")]),
+    ("MXU I4", &[(2, "LMR_I4"), (8, "VREG_I4")]),
+];
+const V7X_PRECISIONS: [(&str, &[(u64, &str)]); 2] =
+    [("MXU BF16", &[(4, "LMR_BF16"), (8, "VREG_BF16"), (4, "VREG_F32")]), ("MXU E4M3 + E5M2", &[(8, "VREG_F8")])];
 
 pub type Counters = FxHashMap<u64, u64>;
 
@@ -89,8 +92,8 @@ impl Device {
 
     fn tensor_counter(self, core: usize, name: &str) -> u64 {
         match self {
-            Self::V6e => self.id(&format!("{TC_V6E}{name}")),
-            Self::V7x => self.id(&format!("VF_CHIP_DIE{}_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_{name}", die(core))),
+            Self::V6e => self.id(&format!("VF_CHIP_{TC_COUNT}_{name}")),
+            Self::V7x => self.id(&format!("VF_CHIP_DIE{}_{TC_COUNT}_{name}", die(core))),
         }
     }
 
@@ -167,9 +170,18 @@ fn tensor_core(counters: &Counters, device: Device, core: usize, metrics: &mut V
     busy(metrics, ["MXU_BUSY_0", "MXU_BUSY_1", "MXU_BUSY_2"].map(counter), ["No MXU Busy", "1 MXU Busy", "2 MXU Busy", "Avg MXU Busy"]);
     let mxu_peak = cycles.wrapping_mul(MXUS_PER_TENSOR_CORE) as f64;
     let precisions: &[(&str, &[(u64, &str)])] = if device == Device::V6e { &V6E_PRECISIONS } else { &V7X_PRECISIONS };
-    let weighted = |unit: usize, terms: &[(u64, &str)]| terms.iter().fold(0u64, |sum, &(weight, name)| sum.wrapping_add(weight.wrapping_mul(counter(&format!("MATMUL_{name}_MXU_{unit}")))));
+    let weighted = |unit: usize, terms: &[(u64, &str)]| {
+        terms.iter().fold(0u64, |sum, &(weight, name)| sum.wrapping_add(weight.wrapping_mul(counter(&format!("MATMUL_{name}_MXU_{unit}")))))
+    };
     for unit in 0..2 {
-        add(metrics, core, &format!("MXU{unit}"), precisions.iter().fold(0u64, |sum, (_, terms)| sum.wrapping_add(weighted(unit, terms))) as f64, cycles_f, CYCLES);
+        add(
+            metrics,
+            core,
+            &format!("MXU{unit}"),
+            precisions.iter().fold(0u64, |sum, (_, terms)| sum.wrapping_add(weighted(unit, terms))) as f64,
+            cycles_f,
+            CYCLES,
+        );
     }
     for (name, terms) in precisions {
         add(metrics, core, name, weighted(0, terms).wrapping_add(weighted(1, terms)) as f64, mxu_peak, CYCLES);
@@ -178,21 +190,31 @@ fn tensor_core(counters: &Counters, device: Device, core: usize, metrics: &mut V
     busy(metrics, ["XLU_BUSY_0", "XLU_BUSY_1", "XLU_BUSY_2"].map(counter), ["No XLU Busy", "1 XLU Busy", "2 XLUs Busy", "Avg XLU Busy"]);
     let xlu_peak = (cycles / if device == Device::V6e { 4 } else { 1 }) as f64;
     for unit in 0..2 {
-        add(metrics, core, &format!("XLU{unit}"), total(&XLU_INSTRUCTIONS.map(|name| format!("{name}_{unit}"))) as f64, xlu_peak, INSTRUCTIONS);
+        add(
+            metrics,
+            core,
+            &format!("XLU{unit}"),
+            total(&XLU_INSTRUCTIONS.map(|name| format!("{name}_{unit}"))) as f64,
+            xlu_peak,
+            INSTRUCTIONS,
+        );
     }
 }
 
 fn sparse_core(counters: &Counters, device: Device, die_index: usize, core: usize, metrics: &mut Vec<Metric>) {
     let (sc, node) = (die(core), if device == Device::V6e { core } else { (die_index << 1) + core });
     let prefix = if device == Device::V6e { format!("VF_CHIP_SC_{sc}") } else { format!("VF_CHIP_DIE{}_SC_{sc}", die(die_index)) };
-    let tiles = |subsystem: &str, name: &str| total(counters, (0..SC_TILES).map(|tile| device.id(&format!("{prefix}_{subsystem}_{tile}{SC_SUFFIX}{name}"))));
-    let (scalar, vector, slots) = if device == Device::V6e { ("SCT", "SCT", &V6E_VECTOR_SLOTS) } else { ("SCTD", "SCTC", &V7X_VECTOR_SLOTS) };
+    let tiles = |subsystem: &str, name: &str| {
+        total(counters, (0..SC_TILES).map(|tile| device.id(&format!("{prefix}_{subsystem}_{tile}{SC_SUFFIX}{name}"))))
+    };
+    let (scalar, vector) = if device == Device::V6e { ("SCT", "SCT") } else { ("SCTD", "SCTC") };
     let cycle_peak = count(counters, device.id(&format!("{prefix}_{scalar}_0{SC_SUFFIX}CYCLES"))).wrapping_mul(SC_TILES as u64) as f64;
     for (metric, name) in TEC_SLOTS {
         add(metrics, node, metric, tiles(scalar, name) as f64, cycle_peak, INSTRUCTIONS);
     }
-    for (metric, name) in slots {
-        add(metrics, node, metric, tiles(vector, name) as f64, cycle_peak, INSTRUCTIONS);
+    for (v6e_label, v7x_label, name) in VECTOR_SLOTS {
+        let label = if device == Device::V6e { v6e_label } else { v7x_label };
+        add(metrics, node, label, tiles(vector, name) as f64, cycle_peak, INSTRUCTIONS);
     }
     let sequencer = |name: &str| count(counters, device.id(&format!("{prefix}_SCS{SC_SUFFIX}{name}"))) as f64;
     for (metric, name) in SCS_SLOTS {
@@ -202,13 +224,16 @@ fn sparse_core(counters: &Counters, device: Device, die_index: usize, core: usiz
 
 fn hbm_counters(device: Device, core: usize, read: bool) -> Vec<u64> {
     let kinds: &[&str] = if read { &["RD_RESP"] } else { &["WR_REQ", "PARTIAL_WRITE_REQ"] };
-    let (stacks, prefix) = if device == Device::V6e { (2, "VF_CHIP_HBM".to_string()) } else { (4, format!("VF_CHIP_DIE{}_HBM", die(core))) };
+    let (stacks, prefix) =
+        if device == Device::V6e { (2, "VF_CHIP_HBM".to_string()) } else { (4, format!("VF_CHIP_DIE{}_HBM", die(core))) };
     let controller = if device == Device::V6e { "HBMC" } else { "SS_HBMC" };
     let mut ids = Vec::new();
     for stack in 0..stacks {
         for index in 0..16 {
             for channel in 0..2 {
-                ids.extend(kinds.iter().map(|kind| device.id(&format!("{prefix}_{stack}_{controller}_{index}{HBM_SUFFIX}{kind}_PS{channel}"))));
+                ids.extend(
+                    kinds.iter().map(|kind| device.id(&format!("{prefix}_{stack}_{controller}_{index}{HBM_SUFFIX}{kind}_PS{channel}"))),
+                );
             }
         }
     }
@@ -232,9 +257,13 @@ fn bandwidth(counters: &Counters, device: Device, core: usize, metrics: &mut Vec
 }
 
 fn ici(counters: &Counters, device: Device, metrics: &mut Vec<Metric>) {
-    let flits = |kind: &str| match device {
-        Device::V6e => total(counters, (0..2).map(|index| device.id(&format!("VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_{kind}_REQ_{index}_INSERTION_COUNT")))),
-        Device::V7x => total(counters, (0..4).map(|index| device.id(&format!("VF_CHIP_DIE1_OCI_ICR_{index}_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_{kind}_REQ_0_INSERTION_COUNT")))),
+    let flits = |kind: &str| {
+        let name = |index: u32| match device {
+            Device::V6e => format!("VF_CHIP_OCI_ICR_{ICR_FIFO}_{kind}_REQ_{index}_INSERTION_COUNT"),
+            Device::V7x => format!("VF_CHIP_DIE1_OCI_ICR_{index}_{ICR_FIFO}_{kind}_REQ_0_INSERTION_COUNT"),
+        };
+        let fifos = if device == Device::V6e { 0..2 } else { 0..4 };
+        total(counters, fifos.map(|index| device.id(&name(index))))
     };
     let (read, written) = (flits("RD").wrapping_mul(ICI_BYTES_PER_FLIT), flits("WR").wrapping_mul(ICI_BYTES_PER_FLIT));
     let cycles = count(counters, device.cycle_counters()[0]);

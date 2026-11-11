@@ -37,9 +37,10 @@ const ROCM: [(&str, [f64; 4], f64); 4] = [
     ("gfx942", [256.0, 256.0, 256.0, 2048.0], 128.0),
     ("gfx950", [256.0, 256.0, 256.0, 4096.0], 256.0),
 ];
-const TENSOR_CORE_KERNELS: &str = "16816 c1688 conv1x1 conv2d_c1_k1 dgrad_1x1_stride_2x2 direct_group first_layer_wgrad_kernel h1688 h884 hmma i16832 i8816 s884 s1688 xmma_gemm xmma_implicit_gemm xmma_sparse_conv xmma_sparse_gemm xmma_warp_specialized_implicit_gemm";
-const TENSOR_CORE_SUFFIXES: &str =
-    "Conv2D Conv2DBackpropFilter Conv2DBackpropInput Conv3D DepthwiseConv2dNative DepthwiseConv2dNativeBackpropFilter DepthwiseConv2dNativeBackpropInput /MatMul FusedMatMul /CudnnRNN XlaDot XlaDotV2";
+const TENSOR_CORE_KERNELS: &str = "16816 c1688 conv1x1 conv2d_c1_k1 dgrad_1x1_stride_2x2 direct_group first_layer_wgrad_kernel h1688 \
+    h884 hmma i16832 i8816 s884 s1688 xmma_gemm xmma_implicit_gemm xmma_sparse_conv xmma_sparse_gemm xmma_warp_specialized_implicit_gemm";
+const TENSOR_CORE_SUFFIXES: &str = "Conv2D Conv2DBackpropFilter Conv2DBackpropInput Conv3D DepthwiseConv2dNative \
+    DepthwiseConv2dNativeBackpropFilter DepthwiseConv2dNativeBackpropInput /MatMul FusedMatMul /CudnnRNN XlaDot XlaDotV2";
 const TENSOR_CORE_INFIXES: &str = "BatchMatMul CudnnRNNV CudnnRNNForward CudnnRNNBackprop";
 const KERNEL_COLUMNS: [(&str, &str, &str); 15] = [
     ("rank", "number", "Rank"),
@@ -59,7 +60,19 @@ const KERNEL_COLUMNS: [(&str, &str, &str); 15] = [
     ("max_duration_us", "number", "Max Duration (\u{3bc}s)"),
 ];
 const STATS: [&str; 14] = [
-    "tf_op", "hlo_op", "program_id", "kernel_details", "correlation_id", "group_id", "is_eager", "equation", "cuda_graph_exec_id", "hlo_module", "scope_range_id", "cuda_graph_id", "flops",
+    "tf_op",
+    "hlo_op",
+    "program_id",
+    "kernel_details",
+    "correlation_id",
+    "group_id",
+    "is_eager",
+    "equation",
+    "cuda_graph_exec_id",
+    "hlo_module",
+    "scope_range_id",
+    "cuda_graph_id",
+    "flops",
     "bytes_accessed",
 ];
 const UNWANTED: u8 = u8::MAX;
@@ -255,7 +268,9 @@ fn caps(plane: &Plane) -> Caps {
     let mut caps = Caps::default();
     for (name, value) in &plane.own {
         let number = if let Own::Int(number) = value { *number as u64 } else { 0 };
-        let text = || if let Own::Text(text) = value { text.clone() } else { String::new() };
+        let text = || {
+            if let Own::Text(text) = value { text.clone() } else { String::new() }
+        };
         match &**name {
             "clock_rate" => caps.clock_ghz = number as f64 / 1000000.0,
             "core_count" => caps.cores = number,
@@ -290,10 +305,16 @@ fn flops_per_core(caps: &Caps) -> f64 {
     match caps.vendor.as_str() {
         "Nvidia" => {
             let wanted = caps.major * 1000 + caps.minor * 10;
-            let entry = CUDA_FLOPS.iter().find(|(key, _)| *key == wanted).or_else(|| CUDA_FLOPS.iter().rev().find(|(key, _)| *key < wanted)).unwrap_or(&CUDA_FLOPS[0]);
+            let entry = CUDA_FLOPS
+                .iter()
+                .find(|(key, _)| *key == wanted)
+                .or_else(|| CUDA_FLOPS.iter().rev().find(|(key, _)| *key < wanted))
+                .unwrap_or(&CUDA_FLOPS[0]);
             max_scaled(entry.1, caps.clock_ghz)
         }
-        "AMD" => ROCM.iter().find(|(name, _, _)| *name == gfx_version(caps)).map_or(0.0, |(_, values, _)| max_scaled(*values, caps.clock_ghz)),
+        "AMD" => {
+            ROCM.iter().find(|(name, _, _)| *name == gfx_version(caps)).map_or(0.0, |(_, values, _)| max_scaled(*values, caps.clock_ghz))
+        }
         _ => 0.0,
     }
 }
@@ -366,8 +387,12 @@ fn stack(module: &Module, mut frame: i32) -> String {
     let mut out = String::new();
     let get = |list: &[String], id: i32| usize::try_from(id - 1).ok().and_then(|id| list.get(id)).cloned().unwrap_or_default();
     for _ in 0..index.stack_frames.len() {
-        let Some(entry) = usize::try_from(frame).ok().and_then(|frame| index.stack_frames.get(frame.wrapping_sub(1))) else { break };
-        let Some(location) = usize::try_from(entry.file_location_id - 1).ok().and_then(|id| index.file_locations.get(id)) else { break };
+        let Some(entry) = usize::try_from(frame).ok().and_then(|frame| index.stack_frames.get(frame.wrapping_sub(1))) else {
+            break;
+        };
+        let Some(location) = usize::try_from(entry.file_location_id - 1).ok().and_then(|id| index.file_locations.get(id)) else {
+            break;
+        };
         let (file, function) = (get(&index.file_names, location.file_name_id), get(&index.function_names, location.function_name_id));
         if file.is_empty() && function.is_empty() && location.line == 0 && location.column == 0 {
             break;
@@ -433,7 +458,10 @@ fn info(module: &Module, printer: &Printer, node: usize) -> Info {
 }
 
 pub fn infos(planes: &[Plane], map: &[u8], devices: &[&Plane]) -> Infos {
-    let (wanted, modules) = rayon::join(|| wanted(devices, map), || protos(planes, map).into_par_iter().map(|(program, proto)| (program, Module::parse(Cow::Borrowed(proto)))).collect::<Vec<_>>());
+    let (wanted, modules) = rayon::join(
+        || wanted(devices, map),
+        || protos(planes, map).into_par_iter().map(|(program, proto)| (program, Module::parse(Cow::Borrowed(proto)))).collect::<Vec<_>>(),
+    );
     modules
         .into_par_iter()
         .filter_map(|(program, module)| Some((program, module, wanted.get(&program)?)))
@@ -454,7 +482,7 @@ pub fn infos(planes: &[Plane], map: &[u8], devices: &[&Plane]) -> Infos {
                 },
             );
             for (name, node) in nodes {
-                found.get_mut(name).unwrap().cost = costs.as_ref().and_then(|costs| costs.get(node).cloned());
+                found.get_mut(name).expect("entry should exist").cost = costs.as_ref().and_then(|costs| costs.get(node).cloned());
             }
             (program, found)
         })
@@ -464,7 +492,8 @@ pub fn infos(planes: &[Plane], map: &[u8], devices: &[&Plane]) -> Infos {
 impl<'a> Builder<'a> {
     fn enter(&mut self, op: &Tracker) {
         let Some(info) = op.info else { return };
-        let metrics = self.db.entry(&mut self.index, op.program, &op.name.as_str().into());
+        let name: ArcStr = op.name.as_str().into();
+        let metrics = self.db.entry(&mut self.index, op.program, &name);
         if metrics.occurrences == 0 && metrics.category.is_empty() && metrics.provenance.is_empty() {
             metrics.category = if info.category.is_empty() { UNKNOWN_CATEGORY.into() } else { info.category.clone() };
             metrics.provenance = info.provenance.clone();
@@ -497,8 +526,13 @@ impl<'a> Builder<'a> {
         }
         metrics.bytes_accessed = metrics.bytes_accessed.wrapping_add((bytes as u64).wrapping_mul(op.occurrences));
         if let Some(cost) = cost {
-            let breakdown: Vec<(u8, u64, u64)> =
-                cost.memory.iter().map(|&(read, space, bytes)| (if read { READ } else { WRITE }, space, u64::try_from(bytes).unwrap_or(0).wrapping_mul(op.occurrences))).collect();
+            let breakdown: Vec<(u8, u64, u64)> = cost
+                .memory
+                .iter()
+                .map(|&(read, space, bytes)| {
+                    (if read { READ } else { WRITE }, space, u64::try_from(bytes).unwrap_or(0).wrapping_mul(op.occurrences))
+                })
+                .collect();
             combine_memory(&breakdown, &mut metrics.memory);
         }
         self.db.total_op_time_ps += op.duration;
@@ -543,9 +577,23 @@ impl<'a> Builder<'a> {
     fn tf_op(&mut self, tf_op: &str, event_name: &str, stats: &Stats, event: &Ev) {
         self.flush();
         let op = parse_tf_op(tf_op);
-        let info = Info { category: op.kind.into(), provenance: tf_op.into(), deduplicated: ArcStr::new(), expression: ArcStr::new(), source: Source { line: -1, ..Default::default() }, cost: None };
+        let info = Info {
+            category: op.kind.into(),
+            provenance: tf_op.into(),
+            deduplicated: ArcStr::new(),
+            expression: ArcStr::new(),
+            source: Source { line: -1, ..Default::default() },
+            cost: None,
+        };
         let name = format!("{}/{event_name}", op.name);
-        self.enter(&Tracker { info: Some(&info), name, eager: event.eager.unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0), occurrences: 1, duration: event.dur, ..Default::default() });
+        self.enter(&Tracker {
+            info: Some(&info),
+            name,
+            eager: event.eager.unwrap_or_else(|| stats.int(EAGER).unwrap_or(0) != 0),
+            occurrences: 1,
+            duration: event.dur,
+            ..Default::default()
+        });
     }
 }
 
@@ -583,7 +631,9 @@ pub fn device_plane(plane: &Plane, map: &[u8], infos: &Infos, origin: i64) -> (D
                         builder.hlo_op(info, name, &stats, *group, map, event);
                     }
                 }
-                None if !stats.text(TF_OP).is_empty() => builder.tf_op(&stats.text(TF_OP), &plane.meta[event.meta as usize].full_name(map), &stats, event),
+                None if !stats.text(TF_OP).is_empty() => {
+                    builder.tf_op(&stats.text(TF_OP), &plane.meta[event.meta as usize].full_name(map), &stats, event);
+                }
                 None => {}
             }
         }
@@ -593,7 +643,8 @@ pub fn device_plane(plane: &Plane, map: &[u8], infos: &Infos, origin: i64) -> (D
 }
 
 fn tensor_core_eligible(op_name: &str) -> bool {
-    TENSOR_CORE_SUFFIXES.split(' ').any(|suffix| op_name.ends_with(suffix)) || TENSOR_CORE_INFIXES.split(' ').any(|part| op_name.contains(part))
+    TENSOR_CORE_SUFFIXES.split(' ').any(|suffix| op_name.ends_with(suffix))
+        || TENSOR_CORE_INFIXES.split(' ').any(|part| op_name.contains(part))
 }
 
 fn einsum_eligible(equation: &str) -> bool {
@@ -627,7 +678,8 @@ fn kernel_reports(plane: &Plane, map: &[u8], infos: &Infos, launches: Vec<(Launc
     let mut reports = Vec::with_capacity(launches.len());
     for ((meta, details, tf_op, equation, program, hlo_op), [total_ns, min_ns, max_ns, occurrences]) in launches {
         let name = plane.meta[meta as usize].full_name(map).into_owned();
-        let mut key = KernelKey { tensor_core: TENSOR_CORE_KERNELS.split(' ').any(|pattern| name.contains(pattern)), name, ..Default::default() };
+        let mut key =
+            KernelKey { tensor_core: TENSOR_CORE_KERNELS.split(' ').any(|pattern| name.contains(pattern)), name, ..Default::default() };
         let mut occupancy = 0.0;
         launch_params(&details, &mut key, &mut occupancy);
         if !tf_op.is_empty() {

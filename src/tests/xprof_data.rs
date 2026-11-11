@@ -85,7 +85,13 @@ fn test_get_hlo_op_profile_nested_fusions_category_rollup_unity() {
 #[test]
 fn test_get_hlo_op_profile_fusion_with_zero_time_children_preserved() {
     let result = profile(FUSION, &[("view", J::from("category"))]);
-    let fusion = result.at("category_summary").items().iter().find(|entry| entry.at("category").str() == Some("convolution fusion")).unwrap().clone();
+    let fusion = result
+        .at("category_summary")
+        .items()
+        .iter()
+        .find(|entry| entry.at("category").str() == Some("convolution fusion"))
+        .unwrap()
+        .clone();
     assert_eq!(fusion.at("total_self_time_ms"), &J::Float(40.0));
     assert!((fraction_total(&result) - 1.0).abs() < 5e-5);
     let names = flat_names(FUSION);
@@ -174,7 +180,10 @@ fn test_get_hosts_empty() {
 
 #[test]
 fn test_get_device_information_success() {
-    let roofline = r#"[{"p": {"device_type": "TPU v5p", "peak_flop_rate": "1234.5", "peak_hbm_bw": "678", "peak_vmem_bw": "910", "ridge_point": "not_a_number"}}]"#;
+    let roofline = concat!(
+        r#"[{"p": {"device_type": "TPU v5p", "peak_flop_rate": "1234.5", "peak_hbm_bw": "#,
+        r#""678", "peak_vmem_bw": "910", "ridge_point": "not_a_number"}}]"#,
+    );
     let result = json(get_device_information(&Fake::fixed(roofline), &args("session_device", &[])));
     assert_eq!(result.at("device_type").str(), Some("TPU v5p"));
     assert_eq!(result.at("peak_flop_rate"), &J::Float(1234.5));

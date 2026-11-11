@@ -6,11 +6,12 @@ use axum::response::Response;
 use futures_util::future::try_join_all;
 use futures_util::{StreamExt, TryStreamExt, stream};
 use object_store::path::{Path as Key, PathPart};
-use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt, PutPayload};
+use object_store::{ListResult, ObjectMeta, ObjectStore, ObjectStoreExt, PutPayload};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::os::unix::fs::FileExt;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -20,6 +21,7 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(30);
 const PART_BYTES: u64 = 8 << 20;
 const PARALLEL_FILES: usize = 4;
 const PARALLEL_PARTS: usize = 8;
+const PARALLEL_LISTS: usize = 32;
 const DEFAULT_CACHE_BYTES: u64 = 20 << 30;
 const CACHE_DIR: &str = "XPROF_CACHE_DIR";
 const CACHE_BYTES: &str = "XPROF_CACHE_BYTES";
@@ -36,7 +38,7 @@ struct Unlock<'a> {
 
 impl Drop for Unlock<'_> {
     fn drop(&mut self) {
-        let mut locks = self.locks.lock().unwrap();
+        let mut locks = self.locks.lock().expect("lock poisoned");
         if Arc::strong_count(&self.lock) == 2 {
             locks.remove(self.dir);
         }
@@ -52,12 +54,32 @@ impl Drop for Partial {
     }
 }
 
+/// Takes the lock of a cached directory, or gives `None` when `wait` is false and another holder has it.
+///
+/// The lock is of the operating system, so it also holds between processes and between the remotes of one process that share a
+/// cache directory. It ends when the file closes.
+fn lock_dir(dir: &Path, wait: bool) -> std::io::Result<Option<std::fs::File>> {
+    let handle = std::fs::File::open(dir)?;
+    // A file system that cannot lock a directory (NFS) gives an error. The caller then works without the lock, as it does
+    // when it is the only process.
+    if wait {
+        _ = handle.lock();
+        return Ok(Some(handle));
+    }
+    Ok(if let Err(std::fs::TryLockError::WouldBlock) = handle.try_lock() { None } else { Some(handle) })
+}
+
 #[derive(Debug)]
 pub struct Remote {
     pub url: String,
     pub mirror: PathBuf,
+    /// The directory of the store (scheme and host) in the cache. The mirrors of all the log directories of the store are in
+    /// it, and the budget is for all of them.
+    pub cache: PathBuf,
     pub budget: u64,
     pub used: Mutex<HashMap<PathBuf, Instant>>,
+    pub downloaded_bytes: AtomicU64,
+    pub files_completed: AtomicU64,
     store: Arc<dyn ObjectStore>,
     root: Key,
     checked: Mutex<HashMap<PathBuf, Instant>>,
@@ -74,20 +96,43 @@ impl Remote {
     pub fn open(url: &str) -> Result<Self, String> {
         _ = rustls::crypto::ring::default_provider().install_default();
         let parsed = url::Url::parse(url).map_err(|error| format!("The log directory '{url}' is not a valid URL: {error}"))?;
-        let (store, root) = object_store::parse_url_opts(&parsed, std::env::vars()).map_err(|error| format!("Cannot open {url}: {error}"))?;
+        let (store, root) =
+            object_store::parse_url_opts(&parsed, std::env::vars()).map_err(|error| format!("Cannot open {url}: {error}"))?;
         Self::new(url, Arc::from(store), root)
     }
 
     pub fn new(url: &str, store: Arc<dyn ObjectStore>, root: Key) -> Result<Self, String> {
-        let digest: String = Sha256::digest(url.as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+        let parsed = url::Url::parse(url).map_err(|error| format!("The log directory '{url}' is not a valid URL: {error}"))?;
+        // The store is the URL without the key. For some hosts the bucket is the first part of the path, so two buckets of one
+        // host are two stores.
+        let path = parsed.path().trim_end_matches('/');
+        let bucket = path.strip_suffix(root.as_ref()).unwrap_or(path).trim_end_matches('/');
+        let store_url = format!("{}{bucket}", &parsed[..url::Position::BeforePath]);
+        let digest: String = Sha256::digest(store_url.as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+        let root_path = root.as_ref().split('/').filter(|part| !part.is_empty()).fold(PathBuf::new(), |path, part| path.join(part));
         #[cfg(not(test))]
         let temp_dir = std::env::temp_dir;
         #[cfg(test)]
         let temp_dir = crate::tests::temp_dir;
-        let mirror = std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}"));
-        let mirror = crate::private_dir(&mirror).map_err(|error| format!("Cannot create the mirror {}: {error}", mirror.display()))?;
-        let budget = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
-        Ok(Self { url: url.to_string(), mirror, budget, used: Mutex::default(), store, root, checked: Mutex::default(), locks: Mutex::default() })
+        let private =
+            |dir: PathBuf| crate::private_dir(&dir).map_err(|error| format!("Cannot create the mirror {}: {error}", dir.display()));
+        // The eviction removes files under `cache`, so `cache` must be a directory of this user, not only the mirror in it.
+        let cache = private(std::env::var_os(CACHE_DIR).map_or_else(temp_dir, PathBuf::from).join(format!("xprof-rs-{digest}")))?;
+        let mirror = private(cache.join(root_path))?;
+        let budget: u64 = std::env::var(CACHE_BYTES).ok().and_then(|bytes| bytes.parse().ok()).unwrap_or(DEFAULT_CACHE_BYTES);
+        Ok(Self {
+            url: url.to_string(),
+            mirror,
+            cache,
+            budget,
+            used: Mutex::default(),
+            downloaded_bytes: AtomicU64::default(),
+            files_completed: AtomicU64::default(),
+            store,
+            root,
+            checked: Mutex::default(),
+            locks: Mutex::default(),
+        })
     }
 
     fn key(&self, dir: &Path) -> Option<Key> {
@@ -98,106 +143,191 @@ impl Remote {
     }
 
     fn local(&self, key: &Key) -> Option<PathBuf> {
-        key.prefix_match(&self.root)?.try_fold(self.mirror.clone(), |dir, part| (!matches!(part.as_ref(), "" | "." | "..")).then(|| dir.join(part.as_ref())))
+        key.prefix_match(&self.root)?
+            .try_fold(self.mirror.clone(), |dir, part| (!matches!(part.as_ref(), "" | "." | "..")).then(|| dir.join(part.as_ref())))
     }
 
-    pub async fn sync(&self, dir: &Path, touch: bool) -> Result<(), String> {
-        let Some(key) = self.key(dir) else { return Ok(()) };
-        if touch {
-            self.used.lock().unwrap().insert(dir.to_path_buf(), Instant::now());
+    fn unreadable(&self, error: impl std::fmt::Display) -> String {
+        format!("Cannot read {}: {error}", self.url)
+    }
+
+    fn unwritable(&self, error: impl std::fmt::Display) -> String {
+        format!("Cannot write the mirror of {} in {}: {error}", self.url, self.mirror.display())
+    }
+
+    async fn listing(&self, prefix: &Key) -> Result<ListResult, String> {
+        match tokio::time::timeout(LIST_TIMEOUT, self.store.list_with_delimiter(Some(prefix))).await {
+            Ok(listed) => listed.map_err(|error| self.unreadable(error)),
+            Err(_) => Err(self.unreadable(format!("No answer in {LIST_TIMEOUT:?}"))),
         }
-        let unlock = Unlock { locks: &self.locks, dir, lock: self.locks.lock().unwrap().entry(dir.to_path_buf()).or_default().clone() };
+    }
+
+    /// Brings a directory of the mirror up to date with the store, at most one time in `RECHECK`.
+    ///
+    /// The mirror itself and a `plugins/profile` directory get the directories of their sessions. A session gets its files, and
+    /// then the cache gives up its oldest sessions when it is over the budget. `touch` records a use of the directory.
+    pub async fn sync(&self, dir: &Path, touch: bool) -> Result<(), String> {
+        let Some(key) = self.key(dir) else {
+            return Ok(());
+        };
+        if touch {
+            self.used.lock().expect("lock poisoned").insert(dir.to_path_buf(), Instant::now());
+            // The time of the directory is the time of its last use, for the eviction of every remote and process.
+            _ = std::fs::File::open(dir).and_then(|handle| handle.set_modified(SystemTime::now()));
+        }
+        let unlock = Unlock {
+            locks: &self.locks,
+            dir,
+            lock: self.locks.lock().expect("lock poisoned").entry(dir.to_path_buf()).or_default().clone(),
+        };
         let _held = unlock.lock.lock().await;
-        if self.checked.lock().unwrap().get(dir).is_some_and(|at| at.elapsed() < RECHECK) {
+        if self.checked.lock().expect("lock poisoned").get(dir).is_some_and(|at| at.elapsed() < RECHECK) {
             return Ok(());
         }
-        let unreadable = |error: String| format!("Cannot read {}: {error}", self.url);
-        let unwritable = |error: std::io::Error| format!("Cannot write the mirror of {} in {}: {error}", self.url, self.mirror.display());
-        let listing = async |prefix: &Key| match tokio::time::timeout(LIST_TIMEOUT, self.store.list_with_delimiter(Some(prefix))).await {
-            Ok(listed) => listed.map_err(|error| unreadable(error.to_string())),
-            Err(_) => Err(unreadable(format!("No answer in {LIST_TIMEOUT:?}"))),
-        };
-        if dir == self.mirror {
-            let mut pending = vec![key];
-            while let Some(prefix) = pending.pop() {
-                for child in listing(&prefix).await?.common_prefixes {
-                    if child.filename() != Some("plugins") {
-                        pending.push(child);
-                        continue;
-                    }
-                    for session in listing(&child.clone().join("profile")).await?.common_prefixes {
-                        self.local(&session).map_or(Ok(()), std::fs::create_dir_all).map_err(unwritable)?;
-                    }
-                }
-            }
+        if dir == self.mirror || dir.ends_with(Path::new("plugins/profile")) {
+            self.walk(key, dir != self.mirror).await?;
         } else {
-            let unchanged =
-                |path: &Path, object: &ObjectMeta| std::fs::metadata(path).is_ok_and(|meta| meta.len() == object.size && meta.modified().ok() == Some(SystemTime::from(object.last_modified)));
-            let mut wanted: Vec<(PathBuf, ObjectMeta)> = listing(&key)
-                .await?
-                .objects
-                .into_iter()
-                .filter(|object| object.location.filename().is_some_and(|name| RENDERED_FROM.iter().any(|suffix| name.ends_with(suffix))))
-                .filter_map(|object| Some((self.local(&object.location)?, object)))
-                .collect();
-            for stale in xplanes(dir) {
-                if !wanted.iter().any(|(path, _)| *path == stale) {
-                    std::fs::remove_file(stale).map_err(unwritable)?;
-                }
-            }
-            wanted.retain(|(path, object)| !unchanged(path, object));
-            if !wanted.is_empty() {
-                std::fs::create_dir_all(dir).map_err(unwritable)?;
-            }
-            let fetch = async |path: PathBuf, object: ObjectMeta| {
-                let partial = Partial(path.with_file_name(format!(".{}.partial", object.location.filename().unwrap_or_default())));
-                let file = Arc::new(std::fs::File::create(&partial.0).and_then(|file| file.set_len(object.size).map(|()| file)).map_err(unwritable)?);
-                stream::iter((0..object.size).step_by(PART_BYTES as usize))
-                    .map(|start| {
-                        let (file, location) = (file.clone(), &object.location);
-                        async move {
-                            let bytes = self.store.get_range(location, start..(start + PART_BYTES).min(object.size)).await.map_err(|error| unreadable(error.to_string()))?;
-                            blocking(move || file.write_all_at(&bytes, start)).await.map_err(unwritable)
-                        }
-                    })
-                    .buffer_unordered(PARALLEL_PARTS)
-                    .try_collect::<Vec<()>>()
-                    .await
-                    .and_then(|_| file.set_modified(SystemTime::from(object.last_modified)).and_then(|()| std::fs::rename(&partial.0, &path)).map_err(unwritable))
-            };
-            stream::iter(wanted).map(|(path, object)| fetch(path, object)).buffer_unordered(PARALLEL_FILES).try_collect::<Vec<()>>().await?;
-            let used = self.used.lock().unwrap().clone();
-            let is_file = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_file());
-            let mut held: Vec<_> = sessions(&self.mirror)
-                .into_iter()
-                .map(|(_, session)| {
-                    let files: Vec<(u64, PathBuf)> = list(&session, is_file).into_iter().filter_map(|file| Some((file.metadata().ok()?.len(), file))).collect();
-                    (used.get(&session).copied(), session, files)
-                })
-                .collect();
-            let mut total: u64 = held.iter().flat_map(|(_, _, files)| files).map(|(len, _)| len).sum();
-            held.sort_by_key(|(at, _, _)| *at);
-            // A session with a lock has a sync that can still write its files.
-            let busy = |session: &PathBuf| self.locks.lock().unwrap().contains_key(session);
-            for (_, session, files) in held.into_iter().filter(|(at, session, _)| session != dir && at.is_none_or(|at| at.elapsed() >= IN_USE) && !busy(session)) {
-                if total <= self.budget {
-                    break;
-                }
-                for (len, file) in files {
-                    total -= if std::fs::remove_file(file).is_ok() { len } else { 0 };
-                }
-                self.checked.lock().unwrap().remove(&session);
-                self.used.lock().unwrap().remove(&session);
-            }
+            self.fetch(dir, &key).await?;
+            self.evict(dir);
         }
-        let mut checked = self.checked.lock().unwrap();
+        let mut checked = self.checked.lock().expect("lock poisoned");
         checked.retain(|_, at| at.elapsed() < RECHECK);
         checked.insert(dir.to_path_buf(), Instant::now());
         Ok(())
     }
 
+    /// Makes the directory of each session under `key`. `profile` tells that `key` is a `plugins/profile` directory, whose
+    /// children are sessions. Else the walk goes down the folders to the `plugins/profile` of each run, one level at a time,
+    /// with the folders of a level in parallel.
+    async fn walk(&self, key: Key, profile: bool) -> Result<(), String> {
+        let mut pending = vec![(key, profile)];
+        while !pending.is_empty() {
+            let listed: Vec<_> = stream::iter(std::mem::take(&mut pending))
+                .map(|(prefix, profile)| async move { self.listing(&prefix).await.map(|listed| (listed.common_prefixes, profile)) })
+                .buffer_unordered(PARALLEL_LISTS)
+                .try_collect()
+                .await?;
+            for (children, profile) in listed {
+                if profile {
+                    children
+                        .iter()
+                        .filter_map(|session| self.local(session))
+                        .try_for_each(std::fs::create_dir_all)
+                        .map_err(|error| self.unwritable(error))?;
+                } else {
+                    pending.extend(
+                        children
+                            .into_iter()
+                            .map(|child| if child.filename() == Some("plugins") { (child.join("profile"), true) } else { (child, false) }),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Makes the trace and HLO files of a session directory the same as in the store: it removes the traces that the store no
+    /// longer has, and it downloads the files that are new or changed.
+    async fn fetch(&self, dir: &Path, key: &Key) -> Result<(), String> {
+        let unchanged = |path: &Path, object: &ObjectMeta| {
+            std::fs::metadata(path)
+                .is_ok_and(|meta| meta.len() == object.size && meta.modified().ok() == Some(SystemTime::from(object.last_modified)))
+        };
+        let mut wanted: Vec<(PathBuf, ObjectMeta)> = self
+            .listing(key)
+            .await?
+            .objects
+            .into_iter()
+            .filter(|object| object.location.filename().is_some_and(|name| RENDERED_FROM.iter().any(|suffix| name.ends_with(suffix))))
+            .filter_map(|object| Some((self.local(&object.location)?, object)))
+            .collect();
+        for stale in xplanes(dir) {
+            if !wanted.iter().any(|(path, _)| *path == stale) {
+                std::fs::remove_file(stale).map_err(|error| self.unwritable(error))?;
+            }
+        }
+        wanted.retain(|(path, object)| !unchanged(path, object));
+        if wanted.is_empty() {
+            return Ok(());
+        }
+        std::fs::create_dir_all(dir).map_err(|error| self.unwritable(error))?;
+        // Another remote or process can sync this directory at the same time. They take turns, and the second finds the files
+        // of the first.
+        let locked = dir.to_path_buf();
+        let _turn = blocking(move || lock_dir(&locked, true)).await.map_err(|error| self.unwritable(error))?;
+        wanted.retain(|(path, object)| !unchanged(path, object));
+        stream::iter(wanted)
+            .map(|(path, object)| self.download(path, object))
+            .buffer_unordered(PARALLEL_FILES)
+            .try_collect::<Vec<()>>()
+            .await?;
+        Ok(())
+    }
+
+    /// Downloads an object in parallel parts to a partial file, and then gives the file its name and the time of the object.
+    async fn download(&self, path: PathBuf, object: ObjectMeta) -> Result<(), String> {
+        let partial = Partial(path.with_file_name(format!(".{}.partial", object.location.filename().unwrap_or_default())));
+        let file = std::fs::File::create(&partial.0).and_then(|file| file.set_len(object.size).map(|()| file));
+        let file = Arc::new(file.map_err(|error| self.unwritable(error))?);
+        stream::iter((0..object.size).step_by(PART_BYTES as usize))
+            .map(|start| {
+                let (file, location) = (file.clone(), &object.location);
+                async move {
+                    let range = start..(start + PART_BYTES).min(object.size);
+                    let bytes = self.store.get_range(location, range).await.map_err(|error| self.unreadable(error))?;
+                    let len = bytes.len() as u64;
+                    blocking(move || file.write_all_at(&bytes, start)).await.map_err(|error| self.unwritable(error))?;
+                    self.downloaded_bytes.fetch_add(len, Ordering::Relaxed);
+                    Ok::<_, String>(())
+                }
+            })
+            .buffer_unordered(PARALLEL_PARTS)
+            .try_collect::<Vec<()>>()
+            .await?;
+        file.set_modified(SystemTime::from(object.last_modified))
+            .and_then(|()| std::fs::rename(&partial.0, &path))
+            .map_err(|error| self.unwritable(error))?;
+        self.files_completed.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Removes the files of the sessions of the cache that nobody used for the longest time, until the cache is in the budget.
+    /// It keeps `keep`, the sessions in use in the last `IN_USE`, and the sessions that a sync writes.
+    fn evict(&self, keep: &Path) {
+        let is_file = |entry: &std::fs::DirEntry| entry.file_type().is_ok_and(|kind| kind.is_file());
+        let mut held: Vec<_> = sessions(&self.cache)
+            .into_iter()
+            .map(|(_, session)| {
+                let files: Vec<(u64, PathBuf)> =
+                    list(&session, is_file).into_iter().filter_map(|file| Some((file.metadata().ok()?.len(), file))).collect();
+                (std::fs::metadata(&session).and_then(|meta| meta.modified()).ok(), session, files)
+            })
+            .collect();
+        let mut total: u64 = held.iter().flat_map(|(_, _, files)| files).map(|(len, _)| len).sum();
+        held.sort_by_key(|(at, _, _)| *at);
+        let idle = |at: &Option<SystemTime>| at.is_none_or(|at| at.elapsed().is_ok_and(|age| age >= IN_USE));
+        // A session with a lock has a sync of this remote that can still write its files.
+        let busy = |session: &PathBuf| self.locks.lock().expect("lock poisoned").contains_key(session);
+        for (_, session, files) in held.into_iter().filter(|(at, session, _)| session != keep && idle(at) && !busy(session)) {
+            if total <= self.budget {
+                break;
+            }
+            // The sync of another remote or process holds the lock of the session while it writes.
+            let Ok(Some(_turn)) = lock_dir(&session, false) else {
+                continue;
+            };
+            for (len, file) in files {
+                total -= if std::fs::remove_file(file).is_ok() { len } else { 0 };
+            }
+            self.checked.lock().expect("lock poisoned").remove(&session);
+            self.used.lock().expect("lock poisoned").remove(&session);
+        }
+    }
+
     pub async fn upload(&self, dir: &Path) -> Result<(), String> {
-        let Some(key) = self.key(dir) else { return Ok(()) };
+        let Some(key) = self.key(dir) else {
+            return Ok(());
+        };
         for file in list(dir, |entry| entry.file_type().is_ok_and(|kind| kind.is_file())) {
             let failed = |error: String| format!("Cannot upload {} to {}: {error}", file.display(), self.url);
             let name = file.file_name().and_then(|name| name.to_str()).ok_or_else(|| failed("The file name is not UTF-8".into()))?;
@@ -205,14 +335,18 @@ impl Remote {
             let bytes = std::fs::read(&file).map_err(|error| failed(error.to_string()))?;
             self.store.put(&location, PutPayload::from(bytes)).await.map_err(|error| failed(error.to_string()))?;
             let stored = self.store.head(&location).await.map_err(|error| failed(error.to_string()))?;
-            std::fs::File::open(&file).and_then(|opened| opened.set_modified(SystemTime::from(stored.last_modified))).map_err(|error| failed(error.to_string()))?;
+            std::fs::File::open(&file)
+                .and_then(|opened| opened.set_modified(SystemTime::from(stored.last_modified)))
+                .map_err(|error| failed(error.to_string()))?;
         }
         Ok(())
     }
 }
 
 pub async fn mirror(State(state): State<Shared>, request: Request, next: Next) -> Response {
-    let Some(remote) = state.remote.clone() else { return next.run(request).await };
+    let Some(remote) = state.remote.clone() else {
+        return next.run(request).await;
+    };
     let params: Params = form_urlencoded::parse(request.uri().query().unwrap_or_default().as_bytes()).into_owned().collect();
     let named = |key: &str| params.get(key).filter(|value| !value.is_empty());
     let runs = request.uri().path().ends_with("/runs");
@@ -227,7 +361,8 @@ pub async fn mirror(State(state): State<Shared>, request: Request, next: Next) -
             (None, None, run) => run.and_then(|run| run_dir(&state, run)).into_iter().collect(),
         }
     };
-    // The list of all sessions walks the whole store, so a request for a session that the mirror has does not wait for it.
+    // The list of all sessions walks the whole store, so a request for a session that the mirror
+    // has does not wait for it.
     let mut dirs = wanted();
     if runs || dirs.is_empty() || dirs.iter().any(|dir| !dir.is_dir()) {
         if let Err(message) = remote.sync(&remote.mirror, false).await {
@@ -235,7 +370,11 @@ pub async fn mirror(State(state): State<Shared>, request: Request, next: Next) -
         }
         dirs = wanted();
     }
-    match try_join_all(dirs.into_iter().filter_map(|dir| confine(&state, &dir)).filter(|dir| dir.is_dir()).map(async |dir| remote.sync(&dir, true).await)).await {
+    match try_join_all(
+        dirs.into_iter().filter_map(|dir| confine(&state, &dir)).filter(|dir| dir.is_dir()).map(async |dir| remote.sync(&dir, true).await),
+    )
+    .await
+    {
         Ok(_) => next.run(request).await,
         Err(message) => response(StatusCode::BAD_GATEWAY, "text/plain", message),
     }

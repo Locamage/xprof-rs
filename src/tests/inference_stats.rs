@@ -27,7 +27,8 @@ fn generate_tensor_pattern_with_tensor_shapes() {
 
 #[test]
 fn generate_tensor_pattern_with_dimensions_and_type() {
-    let patterns = tensor_patterns(&[("Linearize", 1200, 800, &[("dims", "[10,20]".into()), ("type", "F32".into()), ("layout", "{1,0}".into())])]);
+    let patterns =
+        tensor_patterns(&[("Linearize", 1200, 800, &[("dims", "[10,20]".into()), ("type", "F32".into()), ("layout", "{1,0}".into())])]);
     assert_eq!(patterns, ["Linearize f32[10,20] {1,0}"]);
 }
 

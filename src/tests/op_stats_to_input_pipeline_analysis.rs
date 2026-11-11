@@ -1,4 +1,6 @@
-use crate::tools::input_pipeline_analyzer::{HOST_TRANSFER, SC_COMPUTE, SCV0_COMPUTE, SCV0_INFEED, TC_COMPUTE, TC_IDLE, TC_INFEED, TC_OUTFEED, tpu_step_details};
+use crate::tools::input_pipeline_analyzer::{
+    HOST_TRANSFER, SC_COMPUTE, SCV0_COMPUTE, SCV0_INFEED, TC_COMPUTE, TC_IDLE, TC_INFEED, TC_OUTFEED, tpu_step_details,
+};
 use crate::tools::opstats::{Db, IDLE, Metrics};
 use crate::xplane::steps::{Breakdown, Core, Extra, SPARSE_CORE_START, StepInfo, StepRecord, fix};
 use std::collections::{BTreeMap, HashMap};
@@ -7,20 +9,41 @@ const STEP_NUM: u32 = 1;
 const HOST_INPUT_EVENTS: [(u64, u64); 3] = [(50, 100), (110, 200), (430, 500)];
 
 fn step_info(begin_ps: u64, duration_ps: u64, category_ps: &[(&str, u64)]) -> StepInfo {
-    StepInfo { name: String::new(), begin: begin_ps, duration: duration_ps, breakdown: Breakdown::Categories(category_ps.iter().map(|(name, ps)| (name.to_string(), *ps)).collect()) }
+    StepInfo {
+        name: String::new(),
+        begin: begin_ps,
+        duration: duration_ps,
+        breakdown: Breakdown::Categories(category_ps.iter().map(|(name, ps)| (name.to_string(), *ps)).collect()),
+    }
 }
 
-fn may_fix_tpu_step_analysis(device_op_metrics_db: &Db, step_info_per_core: BTreeMap<u32, StepInfo>) -> BTreeMap<u32, BTreeMap<String, u64>> {
+fn may_fix_tpu_step_analysis(
+    device_op_metrics_db: &Db,
+    step_info_per_core: BTreeMap<u32, StepInfo>,
+) -> BTreeMap<u32, BTreeMap<String, u64>> {
     let total_input: u64 = HOST_INPUT_EVENTS.iter().map(|(begin, end)| end - begin).sum();
-    let mut extra =
-        Extra { steps: vec![StepRecord { num: STEP_NUM, cores: step_info_per_core, ..Default::default() }], host_input: Some(HashMap::from([(STEP_NUM as i64, total_input)])), ..Default::default() };
+    let mut extra = Extra {
+        steps: vec![StepRecord { num: STEP_NUM, cores: step_info_per_core, ..Default::default() }],
+        host_input: Some(HashMap::from([(STEP_NUM as i64, total_input)])),
+        ..Default::default()
+    };
     fix(&mut extra, device_op_metrics_db);
-    extra.steps.remove(0).cores.into_iter().map(|(core, info)| (core, if let Breakdown::Categories(categories) = info.breakdown { categories } else { BTreeMap::new() })).collect()
+    extra
+        .steps
+        .remove(0)
+        .cores
+        .into_iter()
+        .map(|(core, info)| (core, if let Breakdown::Categories(categories) = info.breakdown { categories } else { BTreeMap::new() }))
+        .collect()
 }
 
 fn sparse_core_step(duration_ps: u64, idle_ps: u64) -> (StepRecord, BTreeMap<u32, Core>) {
     let core = SPARSE_CORE_START + 1;
-    let record = StepRecord { num: STEP_NUM, cores: BTreeMap::from([(core, step_info(100, duration_ps, &[(IDLE, idle_ps)]))]), ..Default::default() };
+    let record = StepRecord {
+        num: STEP_NUM,
+        cores: BTreeMap::from([(core, step_info(100, duration_ps, &[(IDLE, idle_ps)]))]),
+        ..Default::default()
+    };
     (record, BTreeMap::from([(core, Core { sparse: true, ..Default::default() })]))
 }
 

@@ -63,6 +63,48 @@ impl Client for Fake {
         self.logdir.as_deref()
     }
 
+    fn barrier_durations(&self, session: &str) -> Option<Vec<f64>> {
+        let mut params = vec![("trace_filter_config", r#"{"device_regexes": ["TPU:0", "GPU:0"]}"#.to_string())];
+        params.extend(self.hosts(session).ok()?.first().map(|host| ("hosts", host.clone())));
+        let trace = serde_json::from_slice::<serde_json::Value>(&self.fetch("trace_viewer.json", session, &params).ok().flatten()?).ok()?;
+        let events = trace.get("traceEvents")?.as_array()?;
+        Some(
+            events
+                .iter()
+                .filter(|event| event.get("name").and_then(|name| name.as_str()) == Some("barrier-cores"))
+                .map(|event| event.get("dur").and_then(serde_json::Value::as_f64).unwrap_or(0.0))
+                .collect(),
+        )
+    }
+
+    fn category_times(&self, session: &str, params: &Params) -> Option<[f64; 3]> {
+        let profile = self.fetch_text("hlo_op_profile.json", session, params).ok().flatten().and_then(|raw| J::parse(&raw));
+        let times = profile
+            .as_ref()
+            .map(|profile| crate::cli::ops::field(profile, "by_category"))
+            .filter(|node| matches!(node, J::Map(_)) && node.truthy())
+            .map(hlo_times);
+        crate::release(profile);
+        times
+    }
+
+    fn roofline_properties(&self, session: &str, params: &Params) -> Result<Option<String>, Error> {
+        self.fetch_text("roofline_model.json", session, params)
+    }
+
+    fn roofline_total(&self, session: &str) -> Option<String> {
+        self.fetch_text("roofline_model.json", session, &[]).ok()?.or_else(|| self.fetch_text("roofline_model", session, &[]).ok()?)
+    }
+
+    fn op_profile(&self, session: &str, params: &Params) -> Result<Option<J>, Error> {
+        let data = self.fetch_either("op_profile", "hlo_op_profile.json", session, params)?;
+        data.map(|data| {
+            J::parse(&data)
+                .ok_or_else(|| Error::new(crate::cli::Kind::Value, "Failed to parse op_profile proto: ParseError('Failed to load JSON')"))
+        })
+        .transpose()
+    }
+
     fn hosts(&self, session: &str) -> Result<Vec<String>, Error> {
         if let Some(hosts) = &self.hosts {
             hosts.clone()
@@ -116,9 +158,28 @@ pub fn scratch(name: &str) -> PathBuf {
 
 pub fn same(left: &J, right: &J) -> bool {
     match (left, right) {
-        (J::Map(left), J::Map(right)) => left.len() == right.len() && left.iter().all(|(key, value)| right.iter().any(|(other, item)| other == key && same(value, item))),
+        (J::Map(left), J::Map(right)) => {
+            left.len() == right.len() && left.iter().all(|(key, value)| right.iter().any(|(other, item)| other == key && same(value, item)))
+        }
         (J::List(left), J::List(right)) => left.len() == right.len() && left.iter().zip(right).all(|(left, right)| same(left, right)),
         (J::Int(_) | J::Float(_), J::Int(_) | J::Float(_)) => left.float() == right.float(),
         _ => left == right,
     }
+}
+
+/// The compute, HBM and ICI sums of the times of the leaves under `node`.
+pub fn hlo_times(node: &J) -> [f64; 3] {
+    let metrics = node.at("metrics");
+    let children = node.at("children").items();
+    let mut times = [0.0; 3];
+    if children.is_empty() && metrics.at("occurrences").float().unwrap_or(0.0) > 0.0 {
+        let category = node.at("xla").get("category").map_or(String::new(), J::text);
+        times[crate::cli::steps::time_class(&node.at("name").text(), &category)] +=
+            Some(metrics.at("rawTime")).filter(|value| value.truthy()).and_then(J::float).unwrap_or(0.0);
+    }
+    for child in children.iter().filter(|child| matches!(child, J::Map(_))) {
+        let child = hlo_times(child);
+        times = std::array::from_fn(|index| times[index] + child[index]);
+    }
+    times
 }

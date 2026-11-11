@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.0
+
+This release adds object-store profile serving and multi-host profile support.
+
+- Remote logdirs resolve run roots to their latest profile session without walking unrelated runs in the object store.
+- Remote URL spellings for the same object share one cache copy, including the server's remote logdir.
+- XPlane event and step aggregates report events truncated by the profile capture window.
+- The server stages allowlisted object-store profiles through `/open` and `/progress`, sharing its cache with the CLI and server logdir.
+- The server exposes `/healthz` as a plain-text readiness check.
+- The CLI exposes raw server tool responses through `get_tool_data`.
+- Top-level `--help` lists all commands and their parameter synopses.
+- On a multi-host session, `get_memory_profile` and `get_kpi_metrics` try the hosts in sorted order. They use the first profile with positive capacity and peak HBM. If no host has one, they use the first profile that parses. Before, both commands failed, as they do in XProf.
+- On a multi-host session, `get_xspace_proto` accepts `--host` to save one trace. Without it, the command lists the sorted host names and asks you to pass `--host=<name>`. Before, the command failed, as it does in XProf.
+- A direct trace file gives no utilization data when its file name does not contain the first host name. A profile found with `--logdir` does not use this check. For example, host `worker-0` in `host.xplane.pb` gives no data as a direct file, but it gives utilization data with `--logdir`. If a session has no utilization counters, `--logdir` returns an empty device list with `SUCCESS`.
+- Aggregate and statistics commands, such as `get_overview`, `get_kpi_metrics`, `check_host_boundness`, `get_top_hlo_ops` and `get_hlo_stats`, combine all hosts in a multi-host session, where XProf fails. For `check_host_boundness`, barrier-core times use the host with the smallest name, as in XProf.
+- The `<logdir> <session>` form selects that session. Before, the logdir bound as `session_id` and the session as the next parameter, as in XProf. A URL of a session (`<url>/plugins/profile/<session>`) or of a trace file stays the session, so `get_overview <session URL> True` binds `include_command`, as with a local path. `True` or `False` after a logdir URL is also the value of the next parameter.
+- A run name with a remote `--logdir` reads the latest session of the run. Sessions of the run that the cache already holds do not change the result.
+- `get_tool_data --host` takes the host name that `get_hosts` gives, also when the file name has a dot before the host name.
+- `/open` and `/progress` accept a URI only in the form that a URL parser gives. The URI must be a scheme, a host and a plain path. They refuse a dot segment (`..`), a `%XX` escape, a query, a fragment, user information, a port and a control character, so the pattern of `--open_uri_pattern` sees the host and the path that the store reads. They take the URL of a store (`s3://`, `gs://`, `az://`, `file://`) and refuse every `http(s)` URL, because for those the store finds the bucket and the endpoint from the host, the path and the environment (use `s3://<bucket>/…`, not `https://s3.<region>.amazonaws.com/<bucket>/…`).
+- The cache of a store (a bucket) has one budget (`XPROF_CACHE_BYTES`) for all the log directories of the store, and it is safe for more than one process. A sync takes the lock of the directory it writes, the time of a cached session is the time of its last use, and the eviction skips a session that another process uses or writes.
+- A staged profile serves until nobody used it for one hour, or until the cache removes it for the budget. `/open` stages a URI again when its last staging ended more than one minute ago, so it reads the changes of the store. The profile that the server already has serves in the meantime, also when the store gives an error.
+- A legacy trace whose render fails after its first part ends with an error. Before, the client and the cache got a part of the trace as a complete response.
+- The idle prefetch keeps a value only when it fits in the free memory budget. Before, a large host could make the cache drop a value that a request loaded.
+- CLI targets with `://`, such as `s3://` and `gs://`, sync through the server's remote cache.
+- The first remote `/runs` listing walks the object store level by level in parallel and stops at `plugins/profile`. Before, it walked the full store.
+- Per-command `--help` lists every parameter.
+- The CLI strips `.xspace.pb` from host filenames, so `h0.xspace.pb` has host `h0`. Before, the host was `pb`, as it is in XProf.
+
 ## 0.1.3
 
 This release is faster, and it uses less memory on large profiles. More outputs are now the same as the outputs of XProf 2.23.2. The release binary is smaller, and PyPI has wheels of the binary.

@@ -8,9 +8,15 @@ fn byte_counts_and_steps_that_are_too_large() {
     let first = event(0, &[int(1, i64::MAX), int(2, i64::MAX), int(3, i64::MAX), int(4, i64::MAX)]);
     let line = [number(1, 1), bytes(2, b"allocator"), first, event(10, &[int(5, i64::MIN)])].concat();
     let names = ["bytes_reserved", "bytes_allocated", "bytes_available", "group_id", "allocation_bytes"];
-    let plane =
-        [bytes(2, HOST_PLANE.as_bytes()), bytes(3, &line), entry(4, 1, "MemoryAllocation")].into_iter().chain((1..).zip(names).map(|(id, name)| entry(5, id, name))).collect::<Vec<_>>().concat();
+    let plane = [bytes(2, HOST_PLANE.as_bytes()), bytes(3, &line), entry(4, 1, "MemoryAllocation")]
+        .into_iter()
+        .chain((1..).zip(names).map(|(id, name)| entry(5, id, name)))
+        .collect::<Vec<_>>()
+        .concat();
     let map = bytes(1, &plane);
     let json = json(&crate::xplane::parse(&map).unwrap(), &map);
-    assert!(json.contains(r#""allocationBytes":"-9223372036854775808","address":"0","tfOpName":"","stepId":"-9223372036854775808""#), "{json}");
+    assert!(
+        json.contains(r#""allocationBytes":"-9223372036854775808","address":"0","tfOpName":"","stepId":"-9223372036854775808""#),
+        "{json}"
+    );
 }
