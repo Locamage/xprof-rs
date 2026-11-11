@@ -8,7 +8,12 @@ type Link = Option<(u64, u64)>;
 fn links_by_name(space: &XSpace) -> Vec<(String, Links)> {
     let (map, planes) = space.parsed();
     let plane = &planes[0];
-    plane.lines.iter().flat_map(|line| &line.events).map(|event| (name(plane, event).to_string(), plane.links(event.meta, slice(&map, event.raw), None))).collect()
+    plane
+        .lines
+        .iter()
+        .flat_map(|line| &line.events)
+        .map(|event| (name(plane, event).to_string(), plane.links(event.meta, slice(&map, event.raw), None)))
+        .collect()
 }
 
 fn legacy_pair(producer: &[(&str, V)], consumer: &[(&str, V)]) -> (Link, Link) {
@@ -40,7 +45,10 @@ fn producer_consumer_test() {
 
 #[test]
 fn producer_consumer_not_matched_test() {
-    let (producer, consumer) = legacy_pair(&[("id", 123.into()), ("iter_num", 456.into()), ("device_ordinal", 789.into())], &[("id", 123.into()), ("iter_num", 789.into())]);
+    let (producer, consumer) = legacy_pair(
+        &[("id", 123.into()), ("iter_num", 456.into()), ("device_ordinal", 789.into())],
+        &[("id", 123.into()), ("iter_num", 789.into())],
+    );
     assert!(producer.is_some() && consumer.is_some());
     assert_ne!(producer, consumer);
 }
@@ -53,9 +61,17 @@ fn missing_legacy_stat_test() {
 
 fn regions(space: &XSpace) -> Vec<(u64, u64)> {
     let (map, mut planes) = space.parsed();
-    planes.iter_mut().for_each(|plane| plane.add_threadpool_regions(&map));
+    for plane in &mut planes {
+        plane.add_threadpool_regions(&map);
+    }
     let plane: &Plane = &planes[0];
-    plane.lines.iter().flat_map(|line| &line.events).filter(|event| name(plane, event) == "ThreadpoolListener::Region").map(|event| (event.ts, event.dur)).collect()
+    plane
+        .lines
+        .iter()
+        .flat_map(|line| &line.events)
+        .filter(|event| name(plane, event) == "ThreadpoolListener::Region")
+        .map(|event| (event.ts, event.dur))
+        .collect()
 }
 
 fn threadpool_space(regions: &[(i64, i64)]) -> XSpace {

@@ -27,7 +27,9 @@ fn graph_type() {
     let params2 = view(&options2).unwrap();
     assert!(params2.contains("op_type: Mul"));
     assert!(!params2.contains("Fused expression for <b>fusion</b>"));
-    let chain = |width: &'static str| view(&[("module_name", "chain"), ("type", "graph"), ("node_name", "a15"), ("format", "html"), ("graph_width", width)]).unwrap();
+    let chain = |width: &'static str| {
+        view(&[("module_name", "chain"), ("type", "graph"), ("node_name", "a15"), ("format", "html"), ("graph_width", width)]).unwrap()
+    };
     assert_ne!(chain("10"), chain("3"));
     assert_eq!(chain("abc"), chain("3"));
 }
@@ -54,7 +56,10 @@ fn long_txt_type() {
 
 #[test]
 fn adj_nodes_type() {
-    assert_eq!(view(&[("module_name", "fused_while"), ("type", "adj_nodes"), ("node_name", "fusion")]).unwrap(), r#"{"consumer_names":["t"],"operand_names":["x","x"]}"#);
+    assert_eq!(
+        view(&[("module_name", "fused_while"), ("type", "adj_nodes"), ("node_name", "fusion")]).unwrap(),
+        r#"{"consumer_names":["t"],"operand_names":["x","x"]}"#
+    );
 }
 
 #[test]
@@ -70,7 +75,8 @@ fn graph_viewer_matches_xprof_on_synthetic_modules() {
     let cases: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap();
     let dir = fixtures();
     for case in &cases {
-        let options: Vec<(&str, &str)> = case["params"].as_object().unwrap().iter().map(|(key, value)| (key.as_str(), value.as_str().unwrap())).collect();
+        let options: Vec<(&str, &str)> =
+            case["params"].as_object().unwrap().iter().map(|(key, value)| (key.as_str(), value.as_str().unwrap())).collect();
         let expected = case["body"].as_str().unwrap().replace("{dir}", &dir.display().to_string());
         let actual = match view(&options) {
             Ok(body) => (200, body),

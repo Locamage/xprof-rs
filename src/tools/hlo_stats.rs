@@ -1,4 +1,6 @@
-use crate::tools::opstats::{CMEM, HBM, Metrics, OpStats, READ, SPARSE_CORE, TENSOR_CORE, VMEM, WRITE, giga_to_gibi, pico_to_micro, pico_to_nano, safe_divide};
+use crate::tools::opstats::{
+    CMEM, HBM, Metrics, OpStats, READ, SPARSE_CORE, TENSOR_CORE, VMEM, WRITE, giga_to_gibi, pico_to_micro, pico_to_nano, safe_divide,
+};
 use crate::tools::table::{Cell, Table};
 use crate::xplane::steps::GPU;
 use rayon::prelude::*;
@@ -53,9 +55,8 @@ pub struct Roofline {
     pub bottleneck_operational_intensity: f64,
 }
 
-pub fn roofline(metrics: &Metrics, stats: &OpStats, scale_time: bool) -> Roofline {
+pub fn roofline(metrics: &Metrics, stats: &OpStats) -> Roofline {
     let (perf, time_ns) = (&stats.perf, pico_to_nano(metrics.time_ps));
-    let device_ns = pico_to_nano(if scale_time { metrics.normalized_time_ps } else { metrics.time_ps });
     let mut bytes = [0u64; MEMORIES.len()];
     for &(operation, space, amount) in &metrics.memory {
         let slot = match (space, operation) {
@@ -71,7 +72,7 @@ pub fn roofline(metrics: &Metrics, stats: &OpStats, scale_time: bool) -> Rooflin
     if metrics.memory.is_empty() {
         bytes[0] = metrics.bytes_accessed;
     }
-    let bandwidths: [f64; MEMORIES.len()] = std::array::from_fn(|slot| giga_to_gibi(safe_divide(bytes[slot] as f64, if slot == 0 { time_ns } else { device_ns })));
+    let bandwidths: [f64; MEMORIES.len()] = std::array::from_fn(|slot| giga_to_gibi(safe_divide(bytes[slot] as f64, time_ns)));
     let peak = |index: usize| perf.bandwidths.get(index).copied().unwrap_or(0.0);
     let out = Roofline {
         measured_flop_rate: safe_divide(metrics.flops_v2, time_ns),
@@ -108,7 +109,12 @@ fn escape_html(text: &str) -> String {
 pub fn source_text(metrics: &Metrics) -> String {
     match &metrics.source {
         Some(source) if !source.file.is_empty() && source.line != -1 => {
-            format!("<div class='source-info-cell' title='{}'>{}:{}</div>", escape_html(&source.stack), escape_html(&source.file), source.line)
+            format!(
+                "<div class='source-info-cell' title='{}'>{}:{}</div>",
+                escape_html(&source.stack),
+                escape_html(&source.file),
+                source.line
+            )
         }
         _ => String::new(),
     }
@@ -146,7 +152,7 @@ fn collect<'a>(out: &mut Vec<Record<'a>>, metrics: &'a Metrics, previous: &mut O
 }
 
 fn hlo_op_name(expression: &str) -> &str {
-    let name = expression.split(" = ").next().unwrap();
+    let name = expression.split(" = ").next().expect("iterator should be non-empty");
     name.strip_prefix('%').unwrap_or(name)
 }
 
@@ -173,12 +179,20 @@ pub fn json(stats: &OpStats) -> String {
         .par_iter()
         .map(|record| {
             let metrics = record.metrics;
-            let roof = roofline(metrics, stats, false);
+            let roof = roofline(metrics, stats);
             let long = if metrics.long_name.is_empty() { &metrics.name } else { &metrics.long_name };
             let text = |text: &str| Cell::Text(text.to_string());
             let yes_no = |flag: bool| text(if flag { "Yes" } else { "No" });
-            let (total_time, self_time, occurrences) = (pico_to_micro(metrics.time_ps), pico_to_micro(metrics.self_time_ps), metrics.occurrences as f64);
-            let mut row = vec![Cell::Number(record.rank as f64), Cell::Text(metrics.module.to_string()), text(&metrics.category), text(hlo_op_name(long)), text(long), text(&metrics.provenance)];
+            let (total_time, self_time, occurrences) =
+                (pico_to_micro(metrics.time_ps), pico_to_micro(metrics.self_time_ps), metrics.occurrences as f64);
+            let mut row = vec![
+                Cell::Number(record.rank as f64),
+                Cell::Text(metrics.module.to_string()),
+                text(&metrics.category),
+                text(hlo_op_name(long)),
+                text(long),
+                text(&metrics.provenance),
+            ];
             row.extend(
                 [
                     occurrences,
@@ -201,7 +215,10 @@ pub fn json(stats: &OpStats) -> String {
             );
             row.extend([
                 text(roof.bound_by),
-                yes_no(metrics.long_name.split('=').next().unwrap().contains(".remat") || metrics.provenance.contains("rematted_computation")),
+                yes_no(
+                    metrics.long_name.split('=').next().expect("iterator should be non-empty").contains(".remat")
+                        || metrics.provenance.contains("rematted_computation"),
+                ),
                 yes_no(
                     metrics.provenance.ends_with(":XlaSendToHost")
                         || metrics.provenance.ends_with(":XlaRecvFromHost")

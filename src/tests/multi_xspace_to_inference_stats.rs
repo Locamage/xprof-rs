@@ -30,7 +30,9 @@ fn test_with_multiple_xspaces() {
         })
         .collect();
     let stats = load(&paths);
-    paths.iter().for_each(|path| std::fs::remove_file(path).unwrap());
+    for path in &paths {
+        std::fs::remove_file(path).unwrap();
+    }
     assert!(stats.is_some());
 }
 
@@ -55,6 +57,7 @@ fn populates_program_id_from_tpu_module_metadata() {
 fn appends_program_id_on_batch_collision() {
     const PROGRAM_ID_1: u64 = 11111;
     const PROGRAM_ID_2: u64 = 22222;
-    let stats = batch_with_programs(&[("hlo_module_1", PROGRAM_ID_1, 1_000_000, 1_000_000), ("hlo_module_2", PROGRAM_ID_2, 2_000_000, 1_000_000)]);
+    let stats =
+        batch_with_programs(&[("hlo_module_1", PROGRAM_ID_1, 1_000_000, 1_000_000), ("hlo_module_2", PROGRAM_ID_2, 2_000_000, 1_000_000)]);
     assert!(stats.inference_stats_per_host[&0].batch_details.iter().any(|batch| batch.program_ids == [PROGRAM_ID_1, PROGRAM_ID_2]));
 }

@@ -66,9 +66,11 @@ fn from_x_event_handles_missing_occurrences() {
 fn add_op_metric() {
     let mut space = XSpace::default();
     let plane = space.add_plane();
-    for (name, display, ids) in
-        [("m1", "display_name1", &[("program_id", 1), ("symbol_id", 1)][..]), ("m2", "display_name2", &[("program_id", 1), ("symbol_id", 2)]), ("m3", "display_name3", &[("symbol_id", 1)])]
-    {
+    for (name, display, ids) in [
+        ("m1", "display_name1", &[("program_id", 1), ("symbol_id", 1)][..]),
+        ("m2", "display_name2", &[("program_id", 1), ("symbol_id", 2)]),
+        ("m3", "display_name3", &[("symbol_id", 1)]),
+    ] {
         plane.event_metadata(name).display_name = display.into();
         plane.metadata_stats(name, &ids.iter().map(|&(key, value)| (key, value.into())).collect::<Vec<_>>());
     }
@@ -77,7 +79,9 @@ fn add_op_metric() {
     plane.event(0, "m2", 0, 100, &[("Time Scale Multiplier", 2.0.into())]);
     plane.event(0, "m3", 0, 100, &[]);
     let mut db = build(&space, true);
-    db.metrics.iter_mut().for_each(|metrics| metrics.core_type = 0);
+    for metrics in &mut db.metrics {
+        metrics.core_type = 0;
+    }
     assert_db(
         &db,
         r#"metrics_db {

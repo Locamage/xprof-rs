@@ -121,12 +121,20 @@ mod xspace;
 mod xspace_to_event_time_fraction_analyzer;
 mod zstd_compression;
 
-/// Gives the directory of this test run. A run removes the directories of the runs that stopped, so the test files do not collect.
+/// Gives the directory of this test run. A run removes the directories of the runs that stopped, so
+/// the test files do not collect.
 pub fn temp_dir() -> std::path::PathBuf {
     static ROOT: std::sync::LazyLock<std::path::PathBuf> = std::sync::LazyLock::new(|| {
         fn remove(path: &std::path::Path) {
             _ = std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o700));
-            std::fs::read_dir(path).into_iter().flatten().map_while(Result::ok).filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).for_each(|entry| remove(&entry.path()));
+            let directories = std::fs::read_dir(path)
+                .into_iter()
+                .flatten()
+                .map_while(Result::ok)
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()));
+            for entry in directories {
+                remove(&entry.path());
+            }
             _ = std::fs::remove_dir_all(path);
         }
         let base = std::env::temp_dir();
@@ -153,7 +161,11 @@ pub fn scratch(name: &str) -> std::path::PathBuf {
 
 pub fn with_file<T>(bytes: &[u8], load: impl FnOnce(&std::path::Path) -> T) -> T {
     static FILES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let path = temp_dir().join(format!("xprof-rs-test-{}-{}.xplane.pb", std::process::id(), FILES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let path = temp_dir().join(format!(
+        "xprof-rs-test-{}-{}.xplane.pb",
+        std::process::id(),
+        FILES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     std::fs::write(&path, bytes).unwrap();
     let value = load(&path);
     std::fs::remove_file(&path).unwrap();

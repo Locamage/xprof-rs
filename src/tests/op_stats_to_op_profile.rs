@@ -4,7 +4,9 @@ use serde_json::Value;
 const PERF_ENV: &str = "perf_env { peak_tera_flops_per_second: 10.0 peak_bws_giga_bytes_per_second: [100.0, 100.0, 100.0] }";
 
 fn create_op_metrics(name: &str, time: u64, category: &str, deduplicated_name: &str) -> String {
-    format!(r#"metrics_db {{ name: "{name}" time_ps: {time} self_time_ps: {time} category: "{category}" occurrences: 1 deduplicated_name: "{deduplicated_name}" }}"#)
+    format!(
+        r#"metrics_db {{ name: "{name}" time_ps: {time} self_time_ps: {time} category: "{category}" occurrences: 1 deduplicated_name: "{deduplicated_name}" }}"#
+    )
 }
 
 fn by_category(text: &str) -> Value {
@@ -61,7 +63,12 @@ fn deduplication_grouping_with_and_without_duplicates() {
 fn value_trees_are_the_parsed_json_trees() {
     use crate::cli::json::J;
     use crate::tools::op_profile::{json_trees, value_trees};
-    let ops = [create_op_metrics("conv_op_1", 500, "convolution", "conv_dedup"), create_op_metrics("conv_op_2", 400, "convolution", "conv_dedup"), create_op_metrics("fusion", 333, "", "")].join(" ");
+    let ops = [
+        create_op_metrics("conv_op_1", 500, "convolution", "conv_dedup"),
+        create_op_metrics("conv_op_2", 400, "convolution", "conv_dedup"),
+        create_op_metrics("fusion", 333, "", ""),
+    ]
+    .join(" ");
     let stats = op_stats(&format!("device_op_metrics_db {{ total_time_ps: 10000 total_op_time_ps: 8000 {ops} }} {PERF_ENV}"));
     for group_by in [None, Some("category"), Some("program"), Some("provenance")] {
         assert_eq!(value_trees(&stats, group_by), J::parse(&json_trees(&stats, group_by, false)).unwrap());

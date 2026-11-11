@@ -18,12 +18,16 @@ fn serving_roots_mark_inference_traces() {
 
 #[test]
 fn sums_that_are_too_large() {
-    let (request, mut requests) = (RequestDetail { device_time_ps: u64::MAX, host_runtime_ps: u64::MAX, ..Default::default() }, RequestDetail::default());
+    let (request, mut requests) =
+        (RequestDetail { device_time_ps: u64::MAX, host_runtime_ps: u64::MAX, ..Default::default() }, RequestDetail::default());
     let (batch, mut batches) = (BatchDetail { device_time_ps: u64::MAX, ..Default::default() }, BatchDetail::default());
     for _ in 0..2 {
         add_request(&mut requests, &request);
         add_batch(&mut batches, &batch);
     }
     let average = average_request(&requests, 2);
-    assert_eq!((average.device_time_ps, average.host_runtime_ps, average_batch(&batches, 2).device_time_ps), (u64::MAX / 2, u64::MAX / 2, u64::MAX / 2));
+    assert_eq!(
+        (average.device_time_ps, average.host_runtime_ps, average_batch(&batches, 2).device_time_ps),
+        (u64::MAX / 2, u64::MAX / 2, u64::MAX / 2)
+    );
 }

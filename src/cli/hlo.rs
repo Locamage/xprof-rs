@@ -5,19 +5,24 @@ use crate::obj;
 use indexmap::IndexMap;
 use regex::Regex;
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 const SUFFIX: &str = ".hlo_proto.pb";
 const NO_MODULE: &str = "NO_MODULE.hlo_proto.pb";
-const NO_HLO: &str = "No compiled HLO module proto found in profile session. To capture HLO graphs, export XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto' before profiling.";
-const NO_GRAPH: &str = "No graph_viewer data found in profile session. Ensure workload was profiled with XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto'.";
+const NO_HLO: &str = "No compiled HLO module proto found in profile session. To capture HLO graphs, export \
+    XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto' before profiling.";
+const NO_GRAPH: &str = "No graph_viewer data found in profile session. Ensure workload was profiled with \
+    XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto'.";
 const SUGGESTIONS: usize = 10;
 const NEIGHBORHOOD_RADIUS: i64 = 2;
-static COMPUTATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:ENTRY\s+)?%?([a-zA-Z0-9._-]+)\b.*\{\s*$").unwrap());
-static INSTRUCTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^%?([a-zA-Z0-9._-]+)\s*=(.*)$").unwrap());
-static METADATA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)metadata=\{.*?\}").unwrap());
-static NUMBERED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_]*)\.\d+$").unwrap());
+static COMPUTATION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:ENTRY\s+)?%?([a-zA-Z0-9._-]+)\b.*\{\s*$").expect("regular expression should be valid"));
+static INSTRUCTION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^%?([a-zA-Z0-9._-]+)\s*=(.*)$").expect("regular expression should be valid"));
+static METADATA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)metadata=\{.*?\}").expect("regular expression should be valid"));
+static NUMBERED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_]*)\.\d+$").expect("regular expression should be valid"));
 
 pub fn proto_files(client: &dyn Client, session: &str) -> Result<Vec<PathBuf>, Error> {
     let run = client.run_dir(session)?;
@@ -43,7 +48,10 @@ pub fn list_hlo_modules(client: &dyn Client, args: &Args) -> Result<Out, Error> 
         Ok(files) if files.is_empty() => "No HLO modules found. Ensure you have run a compilation or imported traces with HLO.".into(),
         Ok(files) => {
             let names = module_names(&files);
-            std::iter::once(format!("Found {} HLO modules:", names.len())).chain(names.iter().enumerate().map(|(index, name)| format!("{index}. {name}"))).collect::<Vec<_>>().join("\n")
+            std::iter::once(format!("Found {} HLO modules:", names.len()))
+                .chain(names.iter().enumerate().map(|(index, name)| format!("{index}. {name}")))
+                .collect::<Vec<_>>()
+                .join("\n")
         }
     }))
 }
@@ -63,11 +71,20 @@ fn target_module(client: &dyn Client, session: &str, module: Option<&J>) -> Resu
 
 fn hlo_text(client: &dyn Client, session: &str, module: &str, metadata: bool) -> Result<String, Error> {
     let params = [("type", if metadata { "long_txt" } else { "short_txt" }.to_string()), ("module_name", module.to_string())];
-    client.fetch_text("graph_viewer.json", session, &params)?.ok_or_else(|| Error::new(Kind::Runtime, "'NoneType' object has no attribute 'splitlines'"))
+    client
+        .fetch_text("graph_viewer.json", session, &params)?
+        .ok_or_else(|| Error::new(Kind::Runtime, "'NoneType' object has no attribute 'splitlines'"))
 }
 
 /// `format` and `max_lines` are `None` for their defaults.
-pub fn module_content(client: &dyn Client, session: &str, format: Option<&J>, module: Option<&J>, max_lines: Option<&J>, metadata: bool) -> String {
+pub fn module_content(
+    client: &dyn Client,
+    session: &str,
+    format: Option<&J>,
+    module: Option<&J>,
+    max_lines: Option<&J>,
+    metadata: bool,
+) -> String {
     let compute = || -> Result<String, Error> {
         let module = match target_module(client, session, module)? {
             Ok(module) => module,
@@ -81,14 +98,20 @@ pub fn module_content(client: &dyn Client, session: &str, format: Option<&J>, mo
         let limit = match max_lines {
             None => 2000.0,
             Some(value @ (J::Bool(_) | J::Int(_) | J::Float(_))) => value.float().unwrap_or_default(),
-            Some(value) => return fail(Kind::Type, format!("'>' not supported between instances of '{}' and 'int'", super::kind(value))),
+            Some(value) => {
+                return fail(Kind::Type, format!("'>' not supported between instances of '{}' and 'int'", super::kind(value)));
+            }
         };
         Ok(if limit > 0.0 && lines.len() as f64 > limit {
             if matches!(max_lines, Some(J::Float(_))) {
                 return fail(Kind::Type, super::SLICE);
             }
             let shown = max_lines.map_or_else(|| "2000".into(), J::text);
-            format!("{}\n... (truncated after {shown} lines, total {}). Use 'max_lines=-1' to see all)", lines[..limit as usize].join("\n"), lines.len())
+            format!(
+                "{}\n... (truncated after {shown} lines, total {}). Use 'max_lines=-1' to see all)",
+                lines[..limit as usize].join("\n"),
+                lines.len()
+            )
         } else {
             text
         })
@@ -98,7 +121,14 @@ pub fn module_content(client: &dyn Client, session: &str, format: Option<&J>, mo
 
 pub fn get_hlo_module_content(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let max_lines = args.raw("max_lines").or(Some(&J::Int(2000)));
-    Ok(Out::Text(module_content(client, &args.session(), args.raw("fmt"), args.raw("module_name"), max_lines, args.flag("print_metadata", false))))
+    Ok(Out::Text(module_content(
+        client,
+        &args.session(),
+        args.raw("fmt"),
+        args.raw("module_name"),
+        max_lines,
+        args.flag("print_metadata", false),
+    )))
 }
 
 fn operands(text: &str) -> Vec<String> {
@@ -110,11 +140,15 @@ fn operands(text: &str) -> Vec<String> {
         while bytes.get(at).is_some_and(|byte| named(*byte)) {
             at += 1;
         }
-        (at > start && bytes.get(at).is_none_or(|byte| byte.is_ascii_whitespace() || matches!(byte, b',' | b')' | 0x0b))).then_some((start, at))
+        (at > start && bytes.get(at).is_none_or(|byte| byte.is_ascii_whitespace() || matches!(byte, b',' | b')' | 0x0b)))
+            .then_some((start, at))
     };
     let (mut found, mut position) = (Vec::new(), 0);
     while position <= bytes.len() {
-        let delimited = bytes.get(position).filter(|byte| byte.is_ascii_whitespace() || matches!(byte, b',' | b'(' | 0x0b)).and_then(|_| attempt(position + 1));
+        let delimited = bytes
+            .get(position)
+            .filter(|byte| byte.is_ascii_whitespace() || matches!(byte, b',' | b'(' | 0x0b))
+            .and_then(|_| attempt(position + 1));
         match (position == 0).then(|| attempt(0)).flatten().or(delimited) {
             Some((start, end)) => {
                 found.push(text[start..end].to_string());
@@ -126,17 +160,34 @@ fn operands(text: &str) -> Vec<String> {
     found
 }
 
-pub fn neighborhood(client: &dyn Client, session: &str, instruction: Option<&J>, radius: &J, module: Option<&J>, op_name: Option<&J>, metadata: bool) -> Result<String, Error> {
+pub fn neighborhood(
+    client: &dyn Client,
+    session: &str,
+    instruction: Option<&J>,
+    radius: &J,
+    module: Option<&J>,
+    op_name: Option<&J>,
+    metadata: bool,
+) -> Result<String, Error> {
     let (instruction, op_name) = (instruction.filter(|name| **name != J::Null), op_name.filter(|name| **name != J::Null));
     if let (Some(instruction), Some(op_name)) = (instruction, op_name)
         && instruction != op_name
     {
-        return fail(Kind::Value, format!("Conflicting arguments: instruction_name='{}' and op_name='{}' cannot both be specified with different values.", instruction.text(), op_name.text()));
+        return fail(
+            Kind::Value,
+            format!(
+                "Conflicting arguments: instruction_name='{}' and op_name='{}' cannot both be specified with different values.",
+                instruction.text(),
+                op_name.text()
+            ),
+        );
     }
     let Some(target) = instruction.filter(|name| name.truthy()).or(op_name).filter(|name| name.truthy()) else {
         return fail(Kind::Value, "Either instruction_name or op_name must be provided to get_hlo_neighborhood.");
     };
-    let J::Str(target) = target else { return Err(super::no_attribute(target, "startswith")) };
+    let J::Str(target) = target else {
+        return Err(super::no_attribute(target, "startswith"));
+    };
     let target = target.strip_prefix('%').unwrap_or(target).to_string();
     let compute = || -> Result<String, Error> {
         let module = match target_module(client, session, module)? {
@@ -144,7 +195,8 @@ pub fn neighborhood(client: &dyn Client, session: &str, instruction: Option<&J>,
             Err(message) => return Ok(message),
         };
         let text = hlo_text(client, session, &module, metadata)?;
-        let (mut lines, mut operand_lists, mut users, mut computations) = (IndexMap::new(), IndexMap::<String, Vec<String>>::new(), IndexMap::<String, Vec<String>>::new(), IndexMap::new());
+        let (mut lines, mut operand_lists, mut users, mut computations) =
+            (IndexMap::new(), IndexMap::<String, Vec<String>>::new(), IndexMap::<String, Vec<String>>::new(), IndexMap::new());
         let mut current = "unknown".to_string();
         for line in text.lines() {
             let stripped = line.trim();
@@ -175,7 +227,9 @@ pub fn neighborhood(client: &dyn Client, session: &str, instruction: Option<&J>,
                 J::Bool(limit) => distance < i32::from(*limit),
                 J::Int(limit) => i128::from(distance) < *limit,
                 J::Float(limit) => f64::from(distance) < *limit,
-                other => return fail(Kind::Type, format!("'<' not supported between instances of 'int' and '{}'", super::kind(other))),
+                other => {
+                    return fail(Kind::Type, format!("'<' not supported between instances of 'int' and '{}'", super::kind(other)));
+                }
             };
             if within {
                 for next in operand_lists.get(&name).into_iter().flatten().chain(users.get(&name).into_iter().flatten()) {
@@ -188,8 +242,14 @@ pub fn neighborhood(client: &dyn Client, session: &str, instruction: Option<&J>,
         }
         found.sort();
         let header = format!("Neighborhood of '{target}' (radius={}):", radius.text());
-        let body =
-            found.iter().map(|(distance, name)| format!("{}[dist={distance}] [{}] {}", "  ".repeat(*distance as usize + 1), computations.get(name).map_or("unknown", String::as_str), lines[name]));
+        let body = found.iter().map(|(distance, name)| {
+            format!(
+                "{}[dist={distance}] [{}] {}",
+                "  ".repeat(*distance as usize + 1),
+                computations.get(name).map_or("unknown", String::as_str),
+                lines[name]
+            )
+        });
         Ok(std::iter::once(header).chain(body).collect::<Vec<_>>().join("\n"))
     };
     Ok(compute().unwrap_or_else(|error| format!("Error analyzing neighborhood: {}", error.repr())))
@@ -212,14 +272,16 @@ pub fn get_hlo_text(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     let session = args.session();
     let compute = || -> Result<String, Error> {
         let text = match args.get("op_name").filter(|name| name.truthy()) {
-            Some(op_name) => neighborhood(client, &session, Some(op_name), &J::Int(NEIGHBORHOOD_RADIUS.into()), args.raw("module_name"), None, false)?,
+            Some(op_name) => {
+                neighborhood(client, &session, Some(op_name), &J::Int(NEIGHBORHOOD_RADIUS.into()), args.raw("module_name"), None, false)?
+            }
             None => module_content(client, &session, None, args.raw("module_name"), None, false),
         };
         if let Some(path) = args.get("path").filter(|path| path.truthy()) {
-            let J::Str(path) = path else { return fail(Kind::Type, "expected str, bytes or os.PathLike object") };
-            let path = PathBuf::from(path);
-            path.parent().filter(|parent| !parent.as_os_str().is_empty()).map(std::fs::create_dir_all).transpose().map_err(|error| Error::new(Kind::Os, error.to_string()))?;
-            std::fs::write(&path, &text).map_err(|error| Error::new(Kind::Os, error.to_string()))?;
+            let J::Str(path) = path else {
+                return fail(Kind::Type, "expected str, bytes or os.PathLike object");
+            };
+            super::write_file(Path::new(path), text.as_bytes())?;
         }
         Ok(text)
     };
@@ -260,8 +322,13 @@ pub fn get_graph_viewer(client: &dyn Client, args: &Args) -> Result<Out, Error> 
     options.extend(truthy("tool").map(|value| ("tool", value.clone())));
     options.extend(limit.map(|value| ("op_profile_limit", value)));
     options.extend(xplane.map(|value| ("use_xplane", value)));
-    let options = options.iter().filter_map(|(key, value)| super::packed(key, value).transpose().map(|text| text.map(|text| (*key, text)))).collect::<Result<Vec<_>, Error>>();
-    let fetched = options.map_err(|error| super::unpackable(client, &session, error)).and_then(|options| client.fetch_text("graph_viewer", &session, &options));
+    let options = options
+        .iter()
+        .filter_map(|(key, value)| super::packed(key, value).transpose().map(|text| text.map(|text| (*key, text))))
+        .collect::<Result<Vec<_>, Error>>();
+    let fetched = options
+        .map_err(|error| super::unpackable(client, &session, error))
+        .and_then(|options| client.fetch_text("graph_viewer", &session, &options));
     let data = fetched.map_err(|error| {
         if error.message.contains("Can not load hlo proto") || error.message.contains("No HLO") {
             Error::new(Kind::FileNotFound, NO_HLO)
@@ -283,12 +350,22 @@ fn buffers(module: &J, min_size: &Result<f64, Error>, aggregate: bool, threshold
             .at("maxHeap")
             .items()
             .iter()
-            .map(|buffer| (buffer.get("instructionName").map_or("unknown".into(), J::text), buffer.get("logicalBufferSizeMib").map_or(Some(0.0), J::float).unwrap_or(0.0)))
+            .map(|buffer| {
+                (
+                    buffer.get("instructionName").map_or_else(|| "unknown".into(), J::text),
+                    buffer.get("logicalBufferSizeMib").map_or(Some(0.0), J::float).unwrap_or(0.0),
+                )
+            })
             .collect()
     } else {
         logical
             .iter()
-            .map(|buffer| (buffer.at("definedAt").get("instructionName").map_or("unknown".into(), J::text), buffer.get("size").map_or(Some(0), J::int).unwrap_or(0) as f64 / 1048576.0))
+            .map(|buffer| {
+                (
+                    buffer.at("definedAt").get("instructionName").map_or_else(|| "unknown".into(), J::text),
+                    buffer.get("size").map_or(Some(0), J::int).unwrap_or(0) as f64 / 1048576.0,
+                )
+            })
             .collect()
     };
     for (instruction, size) in entries {
@@ -298,9 +375,8 @@ fn buffers(module: &J, min_size: &Result<f64, Error>, aggregate: bool, threshold
             kept.push((instruction, size));
         }
     }
-    let descending = |items: &mut Vec<(String, f64)>| items.sort_by(|left, right| right.1.partial_cmp(&left.1).unwrap_or(std::cmp::Ordering::Equal));
     if !aggregate {
-        descending(&mut kept);
+        super::descending(&mut kept, |item| item.1);
         return Ok(kept);
     }
     let mut groups: IndexMap<(String, u64), Vec<String>> = IndexMap::new();
@@ -312,13 +388,17 @@ fn buffers(module: &J, min_size: &Result<f64, Error>, aggregate: bool, threshold
         .into_iter()
         .map(|((base, bits), names)| {
             let size = f64::from_bits(bits);
-            if names.len() > 1 { (format!("{base} ({} occurrences of size {} MiB)", names.len(), crate::hlo::general(size, 6)), size * names.len() as f64) } else { (names[0].clone(), size) }
+            if names.len() > 1 {
+                (format!("{base} ({} occurrences of size {} MiB)", names.len(), crate::hlo::general(size, 6)), size * names.len() as f64)
+            } else {
+                (names[0].clone(), size)
+            }
         })
         .collect();
     if others > 0.0 {
         aggregated.push((format!("Others (< {} MiB)", threshold.text()), others));
     }
-    descending(&mut aggregated);
+    super::descending(&mut aggregated, |item| item.1);
     Ok(aggregated)
 }
 
@@ -341,20 +421,28 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
         }
         None => match proto_files(client, &session) {
             Ok(files) if !files.is_empty() => module_names(&files),
-            _ => return fail(Kind::Value, "No memory viewer data returned for the session"),
+            _ => {
+                return fail(Kind::Value, "No memory viewer data returned for the session");
+            }
         },
     };
-    let failed = |error| rethrow(error, |error| format!("Failed to get peak allocations for session {session}: {}", error.message));
+    let failed = rethrow(format!("Failed to get peak allocations for session {session}: "));
     let mut modules = Vec::new();
     for name in &names {
         let mut params = vec![("format", "json".to_string()), ("module_name", name.clone())];
         params.extend(args.flag("bypass_cache", false).then(|| bypass(true)));
-        let data = client.fetch_text("memory_viewer.json", &session, &params).map_err(failed)?;
-        let Some(parsed) = data.and_then(|data| J::parse(&data)) else { continue };
-        modules.push((name.clone(), parsed.get("totalBufferAllocationMib").cloned().unwrap_or(J::Int(0)), buffers(&parsed, &min_size, aggregate, &threshold).map_err(failed)?));
+        let data = client.fetch_text("memory_viewer.json", &session, &params).map_err(&failed)?;
+        let Some(parsed) = data.and_then(|data| J::parse(&data)) else {
+            continue;
+        };
+        modules.push((
+            name.clone(),
+            parsed.get("totalBufferAllocationMib").cloned().unwrap_or(J::Int(0)),
+            buffers(&parsed, &min_size, aggregate, &threshold).map_err(&failed)?,
+        ));
     }
     let total = modules.len();
-    modules.sort_by(|left, right| right.1.float().partial_cmp(&left.1.float()).unwrap_or(std::cmp::Ordering::Equal));
+    super::descending(&mut modules, |module| module.1.float());
     let limit = args.compared("limit", 10.0, ">")?;
     if let Some(message) = super::nlargest_float(args.raw("limit"), limit, total) {
         return fail(Kind::Type, message);
@@ -382,7 +470,13 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
             lines.push(String::new());
         }
         for (name, hbm, kept) in &modules {
-            lines.extend([format!("## Module: `{name}`"), format!("Total HBM: {:.2} MiB", hbm.float().unwrap_or(0.0)), String::new(), "| Instruction | Size (MiB) |".into(), "| :--- | ---: |".into()]);
+            lines.extend([
+                format!("## Module: `{name}`"),
+                format!("Total HBM: {:.2} MiB", hbm.float().unwrap_or(0.0)),
+                String::new(),
+                "| Instruction | Size (MiB) |".into(),
+                "| :--- | ---: |".into(),
+            ]);
             lines.extend(kept.iter().map(|(instruction, size)| format!("| `{instruction}` | {size:.2} |")));
             lines.push(String::new());
         }
@@ -390,11 +484,24 @@ pub fn get_peak_allocations(client: &dyn Client, args: &Args) -> Result<Out, Err
     }
     let listed: Vec<J> = modules
         .iter()
-        .map(|(name, hbm, kept)| obj! {"module_name" => name, "total_hbm_mib" => hbm, "top_buffers" => kept.iter().map(|(instruction, size)| obj! {"instruction" => instruction, "size_mib" => *size}).collect::<Vec<_>>()})
+        .map(|(name, hbm, kept)| {
+            obj! {
+                "module_name" => name,
+                "total_hbm_mib" => hbm,
+                "top_buffers" => kept.iter().map(|(instruction, size)| obj! {
+                    "instruction" => instruction,
+                    "size_mib" => *size,
+                }).collect::<Vec<_>>(),
+            }
+        })
         .collect();
     if summary {
         let top: Vec<J> = modules.iter().map(|(name, hbm, _)| obj! {"module_name" => name, "total_hbm_mib" => hbm}).collect();
-        return Ok(obj! {"summary" => obj! {"total_modules" => total, "top_modules" => top}, "modules" => listed}.into());
+        return Ok(obj! {
+            "summary" => obj! {"total_modules" => total, "top_modules" => top},
+            "modules" => listed,
+        }
+        .into());
     }
     Ok(J::List(listed).into())
 }

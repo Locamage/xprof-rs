@@ -6,7 +6,8 @@ use crate::cli::{Kind, hlo, xplane};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-const SHORT_TXT_GRAPH: &str = "ENTRY entry {\n  x = f32[10] parameter(0)\n  w = f32[10] parameter(1)\n  mul = f32[10] multiply(x, w)\n  ROOT neg = f32[10] negate(mul)\n}\n";
+const SHORT_TXT_GRAPH: &str = "ENTRY entry {\n  x = f32[10] parameter(0)\n  w = f32[10] parameter(1)\n  mul = f32[10] multiply(x, \
+    w)\n  ROOT neg = f32[10] negate(mul)\n}\n";
 const SESSION_ID: &str = "2026_08_24_06_33_12";
 
 fn overview(target: &Path) -> J {
@@ -94,8 +95,15 @@ fn test_d15_roofline_bottleneck_intensity_and_deduplication() {
     assert!(!result.has("error"));
     let program = result.at("program");
     for key in [
-        "bottleneck_operational_intensity_flop_per_byte", "optimal_flop_rate_gflops", "dma_stall_percent", "hbm_read_bw_utilization_percent", "hbm_write_bw_utilization_percent",
-        "vmem_read_bw_utilization_percent", "vmem_write_bw_utilization_percent", "cmem_read_bw_utilization_percent", "cmem_write_bw_utilization_percent",
+        "bottleneck_operational_intensity_flop_per_byte",
+        "optimal_flop_rate_gflops",
+        "dma_stall_percent",
+        "hbm_read_bw_utilization_percent",
+        "hbm_write_bw_utilization_percent",
+        "vmem_read_bw_utilization_percent",
+        "vmem_write_bw_utilization_percent",
+        "cmem_read_bw_utilization_percent",
+        "cmem_write_bw_utilization_percent",
     ] {
         assert!(program.has(key), "{key}");
     }
@@ -114,17 +122,11 @@ fn test_d16_perf_counters_non_null_payload() {
     assert_ne!(data, "null");
     let table = parse(&data);
     assert!(table.has("cols") && table.has("rows"));
-    let ids: Vec<String> = table.at("cols").items().iter().map(|column| column.get("id").or_else(|| column.get("label")).unwrap().text()).collect();
+    let ids: Vec<String> =
+        table.at("cols").items().iter().map(|column| column.get("id").or_else(|| column.get("label")).unwrap().text()).collect();
     for id in ["Host", "Chip", "Kernel", "Counter"] {
         assert!(ids.iter().any(|column| column == id), "{id}");
     }
-}
-
-#[test]
-fn test_d17_llo_analysis_opcode_resolution_and_multi_module() {
-    let result = demo_query("d17", "get_llo_analysis", &[]);
-    assert_eq!(result.at("status").str(), Some("UNAVAILABLE"));
-    assert!(result.at("error").text().contains("not available"));
 }
 
 #[test]
@@ -207,12 +209,15 @@ fn test_d16_llo_remediation_when_absent() {
     let dir = scratch("d16llo");
     std::fs::write(dir.join("host1.xplane.pb"), training_trace(TRAINING_STEP_PS)).unwrap();
     let fake = Fake::fixed("").with_hosts(&["host1"]).in_dir(&dir);
-    for result in [xplane::get_llo_analysis(&fake, &args("test_session", &[])), xplane::get_llo_debug_string(&fake, &args("test_session", &[]))] {
+    for result in
+        [xplane::get_llo_analysis(&fake, &args("test_session", &[])), xplane::get_llo_debug_string(&fake, &args("test_session", &[]))]
+    {
         let result = json(result);
         assert_eq!(result.at("status").str(), Some("UNAVAILABLE"));
         assert_eq!(result.at("reason").str(), Some("LLO_DATA_ABSENT"));
         let remediation = result.at("remediation").text();
-        for needle in ["LIBTPU_INIT_ARGS", "--xla_xprof_enable_custom_call_tracing=true", "Python 3.11+", "JAX >= 0.11.0", "xprof-nightly"] {
+        for needle in ["LIBTPU_INIT_ARGS", "--xla_xprof_enable_custom_call_tracing=true", "Python 3.11+", "JAX >= 0.11.0", "xprof-nightly"]
+        {
             assert!(remediation.contains(needle), "{needle}");
         }
     }
@@ -243,7 +248,19 @@ fn test_d20_hlo_stats_datatable_schema_fidelity() {
     let path = path.to_str().unwrap();
     let records = parse(&run(&["get_hlo_stats", path, "--limit=10"]).1);
     let top = &records.items()[0];
-    for key in ["rank", "program_id", "category", "op_name", "total_self_time_us", "self_time_percent", "measured_flop_rate", "measured_memory_bw_gbs", "bound_by", "source_file", "source_line"] {
+    for key in [
+        "rank",
+        "program_id",
+        "category",
+        "op_name",
+        "total_self_time_us",
+        "self_time_percent",
+        "measured_flop_rate",
+        "measured_memory_bw_gbs",
+        "bound_by",
+        "source_file",
+        "source_line",
+    ] {
         assert!(top.has(key), "{key}");
     }
     assert_eq!(parse(&run(&["get_hlo_stats", path, "--limit=5", "--bypass_cache"]).1).items().len(), 5);
@@ -286,5 +303,8 @@ fn test_d23_upload_trace_import_roundtrip() {
     let imported = Path::new(result.at("imported_file").str().unwrap());
     assert!(imported.exists());
     assert_eq!(imported.file_name(), source.file_name());
-    assert_eq!(ok(&["get_overview", "imported_step_100", &logdir_flag]).at("performance_summary").at("steptime_ms_average").str(), Some("20.00"));
+    assert_eq!(
+        ok(&["get_overview", "imported_step_100", &logdir_flag]).at("performance_summary").at("steptime_ms_average").str(),
+        Some("20.00")
+    );
 }

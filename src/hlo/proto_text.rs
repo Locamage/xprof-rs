@@ -15,7 +15,7 @@ const DESCRIPTORS: &[u8] = include_bytes!("../data/hlo_descriptors.pb");
 
 static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| {
     let mut pool = DescriptorPool::global();
-    pool.decode_file_descriptor_set(DESCRIPTORS).unwrap();
+    pool.decode_file_descriptor_set(DESCRIPTORS).expect("embedded hlo descriptors should be valid");
     pool
 });
 
@@ -72,7 +72,9 @@ pub fn c_escape(out: &mut String, bytes: &[u8]) {
             b'\'' => out.push_str("\\'"),
             b'\\' => out.push_str("\\\\"),
             0x20..=0x7e => out.push(byte as char),
-            byte => write!(out, "\\{byte:03o}").unwrap(),
+            byte => {
+                let _ = write!(out, "\\{byte:03o}");
+            }
         }
     }
 }
@@ -92,7 +94,9 @@ pub fn json_string(out: &mut String, text: &str) {
         plain += rest.as_bytes()[plain..].iter().position(|&byte| special(byte)).unwrap_or(rest.len() - plain);
         out.push_str(&rest[..plain]);
         rest = &rest[plain..];
-        let Some(character) = rest.chars().next() else { break };
+        let Some(character) = rest.chars().next() else {
+            break;
+        };
         rest = &rest[character.len_utf8()..];
         match character {
             '"' => out.push_str("\\\""),
@@ -123,7 +127,7 @@ pub fn json_string(out: &mut String, text: &str) {
             | '\u{e0020}'..='\u{e007f}' => {
                 let mut units = [0u16; 2];
                 for unit in character.encode_utf16(&mut units) {
-                    write!(out, "\\u{unit:04x}").unwrap();
+                    let _ = write!(out, "\\u{unit:04x}");
                 }
             }
             character => out.push(character),
@@ -168,7 +172,9 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
         out.push_str(&spec.name);
     }
     match (value, kind) {
-        (Field::Bytes(_, bytes), Kind::Message(_)) if json => print(out, depth, message_name(kind), bytes, format),
+        (Field::Bytes(_, bytes), Kind::Message(_)) if json => {
+            print(out, depth, message_name(kind), bytes, format);
+        }
         (Field::Bytes(_, bytes), Kind::Message(_)) => {
             out.push_str(" {\n");
             print(out, depth + 1, message_name(kind), bytes, format);
@@ -189,15 +195,27 @@ fn emit(out: &mut String, depth: usize, spec: &Spec, value: &Field, format: Form
                 Kind::Double if json => proto_double(out, f64::from_bits(raw)),
                 Kind::Float if json => proto_double(out, f64::from(f32::from_bits(raw as u32))),
                 Kind::Double => out.push_str(&floating(f64::from_bits(raw), [15, 17], |text| text.parse() == Ok(f64::from_bits(raw)))),
-                Kind::Float => out.push_str(&floating(f64::from(f32::from_bits(raw as u32)), [6, 9], |text| text.parse() == Ok(f32::from_bits(raw as u32)))),
-                Kind::Bool => write!(out, "{}", raw != 0).unwrap(),
+                Kind::Float => {
+                    out.push_str(&floating(f64::from(f32::from_bits(raw as u32)), [6, 9], |text| {
+                        text.parse() == Ok(f32::from_bits(raw as u32))
+                    }));
+                }
+                Kind::Bool => {
+                    let _ = write!(out, "{}", raw != 0);
+                }
                 Kind::Enum(values) => match values.get_value(raw as i32) {
                     Some(value) if json => json_string(out, value.name()),
                     Some(value) => out.push_str(value.name()),
-                    None => write!(out, "{}", raw as i32).unwrap(),
+                    None => {
+                        let _ = write!(out, "{}", raw as i32);
+                    }
                 },
-                Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 | Kind::Uint64 | Kind::Fixed64 if json => write!(out, "\"{}\"", decode(kind, raw)).unwrap(),
-                kind => write!(out, "{}", decode(kind, raw)).unwrap(),
+                Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 | Kind::Uint64 | Kind::Fixed64 if json => {
+                    let _ = write!(out, "\"{}\"", decode(kind, raw));
+                }
+                kind => {
+                    let _ = write!(out, "{}", decode(kind, raw));
+                }
             }
         }
     }
@@ -242,25 +260,31 @@ static CHECKS: LazyLock<(usize, Vec<Checks>)> = LazyLock::new(|| {
     };
     let table = |message: &MessageDescriptor| {
         let mut checks = vec![Check::Any; message.fields().map(|field| field.number() as usize + 1).max().unwrap_or(0)];
-        message.fields().for_each(|field| checks[field.number() as usize] = check(field.clone()));
+        for field in message.fields() {
+            checks[field.number() as usize] = check(field.clone());
+        }
         checks
     };
-    let checks = messages.iter().map(table).collect();
+    let checks: Vec<Checks> = messages.iter().map(table).collect();
     (index["xla.HloProto"], checks)
 });
 
-/// If C++ protobuf parses the bytes as an `xla.HloProto`. It rejects a bad field, text that is not UTF-8, and more than 100 levels of messages.
+/// If C++ protobuf parses the bytes as an `xla.HloProto`. It rejects a bad field, text that is not
+/// UTF-8, and more than 100 levels of messages.
 pub fn parses_hlo(buf: &[u8]) -> bool {
     parses(Some(CHECKS.0), buf, &mut 0, 100, 0)
 }
 
-/// A field with an unexpected wire type is an unknown field. An unknown group continues to the end-group tag that has its number.
-/// The nested messages of a large message parse at the same time.
+/// A field with an unexpected wire type is an unknown field. An unknown group continues to the
+/// end-group tag that has its number. The nested messages of a large message parse at the same
+/// time.
 fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, group: u32) -> bool {
     let checks = message.map_or(&[][..], |message| &CHECKS.1[message]);
     let (split, mut nested) = (group == 0 && buf.len() >= PARALLEL_BYTES, Vec::new());
     while *pos < buf.len() {
-        let Some(key) = varint(buf, pos).and_then(|key| u32::try_from(key).ok()).filter(|&key| key >> 3 != 0) else { return false };
+        let Some(key) = varint(buf, pos).and_then(|key| u32::try_from(key).ok()).filter(|&key| key >> 3 != 0) else {
+            return false;
+        };
         let number = key >> 3;
         let check = checks.get(number as usize).copied().unwrap_or(Check::Any);
         let parsed = match key & 7 {
@@ -270,7 +294,11 @@ fn parses(message: Option<usize>, buf: &[u8], pos: &mut usize, levels: usize, gr
                 *pos <= buf.len()
             }
             2 => {
-                let Some(body) = varint(buf, pos).and_then(|length| buf.get(*pos..*pos + usize::try_from(length).ok().filter(|&length| length <= buf.len())?)) else { return false };
+                let Some(body) = varint(buf, pos)
+                    .and_then(|length| buf.get(*pos..*pos + usize::try_from(length).ok().filter(|&length| length <= buf.len())?))
+                else {
+                    return false;
+                };
                 *pos += body.len();
                 match check {
                     Check::Message(inner) if split && levels > 0 => {
@@ -310,11 +338,14 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
     let always = |spec: &Spec| *map_entry || (format == Format::JsonAlways && !spec.presence);
     let mut found: Vec<Option<Vec<Field>>> = specs.iter().map(|spec| always(spec).then(Vec::new)).collect();
     for (number, value) in fields(buf) {
-        let Ok(index) = specs.binary_search_by_key(&number, |spec| spec.number) else { continue };
+        let Ok(index) = specs.binary_search_by_key(&number, |spec| spec.number) else {
+            continue;
+        };
         let spec = &specs[index];
         let kind = &spec.kind;
         if let Some(oneof) = &spec.oneof {
-            for (_, slot) in specs.iter().zip(&mut found).filter(|(other, _)| other.number != number && other.oneof.as_ref() == Some(oneof)) {
+            for (_, slot) in specs.iter().zip(&mut found).filter(|(other, _)| other.number != number && other.oneof.as_ref() == Some(oneof))
+            {
                 *slot = None;
             }
         }
@@ -350,14 +381,18 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
         let kind = &spec.kind;
         let key = |out: &mut String| {
             if json {
-                write!(out, "{}\"{}\":", if out.len() > start { "," } else { "" }, spec.json_name).unwrap();
+                let _ = write!(out, "{}\"{}\":", if out.len() > start { "," } else { "" }, spec.json_name);
             }
         };
         if spec.map {
-            let [Spec { kind: key_kind, .. }, value_spec @ Spec { kind: value_kind, .. }] = &MESSAGES[message_name(kind)].1[..] else { continue };
+            let [Spec { kind: key_kind, .. }, value_spec @ Spec { kind: value_kind, .. }] = &MESSAGES[message_name(kind)].1[..] else {
+                continue;
+            };
             let mut entries: BTreeMap<(i128, &[u8]), &[u8]> = BTreeMap::new();
             for item in items {
-                let Field::Bytes(_, bytes) = item else { continue };
+                let Field::Bytes(_, bytes) = item else {
+                    continue;
+                };
                 let entry_key = match last(bytes, 1) {
                     Some(Field::Bytes(_, text)) => (0, text),
                     Some(Field::Num(raw)) => (decode(key_kind, raw), &[][..]),
@@ -366,7 +401,9 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                 entries.insert(entry_key, bytes);
             }
             if !json {
-                entries.values().for_each(|bytes| emit(out, depth, spec, &Field::Bytes(0, bytes), format));
+                for bytes in entries.values() {
+                    emit(out, depth, spec, &Field::Bytes(0, bytes), format);
+                }
             } else if !entries.is_empty() || always(spec) {
                 key(out);
                 out.push('{');
@@ -379,7 +416,11 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
                     out.push_str(if index > 0 { "," } else { "" });
                     json_string(out, &name);
                     out.push(':');
-                    let empty = if matches!(value_kind, Kind::Message(_) | Kind::String | Kind::Bytes) { Field::Bytes(0, &[]) } else { Field::Num(0) };
+                    let empty = if matches!(value_kind, Kind::Message(_) | Kind::String | Kind::Bytes) {
+                        Field::Bytes(0, &[])
+                    } else {
+                        Field::Num(0)
+                    };
                     emit(out, depth, value_spec, &last(bytes, 2).unwrap_or(empty), format);
                 }
                 out.push('}');
@@ -409,7 +450,9 @@ fn print(out: &mut String, depth: usize, message: &str, buf: &[u8], format: Form
         } else if kind.as_message().is_some() {
             let merged = match items.as_slice() {
                 [Field::Bytes(_, bytes)] => Cow::Borrowed(*bytes),
-                _ => Cow::Owned(items.iter().flat_map(|item| if let Field::Bytes(_, bytes) = item { bytes.to_vec() } else { Vec::new() }).collect()),
+                _ => Cow::Owned(
+                    items.iter().flat_map(|item| if let Field::Bytes(_, bytes) = item { bytes.to_vec() } else { Vec::new() }).collect(),
+                ),
             };
             key(out);
             emit(out, depth, spec, &Field::Bytes(0, merged.as_ref()), format);

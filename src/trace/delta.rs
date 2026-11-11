@@ -125,7 +125,8 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
     response.full_timespan_end_ps = views.iter().filter(|view| !view.trace.events.is_empty()).map(|view| view.trace.max_ps).max();
     let ordered = ordered(views);
     let track = |&(host, index): &(u32, u32)| (host, views[host as usize].trace.events[index as usize].track);
-    // The series hold the indices of the trace names and of the context types. The interned IDs come after, in the order of the series.
+    // The series hold the indices of the trace names and of the context types. The interned IDs
+    // come after, in the order of the series.
     let mut built: Vec<(u32, u32, Series)> = ordered
         .par_chunk_by(|left, right| track(left) == track(right))
         .map(|run| {
@@ -143,7 +144,11 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
                 last = event.ts;
                 let mut metadata = EventMetadata::default();
                 if tag == 2 {
-                    metadata.counter_value = match view.planes[event.plane as usize].named_stats(view.map, event.meta, event.raw).next().map(|stat| stat.2.value) {
+                    metadata.counter_value = match view.planes[event.plane as usize]
+                        .named_stats(view.map, event.meta, event.raw)
+                        .next()
+                        .map(|stat| stat.2.value)
+                    {
                         Some(Value::Double(value)) => Some(CounterValue::Double(value)),
                         Some(Value::Uint(value)) => Some(CounterValue::Uint(value)),
                         _ => None,
@@ -179,7 +184,7 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
             *name = *id;
         };
         if *tag != 1 {
-            name(&mut interner, &mut series.metadata.as_mut().unwrap().name_ref);
+            name(&mut interner, &mut series.metadata.as_mut().expect("series metadata should be present").name_ref);
         }
         for (index, metadata) in series.event_metadata.iter_mut().enumerate() {
             if let Some(slot) = series.name_refs.get_mut(index) {
@@ -191,7 +196,8 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
         }
     }
     response.interned_strings = interner.0.into_iter().collect();
-    // Protobuf writes the fields in the order of their tags, so the series come before the other fields of the response.
+    // Protobuf writes the fields in the order of their tags, so the series come before the other
+    // fields of the response.
     built.sort_by_key(|(_, tag, _)| *tag);
     let parts: Vec<Vec<u8>> = built
         .into_par_iter()
@@ -202,6 +208,6 @@ pub fn render(views: &[View], full_dma: Option<bool>) -> Vec<u8> {
         })
         .collect();
     let mut raw = parts.concat();
-    response.encode(&mut raw).unwrap();
-    zstd::bulk::compress(&raw, 1).unwrap()
+    response.encode(&mut raw).expect("trace response can be encoded");
+    zstd::bulk::compress(&raw, 1).expect("trace response can be compressed")
 }

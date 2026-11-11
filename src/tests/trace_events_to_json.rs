@@ -46,7 +46,12 @@ fn json(text: &str) -> serde_json::Value {
 fn rendered(space: &XSpace) -> String {
     let (map, mut planes) = space.parsed();
     let trace = Trace::build(&mut planes, "localhost", &map);
-    let view = View { trace: &trace, map: &map, planes: &planes, events: trace.load(&Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false }) };
+    let view = View {
+        trace: &trace,
+        map: &map,
+        planes: &planes,
+        events: trace.load(&Options { start_ms: 0.0, end_ms: 0.0, resolution: 0.0, full_dma: false }),
+    };
     String::from_utf8(render(&[view], false, crate::trace::json::Args::Brief)).unwrap()
 }
 
@@ -154,7 +159,16 @@ fn complete_event_test() {
 fn complete_event_with_flow_test() {
     let trace = trace_of(&["complete_event_with_flow"], &[123]);
     let out = written(&trace, &event(false, 1_000_000, 500_000, 0, FLOW_START));
-    assert!(same(&json(&out), &json(r#"{"pid":1,"tid":2,"name":"complete_event_with_flow","ts":1,"dur":0.5,"bind_id":123,"flow_out":true,"ph":"X","args":{"uid":0}}"#)), "{out}");
+    assert!(
+        same(
+            &json(&out),
+            &json(concat!(
+                r#"{"pid":1,"tid":2,"name":"complete_event_with_flow","ts":1,"dur":0.5,"#,
+                r#""bind_id":123,"flow_out":true,"ph":"X","args":{"uid":0}}"#,
+            ))
+        ),
+        "{out}"
+    );
 }
 
 #[test]
@@ -218,9 +232,17 @@ fn write_event_args() {
     let (mut out, mut frames) = (String::new(), Vec::new());
     let args_event = Event { group: 10, ..trace.events[0] };
     write_event(&mut out, &trace, &args_event, 123_456, 1, Some((&planes[0], &map, &mut frames, None, false)), None);
-    for expected in
-        [r#""args":{"#, r#""group_id":10"#, r#""str_arg":"value""#, r#""int_arg":42"#, r#""uint_arg":100"#, r#""double_arg":3.14"#, r#""ref_arg":"ref_value""#, r#""sf":1"#, r#""z":123456"#]
-    {
+    for expected in [
+        r#""args":{"#,
+        r#""group_id":10"#,
+        r#""str_arg":"value""#,
+        r#""int_arg":42"#,
+        r#""uint_arg":100"#,
+        r#""double_arg":3.14"#,
+        r#""ref_arg":"ref_value""#,
+        r#""sf":1"#,
+        r#""z":123456"#,
+    ] {
         assert!(out.contains(expected), "{expected} in {out}");
     }
     assert_eq!(frames, ["@@stack_frame and more text"]);

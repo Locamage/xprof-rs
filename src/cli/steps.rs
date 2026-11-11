@@ -9,7 +9,8 @@ const COMPUTE_COLUMNS: [&str; 5] = ["tccomputetimems", "scv0computetimems", "bcc
 const COMMUNICATION_COLUMNS: [&str; 2] = ["devicetodevicetimems", "devicecollectivestimems"];
 const INFEED_COLUMNS: [&str; 4] = ["tcinfeedtimems", "scv0infeedtimems", "bcinfeedtimems", "infeedtimems"];
 const OUTFEED_COLUMNS: [&str; 2] = ["tcoutfeedtimems", "outfeedtimems"];
-const OTHER_COLUMNS: [&str; 6] = ["tcidletimems", "hosttransfertimems", "hostcomputetimems", "kernellaunchtimems", "compiletimems", "othertimems"];
+const OTHER_COLUMNS: [&str; 6] =
+    ["tcidletimems", "hosttransfertimems", "hostcomputetimems", "kernellaunchtimems", "compiletimems", "othertimems"];
 const STEP_COUNT_KEYS: [&str; 4] = ["total_steps", "num_steps", "step_count", "total_step_count"];
 const ICI_PATTERNS: [&str; 6] = ["all-reduce", "all-gather", "all-to-all", "reduce-scatter", "collective-broadcast", "collective-permute"];
 const HBM_PATTERNS: [&str; 3] = ["copy-start", "copy", "copy-done"];
@@ -28,7 +29,14 @@ fn percent(part: f64, whole: f64) -> f64 {
     if whole > 0.0 { round(part / whole * 100.0, 2) } else { 0.0 }
 }
 
-fn step(number: J, time: f64, [compute, communication, infeed, outfeed, idle]: [f64; 5], percents: [f64; 5], bottleneck: String, breakdown: Option<(f64, f64, f64)>) -> J {
+fn step(
+    number: J,
+    time: f64,
+    [compute, communication, infeed, outfeed, idle]: [f64; 5],
+    percents: [f64; 5],
+    bottleneck: String,
+    breakdown: Option<(f64, f64, f64)>,
+) -> J {
     let mut out = obj! {
         "step_num" => number,
         "step_time_ms" => time,
@@ -58,11 +66,21 @@ fn most_common(items: &[String]) -> Option<String> {
             None => counts.push((item, 1)),
         }
     }
-    counts.iter().fold(None, |best: Option<(&String, usize)>, &(name, count)| if best.is_none_or(|(_, top)| count > top) { Some((name, count)) } else { best }).map(|(name, _)| name.clone())
+    counts
+        .iter()
+        .fold(
+            None,
+            |best: Option<(&String, usize)>, &(name, count)| {
+                if best.is_none_or(|(_, top)| count > top) { Some((name, count)) } else { best }
+            },
+        )
+        .map(|(name, _)| name.clone())
 }
 
 fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
-    let Some(data) = J::parse(raw) else { return Vec::new() };
+    let Some(data) = J::parse(raw) else {
+        return Vec::new();
+    };
     let mut steps = Vec::new();
     let mut core_found = false;
     for entry in data.at("podStatsSequence").at("podStatsMap").items().iter().filter(|entry| matches!(entry, J::Map(_))) {
@@ -93,7 +111,9 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
         let breakdown = |key: &str| {
             let total: f64 = core_stats
                 .iter()
-                .map(|stats| Some(stats.at("stepBreakdownUs")).filter(|map| **map != J::Null).unwrap_or_else(|| stats.at("step_breakdown_us")))
+                .map(|stats| {
+                    Some(stats.at("stepBreakdownUs")).filter(|map| **map != J::Null).unwrap_or_else(|| stats.at("step_breakdown_us"))
+                })
                 .filter(|map| matches!(map, J::Map(_)))
                 .map(|map| finite(map.at(key)))
                 .fold(0.0, |total, value| total + value);
@@ -104,7 +124,8 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
         let mut communication = round(all_reduce + breakdown("2"), 4);
         let (mut infeed, mut outfeed) = (breakdown("6"), breakdown("7"));
         if [compute, communication, infeed, outfeed].iter().all(|value| *value == 0.0) {
-            (compute, all_reduce, send, recv) = (average("highFlopsComputeUs"), average("crsDurationUs"), average("sendDurationUs"), average("recvDurationUs"));
+            (compute, all_reduce, send, recv) =
+                (average("highFlopsComputeUs"), average("crsDurationUs"), average("sendDurationUs"), average("recvDurationUs"));
             communication = round(all_reduce + send + recv, 4);
             (infeed, outfeed) = (average("hostInfeedDurationUs"), average("hostOutfeedDurationUs"));
         }
@@ -113,7 +134,8 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
         }
         let idle = round((total - (compute + communication + infeed + outfeed)).max(0.0), 4);
         let shares = [compute, communication, infeed, outfeed, idle].map(|value| percent(value, total));
-        let named: Vec<String> = core_stats.iter().map(|stats| stats.at("bottleneck")).filter(|value| value.truthy()).map(J::text).collect();
+        let named: Vec<String> =
+            core_stats.iter().map(|stats| stats.at("bottleneck")).filter(|value| value.truthy()).map(J::text).collect();
         let bottleneck = most_common(&named).unwrap_or_else(|| {
             let [compute, communication, infeed, outfeed, _] = shares;
             if communication > compute && communication > infeed && communication > outfeed {
@@ -126,19 +148,36 @@ fn pod_viewer(raw: &str, step_num: Option<&J>, core: Option<&J>) -> Vec<J> {
                 "Compute".into()
             }
         });
-        steps.push(step(number, total, [compute, communication, infeed, outfeed, idle], shares, bottleneck, Some((all_reduce, send, recv))));
+        steps.push(step(
+            number,
+            total,
+            [compute, communication, infeed, outfeed, idle],
+            shares,
+            bottleneck,
+            Some((all_reduce, send, recv)),
+        ));
     }
     if core.is_some() && !core_found { Vec::new() } else { steps }
 }
 
 fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
-    let Some(data) = J::parse(raw) else { return (Vec::new(), None) };
+    let Some(data) = J::parse(raw) else {
+        return (Vec::new(), None);
+    };
     let section = data.items().iter().find(|section| {
-        let columns: Vec<String> = section.at("cols").items().iter().map(|column| column.at("id").str().unwrap_or_default().to_lowercase()).collect();
+        let columns: Vec<String> =
+            section.at("cols").items().iter().map(|column| column.at("id").str().unwrap_or_default().to_lowercase()).collect();
         section.has("cols") && section.has("rows") && columns.iter().any(|column| column.contains("step") || column.contains("infeed"))
     });
-    let Some(section) = section else { return (Vec::new(), None) };
-    let columns: Vec<Option<String>> = section.at("cols").items().iter().map(|column| column.get("id").filter(|_| matches!(column, J::Map(_))).map(|id| id.text().to_lowercase())).collect();
+    let Some(section) = section else {
+        return (Vec::new(), None);
+    };
+    let columns: Vec<Option<String>> = section
+        .at("cols")
+        .items()
+        .iter()
+        .map(|column| column.get("id").filter(|_| matches!(column, J::Map(_))).map(|id| id.text().to_lowercase()))
+        .collect();
     let index = |name: &str| columns.iter().position(|column| column.as_deref() == Some(name));
     let mut steps = Vec::new();
     for row in section.at("rows").items() {
@@ -147,7 +186,8 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
             continue;
         }
         let value = |name: &str| index(name).and_then(|at| cells.get(at)).map(|cell| cell.at("v").clone());
-        let sum = |names: &[&str]| names.iter().filter_map(|name| value(name)).map(|cell| finite(&cell)).fold(0.0, |total, value| total + value);
+        let sum =
+            |names: &[&str]| names.iter().filter_map(|name| value(name)).map(|cell| finite(&cell)).fold(0.0, |total, value| total + value);
         let number = match cells.get(index("stepnum").unwrap_or(0)).map(|cell| cell.at("v").clone()).unwrap_or_default() {
             J::Null => J::Null,
             J::Str(text) => super::json::py_int(&text).map_or(J::Str(text), J::Int),
@@ -157,22 +197,47 @@ fn input_pipeline(raw: &str, step_num: Option<&J>) -> (Vec<J>, Option<J>) {
         if step_num.is_some_and(|wanted| !number.equals(wanted)) {
             continue;
         }
-        let (compute, communication, infeed, outfeed, other) = (sum(&COMPUTE_COLUMNS), sum(&COMMUNICATION_COLUMNS), sum(&INFEED_COLUMNS), sum(&OUTFEED_COLUMNS), sum(&OTHER_COLUMNS));
-        let total = round(if index("steptimems").is_some() { sum(&["steptimems"]) } else { compute + communication + infeed + outfeed + other }, 4);
+        let (compute, communication, infeed, outfeed, other) =
+            (sum(&COMPUTE_COLUMNS), sum(&COMMUNICATION_COLUMNS), sum(&INFEED_COLUMNS), sum(&OUTFEED_COLUMNS), sum(&OTHER_COLUMNS));
+        let total =
+            round(if index("steptimems").is_some() { sum(&["steptimems"]) } else { compute + communication + infeed + outfeed + other }, 4);
         let infeed_percent = match value("infeedpercentaverage").filter(|cell| *cell != J::Null) {
             Some(cell) => round(finite(&cell), 2),
             None => percent(infeed, total),
         };
         let idle = round(other.max(total - (compute + communication + infeed + outfeed)), 4);
-        let candidates = [("Compute", compute), ("Communication", communication), ("Input / Infeed", infeed), ("Output / Outfeed", outfeed), ("Idle / Other", other)];
-        let bottleneck = candidates.iter().fold(candidates[0], |best, candidate| if candidate.1 > best.1 { *candidate } else { best }).0.to_string();
-        let percents = [percent(compute, total), percent(communication, total), infeed_percent, percent(outfeed, total), percent(idle, total)];
-        steps.push(step(number, total, [round(compute, 4), round(communication, 4), round(infeed, 4), round(outfeed, 4), idle], percents, bottleneck, None));
+        let candidates = [
+            ("Compute", compute),
+            ("Communication", communication),
+            ("Input / Infeed", infeed),
+            ("Output / Outfeed", outfeed),
+            ("Idle / Other", other),
+        ];
+        let bottleneck =
+            candidates.iter().fold(candidates[0], |best, candidate| if candidate.1 > best.1 { *candidate } else { best }).0.to_string();
+        let percents =
+            [percent(compute, total), percent(communication, total), infeed_percent, percent(outfeed, total), percent(idle, total)];
+        steps.push(step(
+            number,
+            total,
+            [round(compute, 4), round(communication, 4), round(infeed, 4), round(outfeed, 4), idle],
+            percents,
+            bottleneck,
+            None,
+        ));
     }
     (steps, Some(section.at("p").clone()).filter(J::truthy))
 }
 
-fn totals(total_steps: J, step: f64, [min, max, stddev]: [f64; 3], [compute, communication, infeed, outfeed, idle]: [f64; 5], percents: [f64; 5], primary: J, aggregate: bool) -> J {
+fn totals(
+    total_steps: J,
+    step: f64,
+    [min, max, stddev]: [f64; 3],
+    [compute, communication, infeed, outfeed, idle]: [f64; 5],
+    percents: [f64; 5],
+    primary: J,
+    aggregate: bool,
+) -> J {
     let [compute_percent, communication_percent, infeed_percent, outfeed_percent, idle_percent] = percents;
     obj! {
         "total_steps" => total_steps,
@@ -200,11 +265,15 @@ fn summarize(steps: &[J], props: Option<&J>) -> J {
     let average = |key: &str| round(fsum(column(key)) / steps.len() as f64, 4);
     let times = column("step_time_ms");
     let step = average("step_time_ms");
-    let parts @ [compute, communication, ..] = ["compute_time_ms", "communication_time_ms", "infeed_time_ms", "outfeed_time_ms", "idle_time_ms"].map(average);
+    let parts @ [compute, communication, ..] =
+        ["compute_time_ms", "communication_time_ms", "infeed_time_ms", "outfeed_time_ms", "idle_time_ms"].map(average);
     let named: Vec<String> = steps.iter().map(|step| step.at("bottleneck").text()).filter(|name| !name.is_empty()).collect();
     let primary = most_common(&named).unwrap_or_else(|| if communication > compute { "Communication" } else { "Compute" }.into());
-    let spread =
-        [round(times.iter().copied().fold(f64::INFINITY, f64::min), 4), round(times.iter().copied().fold(f64::NEG_INFINITY, f64::max), 4), if steps.len() > 1 { round(stdev(&times), 4) } else { 0.0 }];
+    let spread = [
+        round(times.iter().copied().fold(f64::INFINITY, f64::min), 4),
+        round(times.iter().copied().fold(f64::NEG_INFINITY, f64::max), 4),
+        if steps.len() > 1 { round(stdev(&times), 4) } else { 0.0 },
+    ];
     let mut summary = totals(steps.len().into(), step, spread, parts, parts.map(|part| percent(part, step)), primary.into(), false);
     if let Some(conclusion) = props.and_then(|props| props.get("summary_conclusion")).filter(|value| **value != J::Null) {
         summary.set("conclusion", conclusion.clone());
@@ -214,32 +283,46 @@ fn summarize(steps: &[J], props: Option<&J>) -> J {
 
 fn overview_steps(raw: &str) -> Option<J> {
     let sections = J::parse(raw)?;
-    let mut all = J::Map(Vec::new());
-    sections.items().iter().flat_map(|section| section.at("p").entries()).for_each(|(key, value)| all.set(key, value));
+    let all = super::overview::properties(&sections);
     let mut step = finite(all.at("steptime_ms_average"));
     if step <= 0.0 && all.has("stat_step_time") {
-        step = super::json::py_float(all.at("stat_step_time").text().replace("ms", "").trim()).filter(|value| value.is_finite()).unwrap_or(0.0);
+        step = super::json::py_float(all.at("stat_step_time").text().replace("ms", "").trim())
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.0);
     }
     if step <= 0.0 {
         return None;
     }
     let pick = |first: &str, second: &str| finite(all.get(first).unwrap_or_else(|| all.at(second)));
-    let (infeed, outfeed, idle) = (pick("tc_infeed_ms_average", "sc_infeed_ms_average"), pick("tc_outfeed_ms_average", "sc_outfeed_ms_average"), pick("tc_idle_ms_average", "sc_idle_ms_average"));
+    let (infeed, outfeed, idle) = (
+        pick("tc_infeed_ms_average", "sc_infeed_ms_average"),
+        pick("tc_outfeed_ms_average", "sc_outfeed_ms_average"),
+        pick("tc_idle_ms_average", "sc_idle_ms_average"),
+    );
     let compute = (step - infeed - outfeed - idle).max(0.0);
     let infeed_percent = percent(infeed, step);
-    let total_steps = STEP_COUNT_KEYS.iter().filter_map(|key| all.get(key)).find_map(|value| value.int().filter(|count| *count > 0)).or_else(|| {
-        sections.items().iter().find_map(|section| {
-            let stepped = section.has("rows") && section.has("cols") && section.at("cols").items().iter().any(|column| column.at("id").text().to_lowercase().contains("step"));
-            (stepped && section.at("rows").truthy()).then(|| section.at("rows").items().len() as i128)
-        })
-    });
+    let total_steps =
+        STEP_COUNT_KEYS.iter().filter_map(|key| all.get(key)).find_map(|value| value.int().filter(|count| *count > 0)).or_else(|| {
+            sections.items().iter().find_map(|section| {
+                let stepped = section.has("rows")
+                    && section.has("cols")
+                    && section.at("cols").items().iter().any(|column| column.at("id").text().to_lowercase().contains("step"));
+                (stepped && section.at("rows").truthy()).then(|| section.at("rows").items().len() as i128)
+            })
+        });
     let note = if total_steps.is_some() {
         "Aggregated overview statistics (individual step breakdown not available)."
     } else {
         "Aggregated overview statistics (individual step breakdown and step count not available)."
     };
-    let bound = |key: &str| if all.has(key) { finite(all.at(key)) } else { step };
-    let spread = [round(bound("steptime_ms_min"), 4), round(bound("steptime_ms_max"), 4), round(finite(all.at("steptime_ms_standard_deviation")), 4)];
+    let bound = |key: &str| {
+        if all.has(key) { finite(all.at(key)) } else { step }
+    };
+    let spread = [
+        round(bound("steptime_ms_min"), 4),
+        round(bound("steptime_ms_max"), 4),
+        round(finite(all.at("steptime_ms_standard_deviation")), 4),
+    ];
     let parts = [compute, 0.0, infeed, outfeed, idle];
     let mut summary = totals(
         total_steps.into(),
@@ -294,7 +377,12 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
         found = overview_steps(&data).map(|summary| (Vec::new(), Some(summary)));
     }
     let Some((steps, summary)) = found else {
-        return Ok(obj! {"status" => "NO_DATA", "message" => format!("No step trace data found for session '{session}' (the trace may lack step markers). Consider using 'list_xplane_events' to get more performance insights.")}.into());
+        return Ok(obj! {
+            "status" => "NO_DATA",
+            "message" => format!("No step trace data found for session '{session}' (the trace may lack step markers). Consider using \
+                'list_xplane_events' to get more performance insights."),
+        }
+        .into());
     };
     let limit = args.compared("limit", DEFAULT_STEP_LIMIT, ">")?;
     if limit > 0.0 && matches!(args.raw("limit"), Some(J::Float(_))) {
@@ -309,26 +397,12 @@ pub fn get_step_trace(client: &dyn Client, args: &Args) -> Result<Out, Error> {
     Ok(out.into())
 }
 
-/// The index of the sum for the time of a leaf of the op profile: 0 for compute, 1 for HBM, 2 for ICI.
+/// The index of the sum for the time of a leaf of the op profile: 0 for compute, 1 for HBM, 2 for
+/// ICI.
 pub fn time_class(name: &str, category: &str) -> usize {
     let (name, category) = (name.to_lowercase(), category.to_lowercase());
     let matches = |patterns: &[&str]| patterns.iter().any(|pattern| name.contains(pattern) || category.contains(pattern));
     if matches(&ICI_PATTERNS) { 2 } else { usize::from(matches(&HBM_PATTERNS)) }
-}
-
-pub fn hlo_times(node: &J) -> [f64; 3] {
-    let metrics = node.at("metrics");
-    let children = node.at("children").items();
-    let mut times = [0.0; 3];
-    if children.is_empty() && metrics.at("occurrences").float().unwrap_or(0.0) > 0.0 {
-        let category = node.at("xla").get("category").map_or(String::new(), J::text);
-        times[time_class(&node.at("name").text(), &category)] += Some(metrics.at("rawTime")).filter(|value| value.truthy()).and_then(J::float).unwrap_or(0.0);
-    }
-    for child in children.iter().filter(|child| matches!(child, J::Map(_))) {
-        let child = hlo_times(child);
-        times = std::array::from_fn(|index| times[index] + child[index]);
-    }
-    times
 }
 
 fn barrier(client: &dyn Client, session: &str) -> (f64, usize) {
@@ -339,7 +413,9 @@ fn barrier(client: &dyn Client, session: &str) -> (f64, usize) {
 fn utilization_metrics(client: &dyn Client, session: &str, hosts: i64, bypass: bool) -> [f64; 4] {
     let mut metrics = [0.0; 4];
     for host in 0..hosts.clamp(1, MAX_UTILIZATION_HOSTS) {
-        let Ok(data) = utilization_viewer(client, session, Ok([host, 0, 0]), bypass) else { break };
+        let Ok(data) = utilization_viewer(client, session, Ok([host, 0, 0]), bypass) else {
+            break;
+        };
         if !data.truthy() || data.has("error") {
             break;
         }
@@ -351,7 +427,12 @@ fn utilization_metrics(client: &dyn Client, session: &str, hosts: i64, bypass: b
             continue;
         }
         if !data.has("message") {
-            for (slot, key) in metrics.iter_mut().zip(["idleness_percent", "hbm_bandwidth_utilization_percent", "ici_read_utilization_percent", "ici_write_utilization_percent"]) {
+            for (slot, key) in metrics.iter_mut().zip([
+                "idleness_percent",
+                "hbm_bandwidth_utilization_percent",
+                "ici_read_utilization_percent",
+                "ici_write_utilization_percent",
+            ]) {
                 if let Some(value) = data.get(key).and_then(J::float) {
                     *slot = value;
                 }
@@ -374,10 +455,16 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
     let compute = || -> Result<J, Error> {
         let mut params = vec![("format", "json".to_string())];
         params.push(super::bypass(bypass));
-        let raw = client.fetch_text("overview_page.json", &session, &params)?.ok_or_else(|| Error::new(Kind::FileNotFound, format!("No overview data returned for session {session}")))?;
-        let sections = J::parse(&raw).ok_or_else(|| Error::new(Kind::Value, "Expecting value: line 1 column 1 (char 0)"))?;
+        let raw = client
+            .fetch_text("overview_page.json", &session, &params)?
+            .ok_or_else(|| Error::new(Kind::FileNotFound, format!("No overview data returned for session {session}")))?;
+        let sections = super::overview::parsed(&raw)?;
         let section = |index: usize, key: &str| {
-            sections.items().get(index).filter(|section| matches!(section, J::Map(_))).map_or(J::Map(Vec::new()), |section| section.get(key).cloned().unwrap_or_else(|| J::Map(Vec::new())))
+            sections
+                .items()
+                .get(index)
+                .filter(|section| matches!(section, J::Map(_)))
+                .map_or(J::Map(Vec::new()), |section| section.get(key).cloned().unwrap_or_else(|| J::Map(Vec::new())))
         };
         let pick = |key: &str| Some(sections.at(key)).filter(|value| matches!(value, J::Map(_))).unwrap_or(&sections).clone();
         let (overview, step_table, environment, steps) = match &sections {
@@ -388,17 +475,28 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
                 pick("run_environment"),
                 sections.get("number_of_steps").map_or(sections.at("rows").items().len() as i128, |count| count.int().unwrap_or(0)),
             ),
-            _ => return Err(Error::new(Kind::Value, format!("Unexpected overview data format for session {session}"))),
+            _ => {
+                return Err(Error::new(Kind::Value, format!("Unexpected overview data format for session {session}")));
+            }
         };
-        let duty = super::json::py_float(&overview.get("device_duty_cycle_percent").map_or_else(|| "0.0%".into(), J::text).replace('%', "")).unwrap_or(0.0);
-        let digits = |value: Option<&J>| leading_number(value.unwrap_or(&J::from("1")), |character| character.is_ascii_digit()).and_then(|text| text.parse::<i64>().ok()).unwrap_or(1).max(1);
+        let duty =
+            super::json::py_float(&overview.get("device_duty_cycle_percent").map_or_else(|| "0.0%".into(), J::text).replace('%', ""))
+                .unwrap_or(0.0);
+        let digits = |value: Option<&J>| {
+            leading_number(value.unwrap_or(&J::from("1")), |character| character.is_ascii_digit())
+                .and_then(|text| text.parse::<i64>().ok())
+                .unwrap_or(1)
+                .max(1)
+        };
         let (cores, hosts) = (digits(environment.get("device_core_count")), digits(environment.get("host_count")));
         let step_value = Some(step_table.at("steptime_ms_average"))
             .filter(|value| value.truthy())
             .or_else(|| Some(step_table.at("sc_step_time_ms_average")).filter(|value| value.truthy()))
             .cloned()
             .unwrap_or_else(|| J::from("0.0"));
-        let average_step = leading_number(&step_value, |character| character.is_ascii_digit() || character == '.').and_then(|text| super::json::py_float(&text)).unwrap_or(0.0);
+        let average_step = leading_number(&step_value, |character| character.is_ascii_digit() || character == '.')
+            .and_then(|text| super::json::py_float(&text))
+            .unwrap_or(0.0);
         let total = average_step * steps as f64;
         if total == 0.0 || steps == 0 {
             return Ok(obj! {
@@ -422,7 +520,12 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
         let active = total - pure_idle;
         let ratio = if active > 0.0 { pure_idle / active } else { 0.0 } * 100.0;
         let idle_chips = cores as f64 * if total > 0.0 { pure_idle / total } else { 0.0 };
-        let (idle_high, mxu_high, hbm_low, ici_low) = (ratio > IDLE_RATIO_THRESHOLD, idleness > MXU_IDLENESS_THRESHOLD, hbm < HBM_THRESHOLD, ici_read < ICI_THRESHOLD && ici_write < ICI_THRESHOLD);
+        let (idle_high, mxu_high, hbm_low, ici_low) = (
+            ratio > IDLE_RATIO_THRESHOLD,
+            idleness > MXU_IDLENESS_THRESHOLD,
+            hbm < HBM_THRESHOLD,
+            ici_read < ICI_THRESHOLD && ici_write < ICI_THRESHOLD,
+        );
         let (mut reasons, mut recommendations) = (Vec::new(), Vec::new());
         let status = if idle_high && mxu_high && hbm_low && ici_low {
             reasons.push(format!("Workload is host-bound: Idle Time Ratio exceeds {IDLE_RATIO_THRESHOLD:.1}% of active compute."));
@@ -439,7 +542,9 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
                 reasons.push(format!("TPU duty cycle ({duty:.1}%) is high and idle ratio is low."));
                 "NOT_HOST_BOUND"
             } else {
-                reasons.push(format!("TPU duty cycle is high ({duty:.1}%), but HLO telemetry is missing. Unable to determine if workload is host-bound."));
+                reasons.push(format!(
+                    "TPU duty cycle is high ({duty:.1}%), but HLO telemetry is missing. Unable to determine if workload is host-bound."
+                ));
                 "UNKNOWN"
             }
         } else {
@@ -481,5 +586,5 @@ pub fn check_host_boundness(client: &dyn Client, args: &Args) -> Result<Out, Err
             "recommendations" => recommendations,
         })
     };
-    Ok(compute().map_err(|error| rethrow(error, |error| format!("Error during host boundness check: {}", error.message)))?.into())
+    Ok(compute().map_err(rethrow("Error during host boundness check: "))?.into())
 }

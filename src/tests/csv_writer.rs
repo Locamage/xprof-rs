@@ -15,7 +15,8 @@ async fn csv(name: &str, tag: &str) -> (StatusCode, String) {
 async fn test_valid_json_list_input() {
     let (status, body) = csv("csv-list", "framework_op_stats").await;
     let tables: serde_json::Value = serde_json::from_str(include_str!("../../tests/data/framework_op_stats.json")).unwrap();
-    let header: Vec<String> = tables[0]["cols"].as_array().unwrap().iter().map(|col| format!("\"{}\"", col["label"].as_str().unwrap())).collect();
+    let header: Vec<String> =
+        tables[0]["cols"].as_array().unwrap().iter().map(|col| format!("\"{}\"", col["label"].as_str().unwrap())).collect();
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body.lines().next().unwrap(), header.join(","));
     assert_eq!(body.lines().count(), tables[0]["rows"].as_array().unwrap().len() + 1);
@@ -31,5 +32,8 @@ async fn test_handle_multiline_stack_traces() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_missing_cols_error() {
-    assert_eq!(csv("csv-missing-cols", "trace_viewer@").await, (StatusCode::INTERNAL_SERVER_ERROR, "Data format not suitable for CSV (missing 'cols')".to_string()));
+    assert_eq!(
+        csv("csv-missing-cols", "trace_viewer@").await,
+        (StatusCode::INTERNAL_SERVER_ERROR, "Data format not suitable for CSV (missing 'cols')".to_string())
+    );
 }

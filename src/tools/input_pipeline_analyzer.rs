@@ -1,35 +1,92 @@
 use crate::tools::opstats::{Db, IDLE, OpStats, safe_divide};
 use crate::tools::table::{Cell, Table};
 use crate::xplane::steps::{
-    Breakdown, CPU_ONLY, Core, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE, DEVICE_TO_HOST, DEVICE_WAIT_DEVICE, DEVICE_WAIT_HOST, Extra, GPU, HOST_COMPILE,
-    HOST_COMPUTE, HOST_PREPARE, HOST_TO_DEVICE, HOST_WAIT_INPUT, SPARSE_CORE_START, StepRecord, TPU, UNKNOWN_TIME,
+    Breakdown, CPU_ONLY, Core, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE, DEVICE_TO_HOST,
+    DEVICE_WAIT_DEVICE, DEVICE_WAIT_HOST, Extra, GPU, HOST_COMPILE, HOST_COMPUTE, HOST_PREPARE, HOST_TO_DEVICE, HOST_WAIT_INPUT,
+    SPARSE_CORE_START, StepRecord, TPU, UNKNOWN_TIME,
 };
 use std::collections::BTreeMap;
 
 const NO_STEP: &str = "No step time measured. Therefore we cannot tell where the performance bottleneck is.";
-pub const NO_STEP_MARKER: &str = "No step marker observed and hence the step time is unknown. This may happen if (1) training steps are not instrumented (e.g., if you are not using Keras) or (2) the profiling duration is shorter than the step time. For (1), you need to add step instrumentation; for (2), you may try to profile longer.";
-pub const EMPTY_INTERSECT: &str = "Although there are steps observed on some host(s), the intersection of the steps over all hosts is empty (because the differences among individual host's step sequences are too big). Consequently, the overall step time is unknown.";
+pub const NO_STEP_MARKER: &str = "No step marker observed and hence the step time is unknown. This may happen if (1) training steps are \
+    not instrumented (e.g., if you are not using Keras) or (2) the profiling duration is shorter than the step time. For (1), you need \
+    to add step instrumentation; for (2), you may try to profile longer.";
+pub const EMPTY_INTERSECT: &str = "Although there are steps observed on some host(s), the intersection of the steps over all hosts is \
+    empty (because the differences among individual host's step sequences are too big). Consequently, the overall step time is unknown.";
 const INPUT_BOUND: [(&str, &str); 4] = [
-    ("host", "Your program is HIGHLY input-bound because {}% of the total step time sampled is waiting for input. Therefore, you should first focus on reducing the input time."),
-    ("both", "Your program is MODERATELY input-bound because {}% of the total step time sampled is waiting for input. Therefore, you would need to reduce both the input time and other time."),
-    ("both", "Your program is POTENTIALLY input-bound because {}% of the total step time sampled is spent on 'All Others' time (which could be due to I/O or Python execution or both)."),
-    ("device", "Your program is NOT input-bound because only {}% of the total step time sampled is waiting for input. Therefore, you should focus on reducing other time."),
+    (
+        "host",
+        "Your program is HIGHLY input-bound because {}% of the total step time sampled is waiting for input. Therefore, you should \
+            first focus on reducing the input time.",
+    ),
+    (
+        "both",
+        "Your program is MODERATELY input-bound because {}% of the total step time sampled is waiting for input. Therefore, you would \
+            need to reduce both the input time and other time.",
+    ),
+    (
+        "both",
+        "Your program is POTENTIALLY input-bound because {}% of the total step time sampled is spent on 'All Others' time (which could \
+            be due to I/O or Python execution or both).",
+    ),
+    (
+        "device",
+        "Your program is NOT input-bound because only {}% of the total step time sampled is waiting for input. Therefore, you should \
+            focus on reducing other time.",
+    ),
 ];
 const OUTPUT_BOUND: [(f64, &str); 2] = [
-    (20.0, "Your program is HIGHLY output-bound because {}% of the total step time sampled is spent on output. Therefore, you should first focus on reducing the output time."),
-    (5.0, "Your program is MODERATELY output-bound because {}% of the total step time sampled is spent on output. Therefore, you would need to reduce both the output time and other time."),
+    (
+        20.0,
+        "Your program is HIGHLY output-bound because {}% of the total step time sampled is spent on output. Therefore, you should first \
+            focus on reducing the output time.",
+    ),
+    (
+        5.0,
+        "Your program is MODERATELY output-bound because {}% of the total step time sampled is spent on output. Therefore, you would \
+            need to reduce both the output time and other time.",
+    ),
 ];
-const KERNEL_LAUNCH_TF_DATA: &str = ". It could be due to CPU contention with tf.data. In this case, you may try to set the environment variable TF_GPU_THREAD_MODE=gpu_private.";
+const KERNEL_LAUNCH_TF_DATA: &str = ". It could be due to CPU contention with tf.data. In this case, you may try to set the environment \
+    variable TF_GPU_THREAD_MODE=gpu_private.";
 pub const HARDWARE: [&str; 4] = ["UNKNOWN_HARDWARE", "CPU_ONLY", "GPU", "TPU"];
 pub const BOTTLENECK_PREFIXES: [&str; 4] = ["", "kernel_launch_", "all_other_", "device_collectives_"];
 const RECOMMENDATIONS: [&str; 5] = [
     r"Enqueuing data: you may want to combine small input data chunks into fewer but larger chunks.",
-    r#"Data preprocessing: you may increase num_parallel_calls in <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#map" target="_blank">Dataset map()</a> or preprocess the data OFFLINE."#,
-    r#"Reading data from files in advance: you may tune parameters in the following tf.data API (<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" target="_blank">prefetch size</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" target="_blank">interleave cycle_length</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/TFRecordDataset#class_tfrecorddataset" target="_blank">reader buffer_size</a>)"#,
-    r#"Reading data from files on demand: you should read data IN ADVANCE using the following tf.data API (<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" target="_blank">prefetch</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" target="_blank">interleave</a>, <a href="https://www.tensorflow.org/api_docs/python/tf/data/TFRecordDataset#class_tfrecorddataset" target="_blank">reader buffer</a>)"#,
-    r#"Other data reading or processing: you may consider using the <a href="https://www.tensorflow.org/programmers_guide/datasets" target="_blank">tf.data API</a> (if you are not using it now)"#,
+    concat!(
+        r#"Data preprocessing: you may increase num_parallel_calls in "#,
+        r#"<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#map" "#,
+        r#"target="_blank">Dataset map()</a> or preprocess the data OFFLINE."#,
+    ),
+    concat!(
+        r#"Reading data from files in advance: you may tune parameters in the following tf.data API ("#,
+        r#"<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" "#,
+        r#"target="_blank">prefetch size</a>, "#,
+        r#"<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" "#,
+        r#"target="_blank">interleave cycle_length</a>, "#,
+        r#"<a href="https://www.tensorflow.org/api_docs/python/tf/data/TFRecordDataset#class_tfrecorddataset" "#,
+        r#"target="_blank">reader buffer_size</a>)"#,
+    ),
+    concat!(
+        r#"Reading data from files on demand: you should read data IN ADVANCE using the following tf.data API ("#,
+        r#"<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch" "#,
+        r#"target="_blank">prefetch</a>, "#,
+        r#"<a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset#interleave" "#,
+        r#"target="_blank">interleave</a>, "#,
+        r#"<a href="https://www.tensorflow.org/api_docs/python/tf/data/TFRecordDataset#class_tfrecorddataset" "#,
+        r#"target="_blank">reader buffer</a>)"#,
+    ),
+    concat!(
+        r#"Other data reading or processing: you may consider using the "#,
+        r#"<a href="https://www.tensorflow.org/programmers_guide/datasets" "#,
+        r#"target="_blank">tf.data API</a> (if you are not using it now)"#,
+    ),
 ];
-const CONSIDER_TF_DATA: &str = r#"Consider using <a href="https://www.tensorflow.org/guide/data" target="_blank">the tf.data API</a> to enable profiler's host-side analysis for input pipeline. Profiler currently does not support custom input pipeline (please ignore Section 3 below)."#;
+const CONSIDER_TF_DATA: &str = concat!(
+    r#"Consider using "#,
+    r#"<a href="https://www.tensorflow.org/guide/data" "#,
+    r#"target="_blank">the tf.data API</a> to enable profiler's host-side analysis for input pipeline. Profiler currently does not support custom input pipeline (please ignore Section 3 below)."#,
+);
 pub(crate) const TC_COMPUTE: usize = 0;
 pub(crate) const SCV0_COMPUTE: usize = 1;
 pub(crate) const TC_INFEED: usize = 2;
@@ -72,7 +129,8 @@ const HOST_COLUMNS: [(&str, &str, &str); 7] = [
     ("selfTimeInPercent", "number", "Total Self Time (as % of total input-processing time)"),
     ("category", "string", "Category"),
 ];
-const INPUT_TIMES: [&str; 5] = ["enqueue_us", "demanded_file_read_us", "advanced_file_read_us", "preprocessing_us", "unclassified_nonequeue_us"];
+const INPUT_TIMES: [&str; 5] =
+    ["enqueue_us", "demanded_file_read_us", "advanced_file_read_us", "preprocessing_us", "unclassified_nonequeue_us"];
 const SUMMARY: [&str; 4] = ["average", "standard_deviation", "minimum", "maximum"];
 const INPUT_CATEGORIES: [&str; 5] = ["Enqueue", "Demanded file read", "Advanced file read", "Preprocessing", "Unknown"];
 const FILE_READERS: [&str; 6] = ["::TFRecord", "::TextLine", "::FixedLengthRecord", "::SSTable", "::RecordIO", "::ArrayRecord"];
@@ -133,7 +191,12 @@ impl TpuStep {
     }
 
     fn step_ms(&self) -> f64 {
-        self.fields[TC_COMPUTE] + self.fields[SCV0_COMPUTE] + self.infeed_ms() + self.all_reduce() + self.fields[TC_OUTFEED] + self.fields[TC_IDLE]
+        self.fields[TC_COMPUTE]
+            + self.fields[SCV0_COMPUTE]
+            + self.infeed_ms()
+            + self.all_reduce()
+            + self.fields[TC_OUTFEED]
+            + self.fields[TC_IDLE]
     }
 }
 
@@ -155,7 +218,9 @@ pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> Tpu
     let (mut sc_count, mut sc_compute_min, mut sc_idle_sum, mut sc_step_sum) = (0u64, u64::MAX, 0u64, 0u64);
     let (mut max_scv0, mut max_all_reduce, mut max_infeed) = (0u64, (0u64, 0u64), (None, 0u64));
     for (&core, info) in &record.cores {
-        let Breakdown::Categories(categories) = &info.breakdown else { continue };
+        let Breakdown::Categories(categories) = &info.breakdown else {
+            continue;
+        };
         if core >= SPARSE_CORE_START {
             let idle = categories.get(IDLE).copied().unwrap_or(0);
             sc_count += 1;
@@ -164,7 +229,8 @@ pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> Tpu
             sc_idle_sum = sc_idle_sum.wrapping_add(idle);
             continue;
         }
-        let mut categories: BTreeMap<&str, u64> = categories.iter().filter(|(category, _)| *category != IDLE).map(|(category, time)| (category.as_str(), *time)).collect();
+        let mut categories: BTreeMap<&str, u64> =
+            categories.iter().filter(|(category, _)| *category != IDLE).map(|(category, time)| (category.as_str(), *time)).collect();
         let total: u64 = categories.values().fold(0u64, |sum, value| sum.wrapping_add(*value));
         if let Some(bc_infeed) = categories.remove("sparsecorev0 infeed").filter(|value| *value != 0) {
             let transform = bc_infeed.min(categories.get("sparsecorev0 outfeed").copied().unwrap_or(0));
@@ -184,14 +250,19 @@ pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> Tpu
             max_all_reduce = breakdown;
         }
         infeed_percent.push(100.0 * infeed as f64 / info.duration as f64);
-        optimal_min = optimal_min.min(info.duration.wrapping_sub(infeed.wrapping_add(outfeed).wrapping_add(send_recv).wrapping_add(tc_idle).wrapping_add(wait_scv0)));
+        optimal_min = optimal_min.min(
+            info.duration.wrapping_sub(infeed.wrapping_add(outfeed).wrapping_add(send_recv).wrapping_add(tc_idle).wrapping_add(wait_scv0)),
+        );
         send_recv_max = send_recv_max.max(send_recv);
         if infeed > max_infeed.1 {
             max_infeed = (Some(core), infeed);
         }
     }
     step.fields[TC_INFEED] = ms(max_infeed.1);
-    step.core_name = max_infeed.0.and_then(|core| cores.get(&core)).map_or_else(|| "unknown".into(), |core| format!("{}:{}", core.hostname, core.ordinal));
+    step.core_name = max_infeed
+        .0
+        .and_then(|core| cores.get(&core))
+        .map_or_else(|| "unknown".into(), |core| format!("{}:{}", core.hostname, core.ordinal));
     step.fields[SCV0_COMPUTE] = ms(max_scv0);
     if tc_count > 0 {
         step.fields[TC_OUTFEED] = ms((outfeed_sum as f64 / tc_count as f64) as u64);
@@ -203,7 +274,11 @@ pub fn tpu_step_details(record: &StepRecord, cores: &BTreeMap<u32, Core>) -> Tpu
     }
     step.all_reduce_ms = [ms(max_all_reduce.0), ms(max_all_reduce.1)];
     if sc_count > 0 {
-        step.fields[SC_COMPUTE..].copy_from_slice(&[ms(sc_compute_min), ms((sc_idle_sum as f64 / sc_count as f64) as u64), ms((sc_step_sum as f64 / sc_count as f64) as u64)]);
+        step.fields[SC_COMPUTE..].copy_from_slice(&[
+            ms(sc_compute_min),
+            ms((sc_idle_sum as f64 / sc_count as f64) as u64),
+            ms((sc_step_sum as f64 / sc_count as f64) as u64),
+        ]);
     }
     step
 }
@@ -234,7 +309,10 @@ fn host_result(host: &Db, enqueue: (u64, u64), fallback_ratio: f64) -> (Table, [
     let mut table = Table::new(&HOST_COLUMNS);
     let input_op = |category: &str| {
         let lower = category.to_ascii_lowercase();
-        category.starts_with("InfeedEnqueue") || category == "Dataset" || category == "MemcpyHToD" || matches!(lower.as_str(), "enqueue" | "read" | "preprocessing" | "unknown")
+        category.starts_with("InfeedEnqueue")
+            || category == "Dataset"
+            || category == "MemcpyHToD"
+            || matches!(lower.as_str(), "enqueue" | "read" | "preprocessing" | "unknown")
     };
     let selected: Vec<_> = host.sorted().into_iter().filter(|metrics| input_op(&metrics.category)).collect();
     if selected.is_empty() {
@@ -249,7 +327,9 @@ fn host_result(host: &Db, enqueue: (u64, u64), fallback_ratio: f64) -> (Table, [
             "preprocessing" => 3,
             "unknown" => 4,
             _ if metrics.category.starts_with("InfeedEnqueue") || metrics.category == "MemcpyHToD" => 0,
-            _ if FILE_READERS.iter().any(|suffix| metrics.name.ends_with(suffix)) => 1 + usize::from(ADVANCED_READERS.iter().any(|part| metrics.name.contains(part))),
+            _ if FILE_READERS.iter().any(|suffix| metrics.name.ends_with(suffix)) => {
+                1 + usize::from(ADVANCED_READERS.iter().any(|part| metrics.name.contains(part)))
+            }
             _ => 3,
         };
         let percent = |time: u64| Cell::Number(100.0 * safe_divide(time as f64, total_ps as f64) / 100.0);
@@ -288,7 +368,9 @@ fn tpu_steps(extra: &Extra, steps: &mut Table, cores: &mut Table, step_summary: 
     let input_percent = summary(tpu_steps.iter().map(|step| step.infeed_percent[2]));
     let columns: Vec<_> = TPU_COLUMNS.iter().filter(|column| !has_sparse_core || !column.0.starts_with("scv0")).collect();
     steps.column("stepnum", "string", "stepnum");
-    columns.iter().for_each(|(id, label, _, _)| steps.column(id, "number", label));
+    for (id, label, _, _) in &columns {
+        steps.column(id, "number", label);
+    }
     let ids: Vec<&str> = steps.columns.iter().map(|column| column.0.as_str()).chain(["tooltip"]).collect();
     steps.prop("step_time_graph_column_ids", ids.join(","));
     steps.columns.push(("tooltip".into(), "string", "tooltip".into(), Some("tooltip")));
@@ -299,15 +381,24 @@ fn tpu_steps(extra: &Extra, steps: &mut Table, cores: &mut Table, step_summary: 
         steps.prop(&format!("steptime_ms_{name}"), two(step_summary[index]));
         steps.prop(&format!("infeed_percent_{name}"), one(input_percent[index]));
     }
-    columns.iter().for_each(|(_, _, key, index)| steps.prop(key, two(breakdown[*index][0])));
+    for (_, _, key, index) in &columns {
+        steps.prop(key, two(breakdown[*index][0]));
+    }
     if has_sparse_core && breakdown[SC_COMPUTE + 2][2] > 0.0 {
-        for (key, value) in [("sc_compute", breakdown[SC_COMPUTE][0]), ("sc_infeed", 0.0), ("sc_outfeed", 0.0), ("sc_idle", breakdown[SC_COMPUTE + 1][0])] {
+        for (key, value) in
+            [("sc_compute", breakdown[SC_COMPUTE][0]), ("sc_infeed", 0.0), ("sc_outfeed", 0.0), ("sc_idle", breakdown[SC_COMPUTE + 1][0])]
+        {
             steps.prop(&format!("{key}_ms_average"), two(value));
         }
         steps.prop("sc_step_time_ms_average", one(breakdown[SC_COMPUTE + 2][0]));
     }
     for step in &tpu_steps {
-        let tooltip = format!("step {}:\nTime waiting for input data = {} ms, Step time = {} ms", step.step_number, fixed(step.infeed_ms(), 3), fixed(step.step_ms() - step.all_reduce(), 3));
+        let tooltip = format!(
+            "step {}:\nTime waiting for input data = {} ms, Step time = {} ms",
+            step.step_number,
+            fixed(step.infeed_ms(), 3),
+            fixed(step.step_ms() - step.all_reduce(), 3)
+        );
         let row = steps.row();
         row.push(Cell::Text(step.step_number.to_string()));
         row.extend(columns.iter().map(|column| Cell::Number(step.fields[column.3])));
@@ -315,13 +406,19 @@ fn tpu_steps(extra: &Extra, steps: &mut Table, cores: &mut Table, step_summary: 
         row.extend(step.infeed_percent.map(Cell::Number));
     }
     cores.column("index", "string", "Index");
-    (0..tpu_steps.len()).for_each(|index| cores.column(&index.to_string(), "string", &index.to_string()));
+    for index in 0..tpu_steps.len() {
+        cores.column(&index.to_string(), "string", &index.to_string());
+    }
     let numbers = tpu_steps.iter().map(|step| Cell::Text(step.step_number.to_string()));
     let names = tpu_steps.iter().map(|step| Cell::Text(step.core_name.clone()));
-    cores.rows = vec![std::iter::once(Cell::Text("Step number".into())).chain(numbers).collect(), std::iter::once(Cell::Text("Core name".into())).chain(names).collect()];
+    cores.rows = vec![
+        std::iter::once(Cell::Text("Step number".into())).chain(numbers).collect(),
+        std::iter::once(Cell::Text("Core name".into())).chain(names).collect(),
+    ];
     let sum = |field: fn(&TpuStep) -> f64| tpu_steps.iter().map(field).fold(0.0, |sum, value| sum + value);
     let total = sum(TpuStep::step_ms);
-    let (classification, input_statement, _) = if total == 0.0 { ("unknown".into(), NO_STEP.into(), false) } else { input_analysis(100.0 * sum(TpuStep::infeed_ms) / total, 0.0) };
+    let (classification, input_statement, _) =
+        if total == 0.0 { ("unknown".into(), NO_STEP.into(), false) } else { input_analysis(100.0 * sum(TpuStep::infeed_ms) / total, 0.0) };
     let outfeed_percent = 100.0 * sum(|step| step.fields[TC_OUTFEED]) / total;
     let output = OUTPUT_BOUND.iter().find(|(threshold, _)| total != 0.0 && outfeed_percent >= *threshold).map_or("", |(_, text)| text);
     steps.prop("output_conclusion", output.replace("{}", &fixed(outfeed_percent, 1)));
@@ -329,13 +426,22 @@ fn tpu_steps(extra: &Extra, steps: &mut Table, cores: &mut Table, step_summary: 
     (if tpu_steps.is_empty() { unknown() } else { Default::default() }, classification)
 }
 
-fn generic_steps_table(steps: &mut Table, generic_steps: &[(String, f64, [f64; 11])], generic_breakdown: &[[f64; 4]], step_summary: [f64; 4], tf_data: bool) -> ([(String, String); 4], String) {
+fn generic_steps_table(
+    steps: &mut Table,
+    generic_steps: &[(String, f64, [f64; 11])],
+    generic_breakdown: &[[f64; 4]],
+    step_summary: [f64; 4],
+    tf_data: bool,
+) -> ([(String, String); 4], String) {
     let (two, one) = (|value: f64| fixed(value, 2), |value: f64| fixed(value, 1));
     let total: f64 = generic_steps.iter().map(|step| step.1).fold(0.0, |sum, value| sum + value);
     let percent = |index: usize| 100.0 * generic_steps.iter().map(|step| step.2[index]).fold(0.0, |sum, value| sum + value) / total;
     let assess = |percent: f64, reported: bool, name: &str, suffix: &str| match percent {
         _ if reported || percent < 3.0 => no(),
-        _ => ((if percent >= 15.0 { "high" } else { "moderate" }).to_string(), format!("{} % of the total step time sampled is spent on '{name}'{suffix}", fixed(percent, 1))),
+        _ => (
+            (if percent >= 15.0 { "high" } else { "moderate" }).to_string(),
+            format!("{} % of the total step time sampled is spent on '{name}'{suffix}", fixed(percent, 1)),
+        ),
     };
     let bottleneck = if total == 0.0 {
         unknown()
@@ -349,7 +455,9 @@ fn generic_steps_table(steps: &mut Table, generic_steps: &[(String, f64, [f64; 1
         ]
     };
     steps.column("stepnum", "string", "Step number");
-    GENERIC_COLUMNS.iter().for_each(|(id, label, _, _, _)| steps.column(id, "number", label));
+    for (id, label, _, _, _) in GENERIC_COLUMNS {
+        steps.column(id, "number", label);
+    }
     let ids: Vec<&str> = steps.columns.iter().map(|column| column.0.as_str()).collect();
     steps.prop("step_time_graph_column_ids", ids.join(",") + ", tooltip");
     steps.columns.push(("tooltip".into(), "string", "tooltip".into(), Some("tooltip")));
@@ -362,7 +470,8 @@ fn generic_steps_table(steps: &mut Table, generic_steps: &[(String, f64, [f64; 1
         steps.prop(&format!("{key}_sdv"), one(generic_breakdown[index][1]));
     }
     steps.prop("input_conclusion", bottleneck[0].1.clone());
-    for ((_, statement), prefix) in bottleneck.iter().zip(BOTTLENECK_PREFIXES).skip(1) {
+    let bottlenecks = bottleneck.iter().zip(BOTTLENECK_PREFIXES).skip(1);
+    for ((_, statement), prefix) in bottlenecks {
         steps.prop(&format!("{prefix}bottleneck"), statement.clone());
         steps.prop(&format!("{prefix}statement"), statement.clone());
     }
@@ -384,7 +493,9 @@ pub fn analyze(stats: &OpStats) -> Analysis {
     let extra = &*stats.extra;
     let (mut steps, mut cores) = (Table::default(), Table::default());
     steps.prop("hardware_type", HARDWARE[extra.hardware as usize]);
-    let longest = |record: &StepRecord| record.cores.iter().filter(|(core, _)| **core < SPARSE_CORE_START).fold(0.0f64, |longest, (_, info)| ms(info.duration).max(longest));
+    let longest = |record: &StepRecord| {
+        record.cores.iter().filter(|(core, _)| **core < SPARSE_CORE_START).fold(0.0f64, |longest, (_, info)| ms(info.duration).max(longest))
+    };
     let step_summary = summary(extra.steps.iter().map(longest));
     let warnings = match (extra.steps.is_empty(), extra.empty_intersect) {
         (false, _) => Vec::new(),
@@ -393,7 +504,9 @@ pub fn analyze(stats: &OpStats) -> Analysis {
     };
     let mut generic_steps: Vec<(String, f64, [f64; 11])> = Vec::new();
     for (record, info) in extra.steps.iter().filter_map(|record| Some((record, record.cores.get(&1)?))) {
-        let Breakdown::Types(types) = &info.breakdown else { continue };
+        let Breakdown::Types(types) = &info.breakdown else {
+            continue;
+        };
         let time = |kind: u32| ms(types.get(&kind).copied().unwrap_or(0));
         let (wait, to_device) = (time(HOST_WAIT_INPUT), time(HOST_TO_DEVICE) + time(DEVICE_WAIT_HOST));
         let values = [
@@ -415,10 +528,15 @@ pub fn analyze(stats: &OpStats) -> Analysis {
     let tpu = extra.hardware == TPU;
     let fallback_ratio = if step_summary[0] > 0.0 && !tpu { safe_divide(generic_breakdown[TO_DEVICE][0], step_summary[0]) } else { 0.0 };
     let (mut host, input_time) = host_result(&stats.host, stats.infeed_enqueue, fallback_ratio);
-    INPUT_TIMES.iter().zip(input_time).for_each(|(key, value)| host.prop(key, fixed(value, 3)));
+    for (key, value) in INPUT_TIMES.iter().zip(input_time) {
+        host.prop(key, fixed(value, 3));
+    }
     let tf_data = input_time[1..4].iter().any(|&time| time > 0.0);
-    let (bottleneck, classification) =
-        if tpu { tpu_steps(extra, &mut steps, &mut cores, step_summary) } else { generic_steps_table(&mut steps, &generic_steps, &generic_breakdown, step_summary, tf_data) };
+    let (bottleneck, classification) = if tpu {
+        tpu_steps(extra, &mut steps, &mut cores, step_summary)
+    } else {
+        generic_steps_table(&mut steps, &generic_steps, &generic_breakdown, step_summary, tf_data)
+    };
     let next_step = match classification.as_str() {
         "host" | "both" if tf_data => "Look at Section 3 for the breakdown of input time on the host.",
         "host" | "both" => CONSIDER_TF_DATA,
@@ -440,7 +558,14 @@ pub fn json(stats: &OpStats) -> String {
     let analysis = analyze(stats);
     let mut recommendation = Table::new(&[("link", "string", "link")]);
     recommendation.rows = RECOMMENDATIONS.iter().map(|detail| vec![Cell::Text(detail.to_string())]).collect();
-    format!("[{},{},{},{},{}]", analysis.cores.json(), analysis.steps.json(), analysis.host.json(), recommendation.json(), diagnostics_table(&analysis.warnings, &[]).json())
+    format!(
+        "[{},{},{},{},{}]",
+        analysis.cores.json(),
+        analysis.steps.json(),
+        analysis.host.json(),
+        recommendation.json(),
+        diagnostics_table(&analysis.warnings, &[]).json()
+    )
 }
 
 #[cfg(test)]

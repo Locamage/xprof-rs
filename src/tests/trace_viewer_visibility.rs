@@ -61,14 +61,16 @@ fn visible(planes: &[(&str, &[TimedEvent])], start_ps: u64, end_ps: u64, full_dm
         let plane = space.plane(plane);
         plane.named_line(1, "XLA Ops");
         for &(name, begin, duration, flow) in *events {
-            let stats: Vec<(&str, super::xspace::V)> = flow.map(|flow| ("flow", super::xspace::V::Uint(flow << 2 | FLOW_MID_DIRECTION))).into_iter().collect();
+            let stats: Vec<(&str, super::xspace::V)> =
+                flow.map(|flow| ("flow", super::xspace::V::Uint(flow << 2 | FLOW_MID_DIRECTION))).into_iter().collect();
             plane.event(1, name, begin, duration, &stats);
         }
     }
     let (map, mut planes) = space.parsed();
     let trace = crate::trace::Trace::build(&mut planes, "localhost", &map);
     let options = crate::trace::Options { start_ms: start_ps as f64 / 1e9, end_ms: end_ps as f64 / 1e9, resolution: 0.0, full_dma };
-    let mut names: Vec<String> = trace.load(&options).iter().map(|&index| trace.names[trace.events[index as usize].name as usize].to_string()).collect();
+    let mut names: Vec<String> =
+        trace.load(&options).iter().map(|&index| trace.names[trace.events[index as usize].name as usize].to_string()).collect();
     names.sort();
     names
 }
@@ -92,7 +94,8 @@ fn visibility_no_downsampling() {
 
 #[test]
 fn test_trace_visibility_filter() {
-    let events: &[TimedEvent] = &[("event", 1000, 100, None), ("event2", 2000, 100, None), ("event3", 900, 50, None), ("event4", 1000, 100, Some(1))];
+    let events: &[TimedEvent] =
+        &[("event", 1000, 100, None), ("event2", 2000, 100, None), ("event3", 900, 50, None), ("event4", 1000, 100, Some(1))];
     assert_eq!(visible(&[("/device:TPU:0", events)], 1000, 2000, false), ["event", "event2"]);
     assert_eq!(visible(&[("/device:TPU:0", events)], 1000, 2000, true), ["event", "event2", "event4"]);
     assert_eq!(visible(&[("/device:GPU:0", events)], 1000, 2000, true), ["event", "event2", "event4"]);

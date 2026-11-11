@@ -100,7 +100,8 @@ fn test_upload_trace_ignores_extra_kwargs() {
     let (logdir, source) = setup("kwargs");
     let file = source.join("test_trace.xplane.pb").to_string_lossy().into_owned();
     let logdir_flag = format!("--logdir={}", logdir.display());
-    let (code, out, _) = run(&["upload_trace", &file, &logdir_flag, "--ttl=3600", "--tag=tag1", "--run_name=tagged_run", "--extra_param=ignored_value"]);
+    let (code, out, _) =
+        run(&["upload_trace", &file, &logdir_flag, "--ttl=3600", "--tag=tag1", "--run_name=tagged_run", "--extra_param=ignored_value"]);
     assert_eq!(code, 0, "{out}");
     let result = J::parse(&out).unwrap();
     assert_eq!(result.at("status").str(), Some("success"));

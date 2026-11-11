@@ -18,11 +18,19 @@ fn host(steps: Vec<StepRecord>) -> Extra {
 }
 
 fn create_step_database_result_for_host(host_id: u32, num_steps: u32, first_step_begin_ps: u64, step_gap_ps: u64) -> Extra {
-    host((0..num_steps).map(|step_idx| create_one_test_step(host_id, num_steps, step_idx, first_step_begin_ps + step_idx as u64 * (STEP_DURATION_PS + step_gap_ps))).collect())
+    host(
+        (0..num_steps)
+            .map(|step_idx| {
+                create_one_test_step(host_id, num_steps, step_idx, first_step_begin_ps + step_idx as u64 * (STEP_DURATION_PS + step_gap_ps))
+            })
+            .collect(),
+    )
 }
 
 fn create_test_steps(num_hosts: u32, num_steps_per_host: u32, shift_ps: u64) -> Vec<Extra> {
-    (0..num_hosts).map(|host_id| create_step_database_result_for_host(host_id, num_steps_per_host, host_id as u64 * shift_ps, STEP_GAP_PS)).collect()
+    (0..num_hosts)
+        .map(|host_id| create_step_database_result_for_host(host_id, num_steps_per_host, host_id as u64 * shift_ps, STEP_GAP_PS))
+        .collect()
 }
 
 fn intersection(perhost_stepdb: &[Extra]) -> Extra {
@@ -95,8 +103,18 @@ fn empty_intersection() {
     let host_1_num_steps = 5;
     let perhost_stepdb = [
         create_step_database_result_for_host(0, host_0_num_steps, 0, STEP_GAP_PS),
-        create_step_database_result_for_host(1, host_1_num_steps, (host_0_num_steps - 2) as u64 * (STEP_DURATION_PS + STEP_GAP_PS), STEP_GAP_PS),
-        create_step_database_result_for_host(2, 10, (host_0_num_steps + host_1_num_steps - 4) as u64 * (STEP_DURATION_PS + STEP_GAP_PS), STEP_GAP_PS),
+        create_step_database_result_for_host(
+            1,
+            host_1_num_steps,
+            (host_0_num_steps - 2) as u64 * (STEP_DURATION_PS + STEP_GAP_PS),
+            STEP_GAP_PS,
+        ),
+        create_step_database_result_for_host(
+            2,
+            10,
+            (host_0_num_steps + host_1_num_steps - 4) as u64 * (STEP_DURATION_PS + STEP_GAP_PS),
+            STEP_GAP_PS,
+        ),
     ];
     let intersection = intersection(&perhost_stepdb);
     assert_eq!(intersection.steps.len(), 0);
@@ -105,7 +123,10 @@ fn empty_intersection() {
 
 #[test]
 fn unequal_step_counts() {
-    let intersection = intersection(&[create_step_database_result_for_host(0, 5, 0, STEP_GAP_PS), create_step_database_result_for_host(1, 10, 0, STEP_GAP_PS)]);
+    let intersection = intersection(&[
+        create_step_database_result_for_host(0, 5, 0, STEP_GAP_PS),
+        create_step_database_result_for_host(1, 10, 0, STEP_GAP_PS),
+    ]);
     assert_eq!(intersection.steps.len(), 5);
 }
 
@@ -121,7 +142,9 @@ fn varying_step_durations() {
     let steps = (0..5)
         .map(|index| {
             let mut step = create_one_test_step(0, 5, index, index as u64 * 2 * STEP_DURATION_PS);
-            step.cores.values_mut().for_each(|info| info.duration = 2 * STEP_DURATION_PS);
+            for info in step.cores.values_mut() {
+                info.duration = 2 * STEP_DURATION_PS;
+            }
             step
         })
         .collect();
@@ -131,7 +154,10 @@ fn varying_step_durations() {
 
 #[test]
 fn gaps_between_steps() {
-    let intersection = intersection(&[create_step_database_result_for_host(0, 5, 0, STEP_DURATION_PS), create_step_database_result_for_host(1, 5, 0, STEP_DURATION_PS)]);
+    let intersection = intersection(&[
+        create_step_database_result_for_host(0, 5, 0, STEP_DURATION_PS),
+        create_step_database_result_for_host(1, 5, 0, STEP_DURATION_PS),
+    ]);
     assert_eq!(intersection.steps.len(), 5);
 }
 
@@ -153,7 +179,9 @@ fn zero_duration_steps() {
     let perhost_stepdb: Vec<Extra> = (0..2)
         .map(|host_id| {
             let mut zero_duration_step = create_one_test_step(host_id, 3, 1, STEP_DURATION_PS);
-            zero_duration_step.cores.values_mut().for_each(|info| info.duration = 0);
+            for info in zero_duration_step.cores.values_mut() {
+                info.duration = 0;
+            }
             host(vec![create_one_test_step(host_id, 3, 0, 0), zero_duration_step, create_one_test_step(host_id, 3, 2, STEP_DURATION_PS)])
         })
         .collect();

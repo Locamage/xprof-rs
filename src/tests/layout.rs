@@ -33,12 +33,18 @@ fn to_string_for_minor_to_major_only() {
 
 #[test]
 fn to_string_for_tiles() {
-    assert_eq!(to_string(LayoutProto { tiles: tiles(&[&[42, 123], &[4, 5]]), ..minor_to_major(&[3, 2, 1, 0]) }), "{3,2,1,0:T(42,123)(4,5)}");
+    assert_eq!(
+        to_string(LayoutProto { tiles: tiles(&[&[42, 123], &[4, 5]]), ..minor_to_major(&[3, 2, 1, 0]) }),
+        "{3,2,1,0:T(42,123)(4,5)}"
+    );
 }
 
 #[test]
 fn to_string_for_tile_with_combined_dimensions() {
-    assert_eq!(to_string(LayoutProto { tiles: tiles(&[&[COMBINE_DIMENSION, COMBINE_DIMENSION, 42, 123]]), ..minor_to_major(&[3, 2, 1, 0]) }), "{3,2,1,0:T(*,*,42,123)}");
+    assert_eq!(
+        to_string(LayoutProto { tiles: tiles(&[&[COMBINE_DIMENSION, COMBINE_DIMENSION, 42, 123]]), ..minor_to_major(&[3, 2, 1, 0]) }),
+        "{3,2,1,0:T(*,*,42,123)}"
+    );
 }
 
 #[test]
@@ -68,14 +74,19 @@ fn to_string_for_memory_space() {
 
 #[test]
 fn to_string_for_split_configs() {
-    let split_configs = vec![SplitConfigProto { dimension: 0, split_indices: vec![3] }, SplitConfigProto { dimension: 1, split_indices: vec![0, 4] }];
+    let split_configs =
+        vec![SplitConfigProto { dimension: 0, split_indices: vec![3] }, SplitConfigProto { dimension: 1, split_indices: vec![0, 4] }];
     assert_eq!(to_string(LayoutProto { split_configs, ..minor_to_major(&[0, 1]) }), "{0,1:SC(0:3)(1:0,4)}");
 }
 
 #[test]
 fn to_string_for_physical_shape() {
-    let physical_shape = Shape { element_type: S32, dimensions: vec![10, 20], layout: Some(Box::new(minor_to_major(&[1, 0]))), ..Default::default() };
-    assert_eq!(to_string(LayoutProto { physical_shape: Some(Box::new(physical_shape)), ..minor_to_major(&[0, 1]) }), "{0,1:P(s32[10,20]{1,0})}");
+    let physical_shape =
+        Shape { element_type: S32, dimensions: vec![10, 20], layout: Some(Box::new(minor_to_major(&[1, 0]))), ..Default::default() };
+    assert_eq!(
+        to_string(LayoutProto { physical_shape: Some(Box::new(physical_shape)), ..minor_to_major(&[0, 1]) }),
+        "{0,1:P(s32[10,20]{1,0})}"
+    );
 }
 
 #[test]
@@ -85,7 +96,12 @@ fn to_string_for_dynamic_shape_metadata_prefix_bytes() {
 
 #[test]
 fn to_string_for_mutiple_properties() {
-    let layout = LayoutProto { tiles: tiles(&[&[42, 123], &[4, 5]]), tail_padding_alignment_in_elements: 100, element_size_in_bits: 42, ..minor_to_major(&[3, 2, 1, 0]) };
+    let layout = LayoutProto {
+        tiles: tiles(&[&[42, 123], &[4, 5]]),
+        tail_padding_alignment_in_elements: 100,
+        element_size_in_bits: 42,
+        ..minor_to_major(&[3, 2, 1, 0])
+    };
     assert_eq!(to_string(layout), "{3,2,1,0:T(42,123)(4,5)L(100)E(42)}");
 }
 

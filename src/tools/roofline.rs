@@ -1,7 +1,9 @@
 use crate::hlo::{OPCODES, general};
 use crate::tools::hlo_stats::{roofline, source_text};
 use crate::tools::input_pipeline_analyzer::{NO_STEP_MARKER, diagnostics_table};
-use crate::tools::opstats::{CMEM, Db, GIBI_IN_GIGA, Metrics, OpStats, READ, SPARSE_CORE, VMEM, WRITE, combine_memory, giga_to_gibi, pico_to_micro, safe_divide};
+use crate::tools::opstats::{
+    CMEM, Db, GIBI_IN_GIGA, Metrics, OpStats, READ, SPARSE_CORE, VMEM, WRITE, combine_memory, giga_to_gibi, pico_to_micro, safe_divide,
+};
 use crate::tools::table::{Cell, Table};
 use crate::xplane::steps::GPU;
 use rustc_hash::FxHashSet;
@@ -51,7 +53,8 @@ const COLUMNS: [(&str, &str, &str); 37] = [
     ("source_info", "string", "Source Info"),
 ];
 
-const GPU_COLUMNS: [usize; 30] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 19, 20, 21, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36];
+const GPU_COLUMNS: [usize; 30] =
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 19, 20, 21, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36];
 const GPU_LABELS: [(usize, &str); 2] = [(19, "SHM/L1 BW (GiB/s)"), (25, "SHM/L1 Operational Intensity (FLOP/Byte)")];
 
 struct Placement<'a> {
@@ -83,7 +86,7 @@ fn is_infeed_or_outfeed(category: &str) -> bool {
 }
 
 fn row(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], metrics: &Metrics, place: &Placement) {
-    let roof = roofline(metrics, stats, false);
+    let roof = roofline(metrics, stats);
     let occurrences = metrics.occurrences as f64;
     let (mut total_time, mut self_time) = (pico_to_micro(metrics.time_ps), pico_to_micro(metrics.self_time_ps));
     let (average, self_average) = (safe_divide(total_time, occurrences), safe_divide(self_time, occurrences));
@@ -93,9 +96,15 @@ fn row(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], metrics: &Metrics, 
     }
     let flops_utilization = safe_divide(roof.measured_flop_rate, peaks[0]);
     let bandwidths = [roof.hbm_bw, roof.cmem_read_bw, roof.cmem_write_bw, roof.vmem_read_bw, roof.vmem_write_bw];
-    let memory_utilization = bandwidths.iter().zip(&peaks[1..]).map(|(bandwidth, peak)| safe_divide(*bandwidth, *peak)).fold(f64::NEG_INFINITY, f64::max);
+    let memory_utilization =
+        bandwidths.iter().zip(&peaks[1..]).map(|(bandwidth, peak)| safe_divide(*bandwidth, *peak)).fold(f64::NEG_INFINITY, f64::max);
     let efficiency = memory_utilization.max(flops_utilization);
-    let intensity = |key: (u64, u8)| safe_divide(metrics.flops_v2, metrics.memory.iter().filter(|entry| (entry.1, entry.0) == key).map(|entry| entry.2).sum::<u64>() as f64);
+    let intensity = |key: (u64, u8)| {
+        safe_divide(
+            metrics.flops_v2,
+            metrics.memory.iter().filter(|entry| (entry.1, entry.0) == key).map(|entry| entry.2).sum::<u64>() as f64,
+        )
+    };
     let text = |value: &str| Cell::Text(value.to_string());
     let mut cells = vec![text(&place.step), Cell::Number(place.rank as f64), text(place.category), text(&metrics.name)];
     cells.extend(
@@ -141,7 +150,7 @@ fn row(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], metrics: &Metrics, 
     cells.extend([Cell::Boolean(place.include), text(&metrics.module.to_string()), text(&source_text(metrics))]);
     if place.gpu {
         let mut cells: Vec<Option<Cell>> = cells.into_iter().map(Some).collect();
-        table.rows.push(GPU_COLUMNS.iter().map(|&index| cells[index].take().unwrap()).collect());
+        table.rows.push(GPU_COLUMNS.iter().map(|&index| cells[index].take().expect("required value should be present")).collect());
     } else {
         table.rows.push(cells);
     }
@@ -156,13 +165,21 @@ pub fn accumulate(sum: &mut Metrics, part: &Metrics) {
 
 pub fn program(db: &Db) -> ([Metrics; 2], u64) {
     let mut program = Default::default();
-    db.metrics
-        .iter()
-        .for_each(|metrics| add_scaled(&mut program, sums(metrics), (metrics.core_type, metrics.time_ps), (metrics.flops_v2, metrics.model_flops_v2, metrics.bytes_accessed), &metrics.memory, 1));
+    for metrics in &db.metrics {
+        add_scaled(
+            &mut program,
+            sums(metrics),
+            (metrics.core_type, metrics.time_ps),
+            (metrics.flops_v2, metrics.model_flops_v2, metrics.bytes_accessed),
+            &metrics.memory,
+            1,
+        );
+    }
     program
 }
 
-/// The number of program sums that an operation adds to: none for the operations that contain others, only the first for infeed and outfeed, else both.
+/// The number of program sums that an operation adds to: none for the operations that contain
+/// others, only the first for infeed and outfeed, else both.
 pub fn sums(metrics: &Metrics) -> u8 {
     match category(metrics) {
         "call" | "conditional" | "while" | "megacore fusion" => 0,
@@ -171,8 +188,16 @@ pub fn sums(metrics: &Metrics) -> u8 {
     }
 }
 
-/// Adds an operation to the first `count` sums, with the given flops, model flops and bytes, and with `memory` times `scale`.
-pub fn add_scaled((sums, infeed_outfeed): &mut ([Metrics; 2], u64), count: u8, (core_type, time_ps): (u8, u64), (flops, model, bytes): (f64, f64, u64), memory: &[(u8, u64, u64)], scale: u64) {
+/// Adds an operation to the first `count` sums, with the given flops, model flops and bytes, and
+/// with `memory` times `scale`.
+pub fn add_scaled(
+    (sums, infeed_outfeed): &mut ([Metrics; 2], u64),
+    count: u8,
+    (core_type, time_ps): (u8, u64),
+    (flops, model, bytes): (f64, f64, u64),
+    memory: &[(u8, u64, u64)],
+    scale: u64,
+) {
     if count == 0 || core_type == SPARSE_CORE {
         return;
     }
@@ -192,7 +217,23 @@ fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool, 
     let gpu = stats.extra.hardware == GPU;
     let program_row = |table: &mut Table, sums: &Metrics, step: String, steps: Option<usize>| {
         let metrics = Metrics { name: PROGRAM.into(), category: PROGRAM.into(), occurrences: 1, ..sums.clone() };
-        row(table, stats, peaks, &metrics, &Placement { step, steps, total_time_ps: metrics.time_ps, rank: 0, fraction: 0.0, cumulative: 0.0, include, category: PROGRAM, gpu });
+        row(
+            table,
+            stats,
+            peaks,
+            &metrics,
+            &Placement {
+                step,
+                steps,
+                total_time_ps: metrics.time_ps,
+                rank: 0,
+                fraction: 0.0,
+                cumulative: 0.0,
+                include,
+                category: PROGRAM,
+                gpu,
+            },
+        );
     };
     let db = &stats.db;
     let (mut sums, program_infeed_outfeed) = program(db);
@@ -202,7 +243,11 @@ fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool, 
     if total_only {
         return;
     }
-    let infeed_outfeed: u64 = if include { 0 } else { db.metrics.iter().filter(|metrics| is_infeed_or_outfeed(&metrics.category)).map(|metrics| metrics.time_ps).sum() };
+    let infeed_outfeed: u64 = if include {
+        0
+    } else {
+        db.metrics.iter().filter(|metrics| is_infeed_or_outfeed(&metrics.category)).map(|metrics| metrics.time_ps).sum()
+    };
     let total_time_ps = db.total_time_ps.wrapping_sub(infeed_outfeed);
     let total_us = pico_to_micro(total_time_ps);
     let (mut rank, mut cumulative) = (0u64, 0.0);
@@ -214,7 +259,13 @@ fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool, 
         let fraction = safe_divide(pico_to_micro(metrics.self_time_ps), total_us);
         rank += 1;
         cumulative += fraction;
-        row(table, stats, peaks, metrics, &Placement { step: "Total".into(), steps: None, total_time_ps, rank, fraction, cumulative, include, category, gpu });
+        row(
+            table,
+            stats,
+            peaks,
+            metrics,
+            &Placement { step: "Total".into(), steps: None, total_time_ps, rank, fraction, cumulative, include, category, gpu },
+        );
     }
     let extra = &stats.extra;
     if gpu {
@@ -229,7 +280,8 @@ fn records(table: &mut Table, stats: &OpStats, peaks: &[f64; 6], include: bool, 
     }
 }
 
-/// The rows of the table. The overview command needs only the first row, and the device information needs no row.
+/// The rows of the table. The overview command needs only the first row, and the device information
+/// needs no row.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Rows {
     All,
@@ -275,7 +327,10 @@ pub fn json_rows(stats: &OpStats, rows: Rows) -> String {
     table.prop("has_cmem", tpu_only((cmem as u8).to_string()));
     table.prop("has_merged_vmem", tpu_only((extra.merged_vmem as u8).to_string()));
     table.prop("peak_flop_rate", tpu_only(general(peaks[0], 6)));
-    table.prop("time_scale_multiplier", tpu_only(general(safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64), 6)));
+    table.prop(
+        "time_scale_multiplier",
+        tpu_only(general(safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64), 6)),
+    );
     for (name, peak) in MEMORIES.iter().zip(&peaks[1..]) {
         table.prop(&format!("peak_{name}_bw"), tpu_only(general(*peak, 6)));
         table.prop(&format!("{name}_ridge_point"), tpu_only(general(safe_divide(peaks[0], peak * GIBI_IN_GIGA), 6)));

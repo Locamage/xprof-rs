@@ -62,7 +62,11 @@ fn test_get_top_hlo_ops_category_filter() {
 
 #[test]
 fn test_get_top_hlo_ops_custom_call_provenance() {
-    let profile = r#"{"byCategory": {"metrics": {"rawTime": 1000000000}, "children": [{"name": "IDLE", "metrics": {"rawTime": 1000000000, "rawFlops": 0}, "xla": {"category": "custom-call", "provenance": "pallas_call"}}]}}"#;
+    let profile = concat!(
+        r#"{"byCategory": {"metrics": {"rawTime": 1000000000}, "children": [{"name": "IDLE", "#,
+        r#""metrics": {"rawTime": 1000000000, "rawFlops": 0}, "xla": {"category": "#,
+        r#""custom-call", "provenance": "pallas_call"}}]}}"#,
+    );
     let result = top(&Fake::fixed(profile), &[("limit", J::Int(1))]);
     assert_eq!(names(&result, "top_by_time"), ["IDLE [pallas_call]"]);
     assert!(result.at("guidance").text().contains("Pallas kernels"));

@@ -2,7 +2,10 @@ use crate::cli::json::J;
 use crate::hlo::proto_text::json_string;
 use crate::obj;
 use crate::tools::input_pipeline_analyzer::{HARDWARE, hardware};
-use crate::tools::opstats::{GIBI_IN_GIGA, HBM, IDLE, Metrics, OpStats, READ, SPARSE_CORE, Source, WRITE, add, combine_memory, giga_to_gibi, pico_to_nano, safe_divide};
+use crate::tools::opstats::{
+    GIBI_IN_GIGA, HBM, IDLE, Metrics, OpStats, READ, SPARSE_CORE, Source, WRITE, add, combine_memory, giga_to_gibi, pico_to_nano,
+    safe_divide,
+};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -18,7 +21,8 @@ const PROVENANCE: usize = 2;
 const PROVENANCE_NODE: u8 = 0;
 const CATEGORY_NODE: u8 = 1;
 const DEDUPLICATED_NODE: u8 = 2;
-const GROUPINGS: [(&str, &str, i32); 3] = [("by_program", "byProgram", 2), ("by_category", "byCategory", 1), ("by_provenance", "byProvenance", 100)];
+const GROUPINGS: [(&str, &str, i32); 3] =
+    [("by_program", "byProgram", 2), ("by_category", "byCategory", 1), ("by_provenance", "byProvenance", 100)];
 
 #[derive(Clone, Default)]
 struct Xla<'a> {
@@ -101,7 +105,9 @@ fn hlo_unescape(text: &str) -> Option<String> {
 }
 
 fn kernel_metadata(expression: &str) -> String {
-    let Some(start) = expression.find("kernel_metadata=").filter(|_| expression.contains("xprof_metadata")) else { return String::new() };
+    let Some(start) = expression.find("kernel_metadata=").filter(|_| expression.contains("xprof_metadata")) else {
+        return String::new();
+    };
     let rest = &expression[start + "kernel_metadata=".len()..];
     let metadata: Option<serde_json::Value> = match rest.chars().next() {
         Some('"') => hlo_unescape(&rest[1..]).and_then(|value| serde_json::from_str(&value).ok()),
@@ -116,7 +122,14 @@ fn kernel_metadata(expression: &str) -> String {
 }
 
 fn symbol(metrics: &Metrics) -> Xla<'_> {
-    Xla { expression: &metrics.long_name, provenance: &metrics.provenance, category: &metrics.category, layout: false, program_id: metrics.module, source: metrics.source.as_ref() }
+    Xla {
+        expression: &metrics.long_name,
+        provenance: &metrics.provenance,
+        category: &metrics.category,
+        layout: false,
+        program_id: metrics.module,
+        source: metrics.source.as_ref(),
+    }
 }
 
 pub fn partial_sort(items: &mut [usize], k: usize, less: impl Fn(usize, usize) -> bool) {
@@ -210,12 +223,20 @@ impl<'a> Builder<'a> {
             if self.grouping == PROVENANCE && !metrics.provenance.is_empty() {
                 let parts: Vec<&str> = metrics.provenance.split('/').filter(|part| !part.is_empty()).collect();
                 for (position, part) in parts.iter().enumerate() {
-                    parent = self.child(PROVENANCE_NODE, parent, if position + 1 == parts.len() { part.split(':').next().unwrap() } else { part });
+                    parent = self.child(
+                        PROVENANCE_NODE,
+                        parent,
+                        if position + 1 == parts.len() { part.split(':').next().expect("iterator should be non-empty") } else { part },
+                    );
                     update(metrics, &mut self.nodes[parent].metrics);
                 }
             }
             let category = self.child(CATEGORY_NODE, parent, &metrics.category);
-            let deduplicated = self.child(DEDUPLICATED_NODE, category, if metrics.deduplicated_name.is_empty() { &metrics.name } else { &metrics.deduplicated_name });
+            let deduplicated = self.child(
+                DEDUPLICATED_NODE,
+                category,
+                if metrics.deduplicated_name.is_empty() { &metrics.name } else { &metrics.deduplicated_name },
+            );
             vec![category, deduplicated, self.add_leaf(metrics, deduplicated)]
         };
         for node in grouping {
@@ -279,9 +300,15 @@ impl<'a> Builder<'a> {
 
     fn deduplicate(&mut self, node: usize) {
         let top = &self.nodes[self.nodes[node].children[0]];
-        let top_xla = top.xla.clone().unwrap();
+        let top_xla = top.xla.clone().expect("required value should be present");
         let name = Cow::Owned(format!("{} and its duplicate(s)", top.name));
-        let mut xla = Xla { expression: top_xla.expression, source: top_xla.source, program_id: top_xla.program_id, category: top_xla.category, ..Default::default() };
+        let mut xla = Xla {
+            expression: top_xla.expression,
+            source: top_xla.source,
+            program_id: top_xla.program_id,
+            category: top_xla.category,
+            ..Default::default()
+        };
         if !is_fusion(xla.category) {
             xla.provenance = top_xla.provenance;
             xla.layout = true;
@@ -290,7 +317,8 @@ impl<'a> Builder<'a> {
         self.nodes[node].xla = Some(xla);
     }
 
-    /// Adds the JSON text of the tree at `root` to `pieces`. The subtrees of the first `parallel` levels with more than one child are written in parallel.
+    /// Adds the JSON text of the tree at `root` to `pieces`. The subtrees of the first `parallel`
+    /// levels with more than one child are written in parallel.
     fn write(&self, pieces: &mut Vec<String>, root: usize, parallel: usize) {
         let mut out = String::new();
         self.open(&mut out, root);
@@ -325,7 +353,8 @@ impl<'a> Builder<'a> {
         pieces.push(out);
     }
 
-    /// The metrics of a node in the order of the JSON text. Each entry has the values and their count.
+    /// The metrics of a node in the order of the JSON text. Each entry has the values and their
+    /// count.
     fn fields(&self, index: usize) -> [(&'static str, [f64; 3], usize); 10] {
         let metrics = &self.nodes[index].metrics;
         let time_ns = pico_to_nano(metrics.time_ps);
@@ -335,7 +364,10 @@ impl<'a> Builder<'a> {
         }
         let uncapped = safe_divide(rate, self.peak_gigaflops);
         let fraction = safe_divide(metrics.time_ps as f64, self.total_time_ps as f64);
-        let bytes = |on_chip: bool, operation: u8| metrics.memory.iter().filter(|entry| entry.0 == operation && (entry.1 == HBM) != on_chip).map(|entry| entry.2).sum::<u64>() as f64;
+        let bytes = |on_chip: bool, operation: u8| {
+            metrics.memory.iter().filter(|entry| entry.0 == operation && (entry.1 == HBM) != on_chip).map(|entry| entry.2).sum::<u64>()
+                as f64
+        };
         let gibibytes = [
             giga_to_gibi(safe_divide(bytes(false, READ), time_ns)) + giga_to_gibi(safe_divide(bytes(false, WRITE), time_ns)),
             giga_to_gibi(safe_divide(bytes(true, READ), time_ns)),
@@ -364,7 +396,7 @@ impl<'a> Builder<'a> {
         json_string(out, &self.nodes[index].name);
         out.push_str(",\"metrics\":{");
         for (position, (key, values, count)) in self.fields(index).iter().enumerate() {
-            write!(out, "{}\"{key}\":", if position > 0 { "," } else { "" }).unwrap();
+            let _ = write!(out, "{}\"{key}\":", if position > 0 { "," } else { "" });
             let values = &values[..*count];
             if let [value] = values {
                 proto_double(out, *value);
@@ -393,23 +425,31 @@ impl<'a> Builder<'a> {
             if xla.layout {
                 out.push_str(",\"layout\":{\"dimensions\":[]}");
             }
-            write!(out, ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\"sourceInfo\":{{\"fileName\":", xla.program_id).unwrap();
+            let _ = write!(
+                out,
+                ",\"computationPrimitiveSize\":0,\"fingerprint\":\"0\",\"programId\":\"{}\",\"sourceInfo\":{{\"fileName\":",
+                xla.program_id
+            );
             let (file, line, stack) = xla.source.map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
             json_string(out, file);
-            write!(out, ",\"lineNumber\":{line},\"stackFrame\":").unwrap();
+            let _ = write!(out, ",\"lineNumber\":{line},\"stackFrame\":");
             json_string(out, stack);
             out.push_str("},\"xprofKernelMetadata\":");
             json_string(out, &kernel_metadata(xla.expression));
             out.push('}');
         }
-        write!(out, ",\"numChildren\":{}}}", node.num_children).unwrap();
+        let _ = write!(out, ",\"numChildren\":{}}}", node.num_children);
     }
 
     /// The value of the JSON text that `write` gives.
     fn value(&self, index: usize, parallel: usize) -> J {
         let node = &self.nodes[index];
         let metrics = self.fields(index).into_iter().map(|(key, values, count)| {
-            let value = if count == 1 { proto_value(values[0]) } else { J::List(values[..count].iter().map(|&value| proto_value(value)).collect()) };
+            let value = if count == 1 {
+                proto_value(values[0])
+            } else {
+                J::List(values[..count].iter().map(|&value| proto_value(value)).collect())
+            };
             (key.to_string(), value)
         });
         let next = if node.children.len() == 1 { parallel } else { parallel.saturating_sub(1) };
@@ -418,9 +458,18 @@ impl<'a> Builder<'a> {
         } else {
             node.children.iter().map(|&child| self.value(child, next)).collect()
         };
-        let mut entries = vec![("name".to_string(), J::from(&*node.name)), ("metrics".into(), J::Map(metrics.collect())), ("children".into(), J::List(children))];
+        let mut entries = vec![
+            ("name".to_string(), J::from(&*node.name)),
+            ("metrics".into(), J::Map(metrics.collect())),
+            ("children".into(), J::List(children)),
+        ];
         if let Some(xla) = &node.xla {
-            let mut fields = vec![("op", J::from("")), ("expression", xla.expression.into()), ("provenance", xla.provenance.into()), ("category", xla.category.into())];
+            let mut fields = vec![
+                ("op", J::from("")),
+                ("expression", xla.expression.into()),
+                ("provenance", xla.provenance.into()),
+                ("category", xla.category.into()),
+            ];
             fields.extend(xla.layout.then(|| ("layout", obj! {"dimensions" => J::List(Vec::new())})));
             let (file, line, stack) = xla.source.map_or(("", 0, ""), |source| (&*source.file, source.line, &*source.stack));
             fields.extend([
@@ -479,7 +528,8 @@ fn tree(stats: &OpStats, grouping: usize, exclude_idle: bool) -> Vec<String> {
     pieces
 }
 
-/// The sums of the `rawTime` of the leaves of the tree by category, in the order of the JSON tree. `class` gives the sum for the name and the category of a leaf.
+/// The sums of the `rawTime` of the leaves of the tree by category, in the order of the JSON tree.
+/// `class` gives the sum for the name and the category of a leaf.
 pub fn category_times(stats: &OpStats, class: impl Fn(&str, &str) -> usize + Copy) -> [f64; 3] {
     fn walk(nodes: &[Node], index: usize, class: impl Fn(&str, &str) -> usize + Copy) -> [f64; 3] {
         let node = &nodes[index];
@@ -534,17 +584,24 @@ pub fn json(stats: &OpStats, group_by: Option<&str>) -> String {
     json_trees(stats, group_by, true)
 }
 
-/// Without `with_busy`, the output has no tree for the busy time. The command line tools use no such tree.
+/// Without `with_busy`, the output has no tree for the busy time. The command line tools use no
+/// such tree.
 pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> String {
     let grouping = grouping(group_by);
     let device = HARDWARE[hardware(&stats.extra.device_type) as usize];
     let key = GROUPINGS[grouping].1;
-    let (all, busy) = rayon::join(|| tree(stats, grouping, false), || if with_busy { tree(stats, grouping, true) } else { Vec::new() });
-    let mut pieces = vec![if grouping == PROVENANCE { format!("{{\"deviceType\":\"{device}\",\"{key}\":") } else { format!("{{\"{key}\":") }];
+    let (all, busy) = rayon::join(
+        || tree(stats, grouping, false),
+        || {
+            if with_busy { tree(stats, grouping, true) } else { Vec::new() }
+        },
+    );
+    let mut pieces =
+        vec![if grouping == PROVENANCE { format!("{{\"deviceType\":\"{device}\",\"{key}\":") } else { format!("{{\"{key}\":") }];
     pieces.extend(all);
     let mut out = if grouping == PROVENANCE { String::new() } else { format!(",\"deviceType\":\"{device}\"") };
     if with_busy {
-        write!(out, ",\"{key}ExcludeIdle\":").unwrap();
+        let _ = write!(out, ",\"{key}ExcludeIdle\":");
         pieces.push(std::mem::take(&mut out));
         pieces.extend(busy);
     }
@@ -552,17 +609,23 @@ pub fn json_trees(stats: &OpStats, group_by: Option<&str>, with_busy: bool) -> S
     proto_double(&mut out, safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64));
     out.push('}');
     pieces.push(out);
-    String::from_utf8(crate::concat(&pieces.iter().map(String::as_bytes).collect::<Vec<_>>())).expect("The pieces are text")
+    String::from_utf8(crate::concat(&pieces.iter().map(String::as_bytes).collect::<Vec<_>>())).expect("The pieces should be text")
 }
 
 /// The value that the JSON reader gives for `json_trees` without the tree for the busy time.
 pub fn value_trees(stats: &OpStats, group_by: Option<&str>) -> J {
     let grouping = grouping(group_by);
-    let tree = build(stats, grouping, false).map_or_else(|| obj! {"name" => "", "children" => J::List(Vec::new()), "numChildren" => 0}, |builder| builder.value(ROOT, PARALLEL_LEVELS));
+    let tree = build(stats, grouping, false).map_or_else(
+        || obj! {"name" => "", "children" => J::List(Vec::new()), "numChildren" => 0},
+        |builder| builder.value(ROOT, PARALLEL_LEVELS),
+    );
     let device = ("deviceType".to_string(), J::from(HARDWARE[hardware(&stats.extra.device_type) as usize]));
     let mut entries = vec![(GROUPINGS[grouping].1.to_string(), tree)];
     entries.insert(usize::from(grouping != PROVENANCE), device);
-    entries.push(("aggDvfsTimeScaleMultiplier".into(), proto_value(safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64))));
+    entries.push((
+        "aggDvfsTimeScaleMultiplier".into(),
+        proto_value(safe_divide(stats.db.normalized_total_op_time_ps as f64, stats.db.total_op_time_ps as f64)),
+    ));
     J::Map(entries)
 }
 

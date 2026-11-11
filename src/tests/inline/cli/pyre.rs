@@ -257,7 +257,9 @@ fn the_search_gives_the_result_of_python() {
         ("(?<=a{3})b", "aab", false),
     ]
     .into_iter()
-    .filter(|&(pattern, text, found)| compile(pattern, 986).map(|compiled| compiled.search(text)) != Ok(found))
+    .filter(|&(pattern, text, found)| {
+        compile(pattern, 986).map(|compiled| compiled.search(text)) != Ok(found)
+    })
     .collect::<Vec<_>>();
     assert!(wrong.is_empty(), "{wrong:?}");
 }
@@ -265,7 +267,9 @@ fn the_search_gives_the_result_of_python() {
 #[test]
 fn a_deep_pattern_stops_where_python_stops() {
     let nest = |open: &str, close: &str, count: usize| format!("{}a{}", open.repeat(count), close.repeat(count));
-    for (open, close, count, frames) in [("(", ")", 492, 986), ("(?:", ")*", 492, 986), ("(?(1)", ")", 984, 986), ("(", ")", 490, 982), ("(?(1)", ")", 980, 982)] {
+    for (open, close, count, frames) in
+        [("(", ")", 492, 986), ("(?:", ")*", 492, 986), ("(?(1)", ")", 984, 986), ("(", ")", 490, 982), ("(?(1)", ")", 980, 982)]
+    {
         assert_ne!(compile(&format!("(a){}", nest(open, close, count)), frames).err().as_deref(), Some(RECURSION), "{open} {count}");
         assert_eq!(compile(&format!("(a){}", nest(open, close, count + 1)), frames).err().as_deref(), Some(RECURSION), "{open} {count}");
     }

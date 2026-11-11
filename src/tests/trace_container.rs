@@ -65,7 +65,8 @@ fn async_line() {
              event_metadata { key: 11 value: { id: 11 name: "Async Op" } }
            }"#,
     );
-    let found: Vec<(u64, u64)> = events_by_name(&trace).into_iter().filter(|(name, _)| *name == "Async Op").map(|(_, event)| (event.ts, event.dur)).collect();
+    let found: Vec<(u64, u64)> =
+        events_by_name(&trace).into_iter().filter(|(name, _)| *name == "Async Op").map(|(_, event)| (event.ts, event.dur)).collect();
     assert_eq!(found, [(2 * PICOS_PER_SECOND, PICOS_PER_SECOND)]);
 }
 
