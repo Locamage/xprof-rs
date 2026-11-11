@@ -7,7 +7,7 @@ use crate::tools::table::{Cell, Table};
 use crate::xplane::derive::{is_grouped, is_tensor_core};
 use crate::xplane::group::{Metadata, group};
 use crate::xplane::steps::{DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_HOST, HOST_TO_DEVICE, Span, UNKNOWN_TIME, non_overlapped};
-use crate::xplane::{self, Plane, Value, event_group, event_stat, slice, stats};
+use crate::xplane::{self, HOST_PLANE, Plane, Value, event_group, event_stat, slice, stats};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
@@ -15,10 +15,17 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::once;
 use std::path::PathBuf;
 
-const HOST_PLANE: &str = "/host:CPU";
 const TFSTREAMZ_PLANE: &str = "/host:tfstreamz";
 const XLA_MODULES: &str = "XLA Modules";
-const REQUEST_EVENTS: [&[u8]; 7] = [b"SessionRun", b"RunGraph", b"BatchingSessionRun", b"ProcessBatch", b"OrbaxServing::ProcessBatch", b"TfrtModelRun", b"ServingModelRun"];
+const REQUEST_EVENTS: [&[u8]; 7] = [
+    b"SessionRun",
+    b"RunGraph",
+    b"BatchingSessionRun",
+    b"ProcessBatch",
+    b"OrbaxServing::ProcessBatch",
+    b"TfrtModelRun",
+    b"ServingModelRun",
+];
 const USER_REQUEST_PREFIX: &str = "ModelServerRequest_";
 const HOST_PREPROCESS: u32 = 20;
 const HOST_POSTPROCESS: u32 = 30;
@@ -30,18 +37,29 @@ const MODEL_ID_EVENTS: [&str; 3] = ["SessionRun", "TfrtModelRun", "ServingModelR
 const SCHEDULE_EVENTS: [&str; 4] = ["ScheduleWithSplit", "ScheduleWithoutSplit", "ScheduleWithEagerSplit", "ASBSQueue::Schedule"];
 const PROCESS_BATCH_EVENTS: [&str; 2] = ["ProcessBatch", "OrbaxServing::ProcessBatch"];
 const PADDING_EVENTS: [&str; 4] = ["ConcatInputTensors", "OrbaxServing::ConcatInputBuffers", "MergeInputTensors", "BrainSessionRun"];
-const TRANSFER_EVENTS: [(&str, u32); 5] =
-    [("ReadHbm", DEVICE_TO_HOST), ("TransferD2HRequest", DEVICE_TO_HOST), ("WriteHbm", HOST_TO_DEVICE), ("TransferH2DRequest", HOST_TO_DEVICE), ("TransferPreprocessedH2DRequest", HOST_TO_DEVICE)];
+const TRANSFER_EVENTS: [(&str, u32); 5] = [
+    ("ReadHbm", DEVICE_TO_HOST),
+    ("TransferD2HRequest", DEVICE_TO_HOST),
+    ("WriteHbm", HOST_TO_DEVICE),
+    ("TransferH2DRequest", HOST_TO_DEVICE),
+    ("TransferPreprocessedH2DRequest", HOST_TO_DEVICE),
+];
 const SYSTEM_TRANSFERS: [(&str, &str, u32); 2] = [
     ("tpu::System::TransferToDevice=>IssueEvent", "tpu::System::TransferToDevice=>IssueEvent=>Done", HOST_TO_DEVICE),
     ("tpu::System::TransferFromDevice=>IssueEvent", "tpu::System::TransferFromDevice=>IssueEvent=>Done", DEVICE_TO_HOST),
 ];
-const EXECUTE_EVENTS: [&str; 4] = ["TPUPartitionedCallOp-ExecuteLocal", "TPUPartitionedCallOp-ExecuteRemote", "TPUPartitionedCallOp-InitializeVarOnTPU", "tpu::System::Execute"];
+const EXECUTE_EVENTS: [&str; 4] = [
+    "TPUPartitionedCallOp-ExecuteLocal",
+    "TPUPartitionedCallOp-ExecuteRemote",
+    "TPUPartitionedCallOp-InitializeVarOnTPU",
+    "tpu::System::Execute",
+];
 const LAUNCH_EVENTS: [&str; 2] = ["DoEnqueueProgram", "DoEnqueueContinuationProgram"];
 const CALLBACK_EVENTS: [&str; 1] = ["CompleteCallbacks"];
 const TENSOR_EVENTS: [&str; 3] = ["Linearize", "Delinearize", "TransferBufferFromDevice-FastPath"];
 const BATCHING_PARAM_PREFIX: &str = "/tensorflow/serving/batching/";
-const BATCHING_PARAMS: [&str; 5] = ["num_batch_threads", "batch_timeout_micros", "max_batch_size", "max_enqueued_batches", "allowed_batch_sizes"];
+const BATCHING_PARAMS: [&str; 5] =
+    ["num_batch_threads", "batch_timeout_micros", "max_batch_size", "max_enqueued_batches", "allowed_batch_sizes"];
 const REQUEST_OWNER: i32 = 1;
 const BATCH_OWNER: i32 = 2;
 const TENSOR_PERCENTILES: [f64; 6] = [50.0, 75.0, 90.0, 95.0, 99.0, 99.9];
@@ -268,7 +286,9 @@ struct Batch<'a> {
 
 fn serves_requests(map: &[u8]) -> bool {
     let planes = planes(map, |name| name == HOST_PLANE.as_bytes());
-    let Some(plane) = planes.first() else { return false };
+    let Some(plane) = planes.first() else {
+        return false;
+    };
     let root = [plane.stat_id("_r")];
     plane.lines.par_iter().any(|line| {
         events(line).any(|event| {
@@ -344,14 +364,20 @@ impl<'a> Events<'a> {
             .flat_map(|line| line.events.iter().map(move |event| (line, event)))
             .map(|(line, event)| {
                 let raw = slice(map, event.raw);
-                HostEvent { name: &names[event.meta as usize], ts: line.absolute_ps(event.ts, host.origin_ns), dur: event.dur, group: event_group(raw, event.group, ids.group), raw }
+                HostEvent {
+                    name: &names[event.meta as usize],
+                    ts: line.absolute_ps(event.ts, host.origin_ns),
+                    dur: event.dur,
+                    group: event_group(raw, event.group, ids.group),
+                    raw,
+                }
             })
             .collect();
         let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
         for (index, event) in all.iter().enumerate() {
             by_name.entry(event.name).or_default().push(index);
         }
-        let roots = (0..all.len())
+        let roots: Vec<usize> = (0..all.len())
             .filter(|&index| match event_stat(all[index].raw, ids.root) {
                 Some(Value::Int(-1)) => true,
                 Some(Value::Int(1)) => all[index].name.starts_with(USER_REQUEST_PREFIX),
@@ -390,23 +416,38 @@ fn model_ids(events: &Events, host: &Plane, ids: &StatIds) -> HashMap<i64, Strin
     model_ids
 }
 
-fn build_requests<'a>(events: &Events, relatives: &Metadata, model_ids: &HashMap<i64, String>, models: &mut ModelIdDatabase) -> BTreeMap<i64, Request<'a>> {
+fn build_requests<'a>(
+    events: &Events,
+    relatives: &Metadata,
+    model_ids: &HashMap<i64, String>,
+    models: &mut ModelIdDatabase,
+) -> BTreeMap<i64, Request<'a>> {
     let model_of = |group: &i64| model_ids.get(group).map_or("", String::as_str);
     let batch_groups: HashSet<i64> = events.grouped(&PROCESS_BATCH_EVENTS).map(|(_, group)| group).collect();
     let batching = events.by_name.contains_key(BATCHING_REQUEST);
-    let kinds: &[&str] = if batching { &[BATCHING_REQUEST] } else { REQUEST_KINDS.into_iter().find(|kinds| events.by_name.contains_key(kinds[0])).unwrap_or(REQUEST_KINDS[2]) };
+    let kinds: &[&str] = if batching {
+        &[BATCHING_REQUEST]
+    } else {
+        REQUEST_KINDS.into_iter().find(|kinds| events.by_name.contains_key(kinds[0])).unwrap_or(REQUEST_KINDS[2])
+    };
     let mut requests: BTreeMap<i64, Request> = BTreeMap::new();
     let mut initialized = HashSet::new();
-    for (event, user) in kinds.iter().flat_map(|kind| events.named(kind)).map(|event| (event, false)).chain(events.roots().map(|event| (event, true))) {
+    for (event, user) in
+        kinds.iter().flat_map(|kind| events.named(kind)).map(|event| (event, false)).chain(events.roots().map(|event| (event, true)))
+    {
         let Some(group) = event.group else { continue };
         if batch_groups.contains(&group) || !initialized.insert(group) {
             continue;
         }
         let request = requests.entry(group).or_default();
-        let Some(relative) = relatives.get(&group) else { continue };
+        let Some(relative) = relatives.get(&group) else {
+            continue;
+        };
         request.batches.extend(&relative.children);
         request.model = if batching && !user {
-            let Some(child) = relative.children.first() else { continue };
+            let Some(child) = relative.children.first() else {
+                continue;
+            };
             assign(models, model_of(child))
         } else if user && !model_ids.contains_key(&group) {
             if relative.children.is_empty() {
@@ -443,18 +484,29 @@ fn stamp(requests: &mut BTreeMap<i64, Request>, relatives: &Metadata, group: i64
     }
 }
 
-fn build_batches<'a>(events: &Events, relatives: &Metadata, ids: &StatIds, requests: &mut BTreeMap<i64, Request>) -> BTreeMap<i64, Batch<'a>> {
+fn build_batches<'a>(
+    events: &Events,
+    relatives: &Metadata,
+    ids: &StatIds,
+    requests: &mut BTreeMap<i64, Request>,
+) -> BTreeMap<i64, Batch<'a>> {
     let mut batches: BTreeMap<i64, Batch> = BTreeMap::new();
     for (event, group) in events.grouped(&PROCESS_BATCH_EVENTS) {
-        let Some(relative) = relatives.get(&group) else { continue };
+        let Some(relative) = relatives.get(&group) else {
+            continue;
+        };
         let detail = &mut batches.entry(group).or_default().detail;
         (detail.batch_id, detail.start_time_ps, detail.end_time_ps) = (group, event.ts, event.ts.wrapping_add(event.dur));
         detail.related_request_ids.extend(&relative.parents);
         detail.related_request_ids.sort_unstable();
     }
     for (event, group) in events.grouped(&PADDING_EVENTS) {
-        stamp(requests, relatives, group, &|stamps| stamps.concat = Some(event.ts));
-        if let (Some(batch), Some(padding), Some(size)) = (batches.get_mut(&group), event_stat(event.raw, ids.padding), event_stat(event.raw, ids.padded_size)) {
+        stamp(requests, relatives, group, &|stamps| {
+            stamps.concat = Some(event.ts);
+        });
+        if let (Some(batch), Some(padding), Some(size)) =
+            (batches.get_mut(&group), event_stat(event.raw, ids.padding), event_stat(event.raw, ids.padded_size))
+        {
             (batch.detail.batch_size_after_padding, batch.detail.padding_amount) = (size.signed() as i32, padding.signed() as i32);
         }
     }
@@ -471,7 +523,9 @@ type DeviceEvent = (i64, (u32, Span), Option<u64>);
 fn device_events(planes: &[Plane], map: &[u8], events: &Events, ids: &StatIds) -> Vec<DeviceEvent> {
     let mut found: Vec<DeviceEvent> = Vec::new();
     for (name, kind) in TRANSFER_EVENTS {
-        found.extend(events.named(name).filter_map(|event| Some((event.group?, (kind, Span { begin: event.ts, duration: event.dur }), None))));
+        found.extend(
+            events.named(name).filter_map(|event| Some((event.group?, (kind, Span { begin: event.ts, duration: event.dur }), None))),
+        );
     }
     for (start, end, kind) in SYSTEM_TRANSFERS {
         let mut transfers: HashMap<i64, (&HostEvent, Option<&HostEvent>)> = HashMap::new();
@@ -487,21 +541,38 @@ fn device_events(planes: &[Plane], map: &[u8], events: &Events, ids: &StatIds) -
             }
         }
         for (start, end) in transfers.values().filter_map(|&(start, end)| Some((start, end?))) {
-            found.push((start.group.unwrap_or_default(), (kind, Span { begin: start.ts, duration: end.ts.wrapping_add(end.dur).wrapping_sub(start.ts) }), None));
+            found.push((
+                start.group.unwrap_or_default(),
+                (kind, Span { begin: start.ts, duration: end.ts.wrapping_add(end.dur).wrapping_sub(start.ts) }),
+                None,
+            ));
         }
     }
     for plane in planes.iter().filter(|plane| is_tensor_core(&plane.name)) {
         let (group_id, program_id) = (plane.id("group_id"), plane.id("program_id"));
-        for (line, event) in plane.lines.iter().filter(|line| line.name == XLA_MODULES).flat_map(|line| line.events.iter().map(move |event| (line, event))) {
-            let Some(group) = event_group(slice(map, event.raw), event.group, group_id) else { continue };
+        for (line, event) in
+            plane.lines.iter().filter(|line| line.name == XLA_MODULES).flat_map(|line| line.events.iter().map(move |event| (line, event)))
+        {
+            let Some(group) = event_group(slice(map, event.raw), event.group, group_id) else {
+                continue;
+            };
             let program = plane.find(map, event.meta, event.raw, program_id).map(|value| value.int().unwrap_or(0) as u64);
-            found.push((group, (DEVICE_COMPUTE_32, Span { begin: line.absolute_ps(event.ts, plane.origin_ns), duration: event.dur }), program));
+            found.push((
+                group,
+                (DEVICE_COMPUTE_32, Span { begin: line.absolute_ps(event.ts, plane.origin_ns), duration: event.dur }),
+                program,
+            ));
         }
     }
     found
 }
 
-fn attach_device_events(relatives: &Metadata, requests: &mut BTreeMap<i64, Request>, batches: &mut BTreeMap<i64, Batch>, device_events: Vec<DeviceEvent>) {
+fn attach_device_events(
+    relatives: &Metadata,
+    requests: &mut BTreeMap<i64, Request>,
+    batches: &mut BTreeMap<i64, Batch>,
+    device_events: Vec<DeviceEvent>,
+) {
     for (group, event, program) in device_events {
         for target in targets(relatives, group) {
             if let Some(request) = requests.get_mut(&target) {
@@ -527,7 +598,9 @@ fn apply_batch_timing(requests: &mut BTreeMap<i64, Request>, batches: &mut BTree
         }
     }
     for batch in batches.values_mut() {
-        if let Some(first) = batch.detail.related_request_ids.iter().filter_map(|id| requests.get(id)).min_by_key(|request| request.span.begin) {
+        if let Some(first) =
+            batch.detail.related_request_ids.iter().filter_map(|id| requests.get(id)).min_by_key(|request| request.span.begin)
+        {
             batch.detail.batch_delay_ps = batch.detail.start_time_ps.wrapping_sub(first.span.begin);
         }
     }
@@ -536,12 +609,14 @@ fn apply_batch_timing(requests: &mut BTreeMap<i64, Request>, batches: &mut BTree
 fn add_host_phases(requests: &mut BTreeMap<i64, Request>) {
     for request in requests.values_mut() {
         let (begin, end, stamps) = (request.span.begin, request.span.end(), request.stamps.values());
-        let runtimes: Vec<(u32, Span)> = stamps.clone().filter_map(|stamps| Some((HOST_RUNTIME, span(stamps.execute?, stamps.launch?)))).collect();
+        let runtimes: Vec<(u32, Span)> =
+            stamps.clone().filter_map(|stamps| Some((HOST_RUNTIME, span(stamps.execute?, stamps.launch?)))).collect();
         let first_execute = stamps.clone().filter_map(|stamps| stamps.execute).min();
         let concat = stamps.clone().filter_map(|stamps| stamps.concat).min();
         let callback = stamps.clone().filter_map(|stamps| stamps.callback).max();
         let schedule = stamps.clone().find_map(|stamps| stamps.schedule);
-        let device_end = request.events.iter().filter(|(kind, _)| *kind == DEVICE_COMPUTE_32).map(|(_, span)| span.end()).max().unwrap_or(0);
+        let device_end =
+            request.events.iter().filter(|(kind, _)| *kind == DEVICE_COMPUTE_32).map(|(_, span)| span.end()).max().unwrap_or(0);
         request.events.extend(runtimes);
         request.events.extend(first_execute.map(|execute| (HOST_PREPROCESS, span(begin, execute))));
         if let Some(start) = callback.or((device_end != 0).then_some(device_end)) {
@@ -553,7 +628,13 @@ fn add_host_phases(requests: &mut BTreeMap<i64, Request>) {
     }
 }
 
-fn tensor_patterns<'a>(events: &'a Events, host: &Plane, ids: &StatIds, requests: &mut BTreeMap<i64, Request<'a>>, batches: &mut BTreeMap<i64, Batch<'a>>) -> Vec<String> {
+fn tensor_patterns<'a>(
+    events: &'a Events,
+    host: &Plane,
+    ids: &StatIds,
+    requests: &mut BTreeMap<i64, Request<'a>>,
+    batches: &mut BTreeMap<i64, Batch<'a>>,
+) -> Vec<String> {
     for (event, group) in events.grouped(&TENSOR_EVENTS) {
         if let Some(request) = requests.get_mut(&group) {
             request.tensors.push(event);
@@ -567,10 +648,12 @@ fn tensor_patterns<'a>(events: &'a Events, host: &Plane, ids: &StatIds, requests
             let text = |id: Option<usize>| event_stat(event.raw, id).map(|value| host.text(&value));
             let shape = match (text(ids.shape), text(ids.dims)) {
                 (Some(shape), _) => shape,
-                (None, Some(dims)) => text(ids.kind).map_or(dims.clone(), |kind| format!("{}{dims}", kind.to_ascii_lowercase())),
+                (None, Some(dims)) => text(ids.kind).map_or_else(|| dims.clone(), |kind| format!("{}{dims}", kind.to_ascii_lowercase())),
                 (None, None) => String::new(),
             };
-            let Some(layout) = text(ids.layout).filter(|_| !shape.is_empty()) else { return String::new() };
+            let Some(layout) = text(ids.layout).filter(|_| !shape.is_empty()) else {
+                return String::new();
+            };
             parts.push(format!("{} {shape} {layout}", event.name));
         }
         parts.sort();
@@ -590,7 +673,9 @@ fn tensor_patterns<'a>(events: &'a Events, host: &Plane, ids: &StatIds, requests
         batch.detail.tensor_event_detail = detail(&batch.tensors, BATCH_OWNER);
     }
     for batch in batches.values() {
-        let Some(detail) = &batch.detail.tensor_event_detail else { continue };
+        let Some(detail) = &batch.detail.tensor_event_detail else {
+            continue;
+        };
         for id in &batch.detail.related_request_ids {
             if let Some(request) = requests.get_mut(id) {
                 request.details.push(detail.clone());
@@ -604,7 +689,9 @@ fn tensor_patterns<'a>(events: &'a Events, host: &Plane, ids: &StatIds, requests
 
 fn host_details(host_id: i32, requests: &BTreeMap<i64, Request>, batches: BTreeMap<i64, Batch>) -> PerHostInferenceStats {
     let duration = |start: u64, end: u64| (span(start, end).duration, start);
-    let total = |parts: &[(u32, Span)], kinds: &[u32]| parts.iter().filter(|(kind, _)| kinds.contains(kind)).map(|(_, span)| span.duration).sum::<u64>();
+    let total = |parts: &[(u32, Span)], kinds: &[u32]| {
+        parts.iter().filter(|(kind, _)| kinds.contains(kind)).map(|(_, span)| span.duration).sum::<u64>()
+    };
     let mut per_host = PerHostInferenceStats::default();
     for (&group, request) in requests.iter().filter(|(_, request)| request.span.duration != 0) {
         let parts = non_overlapped(&request.events);
@@ -639,18 +726,34 @@ fn host_details(host_id: i32, requests: &BTreeMap<i64, Request>, batches: BTreeM
 }
 
 fn batching_parameters(planes: &[Plane], map: &[u8], models: &mut ModelIdDatabase) {
-    let Some((plane, line)) = planes.iter().find(|plane| plane.name == TFSTREAMZ_PLANE).and_then(|plane| Some((plane, plane.lines.first().filter(|line| line.events.len() == 2)?))) else { return };
+    let Some((plane, line)) = planes
+        .iter()
+        .find(|plane| plane.name == TFSTREAMZ_PLANE)
+        .and_then(|plane| Some((plane, plane.lines.first().filter(|line| line.events.len() == 2)?)))
+    else {
+        return;
+    };
     let mut params: HashMap<String, BatchingParameters> = HashMap::new();
     for stat in stats(slice(map, line.events[1].raw), 4, |_| true) {
-        let Some(detail) = plane.stat_names.get(stat.id).and_then(|name| name.strip_prefix(BATCHING_PARAM_PREFIX)) else { continue };
-        let (Some(open), Some(close)) = (detail.find('{'), detail.rfind('}')) else { continue };
-        let labels = if open < close { &detail[open + 1..close] } else { continue };
+        let Some(detail) = plane.stat_names.get(stat.id).and_then(|name| name.strip_prefix(BATCHING_PARAM_PREFIX)) else {
+            continue;
+        };
+        let (Some(open), Some(close)) = (detail.find('{'), detail.rfind('}')) else {
+            continue;
+        };
+        let labels = if open < close {
+            &detail[open + 1..close]
+        } else {
+            continue;
+        };
         let found = labels.split(", ").find_map(|label| match label.split('=').collect::<Vec<_>>()[..] {
             ["model_name", model] => Some(model),
             _ => None,
         });
         let Some(model) = found else { continue };
-        let Some(field) = BATCHING_PARAMS.iter().position(|param| detail.starts_with(param)) else { continue };
+        let Some(field) = BATCHING_PARAMS.iter().position(|param| detail.starts_with(param)) else {
+            continue;
+        };
         let (entry, value) = (params.entry(model.to_string()).or_default(), stat.value.signed());
         match field {
             0 => entry.num_batch_threads = value,
@@ -664,7 +767,9 @@ fn batching_parameters(planes: &[Plane], map: &[u8], models: &mut ModelIdDatabas
     for id in &models.ids {
         match id.rfind(':') {
             None => sessions.entry(id.clone()).or_default().push(id.clone()),
-            Some(colon) if id[colon + 1..].trim_ascii().parse::<i64>().is_ok() => sessions.entry(id[..colon].to_string()).or_default().push(id.clone()),
+            Some(colon) if id[colon + 1..].trim_ascii().parse::<i64>().is_ok() => {
+                sessions.entry(id[..colon].to_string()).or_default().push(id.clone());
+            }
             Some(_) => {}
         }
     }
@@ -678,14 +783,18 @@ fn batching_parameters(planes: &[Plane], map: &[u8], models: &mut ModelIdDatabas
 pub fn generate(planes: &[Plane], map: &[u8], relatives: &Metadata, host_id: i32) -> InferenceStats {
     let mut result = InferenceStats::default();
     result.inference_stats_per_host.insert(host_id, PerHostInferenceStats::default());
-    let Some(host) = planes.iter().find(|plane| plane.name == HOST_PLANE) else { return result };
+    let Some(host) = planes.iter().find(|plane| plane.name == HOST_PLANE) else {
+        return result;
+    };
     let names: Vec<Cow<str>> = host.meta.iter().map(|meta| meta.long_name(map)).collect();
     let ids = StatIds::new(host);
     let events = Events::collect(host, map, &names, &ids);
     let model_ids = model_ids(&events, host, &ids);
     let mut requests = build_requests(&events, relatives, &model_ids, &mut result.model_id_db);
     for (event, group) in events.grouped(&SCHEDULE_EVENTS) {
-        stamp(&mut requests, relatives, group, &|stamps| stamps.schedule = Some(event.ts));
+        stamp(&mut requests, relatives, group, &|stamps| {
+            stamps.schedule = Some(event.ts);
+        });
         if let (Some(request), Some(size)) = (requests.get_mut(&group), event_stat(event.raw, ids.task_size)) {
             request.size = size.signed() as i32;
         }
@@ -693,13 +802,19 @@ pub fn generate(planes: &[Plane], map: &[u8], relatives: &Metadata, host_id: i32
     let mut batches = build_batches(&events, relatives, &ids, &mut requests);
     attach_device_events(relatives, &mut requests, &mut batches, device_events(planes, map, &events, &ids));
     for (event, group) in events.grouped(&EXECUTE_EVENTS) {
-        stamp(&mut requests, relatives, group, &|stamps| stamps.execute = Some(event.ts));
+        stamp(&mut requests, relatives, group, &|stamps| {
+            stamps.execute = Some(event.ts);
+        });
     }
     for (event, group) in events.grouped(&LAUNCH_EVENTS) {
-        stamp(&mut requests, relatives, group, &|stamps| stamps.launch = Some(stamps.launch.map_or(event.ts, |launch| launch.min(event.ts))));
+        stamp(&mut requests, relatives, group, &|stamps| {
+            stamps.launch = Some(stamps.launch.map_or(event.ts, |launch| launch.min(event.ts)));
+        });
     }
     for (event, group) in events.grouped(&CALLBACK_EVENTS) {
-        stamp(&mut requests, relatives, group, &|stamps| stamps.callback = Some(event.ts));
+        stamp(&mut requests, relatives, group, &|stamps| {
+            stamps.callback = Some(event.ts);
+        });
     }
     apply_batch_timing(&mut requests, &mut batches);
     add_host_phases(&mut requests);
@@ -729,7 +844,8 @@ fn combine(host_id: i32, src: InferenceStats, dst: &mut InferenceStats) {
         }
         update
     };
-    let mut pattern_index: HashMap<String, i32> = dst.tensor_patterns.iter().enumerate().map(|(index, pattern)| (pattern.clone(), index as i32)).collect();
+    let mut pattern_index: HashMap<String, i32> =
+        dst.tensor_patterns.iter().enumerate().map(|(index, pattern)| (pattern.clone(), index as i32)).collect();
     let update_patterns = if dst.tensor_patterns.is_empty() {
         dst.tensor_patterns.clone_from(&src.tensor_patterns);
         false
@@ -756,15 +872,23 @@ fn combine(host_id: i32, src: InferenceStats, dst: &mut InferenceStats) {
     for (_, mut host) in src.inference_stats_per_host {
         for request in host.request_details.iter_mut().filter(|_| update_models || update_patterns) {
             if update_models && request.model_id_index != -1 {
-                let Some(&index) = src.model_id_db.ids.get(request.model_id_index as usize).and_then(|id| dst.model_id_db.id_to_index.get(id)) else { continue };
+                let Some(&index) =
+                    src.model_id_db.ids.get(request.model_id_index as usize).and_then(|id| dst.model_id_db.id_to_index.get(id))
+                else {
+                    continue;
+                };
                 request.model_id_index = index;
             }
             if update_patterns {
-                request.tensor_event_details.iter_mut().for_each(remap);
+                for detail in &mut request.tensor_event_details {
+                    remap(detail);
+                }
             }
         }
         if update_patterns {
-            host.batch_details.iter_mut().for_each(|batch| remap(batch.tensor_event_detail.get_or_insert_with(TensorEventDetail::default)));
+            for batch in &mut host.batch_details {
+                remap(batch.tensor_event_detail.get_or_insert_with(TensorEventDetail::default));
+            }
         }
         dst.inference_stats_per_host.entry(host_id).or_insert(host);
     }
@@ -781,14 +905,25 @@ fn throughput_and_latency(spans: &[(u64, u64)]) -> (f64, f64) {
 }
 
 macro_rules! wrapping_add {
-    ($sum:ident, $item:ident, $($field:ident),*) => { $($sum.$field = $sum.$field.wrapping_add($item.$field);)* };
+    ($sum:ident, $item:ident, $($field:ident),*) => {
+        $($sum.$field = $sum.$field.wrapping_add($item.$field);)*
+    };
 }
 
 fn add_request(sum: &mut RequestDetail, request: &RequestDetail) {
     sum.end_time_ps = sum.end_time_ps.wrapping_add(request.end_time_ps.wrapping_sub(request.start_time_ps));
     wrapping_add!(
-        sum, request, device_time_ps, read_from_device_time_ps, write_to_device_time_ps, batching_request_delay_ps, batching_request_size, host_preprocessing_ps, host_batch_formation_ps,
-        host_runtime_ps, host_postprocessing_ps
+        sum,
+        request,
+        device_time_ps,
+        read_from_device_time_ps,
+        write_to_device_time_ps,
+        batching_request_delay_ps,
+        batching_request_size,
+        host_preprocessing_ps,
+        host_batch_formation_ps,
+        host_runtime_ps,
+        host_postprocessing_ps
     );
     sum.idle_time_ps += request.idle_time_ps;
 }
@@ -842,7 +977,9 @@ pub fn regroup(stats: &mut InferenceStats) {
     }
     let no_model = stats.model_id_db.ids.is_empty();
     let mut grouped = vec![PerModelInferenceStats::default(); if no_model { 1 } else { stats.model_id_db.ids.len() }];
-    let bucket = |index: i32| if no_model { Some(0) } else { usize::try_from(index).ok() };
+    let bucket = |index: i32| {
+        if no_model { Some(0) } else { usize::try_from(index).ok() }
+    };
     for host in stats.inference_stats_per_host.values() {
         for request in &host.request_details {
             if let Some(model) = bucket(request.model_id_index).and_then(|index| grouped.get_mut(index)) {
@@ -864,14 +1001,22 @@ pub fn regroup(stats: &mut InferenceStats) {
         (model.request_throughput, model.request_average_latency_us) = throughput_and_latency(&requests);
         (model.batch_throughput, model.batch_average_latency_us) = throughput_and_latency(&batches);
         let mut times: BTreeMap<i32, Vec<u64>> = BTreeMap::new();
-        let owned = model.request_details.iter().flat_map(|request| &request.tensor_event_details).filter(|detail| detail.owner == REQUEST_OWNER);
+        let owned =
+            model.request_details.iter().flat_map(|request| &request.tensor_event_details).filter(|detail| detail.owner == REQUEST_OWNER);
         for detail in owned.chain(model.batch_details.iter().filter_map(|batch| batch.tensor_event_detail.as_ref())) {
             times.entry(detail.tensor_pattern_index).or_default().push(detail.linearize_delinearize_time_ps);
         }
         for (tensor_pattern_index, mut times) in times {
             times.sort_unstable();
-            let linearize_delinearize_percentile_time = TENSOR_PERCENTILES.iter().map(|&percentile| (percentile, times[(percentile / 100.0 * times.len() as f64) as usize])).collect();
-            model.tensor_pattern_results.push(TensorPatternResult { tensor_pattern_index, count: times.len() as u64, linearize_delinearize_percentile_time });
+            let linearize_delinearize_percentile_time: Vec<(f64, u64)> = TENSOR_PERCENTILES
+                .iter()
+                .map(|&percentile| (percentile, times[(percentile / 100.0 * times.len() as f64) as usize]))
+                .collect();
+            model.tensor_pattern_results.push(TensorPatternResult {
+                tensor_pattern_index,
+                count: times.len() as u64,
+                linearize_delinearize_percentile_time,
+            });
         }
         let sizes: HashMap<i64, i32> = model.batch_details.iter().map(|batch| (batch.batch_id, batch.batch_size_after_padding)).collect();
         let (mut requests_sum, mut batches_sum) = (RequestDetail::default(), BatchDetail::default());
@@ -973,15 +1118,22 @@ pub fn sample(request_column: &str, batch_column: &str, stats: &InferenceStats) 
         if batch_column != LATENCY_COLUMN {
             std_sort(&mut batches, &|a, b| less(batch_key(&model.batch_details[a]), batch_key(&model.batch_details[b])));
         }
-        let sampled_requests = percentiles(requests.len()).into_iter().map(|(at, percentile)| RequestDetail { percentile, ..model.request_details[requests[at]].clone() }).collect();
-        let sampled_batches = percentiles(batches.len()).into_iter().map(|(at, percentile)| BatchDetail { percentile, ..model.batch_details[batches[at]].clone() }).collect();
+        let sampled_requests = percentiles(requests.len())
+            .into_iter()
+            .map(|(at, percentile)| RequestDetail { percentile, ..model.request_details[requests[at]].clone() })
+            .collect();
+        let sampled_batches = percentiles(batches.len())
+            .into_iter()
+            .map(|(at, percentile)| BatchDetail { percentile, ..model.batch_details[batches[at]].clone() })
+            .collect();
         sampled.insert(index, SampledPerModelInferenceStats { sampled_requests, sampled_batches });
     }
     sampled
 }
 
 fn request_table(model: &PerModelInferenceStats, sampled: &SampledPerModelInferenceStats, has_batching: bool) -> String {
-    let mut table = Table::new(&[("percentile", "string", "Percentile"), ("request_id", "string", "Request ID"), ("latency_ms", "number", "Latency")]);
+    let mut table =
+        Table::new(&[("percentile", "string", "Percentile"), ("request_id", "string", "Request ID"), ("latency_ms", "number", "Latency")]);
     table.prop("throughput", fixed(model.request_throughput, 1));
     table.prop("averageLatencyMs", fixed(model.request_average_latency_us / 1e3, 3));
     if has_batching {
@@ -989,19 +1141,35 @@ fn request_table(model: &PerModelInferenceStats, sampled: &SampledPerModelInfere
         table.column("host_batch_formation", "number", "Host batch formation");
         table.column("throughput", "string", "Throughput");
     }
-    TPU_COLUMNS.iter().for_each(|&(id, kind, label)| table.column(id, kind, label));
+    for (id, kind, label) in TPU_COLUMNS {
+        table.column(id, kind, label);
+    }
     table.column("trace_viewer_url", "string", "Trace Viewer URL");
-    let rows = sampled.sampled_requests.iter().map(|request| (request, fixed(request.percentile, 3), request.request_id.to_string(), "N/A".to_string()));
-    let sizes = model.per_batch_size_aggregated_result.iter().map(|size| (&size.aggregated_request_result, format!("Batch size {}", size.batch_size), "N/A".into(), fixed(size.request_throughput, 1)));
+    let rows = sampled
+        .sampled_requests
+        .iter()
+        .map(|request| (request, fixed(request.percentile, 3), request.request_id.to_string(), "N/A".to_string()));
+    let sizes = model.per_batch_size_aggregated_result.iter().map(|size| {
+        (&size.aggregated_request_result, format!("Batch size {}", size.batch_size), "N/A".into(), fixed(size.request_throughput, 1))
+    });
     let average = once((&model.aggregated_request_detail, "Average".to_string(), "N/A".to_string(), fixed(model.request_throughput, 1)));
     for (request, percentile, id, throughput) in rows.chain(sizes).chain(average) {
         let row = table.row();
         row.extend([Cell::Text(percentile), Cell::Text(id), Cell::Number(ms(request.end_time_ps.wrapping_sub(request.start_time_ps)))]);
         if has_batching {
-            row.extend([Cell::Number(request.batching_request_size.into()), Cell::Number(ms(request.batching_request_delay_ps)), Cell::Text(throughput)]);
+            row.extend([
+                Cell::Number(request.batching_request_size.into()),
+                Cell::Number(ms(request.batching_request_delay_ps)),
+                Cell::Text(throughput),
+            ]);
         }
         let parts = [
-            request.host_preprocessing_ps, request.host_runtime_ps, request.write_to_device_time_ps, request.read_from_device_time_ps, request.device_time_ps, request.host_postprocessing_ps,
+            request.host_preprocessing_ps,
+            request.host_runtime_ps,
+            request.write_to_device_time_ps,
+            request.read_from_device_time_ps,
+            request.device_time_ps,
+            request.host_postprocessing_ps,
             request.idle_time_ps as u64,
         ];
         row.extend(parts.into_iter().map(|ps| Cell::Number(ms(ps))));
@@ -1012,11 +1180,18 @@ fn request_table(model: &PerModelInferenceStats, sampled: &SampledPerModelInfere
 
 fn batch_table(model: &PerModelInferenceStats, sampled: &SampledPerModelInferenceStats, params: Option<&BatchingParameters>) -> String {
     let mut table = Table::new(&BATCH_COLUMNS);
-    let rows = sampled.sampled_batches.iter().map(|batch| (batch, fixed(batch.percentile, 3), batch.batch_id.to_string(), "N/A".to_string()));
-    let sizes = model.per_batch_size_aggregated_result.iter().map(|size| (&size.aggregated_batch_result, format!("Batch size {}", size.batch_size), "N/A".into(), fixed(size.batch_throughput, 1)));
+    let rows =
+        sampled.sampled_batches.iter().map(|batch| (batch, fixed(batch.percentile, 3), batch.batch_id.to_string(), "N/A".to_string()));
+    let sizes = model.per_batch_size_aggregated_result.iter().map(|size| {
+        (&size.aggregated_batch_result, format!("Batch size {}", size.batch_size), "N/A".into(), fixed(size.batch_throughput, 1))
+    });
     let aggregated = once((&model.aggregated_batch_detail, "Aggregated".to_string(), "N/A".to_string(), fixed(model.batch_throughput, 1)));
     for (batch, percentile, id, throughput) in rows.chain(sizes).chain(aggregated) {
-        let programs = if batch.program_ids.is_empty() { "N/A".into() } else { batch.program_ids.iter().map(u64::to_string).collect::<Vec<_>>().join(", ") };
+        let programs = if batch.program_ids.is_empty() {
+            "N/A".into()
+        } else {
+            batch.program_ids.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")
+        };
         table.row().extend([
             Cell::Text(percentile),
             Cell::Text(id),
@@ -1045,12 +1220,27 @@ fn batch_table(model: &PerModelInferenceStats, sampled: &SampledPerModelInferenc
 }
 
 fn tensor_table(model: &PerModelInferenceStats, patterns: &[String]) -> String {
-    let mut table =
-        Table::new(&[("id", "number", "ID"), ("tensor_pattern", "string", "Tensor Pattern"), ("count", "number", "Number of Occurrence"), ("percentile", "string", "Linearize/Delinearize latency")]);
+    let mut table = Table::new(&[
+        ("id", "number", "ID"),
+        ("tensor_pattern", "string", "Tensor Pattern"),
+        ("count", "number", "Number of Occurrence"),
+        ("percentile", "string", "Linearize/Delinearize latency"),
+    ]);
     for (index, result) in model.tensor_pattern_results.iter().enumerate() {
-        let Some(pattern) = usize::try_from(result.tensor_pattern_index).ok().and_then(|index| patterns.get(index)) else { continue };
-        let times: Vec<String> = result.linearize_delinearize_percentile_time.iter().map(|&(percentile, ps)| format!("{}%: {}ms", fixed(percentile, 2), fixed(ms(ps), 6))).collect();
-        table.row().extend([Cell::Number(index as f64), Cell::Text(pattern.clone()), Cell::Number(result.count as f64), Cell::Text(times.join("<br>"))]);
+        let Some(pattern) = usize::try_from(result.tensor_pattern_index).ok().and_then(|index| patterns.get(index)) else {
+            continue;
+        };
+        let times: Vec<String> = result
+            .linearize_delinearize_percentile_time
+            .iter()
+            .map(|&(percentile, ps)| format!("{}%: {}ms", fixed(percentile, 2), fixed(ms(ps), 6)))
+            .collect();
+        table.row().extend([
+            Cell::Number(index as f64),
+            Cell::Text(pattern.clone()),
+            Cell::Number(result.count as f64),
+            Cell::Text(times.join("<br>")),
+        ]);
     }
     table.json()
 }
@@ -1062,11 +1252,17 @@ pub fn tables(stats: &InferenceStats) -> String {
     let mut meta = Table::new(&[("model_name", "string", "Model Name")]);
     meta.prop("hasBatching", has_batching.to_string());
     meta.prop("hasTensorPattern", "false");
-    ids.iter().for_each(|id| meta.row().push(Cell::Text(id.clone())));
+    for id in &ids {
+        meta.row().push(Cell::Text(id.clone()));
+    }
     let mut tables = vec![meta.json()];
     for id in &ids {
-        let Some(index) = stats.model_id_db.id_to_index.get(id) else { continue };
-        let (Some(model), Some(sampled)) = (stats.inference_stats_per_model.get(index), stats.sampled_inference_stats.get(index)) else { continue };
+        let Some(index) = stats.model_id_db.id_to_index.get(id) else {
+            continue;
+        };
+        let (Some(model), Some(sampled)) = (stats.inference_stats_per_model.get(index), stats.sampled_inference_stats.get(index)) else {
+            continue;
+        };
         tables.push(request_table(model, sampled, has_batching));
         if has_batching {
             tables.push(batch_table(model, sampled, stats.model_id_db.id_to_batching_params.get(id)));
@@ -1079,7 +1275,8 @@ pub fn tables(stats: &InferenceStats) -> String {
 }
 
 pub fn load(paths: &[PathBuf]) -> Option<InferenceStats> {
-    let maps: Vec<crate::input::Input> = paths.iter().map(|path| crate::read_file(path).ok().filter(|map| valid_space(map))).collect::<Option<_>>()?;
+    let maps: Vec<crate::input::Input> =
+        paths.iter().map(|path| crate::read_file(path).ok().filter(|map| valid_space(map))).collect::<Option<_>>()?;
     let serving = maps.iter().any(|map| serves_requests(map));
     let hosts: Vec<InferenceStats> = maps
         .par_iter()
@@ -1087,7 +1284,11 @@ pub fn load(paths: &[PathBuf]) -> Option<InferenceStats> {
         .map(|(index, map)| {
             let mut planes = if serving { xplane::parse(map).ok()? } else { Vec::new() };
             planes.par_iter_mut().for_each(|plane| plane.add_threadpool_regions(map));
-            let relatives = if serving && !is_grouped(&planes) { group(&mut planes, map).map(|groups| groups.relatives).unwrap_or_default() } else { Metadata::new() };
+            let relatives = if serving && !is_grouped(&planes) {
+                group(&mut planes, map).map(|groups| groups.relatives).unwrap_or_default()
+            } else {
+                Metadata::new()
+            };
             Some(generate(&planes, map, &relatives, index as i32))
         })
         .collect::<Option<_>>()?;

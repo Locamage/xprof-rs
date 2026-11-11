@@ -89,12 +89,20 @@ pub fn generic_step_time_breakdown(step_time_average: f64) -> Option<InputPipeli
 
 pub fn step_sequence(steps: &[StepInfo]) -> Option<Vec<Step>> {
     Some(
-        steps.iter().map(|(cores, categories)| Step { cores: cores.to_vec(), categories: categories.iter().map(|(category, self_time_ps)| (category.to_string(), *self_time_ps)).collect() }).collect(),
+        steps
+            .iter()
+            .map(|(cores, categories)| Step {
+                cores: cores.to_vec(),
+                categories: categories.iter().map(|(category, self_time_ps)| (category.to_string(), *self_time_ps)).collect(),
+            })
+            .collect(),
     )
 }
 
 pub fn event_time_fractions(chips: &[(&str, &[f32])], hosts: &[(&str, &[f32])]) -> Option<Fractions> {
-    let map = |entries: &[(&str, &[f32])]| entries.iter().map(|(name, fractions)| (name.to_string(), fractions.to_vec())).collect::<BTreeMap<_, _>>();
+    let map = |entries: &[(&str, &[f32])]| {
+        entries.iter().map(|(name, fractions)| (name.to_string(), fractions.to_vec())).collect::<BTreeMap<_, _>>()
+    };
     Some(Fractions { chips: map(chips), hosts: map(hosts) })
 }
 

@@ -76,7 +76,14 @@ async fn search_metadata_interned_and_edge_cases() {
 
 #[test]
 fn flow_events_zoom_level_assignment_and_safety_guard() {
-    let level = levels(&[(2, &[("Dummy", 0, 100, 99, FLOW_START), ("EventA", 1000, 1100, 1, FLOW_START), ("EventB", 2000, 2000 + 2_000_000_000_000, 1, FLOW_END)])]);
+    let level = levels(&[(
+        2,
+        &[
+            ("Dummy", 0, 100, 99, FLOW_START),
+            ("EventA", 1000, 1100, 1, FLOW_START),
+            ("EventB", 2000, 2000 + 2_000_000_000_000, 1, FLOW_END),
+        ],
+    )]);
     assert_eq!(level("EventB"), 0);
     assert_eq!(level("EventA"), 9);
 }
@@ -84,8 +91,21 @@ fn flow_events_zoom_level_assignment_and_safety_guard() {
 #[test]
 fn safety_guard_for_fallback_flow_events() {
     let level = levels(&[
-        (2, &[("Dummy1", 0, 100, 99, FLOW_START), ("EventA", 1000, 1100, 1, FLOW_START), ("EventB", 2000, 2000 + 2_000_000_000_000, 1, FLOW_MID)]),
-        (3, &[("Dummy2", 3_500_000_000_000, 3_500_000_000_100, 98, FLOW_START), ("EventC", 4_000_000_000_000, 4_000_000_000_100, 1, FLOW_END)]),
+        (
+            2,
+            &[
+                ("Dummy1", 0, 100, 99, FLOW_START),
+                ("EventA", 1000, 1100, 1, FLOW_START),
+                ("EventB", 2000, 2000 + 2_000_000_000_000, 1, FLOW_MID),
+            ],
+        ),
+        (
+            3,
+            &[
+                ("Dummy2", 3_500_000_000_000, 3_500_000_000_100, 98, FLOW_START),
+                ("EventC", 4_000_000_000_000, 4_000_000_000_100, 1, FLOW_END),
+            ],
+        ),
     ]);
     assert_eq!(level("EventB"), 0);
     assert_eq!(level("EventC"), 9);

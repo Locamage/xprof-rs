@@ -1,5 +1,6 @@
 use crate::tools::inference_profile::{
-    BatchDetail, InferenceStats, ModelIdDatabase, PerBatchSizeAggregatedResult, PerHostInferenceStats, PerModelInferenceStats, RequestDetail, TensorEventDetail, TensorPatternResult,
+    BatchDetail, InferenceStats, ModelIdDatabase, PerBatchSizeAggregatedResult, PerHostInferenceStats, PerModelInferenceStats,
+    RequestDetail, TensorEventDetail, TensorPatternResult,
 };
 use crate::tools::opstats::{Db, OpStats};
 use crate::xplane::{self, Ev, NONE_GROUP, Plane};
@@ -9,7 +10,8 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 
-static POOL: LazyLock<DescriptorPool> = LazyLock::new(|| DescriptorPool::decode(&include_bytes!("../../tests/data/test_descriptors.pb")[..]).unwrap());
+static POOL: LazyLock<DescriptorPool> =
+    LazyLock::new(|| DescriptorPool::decode(&include_bytes!("../../tests/data/test_descriptors.pb")[..]).unwrap());
 
 pub const HOST: &str = "/host:CPU";
 const UNMODELED_OP_METRICS: [&str; 4] = ["flops", "model_flops", "fingerprint", "precision_stats"];
@@ -128,17 +130,28 @@ pub enum V {
     Bytes(Vec<u8>),
 }
 
-macro_rules! v_from { ($($kind:ty => $variant:ident),*) => { $(impl From<$kind> for V { fn from(value: $kind) -> Self { Self::$variant(value.into()) } })* } }
+macro_rules! v_from {
+    ($($kind:ty => $variant:ident),*) => {
+        $(impl From<$kind> for V {
+            fn from(value: $kind) -> Self {
+                Self::$variant(value.into())
+            }
+        })*
+    };
+}
 v_from!(i32 => Int, i64 => Int, u64 => Uint, f64 => Double, &str => Str, String => Str);
 
 pub fn op_stats(spaces: &[XSpace]) -> Option<Arc<OpStats>> {
-    let all: Vec<Option<Arc<OpStats>>> = spaces.iter().map(|space| crate::tests::with_file(&space.encode_to_vec(), crate::tools::opstats::load).unwrap()).collect();
+    let all: Vec<Option<Arc<OpStats>>> =
+        spaces.iter().map(|space| crate::tests::with_file(&space.encode_to_vec(), crate::tools::opstats::load).unwrap()).collect();
     OpStats::combine(&all)
 }
 
 pub fn grouped(space: &XSpace) -> (Vec<u8>, Vec<Plane>, Option<HashMap<i64, String>>) {
     let (map, mut planes) = space.parsed();
-    planes.iter_mut().for_each(|plane| plane.add_threadpool_regions(&map));
+    for plane in &mut planes {
+        plane.add_threadpool_regions(&map);
+    }
     let names = crate::xplane::group::group(&mut planes, &map).map(|groups| groups.names);
     (map, planes, names)
 }
@@ -159,8 +172,13 @@ pub fn op_metrics_db(db: &Db) -> DynamicMessage {
     let mut message = DynamicMessage::new(descriptor("tensorflow.profiler.OpMetricsDb"));
     for metrics in &db.metrics {
         let mut op = DynamicMessage::new(descriptor("tensorflow.profiler.OpMetrics"));
-        let strings =
-            [("name", &metrics.name), ("long_name", &metrics.long_name), ("category", &metrics.category), ("provenance", &metrics.provenance), ("deduplicated_name", &metrics.deduplicated_name)];
+        let strings = [
+            ("name", &metrics.name),
+            ("long_name", &metrics.long_name),
+            ("category", &metrics.category),
+            ("provenance", &metrics.provenance),
+            ("deduplicated_name", &metrics.deduplicated_name),
+        ];
         for (field, text) in strings {
             op.set_field_by_name(field, Value::String(text.to_string()));
         }
@@ -210,7 +228,11 @@ pub fn op_metrics_db(db: &Db) -> DynamicMessage {
         }
         message.get_field_by_name_mut("metrics_db").unwrap().as_list_mut().unwrap().push(Value::Message(op));
     }
-    for (field, number) in [("total_time_ps", db.total_time_ps), ("total_op_time_ps", db.total_op_time_ps), ("normalized_total_op_time_ps", db.normalized_total_op_time_ps)] {
+    for (field, number) in [
+        ("total_time_ps", db.total_time_ps),
+        ("total_op_time_ps", db.total_op_time_ps),
+        ("normalized_total_op_time_ps", db.normalized_total_op_time_ps),
+    ] {
         message.set_field_by_name(field, Value::U64(number));
     }
     message
@@ -223,9 +245,16 @@ fn without_unmodeled(message: &mut DynamicMessage) {
         }
     }
     for name in ["metrics_db", "children"] {
-        let Some(field) = message.descriptor().get_field_by_name(name).filter(|field| message.has_field(field)) else { continue };
+        let Some(field) = message.descriptor().get_field_by_name(name).filter(|field| message.has_field(field)) else {
+            continue;
+        };
         match message.get_field_mut(&field) {
-            Value::List(items) => items.iter_mut().filter_map(|item| item.as_message_mut()).for_each(without_unmodeled),
+            Value::List(items) => {
+                let messages = items.iter_mut().filter_map(|item| item.as_message_mut());
+                for message in messages {
+                    without_unmodeled(message);
+                }
+            }
             Value::Message(child) => without_unmodeled(child),
             _ => {}
         }
@@ -235,7 +264,8 @@ fn without_unmodeled(message: &mut DynamicMessage) {
 pub fn assert_db(db: &Db, expected: &str) {
     let mut expected = DynamicMessage::parse_text_format(descriptor("tensorflow.profiler.OpMetricsDb"), expected).unwrap();
     without_unmodeled(&mut expected);
-    let canonical = |message: &DynamicMessage| DynamicMessage::decode(message.descriptor(), &message.encode_to_vec()[..]).unwrap().to_text_format();
+    let canonical =
+        |message: &DynamicMessage| DynamicMessage::decode(message.descriptor(), &message.encode_to_vec()[..]).unwrap().to_text_format();
     assert_eq!(canonical(&op_metrics_db(db)), canonical(&expected));
 }
 
@@ -369,10 +399,18 @@ pub fn inference_stats(text: &str) -> InferenceStats {
         inference_stats_per_model: keyed(&message, "inference_stats_per_model", per_model),
         model_id_db: ModelIdDatabase {
             ids: field(&models, "ids").as_list().unwrap().iter().map(|id| id.as_str().unwrap().to_string()).collect(),
-            id_to_index: id_to_index.iter().map(|(key, value)| (if let MapKey::String(key) = key { key.clone() } else { String::new() }, value.as_i32().unwrap())).collect(),
+            id_to_index: id_to_index
+                .iter()
+                .map(|(key, value)| (if let MapKey::String(key) = key { key.clone() } else { String::new() }, value.as_i32().unwrap()))
+                .collect(),
             ..Default::default()
         },
-        tensor_patterns: field(&child(&message, "tensor_pattern_db"), "tensor_pattern").as_list().unwrap().iter().map(|pattern| pattern.as_str().unwrap().to_string()).collect(),
+        tensor_patterns: field(&child(&message, "tensor_pattern_db"), "tensor_pattern")
+            .as_list()
+            .unwrap()
+            .iter()
+            .map(|pattern| pattern.as_str().unwrap().to_string())
+            .collect(),
         ..Default::default()
     }
 }

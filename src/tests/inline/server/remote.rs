@@ -8,10 +8,16 @@ const DEMO: &[u8] = include_bytes!("../../../../tests/data/demo.xplane.pb");
 
 fn memory(name: &str) -> (Arc<InMemory>, Remote) {
     let store = Arc::new(InMemory::new());
-    let remote = Remote::new(&format!("memory:///{name}-{}", std::process::id()), store.clone(), Key::from("logs")).unwrap();
+    let remote = Remote::new(&format!("memory://{name}-{}", std::process::id()), store.clone(), Key::from("logs")).unwrap();
     _ = std::fs::remove_dir_all(&remote.mirror);
     std::fs::create_dir_all(&remote.mirror).unwrap();
     (store, remote)
+}
+
+/// Sets the time of the last use of a cached session to twice the in-use time ago, plus `later`.
+fn unused(session: &Path, later: Duration) {
+    let at = SystemTime::now() - IN_USE * 2 + later;
+    std::fs::File::open(session).unwrap().set_modified(at).unwrap();
 }
 
 async fn put(store: &InMemory, path: &str, bytes: Vec<u8>) {
@@ -73,9 +79,8 @@ async fn least_recently_used_sessions_are_evicted_beyond_the_budget() {
     for session in ["s1", "s2"] {
         remote.sync(&dir(session), true).await.unwrap();
     }
-    let long_ago = Instant::now().checked_sub(IN_USE * 2).unwrap();
-    remote.used.lock().unwrap().insert(dir("s1"), long_ago);
-    remote.used.lock().unwrap().insert(dir("s2"), long_ago + Duration::from_secs(1));
+    unused(&dir("s1"), Duration::ZERO);
+    unused(&dir("s2"), Duration::from_secs(1));
     remote.sync(&dir("s3"), true).await.unwrap();
     assert_eq!([held("s1"), held("s2"), held("s3")], [false, true, true]);
     assert!(dir("s1").is_dir() && !remote.checked.lock().unwrap().contains_key(&dir("s1")));
@@ -94,14 +99,62 @@ async fn a_session_with_a_running_sync_is_not_evicted() {
     remote.sync(&remote.mirror, false).await.unwrap();
     let dir = |session: &str| remote.mirror.join("plugins/profile").join(session);
     remote.sync(&dir("s1"), false).await.unwrap();
+    unused(&dir("s1"), Duration::ZERO);
     remote.locks.lock().unwrap().insert(dir("s1"), Arc::default());
     remote.sync(&dir("s2"), true).await.unwrap();
     assert!(dir("s1").join("h.xplane.pb").exists());
     remote.locks.lock().unwrap().clear();
+    let other_process = lock_dir(&dir("s1"), false).unwrap().unwrap();
+    remote.checked.lock().unwrap().clear();
+    remote.sync(&dir("s2"), true).await.unwrap();
+    assert!(dir("s1").join("h.xplane.pb").exists());
+    drop(other_process);
     remote.checked.lock().unwrap().clear();
     remote.sync(&dir("s2"), true).await.unwrap();
     assert!(!dir("s1").join("h.xplane.pb").exists());
     std::fs::remove_dir_all(&remote.mirror).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remotes_of_one_store_share_the_downloads_and_the_budget() {
+    let store = Arc::new(InMemory::new());
+    let url = format!("memory://shared-{}", std::process::id());
+    let open = |root: &str| Remote::new(&url, store.clone(), Key::from(root)).unwrap();
+    let (mut first, second, other) = (open("logs"), open("logs"), open("more"));
+    _ = std::fs::remove_dir_all(&first.cache);
+    for remote in [&first, &other] {
+        std::fs::create_dir_all(&remote.mirror).unwrap();
+    }
+    let big: Vec<u8> = (0..PART_BYTES * 2 + 7).map(|index| (index % 251) as u8).collect();
+    put(&store, "logs/plugins/profile/s/h.xplane.pb", big.clone()).await;
+    put(&store, "more/plugins/profile/t/h.xplane.pb", vec![1; 300]).await;
+    assert_eq!((&first.mirror, &first.cache), (&second.mirror, &other.cache));
+    let session = first.mirror.join("plugins/profile/s");
+    first.sync(&first.mirror, false).await.unwrap();
+    let (one, two) = tokio::join!(first.sync(&session, true), second.sync(&session, true));
+    assert_eq!((one, two), (Ok(()), Ok(())));
+    assert_eq!(std::fs::read(session.join("h.xplane.pb")).unwrap(), big);
+    assert_eq!(first.files_completed.load(Ordering::Relaxed) + second.files_completed.load(Ordering::Relaxed), 1);
+    let elsewhere = other.mirror.join("plugins/profile/t");
+    other.sync(&other.mirror, false).await.unwrap();
+    other.sync(&elsewhere, true).await.unwrap();
+    unused(&elsewhere, Duration::ZERO);
+    first.budget = big.len() as u64;
+    first.checked.lock().unwrap().clear();
+    put(&store, "logs/plugins/profile/s/jit_f.hlo_proto.pb", vec![2; 3]).await;
+    first.sync(&session, true).await.unwrap();
+    assert!(session.join("h.xplane.pb").exists() && !elsewhere.join("h.xplane.pb").exists());
+    std::fs::remove_dir_all(&first.cache).unwrap();
+    // When the bucket is the first part of the path, each bucket of the host has its own cache.
+    let bucket = |name: &str| {
+        let url = format!("https://path-style-{}.example/{name}/run", std::process::id());
+        Remote::new(&url, store.clone(), Key::from("run")).unwrap().cache
+    };
+    let (one, two) = (bucket("one"), bucket("two"));
+    assert_ne!(one, two);
+    for cache in [one, two] {
+        std::fs::remove_dir_all(cache).unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

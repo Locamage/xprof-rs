@@ -41,7 +41,10 @@ fn test_get_graph_viewer_with_session_id() {
 fn test_get_graph_viewer_with_symbol_id() {
     let fake = Fake::fixed("hlo content");
     assert_eq!(text(get_graph_viewer(&fake, &args("", &[("symbol_id", J::from("symbol_123"))]))), "hlo content");
-    assert_eq!(options(&fake), expected(&[("graph_type", "xla"), ("type", "short_txt"), ("show_metadata", "true"), ("symbol_id", "symbol_123")]));
+    assert_eq!(
+        options(&fake),
+        expected(&[("graph_type", "xla"), ("type", "short_txt"), ("show_metadata", "true"), ("symbol_id", "symbol_123")])
+    );
 }
 
 #[test]

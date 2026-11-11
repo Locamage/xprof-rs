@@ -54,7 +54,8 @@ async fn get_trace_view_option_search_metadata_true() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_trace_view_option_search_metadata() {
-    let (status, body) = single_host("view-option-search-metadata", &create_test_x_space(2), "search_prefix=Sess&search_metadata=true").await;
+    let (status, body) =
+        single_host("view-option-search-metadata", &create_test_x_space(2), "search_prefix=Sess&search_metadata=true").await;
     assert_eq!(status, StatusCode::OK);
     let events = trace_events(&body);
     assert_eq!(named(&events, "SessionRun").unwrap()["args"]["group_id"], 456);
@@ -93,7 +94,8 @@ async fn reduce_single_host() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reduce_multi_host() {
     let hosts = [("host1", create_test_x_space(1).encode_to_vec()), ("host2", create_test_x_space(1).encode_to_vec())];
-    let (status, _, body) = served("reduce-multi-host", &hosts, "tag=trace_viewer@&hosts=host1,host2&end_time_ms=2000.0&resolution=1").await;
+    let (status, _, body) =
+        served("reduce-multi-host", &hosts, "tag=trace_viewer@&hosts=host1,host2&end_time_ms=2000.0&resolution=1").await;
     assert_eq!(status, StatusCode::OK);
     assert!(!trace_events(&body).is_empty());
 }
@@ -101,8 +103,10 @@ async fn reduce_multi_host() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reduce_multi_host_stress_test() {
     let names: Vec<String> = (0..10).map(|index| format!("host{index}")).collect();
-    let hosts: Vec<(&str, Vec<u8>)> = names.iter().map(|name| (name.as_str(), single_event_x_space(&format!("EventFrom{name}")).encode_to_vec())).collect();
-    let (status, _, body) = served("reduce-stress", &hosts, &format!("tag=trace_viewer@&hosts={}&end_time_ms=5000.0&resolution=1", names.join(","))).await;
+    let hosts: Vec<(&str, Vec<u8>)> =
+        names.iter().map(|name| (name.as_str(), single_event_x_space(&format!("EventFrom{name}")).encode_to_vec())).collect();
+    let (status, _, body) =
+        served("reduce-stress", &hosts, &format!("tag=trace_viewer@&hosts={}&end_time_ms=5000.0&resolution=1", names.join(","))).await;
     assert_eq!(status, StatusCode::OK);
     let events = trace_events(&body);
     for name in &names {
@@ -138,7 +142,9 @@ async fn process_session_single_host() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reduce_with_event_name() {
-    let (status, body) = single_host("reduce-event-name", &create_test_x_space(2), "event_name=SessionRun&start_time_ms=1.2&duration_ms=0.05&unique_id=0").await;
+    let (status, body) =
+        single_host("reduce-event-name", &create_test_x_space(2), "event_name=SessionRun&start_time_ms=1.2&duration_ms=0.05&unique_id=0")
+            .await;
     assert_eq!(status, StatusCode::OK);
     let complete: Vec<serde_json::Value> = trace_events(&body).into_iter().filter(|event| event["ph"] == "X").collect();
     assert_eq!(complete.len(), 1);
@@ -161,7 +167,8 @@ async fn map_with_empty_x_space() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reduce_single_host_pb_format() {
-    let (status, _, body) = served("reduce-pb", &[("host1", create_test_x_space(2).encode_to_vec())], "tag=trace_viewer@&host=host1&format=pb").await;
+    let (status, _, body) =
+        served("reduce-pb", &[("host1", create_test_x_space(2).encode_to_vec())], "tag=trace_viewer@&host=host1&format=pb").await;
     assert_eq!(status, StatusCode::OK);
     assert!(!body.is_empty());
     assert!(serde_json::from_str::<serde_json::Value>(&body).is_err());

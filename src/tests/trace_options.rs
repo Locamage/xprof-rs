@@ -46,7 +46,12 @@ async fn trace_options_from_tool_options_test() {
             serde_json::from_str::<serde_json::Value>(&body).unwrap()["details"].clone()
         }
     };
-    let expected = |dma: bool| serde_json::json!([{"name": "mpmd_pipeline_view", "value": false}, {"name": "full_dma", "value": dma}]);
+    let expected = |dma: bool| {
+        serde_json::json!([
+            {"name": "mpmd_pipeline_view", "value": false},
+            {"name": "full_dma", "value": dma},
+        ])
+    };
     assert_eq!(full_dma("").await, expected(false));
     assert_eq!(full_dma("&full_dma=true&enable_legacy_dcn=true&mpmd_pipeline_view=true").await, expected(true));
     assert_eq!(full_dma("&full_dma=True").await, expected(true));
@@ -58,9 +63,21 @@ async fn trace_options_from_tool_options_test() {
 fn trace_options_to_details_test() {
     let mpmd_only = serde_json::json!([{"name": "mpmd_pipeline_view", "value": false}]);
     assert_eq!(details(&device_space("/host:CPU"), true), mpmd_only);
-    assert_eq!(details(&device_space("/device:TPU:0"), true), serde_json::json!([{"name": "mpmd_pipeline_view", "value": false}, {"name": "full_dma", "value": true}]));
+    assert_eq!(
+        details(&device_space("/device:TPU:0"), true),
+        serde_json::json!([
+            {"name": "mpmd_pipeline_view", "value": false},
+            {"name": "full_dma", "value": true},
+        ])
+    );
     assert_eq!(details(&device_space("/device:GPU:0"), true), mpmd_only);
-    assert_eq!(details(&device_space("/device:TPU:0"), false), serde_json::json!([{"name": "mpmd_pipeline_view", "value": false}, {"name": "full_dma", "value": false}]));
+    assert_eq!(
+        details(&device_space("/device:TPU:0"), false),
+        serde_json::json!([
+            {"name": "mpmd_pipeline_view", "value": false},
+            {"name": "full_dma", "value": false},
+        ])
+    );
 }
 
 #[test]
@@ -86,7 +103,17 @@ fn non_tpu_trace_test() {
 #[test]
 fn simple_atod_test() {
     use crate::trace::atod;
-    for (text, value) in [(" 2 ", 2.0), ("+5", 5.0), ("\x0b3", 3.0), ("0x10", 16.0), ("-0x1.8p1", -3.0), ("0X.8", 0.5), ("1e400", f64::INFINITY), ("-0", 0.0), ("5.", 5.0)] {
+    for (text, value) in [
+        (" 2 ", 2.0),
+        ("+5", 5.0),
+        ("\x0b3", 3.0),
+        ("0x10", 16.0),
+        ("-0x1.8p1", -3.0),
+        ("0X.8", 0.5),
+        ("1e400", f64::INFINITY),
+        ("-0", 0.0),
+        ("5.", 5.0),
+    ] {
         assert_eq!(atod(text), Some(value), "{text}");
     }
     for text in ["", "+-5", "++5", "1_0", "abc", "0x", "0x1p", "0xinf", "١"] {

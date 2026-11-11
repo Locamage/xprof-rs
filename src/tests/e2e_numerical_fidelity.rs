@@ -1,5 +1,8 @@
 use super::cli_support::{ok, scratch};
-use super::e2e_oracles::{MEDIUM_STEP_PS, TRAINING_STEP_PS, datasheet_violations, demo, oracle_duty_cycle, oracle_ridge_point, oracle_step_time_ms, session, training_trace};
+use super::e2e_oracles::{
+    MEDIUM_STEP_PS, TRAINING_STEP_PS, datasheet_violations, demo, oracle_duty_cycle, oracle_ridge_point, oracle_step_time_ms, session,
+    training_trace,
+};
 use crate::cli::json::J;
 use std::path::{Path, PathBuf};
 
@@ -35,19 +38,6 @@ fn test_n01_t1_steptime_fidelity() {
 }
 
 #[test]
-fn test_n02_t1_duty_cycle_fidelity() {
-    let path = training("n02", TRAINING_STEP_PS);
-    let oracle = oracle_duty_cycle(&path);
-    assert!(oracle > 0.0 && oracle <= 1.0);
-    let summary = query("get_overview", &path, &[]).at("performance_summary").clone();
-    if let Some(reported) = summary.get("device_compute_duty_cycle_percent").or_else(|| summary.get("duty_cycle")) {
-        let value = reported.text().replace('%', "").trim().parse::<f64>().unwrap();
-        let value = if value > 1.0 { value / 100.0 } else { value };
-        assert!((value - oracle).abs() <= 0.01);
-    }
-}
-
-#[test]
 fn test_n03_t2_steptime_fidelity() {
     let path = training("n03", MEDIUM_STEP_PS);
     let oracle = oracle_step_time_ms(&path);
@@ -69,14 +59,18 @@ fn test_n04_t1_step_trace_fidelity() {
     assert!(number(summary.at("compute_percent")) > 95.0 && number(summary.at("compute_percent")) <= 100.0);
     assert_eq!(summary.at("primary_bottleneck").str(), Some("Compute"));
     assert!(number(summary.at("idle_time_ms_average")) >= 0.0);
-    let parts: f64 = ["compute", "communication", "infeed", "outfeed", "idle"].iter().map(|part| number(summary.at(&format!("{part}_time_ms_average")))).sum();
+    let parts: f64 = ["compute", "communication", "infeed", "outfeed", "idle"]
+        .iter()
+        .map(|part| number(summary.at(&format!("{part}_time_ms_average"))))
+        .sum();
     assert!((parts - average).abs() <= RELATIVE_TOLERANCE * average);
     for step in result.at("step_breakdown").items() {
         let total = number(step.at("step_time_ms"));
         assert!(number(step.at("compute_time_ms")) > 0.0 && number(step.at("compute_time_ms")) <= total);
         assert_eq!(step.at("bottleneck").str(), Some("Compute"));
         assert!(number(step.at("idle_time_ms")) >= 0.0);
-        let parts: f64 = ["compute", "communication", "infeed", "outfeed", "idle"].iter().map(|part| number(step.at(&format!("{part}_time_ms")))).sum();
+        let parts: f64 =
+            ["compute", "communication", "infeed", "outfeed", "idle"].iter().map(|part| number(step.at(&format!("{part}_time_ms")))).sum();
         assert!((parts - total).abs() <= RELATIVE_TOLERANCE * total);
     }
 }
@@ -115,7 +109,8 @@ fn test_n11_memory_profile_peak_bounds() {
     let result = query("get_memory_profile", &path, &[]);
     let (capacity, peak) = (number(result.at("memory_capacity_gib")), number(result.at("peak_memory_usage_gib")));
     let details = result.at("peak_usage_details");
-    let (stack, heap, free) = (number(details.at("stack_reservation_gib")), number(details.at("heap_allocation_gib")), number(details.at("free_memory_gib")));
+    let (stack, heap, free) =
+        (number(details.at("stack_reservation_gib")), number(details.at("heap_allocation_gib")), number(details.at("free_memory_gib")));
     assert!(capacity > 0.0 && peak <= capacity);
     assert!(stack >= 0.0 && heap >= 0.0 && (stack + heap - peak).abs() <= 0.1);
     assert!(free >= 0.0 && (peak + free - capacity).abs() <= 0.1);

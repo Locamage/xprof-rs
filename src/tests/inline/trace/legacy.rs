@@ -2,7 +2,16 @@ use super::*;
 use crate::xplane::Meta;
 
 fn plane(lines: &[Vec<u64>]) -> Plane {
-    let event = |(index, &ts): (usize, &u64)| Ev { ts, dur: 0, group: 0, raw: (0, 0), meta: (index % 7 == 0) as u32, eager: None, has_stats: false, linked: false };
+    let event = |(index, &ts): (usize, &u64)| Ev {
+        ts,
+        dur: 0,
+        group: 0,
+        raw: (0, 0),
+        meta: (index % 7 == 0) as u32,
+        eager: None,
+        has_stats: false,
+        linked: false,
+    };
     let lines = lines.iter().map(|times| Line { events: times.iter().enumerate().map(event).collect(), ..Default::default() }).collect();
     let (mut plane, mut internal) = (Plane::default(), Meta::default());
     internal.internal = true;
@@ -12,7 +21,11 @@ fn plane(lines: &[Vec<u64>]) -> Plane {
 
 fn check(plane: &Plane) {
     let lines: Vec<_> = plane.lines.iter().map(|line| (plane, line)).collect();
-    let values = || lines.par_iter().flat_map_iter(|&(plane, line)| line.events.iter().filter(move |event| kept(plane, line, event)).map(move |event| time(plane, event)));
+    let values = || {
+        lines.par_iter().flat_map_iter(|&(plane, line)| {
+            line.events.iter().filter(move |event| kept(plane, line, event)).map(move |event| time(plane, event))
+        })
+    };
     for limit in [1, 2, 1000, SAMPLES / 2, SAMPLES, 2 * SAMPLES, 3 * SAMPLES, 4 * SAMPLES] {
         assert_eq!(cut(&lines, limit), select(values, limit), "limit {limit}");
     }

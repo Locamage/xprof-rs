@@ -1,8 +1,9 @@
 use crate::tools::opstats::pico_to_micro;
 use crate::tools::pod_viewer::render;
 use crate::xplane::steps::{
-    Breakdown, Core, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE, DEVICE_TO_HOST, DEVICE_WAIT_DEVICE, DEVICE_WAIT_HOST, Extra, HOST_COMPILE, HOST_COMPUTE, HOST_PREPARE,
-    HOST_TO_DEVICE, HOST_TO_HOST, HOST_WAIT_INPUT, StepInfo, StepRecord, UNKNOWN_TIME,
+    Breakdown, Core, DEVICE_COLLECTIVES, DEVICE_COMPUTE_16, DEVICE_COMPUTE_32, DEVICE_TO_DEVICE, DEVICE_TO_HOST, DEVICE_WAIT_DEVICE,
+    DEVICE_WAIT_HOST, Extra, HOST_COMPILE, HOST_COMPUTE, HOST_PREPARE, HOST_TO_DEVICE, HOST_TO_HOST, HOST_WAIT_INPUT, StepInfo, StepRecord,
+    UNKNOWN_TIME,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -62,7 +63,9 @@ pub fn create_op_stats() -> Extra {
 }
 
 pub fn check_record(record: &Value) {
-    let near = |actual: &Value, expected_ps: u64| assert!((actual.as_f64().unwrap() - pico_to_micro(expected_ps)).abs() <= MAX_ERROR, "{actual} != {expected_ps} ps");
+    let near = |actual: &Value, expected_ps: u64| {
+        assert!((actual.as_f64().unwrap() - pico_to_micro(expected_ps)).abs() <= MAX_ERROR, "{actual} != {expected_ps} ps");
+    };
     assert_eq!(record["stepNum"], STEP_NUM);
     assert_eq!(record["hostName"], HOSTNAME);
     near(&record["totalDurationUs"], STEP_TIME_PS);

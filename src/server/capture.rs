@@ -15,9 +15,22 @@ const NEW_SESSION: &str = "/tensorflow.ProfileAnalysis/NewSession";
 const GRACE: Duration = Duration::from_secs(60);
 const MULTI_HOST_DELAY_MS: u64 = 3000;
 const MAX_EVENTS: u64 = 1_000_000;
-const TOOLS: [&str; 10] = ["trace_viewer", "op_profile", "input_pipeline", "kernel_stats", "memory_viewer", "memory_profile", "overview_page", "pod_viewer", "tensorflow_stats", "xplane.pb"];
+const TOOLS: [&str; 10] = [
+    "trace_viewer",
+    "op_profile",
+    "input_pipeline",
+    "kernel_stats",
+    "memory_viewer",
+    "memory_profile",
+    "overview_page",
+    "pod_viewer",
+    "tensorflow_stats",
+    "xplane.pb",
+];
 const TF_MISSING: &str = "TensorFlow is not installed, but is required to use TPU names.";
-const SERVER_ERROR: &str = "<!doctype html>\n<html lang=en>\n<title>500 Internal Server Error</title>\n<h1>Internal Server Error</h1>\n<p>The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.</p>\n";
+const SERVER_ERROR: &str = "<!doctype html>\n<html lang=en>\n<title>500 Internal Server Error</title>\n<h1>Internal Server \
+    Error</h1>\n<p>The server encountered an internal error and was unable to complete your request. Either the server is overloaded or \
+    there is an error in the application.</p>\n";
 
 #[derive(Clone, PartialEq, Eq, prost::Message)]
 pub struct ProfileOptions {
@@ -105,15 +118,30 @@ fn unix_ns() -> u64 {
 
 fn timestamp() -> String {
     let seconds = unix_ns() as i64 / 1_000_000_000;
+    // SAFETY: `tm` is a plain C struct, for which all zero bytes are a valid value.
     let mut local: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: `seconds` is a valid time to read, and `local` is a `tm` that the call can write.
     unsafe { libc::localtime_r(&raw const seconds, &raw mut local) };
-    format!("{:04}_{:02}_{:02}_{:02}_{:02}_{:02}", local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec)
+    format!(
+        "{:04}_{:02}_{:02}_{:02}_{:02}_{:02}",
+        local.tm_year + 1900,
+        local.tm_mon + 1,
+        local.tm_mday,
+        local.tm_hour,
+        local.tm_min,
+        local.tm_sec
+    )
 }
 
 fn status_text(status: &Status) -> String {
     let name = format!("{:?}", status.code());
-    let shouted: String =
-        name.chars().enumerate().flat_map(|(index, character)| (index > 0 && character.is_ascii_uppercase()).then_some('_').into_iter().chain([character.to_ascii_uppercase()])).collect();
+    let shouted: String = name
+        .chars()
+        .enumerate()
+        .flat_map(|(index, character)| {
+            (index > 0 && character.is_ascii_uppercase()).then_some('_').into_iter().chain([character.to_ascii_uppercase()])
+        })
+        .collect();
     format!("{shouted}: {}", status.message())
 }
 
@@ -133,7 +161,7 @@ async fn call<Req: prost::Message + Send + Sync + 'static, Rep: prost::Message +
     request.set_timeout(deadline);
     let mut client = Grpc::new(channel).max_decoding_message_size(i32::MAX as usize);
     client.ready().await.map_err(|error| Status::unavailable(error.to_string()))?;
-    let reply = client.unary(request, path.parse().unwrap(), ProstCodec::<Req, Rep>::default()).await?;
+    let reply = client.unary(request, path.parse().expect("service address should be valid"), ProstCodec::<Req, Rep>::default()).await?;
     Ok(reply.into_inner())
 }
 
@@ -155,10 +183,17 @@ fn save(root: &Path, session: &str, address: &str, reply: &ProfileResponse) -> s
 }
 
 pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> Response {
-    let int = |key: &str, default: i64| params.get(key).map_or(Some(default), |value| crate::cli::json::py_int(value).and_then(|number| i64::try_from(number).ok()));
-    let (Some(duration), Some(retries), Some(host_level), Some(device_level), Some(python_level), Some(delay)) =
-        (int("duration", 1000), int("num_retry", 0), int("host_tracer_level", 2), int("device_tracer_level", 1), int("python_tracer_level", 0), int("delay", 0))
-    else {
+    let int = |key: &str, default: i64| {
+        params.get(key).map_or(Some(default), |value| crate::cli::json::py_int(value).and_then(|number| i64::try_from(number).ok()))
+    };
+    let (Some(duration), Some(retries), Some(host_level), Some(device_level), Some(python_level), Some(delay)) = (
+        int("duration", 1000),
+        int("num_retry", 0),
+        int("host_tracer_level", 2),
+        int("device_tracer_level", 1),
+        int("python_tracer_level", 0),
+        int("delay", 0),
+    ) else {
         return response(StatusCode::INTERNAL_SERVER_ERROR, "text/html; charset=utf-8", SERVER_ERROR);
     };
     let worker_list = params.get("worker_list").filter(|list| !list.is_empty());
@@ -168,7 +203,9 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
     if logdir.as_os_str().is_empty() {
         return json(StatusCode::INTERNAL_SERVER_ERROR, "error", "logdir is not set, abort capturing.");
     }
-    let Some(service) = params.get("service_addr") else { return json(StatusCode::INTERNAL_SERVER_ERROR, "error", "'NoneType' object has no attribute 'removeprefix'") };
+    let Some(service) = params.get("service_addr") else {
+        return json(StatusCode::INTERNAL_SERVER_ERROR, "error", "'NoneType' object has no attribute 'removeprefix'");
+    };
     let service = service.strip_prefix("grpc://").unwrap_or(service);
     let addresses: Vec<String> = worker_list.map_or(service, |list| list).split(',').map(String::from).collect();
     let created = unix_ns();
@@ -180,7 +217,9 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
     } else {
         addresses
             .iter()
-            .find(|address| !address.split_once(':').is_some_and(|(host, port)| !host.is_empty() && !host.contains('/') && port.parse::<u32>().is_ok()))
+            .find(|address| {
+                !address.split_once(':').is_some_and(|(host, port)| !host.is_empty() && !host.contains('/') && port.parse::<u32>().is_ok())
+            })
             .map(|address| format!("Could not interpret \"{address}\" as a host-port pair."))
     };
     if let Some(message) = invalid {
@@ -216,12 +255,18 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
         };
         let grace = GRACE.max(Duration::from_millis(duration_ms) * 2) + Duration::from_nanos(start.saturating_sub(created));
         let outcome = if worker_list.is_some() {
-            let message = NewSessionRequest { request: Some(request(&addresses[0])), repository_root: repository_root.clone(), hosts: addresses.clone(), session_id: session.clone() };
+            let message = NewSessionRequest {
+                request: Some(request(&addresses[0])),
+                repository_root: repository_root.clone(),
+                hosts: addresses.clone(),
+                session_id: session.clone(),
+            };
             call::<_, NewSessionResponse>(&addresses[0], NEW_SESSION, message, grace)
                 .await
                 .and_then(|reply| if reply.empty_trace { Err(Status::unavailable("No trace event is collected")) } else { Ok(()) })
         } else {
-            let replies = join_all(addresses.iter().map(|address| call::<_, ProfileResponse>(address, PROFILE, request(address), grace))).await;
+            let replies =
+                join_all(addresses.iter().map(|address| call::<_, ProfileResponse>(address, PROFILE, request(address), grace))).await;
             let mut traced = false;
             let mut failure = None;
             for (address, reply) in addresses.iter().zip(replies) {
@@ -244,11 +289,19 @@ pub async fn handle(logdir: &Path, remote: Option<&Remote>, params: &Params) -> 
             match failure {
                 Some(status) => Err(status),
                 None if traced => Ok(()),
-                None => Err(Status::unavailable("No trace event was collected because there were no responses from clients or the responses did not have trace data.")),
+                None => Err(Status::unavailable(
+                    "No trace event was collected because there were no responses from clients or the responses did not have trace data.",
+                )),
             }
         };
         match outcome {
-            Err(status) if remaining > 0 && (matches!(status.code(), Code::Unavailable | Code::AlreadyExists) || (status.code() == Code::Unknown && status.message() == "Stream removed")) => continue,
+            Err(status)
+                if remaining > 0
+                    && (matches!(status.code(), Code::Unavailable | Code::AlreadyExists)
+                        || (status.code() == Code::Unknown && status.message() == "Stream removed")) =>
+            {
+                continue;
+            }
             other => break other,
         }
     };

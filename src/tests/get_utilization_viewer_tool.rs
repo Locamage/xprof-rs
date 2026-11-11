@@ -5,7 +5,20 @@ use crate::cli::overview::get_utilization_viewer;
 type Case<'a> = (&'a str, Option<String>, Vec<(&'a str, J)>, &'a str);
 
 const HEADER: &str = "Host,Device,Sample,Node,Name,Achieved,Peak,Unit\n";
-const DATATABLE: &str = r#"{"cols": [{"id": "host", "label": "Host", "type": "number"}, {"id": "device", "label": "Device", "type": "number"}, {"id": "sample", "label": "Sample", "type": "number"}, {"id": "node", "label": "Node", "type": "number"}, {"id": "name", "label": "Name", "type": "string"}, {"id": "achieved", "label": "Achieved", "type": "number"}, {"id": "peak", "label": "Peak", "type": "number"}, {"id": "unit", "label": "Unit", "type": "string"}], "rows": [{"c": [{"v": 0}, {"v": 0}, {"v": 0}, {"v": 0}, {"v": "Vector ALUs"}, {"v": 1.0}, {"v": 2.0}, {"v": "instructions"}]}, {"c": [{"v": 0}, {"v": 0}, {"v": 0}, {"v": 0}, {"v": "Scalar Unit"}, {"v": 2.0}, {"v": 4.0}, {"v": "instructions"}]}, {"c": [{"v": 0}, {"v": 0}, {"v": 0}, {"v": 0}, {"v": "MXU0"}, {"v": 6.0}, {"v": 12.0}, {"v": "instructions"}]}, {"c": [{"v": 0}, {"v": 0}, {"v": 0}, {"v": 0}, {"v": "HBM Rd+Wr (per chip)"}, {"v": 8.0}, {"v": 16.0}, {"v": "bytes"}]}]}"#;
+const DATATABLE: &str = concat!(
+    r#"{"cols": [{"id": "host", "label": "Host", "type": "number"}, {"id": "device", "#,
+    r#""label": "Device", "type": "number"}, {"id": "sample", "label": "Sample", "type": "#,
+    r#""number"}, {"id": "node", "label": "Node", "type": "number"}, {"id": "name", "label": "#,
+    r#""Name", "type": "string"}, {"id": "achieved", "label": "Achieved", "type": "number"}, "#,
+    r#"{"id": "peak", "label": "Peak", "type": "number"}, {"id": "unit", "label": "Unit", "#,
+    r#""type": "string"}], "rows": [{"c": [{"v": 0}, {"v": 0}, {"v": 0}, {"v": 0}, {"v": "#,
+    r#""Vector ALUs"}, {"v": 1.0}, {"v": 2.0}, {"v": "instructions"}]}, {"c": [{"v": 0}, "#,
+    r#"{"v": 0}, {"v": 0}, {"v": 0}, {"v": "Scalar Unit"}, {"v": 2.0}, {"v": 4.0}, {"v": "#,
+    r#""instructions"}]}, {"c": [{"v": 0}, {"v": 0}, {"v": 0}, {"v": 0}, {"v": "MXU0"}, "#,
+    r#"{"v": 6.0}, {"v": 12.0}, {"v": "instructions"}]}, {"c": [{"v": 0}, {"v": 0}, {"v": "#,
+    r#"0}, {"v": 0}, {"v": "HBM Rd+Wr (per chip)"}, {"v": 8.0}, {"v": 16.0}, {"v": "#,
+    r#""bytes"}]}]}"#,
+);
 const SUCCESS_CSV: &str = "0,0,0,0,Vector ALUs,1.0,2.0,instructions
 0,0,0,0,Scalar Unit,2.0,4.0,instructions
 0,0,0,0,Vmem/Cmem Stores,3.0,6.0,instructions
@@ -24,7 +37,11 @@ const NONZERO_CSV: &str = "1,2,0,3,Vector ALUs,1.0,2.0,instructions
 1,2,0,3,Scalar Unit,2.0,4.0,instructions
 1,2,0,3,MXU0,6.0,12.0,instructions
 ";
-const NONZERO_EXPECTED: &str = r#"{"vector_alu_utilization_percent": 50.0, "scalar_unit_utilization_percent": 50.0, "mxu_utilization_percent": 50.0, "idleness_percent": 50.0, "metrics": {"Vector ALUs": 50.0, "Scalar Unit": 50.0, "MXU0": 50.0}}"#;
+const NONZERO_EXPECTED: &str = concat!(
+    r#"{"vector_alu_utilization_percent": 50.0, "scalar_unit_utilization_percent": 50.0, "#,
+    r#""mxu_utilization_percent": 50.0, "idleness_percent": 50.0, "metrics": {"Vector ALUs": "#,
+    r#"50.0, "Scalar Unit": 50.0, "MXU0": 50.0}}"#,
+);
 
 #[test]
 fn test_get_utilization_viewer() {
@@ -34,31 +51,78 @@ fn test_get_utilization_viewer() {
             "success_csv",
             csv(SUCCESS_CSV),
             vec![],
-            r#"{"vector_alu_utilization_percent": 50.0, "scalar_unit_utilization_percent": 50.0, "vmem_cmem_stores_utilization_percent": 50.0, "vmem_loads_utilization_percent": 50.0, "cmem_loads_utilization_percent": 50.0, "hbm_bandwidth_utilization_percent": 50.0, "ici_read_utilization_percent": 50.0, "ici_write_utilization_percent": 50.0, "xlu_utilization_percent": 50.0, "mxu_utilization_percent": 40.0, "idleness_percent": 50.0, "metrics": {"Vector ALUs": 50.0, "Scalar Unit": 50.0, "Vmem/Cmem Stores": 50.0, "Vmem Loads": 50.0, "Cmem Loads": 50.0, "MXU0": 50.0, "XLU0": 50.0, "HBM Rd+Wr": 50.0, "ICI (Read)": 50.0, "ICI (Write)": 50.0, "MXU_BF16": 40.0, "MXU_I8": 30.0, "Avg MXU Busy": 40.0}}"#,
+            concat!(
+                r#"{"vector_alu_utilization_percent": 50.0, "#,
+                r#""scalar_unit_utilization_percent": 50.0, "#,
+                r#""vmem_cmem_stores_utilization_percent": 50.0, "#,
+                r#""vmem_loads_utilization_percent": 50.0, "cmem_loads_utilization_percent": "#,
+                r#"50.0, "hbm_bandwidth_utilization_percent": 50.0, "#,
+                r#""ici_read_utilization_percent": 50.0, "ici_write_utilization_percent": "#,
+                r#"50.0, "xlu_utilization_percent": 50.0, "mxu_utilization_percent": 40.0, "#,
+                r#""idleness_percent": 50.0, "metrics": {"Vector ALUs": 50.0, "Scalar Unit": "#,
+                r#"50.0, "Vmem/Cmem Stores": 50.0, "Vmem Loads": 50.0, "Cmem Loads": 50.0, "#,
+                r#""MXU0": 50.0, "XLU0": 50.0, "HBM Rd+Wr": 50.0, "ICI (Read)": 50.0, "ICI "#,
+                r#"(Write)": 50.0, "MXU_BF16": 40.0, "MXU_I8": 30.0, "Avg MXU Busy": 40.0}}"#,
+            ),
         ),
         (
             "success_datatable_json",
             Some(DATATABLE.into()),
             vec![],
-            r#"{"vector_alu_utilization_percent": 50.0, "scalar_unit_utilization_percent": 50.0, "mxu_utilization_percent": 50.0, "hbm_bandwidth_utilization_percent": 50.0, "idleness_percent": 50.0, "metrics": {"Vector ALUs": 50.0, "Scalar Unit": 50.0, "MXU0": 50.0, "HBM Rd+Wr (per chip)": 50.0}}"#,
+            concat!(
+                r#"{"vector_alu_utilization_percent": 50.0, "#,
+                r#""scalar_unit_utilization_percent": 50.0, "mxu_utilization_percent": 50.0, "#,
+                r#""hbm_bandwidth_utilization_percent": 50.0, "idleness_percent": 50.0, "#,
+                r#""metrics": {"Vector ALUs": 50.0, "Scalar Unit": 50.0, "MXU0": 50.0, "HBM "#,
+                r#"Rd+Wr (per chip)": 50.0}}"#,
+            ),
         ),
         ("no_data_none", None, vec![], r#"{"status": "NO_DATA", "message": "No data returned for session test-session"}"#),
-        ("no_data_empty_datatable", Some(r#"{"cols": [], "rows": []}"#.into()), vec![], r#"{"status": "NO_DATA", "message": "No hardware performance counter events found in trace"}"#),
-        ("no_node0_data", csv("1,0,0,0,Vector ALUs,1.0,2.0,instructions\n"), vec![], r#"{"status": "NO_DATA", "message": "No data found for Host 0 Device 0 Node 0"}"#),
-        ("success_non_zero_parameters", csv(NONZERO_CSV), vec![("host", J::Int(1)), ("device", J::Int(2)), ("node", J::Int(3))], NONZERO_EXPECTED),
+        (
+            "no_data_empty_datatable",
+            Some(r#"{"cols": [], "rows": []}"#.into()),
+            vec![],
+            r#"{"status": "NO_DATA", "message": "No hardware performance counter events found in trace"}"#,
+        ),
+        (
+            "no_node0_data",
+            csv("1,0,0,0,Vector ALUs,1.0,2.0,instructions\n"),
+            vec![],
+            r#"{"status": "NO_DATA", "message": "No data found for Host 0 Device 0 Node 0"}"#,
+        ),
+        (
+            "success_non_zero_parameters",
+            csv(NONZERO_CSV),
+            vec![("host", J::Int(1)), ("device", J::Int(2)), ("node", J::Int(3))],
+            NONZERO_EXPECTED,
+        ),
         (
             "missing_parameters",
             csv("1,2,0,3,Vector ALUs,1.0,2.0,instructions\n"),
             vec![("host", J::Int(1)), ("device", J::Int(2)), ("node", J::Int(4))],
             r#"{"status": "NO_DATA", "message": "No data found for Host 1 Device 2 Node 4"}"#,
         ),
-        ("type_coercion", csv(NONZERO_CSV), vec![("host", J::from("1")), ("device", J::from("2")), ("node", J::from("3"))], NONZERO_EXPECTED),
-        ("with_no_mxu_busy", csv("0,0,0,0,No MXU Busy,30.0,100.0,instructions\n"), vec![], r#"{"idleness_percent": 30.0, "metrics": {"No MXU Busy": 30.0}}"#),
+        (
+            "type_coercion",
+            csv(NONZERO_CSV),
+            vec![("host", J::from("1")), ("device", J::from("2")), ("node", J::from("3"))],
+            NONZERO_EXPECTED,
+        ),
+        (
+            "with_no_mxu_busy",
+            csv("0,0,0,0,No MXU Busy,30.0,100.0,instructions\n"),
+            vec![],
+            r#"{"idleness_percent": 30.0, "metrics": {"No MXU Busy": 30.0}}"#,
+        ),
         (
             "missing_node_column_warning",
             Some("Host,Device,Sample,Name,Achieved,Peak,Unit\n0,0,0,Vector ALUs,1.0,2.0,instructions\n".into()),
             vec![("node", J::Int(1))],
-            r#"{"vector_alu_utilization_percent": 50.0, "idleness_percent": 100.0, "metrics": {"Vector ALUs": 50.0}, "warnings": ["Node column missing; ignoring node=1 filter"]}"#,
+            concat!(
+                r#"{"vector_alu_utilization_percent": 50.0, "idleness_percent": 100.0, "#,
+                r#""metrics": {"Vector ALUs": 50.0}, "warnings": ["Node column missing; "#,
+                r#"ignoring node=1 filter"]}"#,
+            ),
         ),
     ];
     for (name, payload, flags, expected) in cases {

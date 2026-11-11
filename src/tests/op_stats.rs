@@ -192,7 +192,16 @@ fn tpu_run_environment() {
 fn tpu_device_trace_to_step_db() {
     let mut space = XSpace::default();
     let plane = space.tpu(0, "TPU V4", 141.0, 1000.0, None);
-    plane.metadata_stats("op_name", &[("program_id", 1.into()), ("symbol_id", 1.into()), ("self_duration_ps", 10.into()), ("tf_op", "tf_op_name".into()), ("hlo_category", "category".into())]);
+    plane.metadata_stats(
+        "op_name",
+        &[
+            ("program_id", 1.into()),
+            ("symbol_id", 1.into()),
+            ("self_duration_ps", 10.into()),
+            ("tf_op", "tf_op_name".into()),
+            ("hlo_category", "category".into()),
+        ],
+    );
     plane.named_line(1, "Framework Ops");
     plane.event(1, "op_name", 0, 10 * 1000, &[]);
     let stats = op_stats(&[space]).unwrap();
@@ -349,11 +358,20 @@ fn handle_input_pipeline_slowness_causing_device_idleness() {
     device.named_line(0, "Steps");
     device.event(0, "Step 1", 1000, 10000, &[("group_id", 1.into())]);
     device.named_line(1, "XLA Ops");
-    device.metadata_stats("op.1", &[("hlo_category", "arithmetic".into()), ("program_id", 1.into()), ("symbol_id", 1.into()), ("flops", 1000.into())]);
+    device.metadata_stats(
+        "op.1",
+        &[("hlo_category", "arithmetic".into()), ("program_id", 1.into()), ("symbol_id", 1.into()), ("flops", 1000.into())],
+    );
     device.event(1, "op.1", 2000, 8000, &[("group_id", 1.into())]);
     let host = space.host();
     host.named_line(0, "main");
-    host.event(0, "Iterator::Batch::Map::TFRecord", 500, 2300, &[("group_id", 1.into()), ("_ipl_stage_id", 1.into()), ("_ipl_stage_name", "TFRecord".into())]);
+    host.event(
+        0,
+        "Iterator::Batch::Map::TFRecord",
+        500,
+        2300,
+        &[("group_id", 1.into()), ("_ipl_stage_id", 1.into()), ("_ipl_stage_name", "TFRecord".into())],
+    );
     let stats = op_stats(&[space]).unwrap();
     assert_eq!(stats.extra.steps.len(), 1);
     let cores = &stats.extra.steps[0].cores;
@@ -375,7 +393,23 @@ fn custom_call_duty_cycle(ops: &[CustomCall], module_duration: i64) -> ([u64; 2]
 #[test]
 fn construct_hc_duty_cycle_tracker_from_custom_call() {
     let (busy, idle) = custom_call_duty_cycle(
-        &[("custom_call_0_flops", "custom-call", 10, &[("flops", 0.into())]), ("custom_call_with_flops", "custom-call", 20, &[("flops", 5.into())]), ("custom_call_no_flops", "custom-call", 30, &[])],
+        &[
+            ("custom_call_0_flops", "custom-call", 10, &[("flops", 0.into())]),
+            ("custom_call_with_flops", "custom-call", 20, &[("flops", 5.into())]),
+            ("custom_call_no_flops", "custom-call", 30, &[]),
+        ],
+        50,
+    );
+    assert_eq!((busy[1], idle[1]), (10, 40));
+}
+
+#[test]
+fn construct_hc_duty_cycle_tracker_reads_custom_call_flops_as_int() {
+    let (busy, idle) = custom_call_duty_cycle(
+        &[
+            ("custom_call_negative_low_bits", "custom-call", 10, &[("flops", (1i64 << 31).into())]),
+            ("custom_call_positive_low_bits", "custom-call", 20, &[("flops", (1u64 << 32 | 5).into())]),
+        ],
         50,
     );
     assert_eq!((busy[1], idle[1]), (10, 40));

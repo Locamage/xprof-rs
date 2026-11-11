@@ -8,7 +8,9 @@ fn decode(compressed: &[u8]) -> Response {
     let mut response = Response::decode(&zstd::decode_all(compressed).unwrap()[..]).unwrap();
     let metadata = response.metadata.as_mut().unwrap();
     metadata.processes.sort_by_key(|process| process.id);
-    metadata.processes.iter_mut().for_each(|process| process.threads.sort_by_key(|thread| thread.id));
+    for process in &mut metadata.processes {
+        process.threads.sort_by_key(|thread| thread.id);
+    }
     for event in response.complete_events.iter_mut().chain(&mut response.async_events).flat_map(|series| &mut series.event_metadata) {
         event.flow_id = 0;
     }
@@ -76,7 +78,10 @@ fn converts_counter_events() {
     let series = &response.counter_events[0];
     assert_eq!(series.metadata.as_ref().unwrap().process_id, 1);
     assert_eq!(series.deltas, [1000, 500]);
-    assert_eq!(series.event_metadata.iter().map(|metadata| metadata.counter_value.clone()).collect::<Vec<_>>(), [Some(CounterValue::Uint(1234)), Some(CounterValue::Uint(5678))]);
+    assert_eq!(
+        series.event_metadata.iter().map(|metadata| metadata.counter_value.clone()).collect::<Vec<_>>(),
+        [Some(CounterValue::Uint(1234)), Some(CounterValue::Uint(5678))]
+    );
 }
 
 #[test]
@@ -117,7 +122,8 @@ fn converts_mixed_events() {
     assert_eq!(response.complete_events[0].deltas, [1000, 200]);
     assert_eq!(response.async_events[0].deltas, [1500, 300]);
     assert_eq!(response.counter_events[0].deltas, [2000, 500]);
-    let values: Vec<Option<CounterValue>> = response.counter_events[0].event_metadata.iter().map(|metadata| metadata.counter_value.clone()).collect();
+    let values: Vec<Option<CounterValue>> =
+        response.counter_events[0].event_metadata.iter().map(|metadata| metadata.counter_value.clone()).collect();
     assert_eq!(values, [Some(CounterValue::Double(3.14)), Some(CounterValue::Double(6.28))]);
 }
 
@@ -125,7 +131,9 @@ fn converts_mixed_events() {
 fn populates_details() {
     let mut space = XSpace::default();
     space.tpu(0, "TPU v4", 0.0, 0.0, None).event(1, "op", 0, 1, &[]);
-    let details = |full_dma: Option<bool>| response(&space, full_dma).details.into_iter().map(|detail| (detail.name, detail.value)).collect::<Vec<_>>();
+    let details = |full_dma: Option<bool>| {
+        response(&space, full_dma).details.into_iter().map(|detail| (detail.name, detail.value)).collect::<Vec<_>>()
+    };
     assert_eq!(details(Some(true)), [("mpmd_pipeline_view".to_string(), false), ("full_dma".to_string(), true)]);
     assert!(details(None).is_empty());
 }

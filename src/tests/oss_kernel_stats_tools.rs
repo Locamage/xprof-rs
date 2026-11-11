@@ -62,8 +62,13 @@ fn test_compute_disjoint_interval_union_ns() {
 #[test]
 fn test_get_kernel_stats_with_include_summary() {
     let space = ops(&[("matmul_fwd", 0, 1400 * MS / 1000), ("dot", 700 * MS / 1000, 800 * MS / 1000)]);
-    let result = json(get_kernel_stats(&Fake::fixed(""), &source("ks-summary", &space, &[("output_format", J::from("dict")), ("include_summary", J::Bool(true))])));
-    for key in ["total_device_duration_ns", "total_device_duration_us", "total_device_duration_ms", "kernel_records", "step_durations_us", "stats"] {
+    let result = json(get_kernel_stats(
+        &Fake::fixed(""),
+        &source("ks-summary", &space, &[("output_format", J::from("dict")), ("include_summary", J::Bool(true))]),
+    ));
+    for key in
+        ["total_device_duration_ns", "total_device_duration_us", "total_device_duration_ms", "kernel_records", "step_durations_us", "stats"]
+    {
         assert!(result.has(key), "{key}");
     }
     assert_eq!(result.at("total_device_duration_ns"), &J::Int(1500000));

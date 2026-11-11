@@ -4,7 +4,9 @@ use crate::tools::opstats::{Builder, Db, EventReader, EventStats, IDLE, Metrics,
 use crate::tools::roofline::accumulate;
 use crate::xplane::derive::{STEP_LINE, is_derived, is_tensor_core};
 use crate::xplane::group::is_sparse_core;
-use crate::xplane::{Ev, Field, Line, NONE_GROUP, Own, Plane, Value, event_stats, fields, lossy, nested, slice, stats};
+use crate::xplane::{
+    Ev, Field, HOST_PLANE, Line, NONE_GROUP, Own, Plane, TPU_PREFIX, Value, event_stats, fields, lossy, nested, slice, stats,
+};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -29,12 +31,22 @@ pub const DEVICE_COMPUTE_16: u32 = 150;
 pub const DEVICE_WAIT_DEVICE: u32 = 160;
 pub const DEVICE_WAIT_HOST: u32 = 170;
 const LAST_EVENT_TYPE: usize = 170;
-const TPU_PREFIX: &str = "/device:TPU:";
-const HOST_PLANE: &str = "/host:CPU";
-const OFF_DUTY: [&str; 8] = ["infeed", "outfeed", "host send", "host send-done", "host recv", "host recv-done", "async-done", "megacore fusion"];
+const OFF_DUTY: [&str; 8] =
+    ["infeed", "outfeed", "host send", "host send-done", "host recv", "host recv-done", "async-done", "megacore fusion"];
 const PROGRAM_LINES: [&str; 3] = ["XLA Ops", "TensorFlow Ops", "Sparse Core Ops"];
 const EAGER_WRAPPERS: [&str; 4] = ["EagerExecute", "EagerLocalExecute", "EagerKernelExecute", "FunctionRun"];
-const DEVICE_STATS: [&str; 10] = ["group_id", "device_offset_ps", "device_duration_ps", "all_reduce_unique_id", "program_id", "symbol_id", "flops", "model_flops", "uses_ici", "hlo_category"];
+const DEVICE_STATS: [&str; 10] = [
+    "group_id",
+    "device_offset_ps",
+    "device_duration_ps",
+    "all_reduce_unique_id",
+    "program_id",
+    "symbol_id",
+    "flops",
+    "model_flops",
+    "uses_ici",
+    "hlo_category",
+];
 const GPU_MEMCPY: [(&str, u32); 3] = [("MemcpyHToD", HOST_TO_DEVICE), ("MemcpyDToH", DEVICE_TO_HOST), ("MemcpyDToD", DEVICE_TO_DEVICE)];
 const OFFSET: usize = 1;
 const DURATION: usize = 2;
@@ -92,7 +104,10 @@ impl Details {
     }
 
     fn longest(&self, keep: impl Fn(&Marker) -> bool) -> Span {
-        self.markers.iter().filter(|marker| keep(marker)).fold(Span::default(), |best, marker| if marker.span.duration > best.duration { marker.span } else { best })
+        self.markers
+            .iter()
+            .filter(|marker| keep(marker))
+            .fold(Span::default(), |best, marker| if marker.span.duration > best.duration { marker.span } else { best })
     }
 }
 
@@ -103,7 +118,7 @@ fn intersect<T>(mut source: HashMap<i64, T>, destination: &mut HashMap<i64, T>, 
     }
     destination.retain(|step, _| source.contains_key(step));
     for (step, value) in destination.iter_mut() {
-        merge(value, source.remove(step).unwrap());
+        merge(value, source.remove(step).expect("entry should exist"));
     }
 }
 
@@ -203,7 +218,7 @@ struct Nest<T>(Vec<(Span, u64, T)>);
 impl<T> Nest<T> {
     fn push(&mut self, span: Span, item: T, finish: &mut impl FnMut(T, Span, u64)) {
         while self.0.last().is_some_and(|top| !top.0.includes(span)) {
-            let (span, children, item) = self.0.pop().unwrap();
+            let (span, children, item) = self.0.pop().expect("collection should be non-empty");
             finish(item, span, span.duration.saturating_sub(children));
         }
         if let Some(top) = self.0.last_mut() {
@@ -221,11 +236,14 @@ impl<T> Nest<T> {
 
 fn nest<T>(items: impl Iterator<Item = (Span, T)>, mut finish: impl FnMut(T, Span, u64)) {
     let mut open = Nest(Vec::new());
-    items.for_each(|(span, item)| open.push(span, item, &mut finish));
+    for (span, item) in items {
+        open.push(span, item, &mut finish);
+    }
     open.end(&mut finish);
 }
 
-/// The programs of the steps of a TPU core. Each step line and each program line replaces the data of the lines before it, so only the last of each counts.
+/// The programs of the steps of a TPU core. Each step line and each program line replaces the data
+/// of the lines before it, so only the last of each counts.
 pub struct Programs<'a> {
     templates: &'a Templates,
     steps: Option<usize>,
@@ -237,7 +255,10 @@ pub struct Programs<'a> {
 
 impl<'a> Programs<'a> {
     pub fn new(plane: &Plane, templates: &'a Templates) -> Self {
-        let (steps, ops) = (plane.lines.iter().rposition(|line| line.name == "Steps"), plane.lines.iter().rposition(|line| PROGRAM_LINES.contains(&line.name.as_str())));
+        let (steps, ops) = (
+            plane.lines.iter().rposition(|line| line.name == "Steps"),
+            plane.lines.iter().rposition(|line| PROGRAM_LINES.contains(&line.name.as_str())),
+        );
         Self { templates, steps, ops, markers: FxHashMap::default(), builders: FxHashMap::default(), open: Nest(Vec::new()) }
     }
 
@@ -252,13 +273,19 @@ impl<'a> Programs<'a> {
             return;
         }
         if self.steps == Some(line_index) {
-            let merged =
-                line.steps.get(&index).and_then(|step| step.stats.iter().find(|(key, _)| *key == "device_duration_ps").filter(|_| step.stats.iter().any(|(key, _)| *key == "device_offset_ps")));
+            let merged = line.steps.get(&index).and_then(|step| {
+                step.stats
+                    .iter()
+                    .find(|(key, _)| *key == "device_duration_ps")
+                    .filter(|_| step.stats.iter().any(|(key, _)| *key == "device_offset_ps"))
+            });
             self.markers.entry(event.group).or_default().push(merged.map_or_else(|| stats.span(event).1, |&(_, duration)| duration as u64));
         } else if self.ops == Some(line_index) {
             let (begin, duration) = stats.span(event);
             let (templates, builders) = (self.templates, &mut self.builders);
-            self.open.push(Span { begin, duration }, (event, *stats), &mut |op, span, self_time| add_op(builders, templates, op, span, self_time));
+            self.open.push(Span { begin, duration }, (event, *stats), &mut |op, span, self_time| {
+                add_op(builders, templates, op, span, self_time);
+            });
         }
     }
 
@@ -276,7 +303,13 @@ impl<'a> Programs<'a> {
     }
 }
 
-fn add_op<'a>(builders: &mut FxHashMap<i64, Builder<'a>>, templates: &'a Templates, (event, stats): (&Ev, EventStats), span: Span, self_time: u64) {
+fn add_op<'a>(
+    builders: &mut FxHashMap<i64, Builder<'a>>,
+    templates: &'a Templates,
+    (event, stats): (&Ev, EventStats),
+    span: Span,
+    self_time: u64,
+) {
     builders.entry(event.group).or_insert_with(|| Builder::new(templates)).add(event, &stats, (span.duration, self_time), false);
 }
 
@@ -294,8 +327,12 @@ fn step_programs(plane: &Plane, map: &[u8], templates: &Templates) -> HashMap<i6
 }
 
 pub fn device_plane(plane: &Plane, raw_plane: &[u8], map: &[u8], templates: &Templates, origin: u64, hostname: &str, read: bool) -> Device {
-    let (programs, mut device) =
-        rayon::join(|| if read && is_tensor_core(&plane.name) { step_programs(plane, map, templates) } else { HashMap::new() }, || device_lines(plane, raw_plane, map, origin, hostname));
+    let (programs, mut device) = rayon::join(
+        || {
+            if read && is_tensor_core(&plane.name) { step_programs(plane, map, templates) } else { HashMap::new() }
+        },
+        || device_lines(plane, raw_plane, map, origin, hostname),
+    );
     device.programs = programs;
     device
 }
@@ -308,12 +345,22 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
     let (tensor, sparse) = (is_tensor_core(&plane.name), is_sparse_core(&plane.name));
     let step_core = if sparse { SPARSE_CORE_START } else { 0 } + plane.id as u32;
     let mut used = vec![false; plane.meta.len()];
-    for event in plane.lines.iter().filter(|line| matches!(line.name.as_str(), "XLA Ops" | "Framework Ops" | "Sparse Core Ops")).flat_map(|line| &line.events) {
+    for event in plane
+        .lines
+        .iter()
+        .filter(|line| matches!(line.name.as_str(), "XLA Ops" | "Framework Ops" | "Sparse Core Ops"))
+        .flat_map(|line| &line.events)
+    {
         if let Some(slot) = used.get_mut(event.meta as usize) {
             *slot = true;
         }
     }
-    let metas: Vec<Scanned> = plane.meta.par_iter().zip(&used).map(|(meta, &used)| if used { scan(plane, slice(map, meta.raw), 5, &slots) } else { Default::default() }).collect();
+    let metas: Vec<Scanned> = plane
+        .meta
+        .par_iter()
+        .zip(&used)
+        .map(|(meta, &used)| if used { scan(plane, slice(map, meta.raw), 5, &slots) } else { Default::default() })
+        .collect();
     let mut ids: FxHashMap<&str, u32> = FxHashMap::default();
     let categories: Vec<u32> = metas
         .iter()
@@ -338,7 +385,9 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
         let name = line.name.as_str();
         let step_line = line.id as i32 == STEP_LINE as i32 || (tensor && name == "Steps") || (sparse && name == "Sparse Core Steps");
         let derived = is_derived(line.id);
-        let op_line = !step_line && !derived && ((tensor && matches!(name, "XLA Ops" | "Framework Ops" | "Sparse Core Ops")) || (sparse && name == "Sparse Core Ops"));
+        let op_line = !step_line
+            && !derived
+            && ((tensor && matches!(name, "XLA Ops" | "Framework Ops" | "Sparse Core Ops")) || (sparse && name == "Sparse Core Ops"));
         if matches!(name, "XLA Ops" | "Sparse Core Ops" | "XLA Modules" | "Sparse Core Modules") {
             for event in &line.events {
                 let (begin, end) = (event.ts.wrapping_add(origin), (event.ts + event.dur).wrapping_add(origin));
@@ -346,7 +395,9 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
                     device.total = Some(device.total.map_or((begin, end), |(low, high)| (low.min(begin), high.max(end))));
                 }
                 if name == "Sparse Core Ops" {
-                    device.active.iter_mut().for_each(|intervals| add_interval(intervals, begin, end));
+                    for intervals in &mut device.active {
+                        add_interval(intervals, begin, end);
+                    }
                 }
             }
         }
@@ -360,20 +411,23 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
                 let (off, custom) = duty[event.meta as usize].or_else(|| own_category.as_deref().map(kind)).unwrap_or_default();
                 let custom_off = custom && {
                     let (meta, meta_category) = &metas[event.meta as usize];
-                    own_category.as_deref().or(meta_category.as_deref()) == Some("custom-call") && (FLOPS..CATEGORY).all(|index| own[index].or(meta[index]).unwrap_or(0) <= 0)
+                    own_category.as_deref().or(meta_category.as_deref()) == Some("custom-call")
+                        && (FLOPS..CATEGORY).all(|index| own[index].or(meta[index]).unwrap_or(0) as i32 <= 0)
                 };
                 for (intervals, _) in active.iter_mut().zip([!off, !(off || custom_off)]).filter(|(_, keep)| *keep) {
                     add_interval(intervals, event.ts.wrapping_add(origin), (event.ts + event.dur).wrapping_add(origin));
                 }
             }
-            let own: [Option<i64>; 4] = own[..4].try_into().unwrap();
+            let own: [Option<i64>; 4] = own[..4].try_into().expect("slice should have the expected length");
             Some((index, event, own, if event.group == NONE_GROUP { own[0]? } else { event.group }))
         });
         if step_line {
             markers = HashMap::new();
             for (index, event, [_, offset, duration, _], group) in grouped {
                 let overrides = line.steps.get(&index);
-                let stat = |key: &str, own: Option<i64>| overrides.and_then(|step| step.stats.iter().find(|(name, _)| *name == key).map(|(_, value)| *value)).or(own);
+                let stat = |key: &str, own: Option<i64>| {
+                    overrides.and_then(|step| step.stats.iter().find(|(name, _)| *name == key).map(|(_, value)| *value)).or(own)
+                };
                 let span = span_of(stat("device_offset_ps", offset), stat("device_duration_ps", duration), event);
                 markers.entry(group).or_default().markers.push(Marker { device: true, core: Some(step_core), span });
             }
@@ -391,7 +445,9 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
             nest(nested, |(group, meta_index), _, self_time| {
                 let meta = &metas[meta_index as usize].0;
                 let db = dbs.entry(group).or_default();
-                let (Some(program), Some(symbol)) = (meta[PROGRAM], meta[SYMBOL].filter(|&symbol| symbol != 0)) else { return };
+                let (Some(program), Some(symbol)) = (meta[PROGRAM], meta[SYMBOL].filter(|&symbol| symbol != 0)) else {
+                    return;
+                };
                 let first = *db.0.entry((program, symbol)).or_insert(meta_index);
                 let category = categories[first as usize] as usize;
                 if db.1.len() <= category {
@@ -401,12 +457,13 @@ fn device_lines(plane: &Plane, raw_plane: &[u8], map: &[u8], origin: u64, hostna
                 db.2 += self_time;
             });
             for (group, (_, times, total)) in dbs {
-                let categories = times.into_iter().zip(&names).filter_map(|(time, name)| Some((name.to_string(), time?))).collect();
+                let categories: BTreeMap<String, u64> =
+                    times.into_iter().zip(&names).filter_map(|(time, name)| Some((name.to_string(), time?))).collect();
                 result.entry(group).or_default().cores.insert(step_core, (categories, total));
             }
             device.events = result;
         } else {
-            grouped.for_each(drop);
+            for _ in grouped {}
         }
     }
     if !device.events.is_empty() {
@@ -433,7 +490,13 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
     let groups = crate::xplane::gpu::groups(plane, map);
     let lines = || plane.lines.iter().enumerate().filter(|(_, line)| !crate::xplane::derive::is_derived(line.id));
     let mut order: Vec<(u64, u64, i64)> = lines()
-        .flat_map(|(line_index, line)| line.events.iter().enumerate().filter_map(|(index, event)| Some((event.ts + origin, event.dur, groups[line_index][index]?))).collect::<Vec<_>>())
+        .flat_map(|(line_index, line)| {
+            line.events
+                .iter()
+                .enumerate()
+                .filter_map(|(index, event)| Some((event.ts + origin, event.dur, groups[line_index][index]?)))
+                .collect::<Vec<_>>()
+        })
         .collect();
     order.sort_by_key(|&(begin, duration, _)| (begin, duration));
     let mut markers: StepEvents = HashMap::new();
@@ -445,7 +508,11 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
         }
     }
     for (group, begin, end) in spans {
-        markers.entry(group).or_default().markers.push(Marker { device: true, core: Some(plane.id as u32), span: Span { begin, duration: end - begin } });
+        markers.entry(group).or_default().markers.push(Marker {
+            device: true,
+            core: Some(plane.id as u32),
+            span: Span { begin, duration: end - begin },
+        });
     }
     let (scanner, shapes) = (crate::xplane::gpu::Scanner::new(plane, map), plane.id("tensor_shapes"));
     let kinds: Vec<(u32, bool)> = (0..plane.meta.len() as u32)
@@ -460,10 +527,16 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
     let mut events = combined_steps(lines().map(|(line_index, line)| {
         let mut stream: StepEvents = HashMap::new();
         for (index, event) in line.events.iter().enumerate() {
-            let Some(group) = groups[line_index][index].filter(|&group| group >= 0 && scanner.scan(event).int(crate::xplane::gpu::CORRELATION).is_some()) else { continue };
+            let Some(group) =
+                groups[line_index][index].filter(|&group| group >= 0 && scanner.scan(event).int(crate::xplane::gpu::CORRELATION).is_some())
+            else {
+                continue;
+            };
             let kind = match kinds[event.meta as usize] {
                 (UNKNOWN_TIME, half) => {
-                    let shape = shapes.and_then(|id| stats(slice(map, event.raw), 4, |stat| stat == id).next()).map_or(Cow::Borrowed(""), |stat| plane.text_cow(&stat.value));
+                    let shape = shapes
+                        .and_then(|id| stats(slice(map, event.raw), 4, |stat| stat == id).next())
+                        .map_or(Cow::Borrowed(""), |stat| plane.text_cow(&stat.value));
                     if (shape.is_empty() && half) || shape.contains("half") { DEVICE_COMPUTE_16 } else { DEVICE_COMPUTE_32 }
                 }
                 (kind, _) => kind,
@@ -484,7 +557,8 @@ pub fn gpu_device(plane: &Plane, map: &[u8], origin: u64) -> StepEvents {
     events
 }
 
-/// An interval that starts in the last interval, and not before it, joins the last interval. This does not change the result of `merged_active`.
+/// An interval that starts in the last interval, and not before it, joins the last interval. This
+/// does not change the result of `merged_active`.
 fn add_interval(intervals: &mut Intervals, begin: u64, end: u64) {
     match intervals.last_mut() {
         Some(last) if last.0 <= begin && begin <= last.1 => last.1 = last.1.max(end),
@@ -494,14 +568,17 @@ fn add_interval(intervals: &mut Intervals, begin: u64, end: u64) {
 
 fn merged_active(mut intervals: Vec<(u64, u64)>) -> u64 {
     intervals.sort_by_key(|&(begin, _)| begin);
-    let Some(&first) = intervals.first() else { return 0 };
-    let (sum, (start, stop)) = intervals[1..]
-        .iter()
-        .fold((0u64, first), |(sum, (start, stop)), &(begin, end)| if begin <= stop { (sum, (start, stop.max(end))) } else { (sum.wrapping_add(stop.wrapping_sub(start)), (begin, end)) });
+    let Some(&first) = intervals.first() else {
+        return 0;
+    };
+    let (sum, (start, stop)) = intervals[1..].iter().fold((0u64, first), |(sum, (start, stop)), &(begin, end)| {
+        if begin <= stop { (sum, (start, stop.max(end))) } else { (sum.wrapping_add(stop.wrapping_sub(start)), (begin, end)) }
+    });
     sum.wrapping_add(stop.wrapping_sub(start))
 }
 
-/// With `input_only`, the steps keep only the time on the host that is input, because a device has the other times.
+/// With `input_only`, the steps keep only the time on the host that is input, because a device has
+/// the other times.
 pub fn host_steps(plane: &Plane, map: &[u8], origin: u64, input_only: bool) -> StepEvents {
     let id = |name| plane.id(name);
     let mut ids = [id("group_id"), id("step_name"), id("_ipl_stage_name"), id("_ct"), id("_c")];
@@ -524,13 +601,15 @@ pub fn host_steps(plane: &Plane, map: &[u8], origin: u64, input_only: bool) -> S
     if parents.is_empty() {
         ids[3..].fill(None);
     }
-    // For each name: if it is a marker, and the kind of its time. `None` has no time, and `Some(None)` is input or compute, from the stack.
+    // For each name: if it is a marker, and the kind of its time. `None` has no time, and
+    // `Some(None)` is input or compute, from the stack.
     let kinds: Vec<(bool, Option<Option<u32>>)> = plane
         .meta
         .iter()
         .map(|meta| {
             let name = &*meta.full_name(map);
-            let explicit = (name.starts_with("train") || name.starts_with("test") || name.starts_with("TraceContext")) && !name.contains('/');
+            let explicit =
+                (name.starts_with("train") || name.starts_with("test") || name.starts_with("TraceContext")) && !name.contains('/');
             if EAGER_WRAPPERS.iter().any(|wrapper| name.starts_with(wrapper)) {
                 return (explicit, None);
             }
@@ -557,19 +636,30 @@ pub fn host_steps(plane: &Plane, map: &[u8], origin: u64, input_only: bool) -> S
             for (index, event) in line.events.iter().enumerate() {
                 let (explicit, kind) = kinds[event.meta as usize];
                 let [group_id, step_name, stage_name, consumer_type, consumer_id] = event_stats(slice(map, event.raw), ids);
-                let step = line.steps.get(&index).map(|step| step.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| step_name.map(|value| plane.text(&value)).unwrap_or_default());
+                let step = line
+                    .steps
+                    .get(&index)
+                    .map(|step| step.name.clone())
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| step_name.map(|value| plane.text(&value)).unwrap_or_default());
                 let async_parent = number(consumer_type).zip(number(consumer_id)).is_some_and(|key| parents.contains(&key));
                 let span = Span { begin: event.ts.wrapping_add(origin), duration: event.dur };
                 while stack.last().is_some_and(|top| !top.2.includes(span)) {
                     stack.pop();
                 }
-                let current = (stage_name.is_some_and(|value| !plane.text_cow(&value).is_empty()), async_parent || stack.last().is_some_and(|top| top.1 || top.0), span);
+                let current = (
+                    stage_name.is_some_and(|value| !plane.text_cow(&value).is_empty()),
+                    async_parent || stack.last().is_some_and(|top| top.1 || top.0),
+                    span,
+                );
                 stack.push(current);
                 let group = if event.group == NONE_GROUP { group_id.map_or(-1, |value| value.signed()) } else { event.group };
                 if group < 0 {
                     continue;
                 }
-                let kind = kind.filter(|_| !explicit && step.is_empty()).map(|kind| kind.unwrap_or(if current.0 && !current.1 { HOST_WAIT_INPUT } else { HOST_COMPUTE }));
+                let kind = kind
+                    .filter(|_| !explicit && step.is_empty())
+                    .map(|kind| kind.unwrap_or(if current.0 && !current.1 { HOST_WAIT_INPUT } else { HOST_COMPUTE }));
                 if input_only {
                     if let Some(kind @ (HOST_WAIT_INPUT | HOST_TO_DEVICE)) = kind {
                         result.entry(group).or_default().events.push((kind, span));
@@ -605,7 +695,8 @@ fn without_overlaps(events: StepEvents) -> StepEvents {
 }
 
 pub fn non_overlapped(events: &[(u32, Span)]) -> Vec<(u32, Span)> {
-    let mut boundaries: Vec<(u64, u32, bool)> = events.iter().flat_map(|&(kind, span)| [(span.begin, kind, true), (span.end(), kind, false)]).collect();
+    let mut boundaries: Vec<(u64, u32, bool)> =
+        events.iter().flat_map(|&(kind, span)| [(span.begin, kind, true), (span.end(), kind, false)]).collect();
     boundaries.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| if a.2 == b.2 { b.1.cmp(&a.1) } else { a.2.cmp(&b.2) }));
     let (mut counts, mut current, mut result) = (vec![0i64; LAST_EVENT_TYPE + 1], UNKNOWN_TIME, Vec::new());
     for window in boundaries.windows(2) {
@@ -634,18 +725,26 @@ fn step_db(events: &StepEvents, has_device: bool) -> Vec<StepRecord> {
             let details = &events[&number];
             let (host, device) = (details.longest(|marker| !marker.device), details.longest(|marker| marker.device));
             let step_time = if (device.begin == 0 && device.duration == 0) || host.includes(device) { host } else { device };
-            let info = |span: Span, breakdown| StepInfo { name: details.name.clone(), begin: span.begin, duration: span.duration, breakdown };
+            let info =
+                |span: Span, breakdown| StepInfo { name: details.name.clone(), begin: span.begin, duration: span.duration, breakdown };
             let cores: BTreeMap<u32, StepInfo> = if details.cores.is_empty() {
                 let mut types: BTreeMap<u32, u64> = BTreeMap::new();
                 for &(kind, span) in &details.events {
-                    *types.entry(kind).or_default() +=
-                        if step_time.begin <= span.end() && span.begin <= step_time.end() { step_time.end().min(span.end()) - step_time.begin.max(span.begin) } else { 0 };
+                    *types.entry(kind).or_default() += if step_time.begin <= span.end() && span.begin <= step_time.end() {
+                        step_time.end().min(span.end()) - step_time.begin.max(span.begin)
+                    } else {
+                        0
+                    };
                 }
                 let covered: u64 = types.values().sum();
                 if covered < step_time.duration {
                     *types.entry(UNKNOWN_TIME).or_default() += step_time.duration - covered;
                 }
-                let well_formed = if has_device { types.contains_key(&DEVICE_COMPUTE_16) || types.contains_key(&DEVICE_COMPUTE_32) } else { types.contains_key(&HOST_COMPUTE) };
+                let well_formed = if has_device {
+                    types.contains_key(&DEVICE_COMPUTE_16) || types.contains_key(&DEVICE_COMPUTE_32)
+                } else {
+                    types.contains_key(&HOST_COMPUTE)
+                };
                 if !well_formed {
                     return None;
                 }
@@ -669,7 +768,12 @@ fn step_db(events: &StepEvents, has_device: bool) -> Vec<StepRecord> {
 
 fn is_training(planes: &[Plane], map: &[u8]) -> bool {
     let modules = crate::hlo::protos(planes, map);
-    let instructions: Vec<&[u8]> = modules.iter().flat_map(|(_, proto)| nested(proto, 1)).flat_map(|module| nested(module, 3)).flat_map(|computation| nested(computation, 2)).collect();
+    let instructions: Vec<&[u8]> = modules
+        .iter()
+        .flat_map(|(_, proto)| nested(proto, 1))
+        .flat_map(|module| nested(module, 3))
+        .flat_map(|computation| nested(computation, 2))
+        .collect();
     instructions.par_iter().flat_map_iter(|instruction| nested(instruction, 7)).any(|metadata| {
         let text = |wanted: u32| nested(metadata, wanted).last().map(|bytes| lossy(bytes).into_owned()).unwrap_or_default();
         training(&text(2), &text(1))
@@ -677,20 +781,30 @@ fn is_training(planes: &[Plane], map: &[u8]) -> bool {
 }
 
 fn add_metrics(total: &mut [Metrics; 2], part: &[Metrics; 2], times: [u64; 2]) {
-    for ((sum, part), time) in total.iter_mut().zip(part).zip(times) {
+    let metrics = total.iter_mut().zip(part).zip(times);
+    for ((sum, part), time) in metrics {
         accumulate(sum, part);
         sum.time_ps = sum.time_ps.wrapping_add(time);
     }
 }
 
-/// The fields of `Extra` that do not come from the steps: the hosts, the errors, the warnings, and the kind and number of devices.
+/// The fields of `Extra` that do not come from the steps: the hosts, the errors, the warnings, and
+/// the kind and number of devices.
 pub fn header(planes: &[Plane], map: &[u8]) -> Extra {
     let texts = |tag: u32| {
         let mut seen = HashSet::new();
         nested(map, tag).map(|bytes| lossy(bytes).into_owned()).filter(|text| seen.insert(text.clone())).collect::<Vec<String>>()
     };
     let hostname = texts(4).into_iter().next().unwrap_or_else(|| "localhost".into());
-    let mut extra = Extra { errors: texts(2), warnings: texts(3), hostnames: vec![hostname.clone()], tasks: 1, device_type: "CPU".into(), hardware: CPU_ONLY, ..Default::default() };
+    let mut extra = Extra {
+        errors: texts(2),
+        warnings: texts(3),
+        hostnames: vec![hostname.clone()],
+        tasks: 1,
+        device_type: "CPU".into(),
+        hardware: CPU_ONLY,
+        ..Default::default()
+    };
     let tensor_cores: Vec<&Plane> = planes.iter().filter(|plane| is_tensor_core(&plane.name)).collect();
     let devices: Vec<&Plane> = planes.iter().filter(|plane| plane.name.starts_with(TPU_PREFIX)).collect();
     if let Some(first) = tensor_cores.first() {
@@ -713,11 +827,14 @@ pub fn header(planes: &[Plane], map: &[u8]) -> Extra {
     extra
 }
 
-/// The header and the programs of the steps. On a GPU, the steps have other fields that the roofline model reads, so `extra` must make them.
+/// The header and the programs of the steps. On a GPU, the steps have other fields that the
+/// roofline model reads, so `extra` must make them.
 pub fn programs(planes: &[Plane], map: &[u8], templates: &[Templates]) -> Extra {
     let mut extra = header(planes, map);
     let devices = planes.par_iter().zip(templates).filter(|(plane, _)| plane.name.starts_with(TPU_PREFIX));
-    let programs: Vec<HashMap<i64, StepPrograms>> = devices.map(|(plane, templates)| if is_tensor_core(&plane.name) { step_programs(plane, map, templates) } else { HashMap::new() }).collect();
+    let programs: Vec<HashMap<i64, StepPrograms>> = devices
+        .map(|(plane, templates)| if is_tensor_core(&plane.name) { step_programs(plane, map, templates) } else { HashMap::new() })
+        .collect();
     add_programs(&mut extra, programs);
     extra
 }
@@ -752,7 +869,8 @@ pub fn add_programs(extra: &mut Extra, devices: Vec<HashMap<i64, StepPrograms>>)
     extra.program_steps = sequence;
 }
 
-/// Without `read`, the steps do not have the programs, and the caller adds them with `add_programs`.
+/// Without `read`, the steps do not have the programs, and the caller adds them with
+/// `add_programs`.
 pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates], read: bool) -> Extra {
     let mut extra = header(planes, map);
     let hostname = extra.hostnames[0].clone();
@@ -767,19 +885,35 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates], read: bool) 
                 || {
                     devices
                         .par_iter()
-                        .map(|&(index, plane)| device_plane(plane, raw_planes.get(index).copied().unwrap_or(&[]), map, &templates[index], origin, &hostname, read))
+                        .map(|&(index, plane)| {
+                            device_plane(
+                                plane,
+                                raw_planes.get(index).copied().unwrap_or(&[]),
+                                map,
+                                &templates[index],
+                                origin,
+                                &hostname,
+                                read,
+                            )
+                        })
                         .collect::<Vec<Device>>()
                 },
                 || gpus.par_iter().map(|plane| gpu_device(plane, map, origin)).collect::<Vec<StepEvents>>(),
             )
         },
-        || rayon::join(|| is_training(planes, map), || host.filter(|_| gpus.is_empty()).map(|plane| host_steps(plane, map, origin, !devices.is_empty()))),
+        || {
+            rayon::join(
+                || is_training(planes, map),
+                || host.filter(|_| gpus.is_empty()).map(|plane| host_steps(plane, map, origin, !devices.is_empty())),
+            )
+        },
     );
     extra.training = training;
     let mut step_events: StepEvents = HashMap::new();
     let mut chips: BTreeMap<(bool, u32), [Tracker; 2]> = BTreeMap::new();
     let mut programs = Vec::new();
-    for (index, ((_, plane), output)) in devices.iter().zip(outputs).enumerate() {
+    let device_outputs = devices.iter().zip(outputs).enumerate();
+    for (index, ((_, plane), output)) in device_outputs {
         if !output.events.is_empty() {
             intersect(output.events, &mut step_events, Details::combine);
         }
@@ -798,7 +932,8 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates], read: bool) 
     }
     let tpu = extra.hardware == TPU;
     let trackers: Vec<Tracker> = if tpu { chips.into_values().flatten().collect() } else { Vec::new() };
-    let merged: Vec<(u64, u64)> = trackers.into_par_iter().map(|(active, total)| (merged_active(active), total.map_or(0, |(begin, end)| end - begin))).collect();
+    let merged: Vec<(u64, u64)> =
+        trackers.into_par_iter().map(|(active, total)| (merged_active(active), total.map_or(0, |(begin, end)| end - begin))).collect();
     for (index, (active_ps, total_ps)) in merged.into_iter().enumerate() {
         extra.busy_ps[index % 2] += active_ps;
         extra.idle_ps[index % 2] += total_ps.wrapping_sub(active_ps);
@@ -825,14 +960,23 @@ pub fn extra(planes: &[Plane], map: &[u8], templates: &[Templates], read: bool) 
         extra.steps = step_db(&without_overlaps(host_events.unwrap_or_default()), false);
     } else {
         extra.steps = step_db(&step_events, true);
-        let input = |details: &Details| details.events.iter().filter(|(kind, _)| *kind == HOST_WAIT_INPUT || *kind == HOST_TO_DEVICE).map(|(_, span)| span.duration).sum();
+        let input = |details: &Details| {
+            details
+                .events
+                .iter()
+                .filter(|(kind, _)| *kind == HOST_WAIT_INPUT || *kind == HOST_TO_DEVICE)
+                .map(|(_, span)| span.duration)
+                .sum()
+        };
         extra.host_input = host_events.map(|events| events.iter().map(|(step, details)| (*step, input(details))).collect());
     }
     extra
 }
 
 pub fn fix(extra: &mut Extra, device_db: &Db) {
-    let Some(host_input) = extra.host_input.take() else { return };
+    let Some(host_input) = extra.host_input.take() else {
+        return;
+    };
     if device_db.metrics.iter().any(|metrics| metrics.category == "infeed" || metrics.category == "sparsecorev0 infeed") {
         return;
     }
@@ -898,8 +1042,11 @@ pub fn combine(all: &[&Extra]) -> Extra {
     let mut combined = Extra::default();
     let (mut first_steps, mut steps) = (vec![0u32; all.len()], 0u32);
     if let Some(chief) = (0..spans.len()).min_by_key(|&index| extent(&spans[index])).filter(|&chief| !spans[chief].is_empty()) {
-        let alignments: Vec<(u32, u32, u32)> =
-            spans.iter().enumerate().map(|(index, host_spans)| if index == chief { (0, 0, host_spans.len() as u32) } else { alignment(host_spans, &spans[chief]) }).collect();
+        let alignments: Vec<(u32, u32, u32)> = spans
+            .iter()
+            .enumerate()
+            .map(|(index, host_spans)| if index == chief { (0, 0, host_spans.len() as u32) } else { alignment(host_spans, &spans[chief]) })
+            .collect();
         let begin = alignments.iter().map(|alignment| alignment.1).max().unwrap_or(0);
         let end = alignments.iter().map(|alignment| alignment.1 + alignment.2).min().unwrap_or(u32::MAX);
         combined.empty_intersect = begin > end;
@@ -915,10 +1062,16 @@ pub fn combine(all: &[&Extra]) -> Extra {
         let global = |core: &u32| host as u32 * 1000 + core;
         for (index, record) in combined.steps.iter_mut().enumerate().filter(|_| workers.contains(&host)) {
             let source = &extra.steps[first_steps[host] as usize + index];
-            source.cores.iter().for_each(|(core, info)| _ = record.cores.entry(global(core)).or_insert_with(|| info.clone()));
-            source.collectives.iter().for_each(|(core, reduces)| _ = record.collectives.entry(global(core)).or_insert_with(|| reduces.clone()));
+            for (core, info) in &source.cores {
+                _ = record.cores.entry(global(core)).or_insert_with(|| info.clone());
+            }
+            for (core, reduces) in &source.collectives {
+                _ = record.collectives.entry(global(core)).or_insert_with(|| reduces.clone());
+            }
         }
-        extra.cores.iter().for_each(|(core, details)| _ = combined.cores.entry(global(core)).or_insert_with(|| details.clone()));
+        for (core, details) in &extra.cores {
+            _ = combined.cores.entry(global(core)).or_insert_with(|| details.clone());
+        }
         for name in &extra.hostnames {
             if !combined.hostnames.contains(name) {
                 combined.hostnames.push(name.clone());
